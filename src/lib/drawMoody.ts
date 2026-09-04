@@ -13,6 +13,8 @@ import {
   RE_TURBULENT_MIN,
   colebrookFriction,
 } from "./hydraulics";
+import { cl } from "./strings";
+import type { Lang } from "./i18n";
 
 const RE_MIN = 1e3;
 const RE_MAX = 1e8;
@@ -47,8 +49,10 @@ export function drawMoody(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  s: MoodyState
+  s: MoodyState,
+  lang: Lang
 ) {
+  const T = cl(lang);
   const padL = 62;
   const padR = 74;
   const padT = 26;
@@ -123,7 +127,7 @@ export function drawMoody(
   ctx.setLineDash([]);
   region(
     ctx,
-    "zona kritis",
+    T.criticalZone,
     (xc0 + xc1) / 2,
     padT + plotH * 0.62,
     C.ink3,
@@ -144,7 +148,7 @@ export function drawMoody(
   }
   ctx.stroke();
   curveLabel(ctx, "f = 64 / Re", X(1.15e3), Y(64 / 1250) - 11, C.ink);
-  region(ctx, "laminar", X(1.45e3), padT + plotH - 16, C.ink3);
+  region(ctx, T.laminar, X(1.45e3), padT + plotH - 16, C.ink3);
 
   /* ---------------- keluarga kurva kekasaran ---------------- */
   const roughLocus: [number, number][] = [];
@@ -206,7 +210,7 @@ export function drawMoody(
   }
   ctx.stroke();
   ctx.setLineDash([]);
-  curveLabel(ctx, "pipa licin", X(2.2e7), Y(colebrookFriction(2.2e7, 0)) + 12, C.ink2);
+  curveLabel(ctx, T.smoothPipe, X(2.2e7), Y(colebrookFriction(2.2e7, 0)) + 12, C.ink2);
 
   // Garis batas turbulen penuh
   if (roughLocus.length > 2) {
@@ -216,7 +220,7 @@ export function drawMoody(
     ctx.stroke();
     ctx.setLineDash([]);
     const mid = roughLocus[Math.floor(roughLocus.length * 0.55)];
-    if (mid) region(ctx, "turbulen penuh", mid[0] + 4, mid[1] - 16, C.critical);
+    if (mid) region(ctx, T.fullyRough, mid[0] + 4, mid[1] - 16, C.critical);
   }
 
   /* ---------------- jalur baca dan titik operasi ---------------- */
@@ -271,9 +275,9 @@ export function drawMoody(
     Math.round(plotH)
   );
 
-  axisTitle(ctx, "bilangan reynolds, Re", padL + plotW / 2, padT + plotH + 34);
-  axisTitle(ctx, "faktor gesekan darcy, f", 20, padT + plotH / 2, -Math.PI / 2);
-  axisTitle(ctx, "kekasaran relatif, ε/D", w - 16, padT + plotH / 2, -Math.PI / 2);
+  axisTitle(ctx, T.axReynolds, padL + plotW / 2, padT + plotH + 34);
+  axisTitle(ctx, T.axFriction, 20, padT + plotH / 2, -Math.PI / 2);
+  axisTitle(ctx, T.axRoughness, w - 16, padT + plotH / 2, -Math.PI / 2);
 }
 
 function fmtRe(Re: number): string {

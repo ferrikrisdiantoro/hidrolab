@@ -13,16 +13,43 @@ import {
   jumpLength,
 } from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
+import { useLang } from "@/lib/i18n";
+import { str } from "@/lib/strings";
+
+const TXT = {
+  id: {
+    title: "Loncatan air — saluran persegi mendatar",
+    speed: "V₁ kecepatan hulu",
+    lead: "Geser, dan seluruh lembar ikut berubah:",
+    conj: "kedalaman konjugat",
+    becomes: "menjadi",
+    energy: "energi yang teredam",
+    length: "dan panjang loncatan",
+  },
+  en: {
+    title: "Hydraulic jump — horizontal rectangular channel",
+    speed: "V₁ upstream velocity",
+    lead: "Move it, and the whole sheet follows:",
+    conj: "conjugate depth",
+    becomes: "becomes",
+    energy: "energy dissipated",
+    length: "and jump length",
+  },
+} as const;
 
 /**
  * Lembar pembuka.
  *
- * Bukan tangkapan layar dan bukan animasi rekaman: ini lembar yang
- * sama persis dengan yang ada di HJ-01, sudah bisa digeser sejak baris
- * pertama halaman. Pengunjung memegang alatnya sebelum membaca satu
- * kalimat pun tentang alat itu.
+ * Bukan tangkapan layar dan bukan animasi rekaman: ini lembar yang sama
+ * persis dengan OC-01, sudah bisa digeser sejak baris pertama halaman.
+ * Pengunjung memegang alatnya sebelum membaca satu kalimat pun tentang
+ * alat itu.
  */
 export function OpeningPlate() {
+  const { lang } = useLang();
+  const t = str(lang);
+  const x = TXT[lang];
+
   const [V1, setV1] = useState(7.2);
   const y1 = 0.3;
 
@@ -34,30 +61,31 @@ export function OpeningPlate() {
   const streaks = useRef<Streak[]>(makeStreaks(150));
 
   const ref = useCanvas(
-    (ctx, w, h, t, dt) =>
-      drawJump(ctx, w, h, { y1, V1 }, {
-        showEnergy: true,
-        streaks: streaks.current,
-        t,
-        dt,
-      }),
-    [V1],
+    (ctx, w, h, tt, dt) =>
+      drawJump(
+        ctx,
+        w,
+        h,
+        { y1, V1 },
+        { showEnergy: true, streaks: streaks.current, t: tt, dt, lang }
+      ),
+    [V1, lang],
     { animate: true }
   );
 
   return (
     <div className="flex flex-col gap-4">
       <Sheet
-        number="HJ-01"
-        title="Loncatan air — saluran persegi mendatar"
+        number="OC-01"
+        title={x.title}
         rev="A"
         cells={[
-          { label: "skala", value: "1 : 20" },
-          { label: "satuan", value: "SI (m, m/s)" },
+          { label: t.tbScale, value: "1 : 20" },
+          { label: t.tbUnit, value: "SI (m, m/s)" },
           { label: "y₁", value: `${fmt(y1)} m`, tint: C.water },
           { label: "V₁", value: `${fmt(V1, 1)} m/s`, tint: C.water },
           { label: "Fr₁", value: fmt(Fr1) },
-          { label: "regime", value: klas.label },
+          { label: t.tbRegime, value: klas.label[lang] },
         ]}
       >
         <canvas ref={ref} className="block h-full w-full" />
@@ -65,7 +93,7 @@ export function OpeningPlate() {
 
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <label className="flex min-w-[280px] flex-1 items-center gap-3">
-          <span className="stencil whitespace-nowrap">V₁ kecepatan hulu</span>
+          <span className="stencil whitespace-nowrap">{x.speed}</span>
           <input
             type="range"
             min={1}
@@ -73,7 +101,7 @@ export function OpeningPlate() {
             step={0.1}
             value={V1}
             onChange={(e) => setV1(parseFloat(e.target.value))}
-            aria-label="Kecepatan hulu"
+            aria-label={x.speed}
             style={{ "--slider-tint": C.water } as React.CSSProperties}
           />
           <span
@@ -87,12 +115,9 @@ export function OpeningPlate() {
           </span>
         </label>
 
-        <p className="max-w-[46ch] text-[0.92rem] leading-[1.55] text-ink-2">
-          Geser, dan seluruh lembar ikut berubah:{" "}
-          <Term tint={C.water}>kedalaman konjugat</Term> menjadi{" "}
-          {fmt(y2)} m,{" "}
-          <Term tint={C.energy}>energi yang teredam</Term>{" "}
-          {fmt(dE, 3)} m, dan panjang loncatan{" "}
+        <p className="max-w-[48ch] text-[0.92rem] leading-[1.55] text-ink-2">
+          {x.lead} <Term tint={C.water}>{x.conj}</Term> {x.becomes} {fmt(y2)} m,{" "}
+          <Term tint={C.energy}>{x.energy}</Term> {fmt(dE, 3)} m, {x.length}{" "}
           <Term tint={C.critical}>Lj ≈ {fmt(jumpLength(y2), 1)} m</Term>.
         </p>
       </div>

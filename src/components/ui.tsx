@@ -1,6 +1,9 @@
 "use client";
 
 import { ReactNode } from "react";
+import { useLang } from "@/lib/i18n";
+import { str } from "@/lib/strings";
+import { getNumberLocale } from "@/lib/hydraulics";
 
 /* ------------------------------------------------------------------ *
  * Lembar gambar
@@ -31,6 +34,9 @@ export function Sheet({
   height?: string;
   rev?: string;
 }) {
+  const { lang } = useLang();
+  const t = str(lang);
+
   return (
     <figure className="sheet">
       <div className="relative w-full" style={{ height }}>
@@ -40,7 +46,7 @@ export function Sheet({
       <figcaption className="border-t border-ink">
         <div className="flex flex-wrap items-stretch">
           <div className="flex min-w-[220px] flex-1 flex-col justify-center border-r border-rule px-3.5 py-2.5">
-            <span className="stencil">simulasi</span>
+            <span className="stencil">{t.tbSimulation}</span>
             <span className="label mt-0.5 text-[0.82rem] font-semibold leading-tight text-ink">
               {title}
             </span>
@@ -62,10 +68,10 @@ export function Sheet({
           ))}
 
           <div className="flex min-w-[96px] flex-col justify-center px-3.5 py-2.5">
-            <span className="stencil">lembar</span>
+            <span className="stencil">{t.tbSheet}</span>
             <span className="value label mt-0.5 text-[0.86rem] font-semibold leading-tight text-ink">
               {number}
-              <span className="ml-2 font-normal text-ink-3">rev {rev}</span>
+              <span className="ml-2 font-normal text-ink-3">{t.tbRev} {rev}</span>
             </span>
           </div>
         </div>
@@ -79,15 +85,16 @@ export function Sheet({
  * ------------------------------------------------------------------ */
 
 export function InputTable({ children }: { children: ReactNode }) {
+  const t = str(useLang().lang);
   return (
     <table className="data">
       <thead>
         <tr>
-          <th style={{ width: "2.6rem" }}>Sim</th>
-          <th>Besaran</th>
+          <th style={{ width: "2.6rem" }}>{t.thSym}</th>
+          <th>{t.thQuantity}</th>
           <th style={{ width: "38%" }} />
           <th className="n" style={{ width: "5.6rem" }}>
-            Nilai
+            {t.thValue}
           </th>
         </tr>
       </thead>
@@ -144,7 +151,7 @@ export function InputRow({
       </td>
       <td className="n whitespace-nowrap">
         <span className="font-semibold">
-          {value.toLocaleString("id-ID", {
+          {value.toLocaleString(getNumberLocale(), {
             minimumFractionDigits: digits,
             maximumFractionDigits: digits,
           })}
@@ -173,14 +180,15 @@ export function ResultTable({
     strong?: boolean;
   }[];
 }) {
+  const t = str(useLang().lang);
   return (
     <table className="data">
       <thead>
         <tr>
-          <th style={{ width: "2.6rem" }}>Sim</th>
-          <th>{caption ?? "Besaran terhitung"}</th>
+          <th style={{ width: "2.6rem" }}>{t.thSym}</th>
+          <th>{caption ?? t.thComputed}</th>
           <th className="n" style={{ width: "7.2rem" }}>
-            Nilai
+            {t.thValue}
           </th>
         </tr>
       </thead>

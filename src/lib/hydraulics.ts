@@ -57,11 +57,13 @@ export function jumpLength(y2: number): number {
   return 6 * y2;
 }
 
+export type Bilingual = { id: string; en: string };
+
 export type JumpClass = {
   key: string;
-  label: string;
+  label: Bilingual;
   range: string;
-  note: string;
+  note: Bilingual;
   /** 0 = tidak ada loncatan, 1..5 = tingkat intensitas */
   level: number;
 };
@@ -71,48 +73,48 @@ export function classifyJump(Fr1: number): JumpClass {
   if (Fr1 < 1)
     return {
       key: "subkritis",
-      label: "Aliran subkritis",
+      label: { id: "Aliran subkritis", en: "Subcritical flow" },
       range: "Fr₁ < 1",
-      note: "Aliran belum superkritis, sehingga loncatan air tidak terbentuk. Naikkan kecepatan hulu atau kurangi kedalaman hulu.",
+      note: { id: "Aliran belum superkritis, sehingga loncatan air tidak terbentuk. Naikkan kecepatan hulu atau kurangi kedalaman hulu.", en: "The flow is not yet supercritical, so no jump forms. Raise the upstream velocity or reduce the upstream depth." },
       level: 0,
     };
   if (Fr1 < 1.7)
     return {
       key: "berombak",
-      label: "Loncatan berombak",
+      label: { id: "Loncatan berombak", en: "Undular jump" },
       range: "1 ≤ Fr₁ < 1,7",
-      note: "Permukaan hanya bergelombang halus. Kehilangan energi masih sangat kecil, di bawah 5 persen.",
+      note: { id: "Permukaan hanya bergelombang halus. Kehilangan energi masih sangat kecil, di bawah 5 persen.", en: "The surface only ripples gently. Energy loss is still very small, under 5 per cent." },
       level: 1,
     };
   if (Fr1 < 2.5)
     return {
       key: "lemah",
-      label: "Loncatan lemah",
+      label: { id: "Loncatan lemah", en: "Weak jump" },
       range: "1,7 ≤ Fr₁ < 2,5",
-      note: "Mulai terbentuk rangkaian gulungan kecil di permukaan. Aliran hilir masih relatif tenang dan merata.",
+      note: { id: "Mulai terbentuk rangkaian gulungan kecil di permukaan. Aliran hilir masih relatif tenang dan merata.", en: "A train of small rollers begins to form at the surface. The downstream flow is still fairly smooth and even." },
       level: 2,
     };
   if (Fr1 < 4.5)
     return {
       key: "berosilasi",
-      label: "Loncatan berosilasi",
+      label: { id: "Loncatan berosilasi", en: "Oscillating jump" },
       range: "2,5 ≤ Fr₁ < 4,5",
-      note: "Pancaran masuk berosilasi naik-turun dan menimbulkan gelombang yang menjalar jauh ke hilir. Kondisi ini paling dihindari dalam desain kolam olak.",
+      note: { id: "Pancaran masuk berosilasi naik-turun dan menimbulkan gelombang yang menjalar jauh ke hilir. Kondisi ini paling dihindari dalam desain kolam olak.", en: "The entering jet oscillates up and down and sends waves far downstream. This is the range most avoided in stilling basin design." },
       level: 3,
     };
   if (Fr1 < 9)
     return {
       key: "mantap",
-      label: "Loncatan mantap",
+      label: { id: "Loncatan mantap", en: "Steady jump" },
       range: "4,5 ≤ Fr₁ < 9",
-      note: "Posisi loncatan stabil dan tidak berpindah-pindah. Ini rentang yang paling diinginkan untuk peredam energi.",
+      note: { id: "Posisi loncatan stabil dan tidak berpindah-pindah. Ini rentang yang paling diinginkan untuk peredam energi.", en: "The jump holds its position and does not wander. This is the most desirable range for an energy dissipator." },
       level: 4,
     };
   return {
     key: "kuat",
-    label: "Loncatan kuat",
+    label: { id: "Loncatan kuat", en: "Strong jump" },
     range: "Fr₁ ≥ 9",
-    note: "Peredaman energi sangat besar, tetapi permukaan menjadi sangat kasar dan bergolak. Perlu perhatian khusus pada perlindungan dasar dan dinding.",
+    note: { id: "Peredaman energi sangat besar, tetapi permukaan menjadi sangat kasar dan bergolak. Perlu perhatian khusus pada perlindungan dasar dan dinding.", en: "Energy dissipation is very large, but the surface becomes rough and turbulent. Bed and wall protection need particular care." },
     level: 5,
   };
 }
@@ -262,26 +264,47 @@ export function classifyRegime(y: number, yc: number): FlowRegime {
   return "kritis";
 }
 
-export const REGIME_LABEL: Record<FlowRegime, string> = {
-  subkritis: "Subkritis",
-  kritis: "Kritis",
-  superkritis: "Superkritis",
+export const REGIME_LABEL: Record<FlowRegime, Bilingual> = {
+  subkritis: { id: "Subkritis", en: "Subcritical" },
+  kritis: { id: "Kritis", en: "Critical" },
+  superkritis: { id: "Superkritis", en: "Supercritical" },
 };
 
 /** Kemiringan saluran: landai bila y0 > yc, curam bila y0 < yc. */
-export function slopeType(yNormal: number, yCritical: number): string {
-  if (yNormal > yCritical * 1.02) return "Landai (mild)";
-  if (yNormal < yCritical * 0.98) return "Curam (steep)";
-  return "Kritis (critical)";
+export function slopeType(yNormal: number, yCritical: number): Bilingual {
+  if (yNormal > yCritical * 1.02)
+    return { id: "Landai (mild)", en: "Mild slope" };
+  if (yNormal < yCritical * 0.98)
+    return { id: "Curam (steep)", en: "Steep slope" };
+  return { id: "Kritis (critical)", en: "Critical slope" };
 }
 
 /* ------------------------------------------------------------------ *
  * Bantuan format angka
  * ------------------------------------------------------------------ */
 
+/**
+ * Pemisah desimal mengikuti bahasa yang aktif.
+ *
+ * Ini disimpan di tingkat modul, bukan dioper lewat setiap pemanggilan,
+ * karena fmt dipakai di ratusan tempat dan menambah satu argumen di
+ * semuanya hanya akan mengaburkan maksudnya. Nilainya diperbarui oleh
+ * penyedia bahasa sebelum penggambaran ulang, sehingga selalu sepadan
+ * dengan teks di sekitarnya.
+ */
+let numberLocale = "id-ID";
+
+export function setNumberLocale(lang: "id" | "en") {
+  numberLocale = lang === "en" ? "en-US" : "id-ID";
+}
+
+export function getNumberLocale(): string {
+  return numberLocale;
+}
+
 export function fmt(value: number, digits = 2): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("id-ID", {
+  return value.toLocaleString(numberLocale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
@@ -302,3 +325,168 @@ function toSuperscript(n: number): string {
   };
   return String(n).split("").map((c) => map[c] ?? c).join("");
 }
+
+/* ------------------------------------------------------------------ *
+ * Aliran berubah lambat (GVF), saluran persegi
+ * ------------------------------------------------------------------ */
+
+/** Kemiringan gesek menurut Manning pada kedalaman y. */
+export function frictionSlope(
+  Q: number,
+  b: number,
+  y: number,
+  n: number
+): number {
+  const { A, R } = rectGeometry(b, y);
+  if (A <= 0 || R <= 0) return 0;
+  const V = Q / A;
+  return (n * n * V * V) / Math.pow(R, 4 / 3);
+}
+
+/**
+ * Persamaan aliran berubah lambat:
+ *
+ *   dy/dx = (S0 − Sf) / (1 − Fr²)
+ *
+ * Penyebutnya menuju nol saat kedalaman mendekati kedalaman kritis,
+ * sehingga kemiringan muka air menjadi tegak. Itu bukan kegagalan
+ * hitungan melainkan batas keberlakuan persamaannya sendiri, dan
+ * ditandai secara terpisah oleh nilai balik `nearCritical`.
+ */
+export function gvfSlope(
+  Q: number,
+  b: number,
+  y: number,
+  n: number,
+  S0: number
+): number {
+  const q = Q / b;
+  const Fr2 = (q * q) / (G * y * y * y);
+  const denom = 1 - Fr2;
+  if (Math.abs(denom) < 1e-4) return 0;
+  return (S0 - frictionSlope(Q, b, y, n)) / denom;
+}
+
+export type GvfPoint = { x: number; y: number; nearCritical: boolean };
+
+export type GvfResult = {
+  points: GvfPoint[];
+  /** Nama profil menurut penggolongan baku, misalnya M1 atau S2 */
+  profile: string;
+  /** Arah penelusuran: hulu untuk aliran subkritis, hilir untuk superkritis */
+  direction: "hulu" | "hilir";
+  y0: number;
+  yc: number;
+  mild: boolean;
+};
+
+/**
+ * Menelusuri profil muka air dari satu penampang kendali.
+ *
+ * Arah penelusuran ditentukan fisika, bukan pilihan: aliran subkritis
+ * dikendalikan dari hilir sehingga ditelusuri ke arah hulu, sedangkan
+ * aliran superkritis dikendalikan dari hulu. Integrasi memakai
+ * Runge-Kutta orde empat.
+ */
+export function gvfProfile(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yControl: number,
+  length: number,
+  steps = 400
+): GvfResult {
+  const q = Q / b;
+  const yc = criticalDepth(q);
+  const y0 = S0 > 0 ? normalDepth(Q, b, n, S0) : Number.POSITIVE_INFINITY;
+  const mild = y0 > yc;
+
+  const subcritical = yControl > yc;
+  const direction: "hulu" | "hilir" = subcritical ? "hulu" : "hilir";
+
+  // Penamaan profil: huruf dari jenis kemiringan, angka dari zona.
+  const letter = mild ? "M" : "S";
+  let zone: number;
+  if (mild) zone = yControl > y0 ? 1 : yControl > yc ? 2 : 3;
+  else zone = yControl > yc ? 1 : yControl > y0 ? 2 : 3;
+  const profile = `${letter}${zone}`;
+
+  const dx = (subcritical ? -1 : 1) * (length / steps);
+  const points: GvfPoint[] = [];
+  let y = yControl;
+
+  for (let i = 0; i <= steps; i++) {
+    const xFromControl = i * (length / steps);
+    const x = subcritical ? length - xFromControl : xFromControl;
+    const Fr2 = (q * q) / (G * y * y * y);
+    points.push({ x, y, nearCritical: Math.abs(1 - Fr2) < 0.06 });
+
+    // Runge-Kutta orde empat pada dy/dx.
+    const k1 = gvfSlope(Q, b, y, n, S0);
+    const k2 = gvfSlope(Q, b, clampDepth(y + (dx * k1) / 2, yc), n, S0);
+    const k3 = gvfSlope(Q, b, clampDepth(y + (dx * k2) / 2, yc), n, S0);
+    const k4 = gvfSlope(Q, b, clampDepth(y + dx * k3, yc), n, S0);
+    y = clampDepth(y + (dx / 6) * (k1 + 2 * k2 + 2 * k3 + k4), yc);
+  }
+
+  points.sort((a, c) => a.x - c.x);
+  return { points, profile, direction, y0, yc, mild };
+}
+
+/** Menahan kedalaman agar tidak melintasi kedalaman kritis atau menjadi negatif. */
+function clampDepth(y: number, yc: number): number {
+  const floor = yc * 1.002;
+  const ceil = yc * 0.998;
+  if (y > yc && y < floor) return floor;
+  if (y < yc && y > ceil) return ceil;
+  return Math.max(1e-4, Math.min(y, 60));
+}
+
+/* ------------------------------------------------------------------ *
+ * Ambang ukur V (thin-plate V-notch weir)
+ * ------------------------------------------------------------------ */
+
+/** Tinggi tambahan yang memperhitungkan tegangan permukaan dan kekentalan. */
+export const NOTCH_KH = 0.00085;
+
+/**
+ * Koefisien debit efektif untuk ambang V berdinding tipis dengan
+ * kontraksi penuh. Nilainya bergantung sudut takik, terendah di sekitar
+ * 90 derajat dan naik pada sudut yang lebih lancip.
+ */
+export function notchCe(thetaDeg: number): number {
+  const t = Math.min(120, Math.max(20, thetaDeg));
+  // Pendekatan halus terhadap kurva Ce–θ pada rentang 20°–120°.
+  return 0.6072 - 0.000874 * t + 0.0000061 * t * t;
+}
+
+export type NotchResult = {
+  Q: number;
+  Ce: number;
+  he: number;
+  /** Benar bila tinggi muka air di luar rentang keberlakuan rumus */
+  outOfRange: boolean;
+};
+
+/**
+ * Debit melalui ambang V:
+ *
+ *   Q = (8/15) · Ce · √(2g) · tan(θ/2) · he^(5/2)
+ *
+ * Rumus ini berlaku untuk kontraksi penuh dan tinggi muka air di atas
+ * sekitar 5 cm. Di bawah itu tegangan permukaan mulai menguasai dan
+ * hasilnya tidak dapat dipertanggungjawabkan — ditandai lewat
+ * `outOfRange`, bukan disembunyikan.
+ */
+export function notchDischarge(H: number, thetaDeg: number): NotchResult {
+  const Ce = notchCe(thetaDeg);
+  const he = Math.max(0, H) + NOTCH_KH;
+  const theta = (thetaDeg * Math.PI) / 180;
+  const Q =
+    (8 / 15) * Ce * Math.sqrt(2 * G) * Math.tan(theta / 2) * Math.pow(he, 2.5);
+  return { Q, Ce, he, outOfRange: H < 0.05 };
+}
+
+/** Batas bawah tinggi muka air yang masih di dalam rentang keberlakuan. */
+export const NOTCH_H_MIN = 0.05;

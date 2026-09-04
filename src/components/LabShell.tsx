@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { ReactNode } from "react";
+import { useLang } from "@/lib/i18n";
+import { str } from "@/lib/strings";
 
 /**
  * Susunan satu lembar laboratorium.
@@ -26,14 +30,16 @@ export function LabShell({
   side: ReactNode;
   below?: ReactNode;
 }) {
+  const t = str(useLang().lang);
+
   return (
     <div className="mx-auto max-w-[1320px] px-6 py-8">
       <nav className="mb-6 flex items-baseline justify-between gap-4 border-b border-ink pb-2">
         <Link href="/" className="stencil plain hover:text-ink">
-          ← daftar lembar
+          {t.backToIndex}
         </Link>
         <span className="stencil">
-          {subject} · lembar {sheet}
+          {subject} · {t.sheetWord} {sheet}
         </span>
       </nav>
 
@@ -72,17 +78,19 @@ export function Basis({
   note: string;
   refs: string[];
 }) {
+  const t = str(useLang().lang);
+
   return (
     <div className="grid gap-8 border-t border-ink pt-3 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
       <div>
-        <h2 className="stencil mb-3">dasar perhitungan</h2>
+        <h2 className="stencil mb-3">{t.blkBasis}</h2>
         <div className="flex flex-col gap-2.5">{equations}</div>
         <p className="mt-4 max-w-[64ch] text-[0.94rem] leading-[1.6] text-ink-2">
           {note}
         </p>
       </div>
       <div>
-        <h2 className="stencil mb-3">rujukan</h2>
+        <h2 className="stencil mb-3">{t.blkRefs}</h2>
         <ol className="flex list-none flex-col gap-2.5">
           {refs.map((r, i) => (
             <li

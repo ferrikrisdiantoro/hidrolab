@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test src/**/*.test.ts",
+    "test:watch": "node --test --watch src/**/*.test.ts",
+    "check": "npm run test && npm run build"
   },
   "dependencies": {
     "next": "16.1.1",

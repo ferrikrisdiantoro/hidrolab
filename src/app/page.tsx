@@ -1,20 +1,26 @@
+"use client";
+
 import Link from "next/link";
 import { OpeningPlate } from "@/components/OpeningPlate";
-import { LABS } from "@/data/labs";
+import { LABS, SUBJECTS, type Subject } from "@/data/labs";
+import { useLang } from "@/lib/i18n";
+import { str } from "@/lib/strings";
 
 export default function Home() {
+  const { lang } = useLang();
+  const t = str(lang);
+
+  const ready = LABS.filter((l) => l.status === "siap").length;
+
   return (
     <div className="mx-auto max-w-[1320px] px-6 py-9">
       {/* ---------------- Pembuka ---------------- */}
       <section className="mb-10 max-w-[62ch]">
         <h1 className="text-[clamp(2.1rem,4.6vw,3.4rem)] font-semibold leading-[1.06] tracking-[-0.018em] text-ink">
-          Berkas lembar gambar yang bisa dihitung ulang.
+          {t.homeTitle}
         </h1>
         <p className="mt-4 text-[1.06rem] leading-[1.62] text-ink-2">
-          Setiap lembar di sini adalah gambar teknik yang hidup. Geser satu
-          masukan, dan seluruh isinya dihitung ulang: profil muka air, garis
-          energi, dimensi, sampai kop di bawah gambar. Tidak ada tabel jadi yang
-          disalin, tidak ada gambar yang ditempel.
+          {t.homeLead}
         </p>
       </section>
 
@@ -22,27 +28,33 @@ export default function Home() {
 
       {/* ---------------- Daftar lembar ---------------- */}
       <section className="mt-16">
-        <h2 className="stencil mb-3 border-b border-ink pb-2">daftar lembar</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-ink pb-2">
+          <h2 className="stencil">{t.sheetIndex}</h2>
+          <span className="stencil">
+            {ready} / {LABS.length} {t.statusReady}
+          </span>
+        </div>
 
         <div className="overflow-x-auto">
-          <table className="data" style={{ minWidth: "660px" }}>
+          <table className="data" style={{ minWidth: "700px" }}>
             <thead>
               <tr>
-                <th style={{ width: "5.4rem" }}>Lembar</th>
-                <th style={{ width: "13rem" }}>Judul</th>
-                <th style={{ width: "11rem" }}>Pokok bahasan</th>
-                <th>Pertanyaan yang dijawab</th>
-                <th style={{ width: "6.4rem" }}>Status</th>
+                <th style={{ width: "5.4rem" }}>{t.colSheet}</th>
+                <th style={{ width: "14rem" }}>{t.colTitle}</th>
+                <th style={{ width: "12rem" }}>{t.colSubject}</th>
+                <th>{t.colQuestion}</th>
+                <th style={{ width: "6.4rem" }}>{t.colStatus}</th>
               </tr>
             </thead>
             <tbody>
               {LABS.map((lab) => {
-                const ready = lab.status === "siap";
+                const isReady = lab.status === "siap";
+                const dim = isReady ? "text-ink-2" : "text-ink-3";
                 return (
                   <tr key={lab.sheet}>
-                    <td className="value font-semibold text-ink">
-                      {ready ? (
-                        <Link href={`/lab/${lab.slug}`} className="plain">
+                    <td className="value font-semibold">
+                      {isReady ? (
+                        <Link href={`/lab/${lab.slug}`} className="plain text-ink">
                           {lab.sheet}
                         </Link>
                       ) : (
@@ -50,33 +62,29 @@ export default function Home() {
                       )}
                     </td>
                     <td>
-                      {ready ? (
+                      {isReady ? (
                         <Link
                           href={`/lab/${lab.slug}`}
                           className="font-semibold text-ink"
                         >
-                          {lab.title}
+                          {lab.title[lang]}
                         </Link>
                       ) : (
-                        <span className="text-ink-3">{lab.title}</span>
+                        <span className="text-ink-3">{lab.title[lang]}</span>
                       )}
                     </td>
-                    <td className={ready ? "text-ink-2" : "text-ink-3"}>
-                      {lab.subject}
-                    </td>
-                    <td className={ready ? "text-ink-2" : "text-ink-3"}>
-                      {lab.question}
-                    </td>
+                    <td className={dim}>{SUBJECTS[lab.subject][lang]}</td>
+                    <td className={dim}>{lab.question[lang]}</td>
                     <td>
                       <span
                         className="stencil"
                         style={{
-                          color: ready
+                          color: isReady
                             ? "var(--color-ink)"
                             : "var(--color-ink-3)",
                         }}
                       >
-                        {ready ? "terbit" : "rencana"}
+                        {isReady ? t.statusReady : t.statusPlanned}
                       </span>
                     </td>
                   </tr>
@@ -86,69 +94,43 @@ export default function Home() {
           </table>
         </div>
 
-        <p className="mt-3 max-w-[70ch] text-[0.88rem] leading-[1.55] text-ink-3">
-          Tiga lembar bertanda terbit sudah berjalan penuh. Sisanya
-          memperlihatkan bagaimana berkas ini tumbuh: menambah satu lembar
-          berarti menambah satu model perhitungan dan satu penggambar, sementara
-          kerangka, kop, dan tata letaknya sudah dipakai bersama.
+        <p className="mt-3 max-w-[74ch] text-[0.88rem] leading-[1.55] text-ink-3">
+          {t.indexNote}
         </p>
       </section>
 
       {/* ---------------- Metode ---------------- */}
       <section className="mt-16 grid gap-x-12 gap-y-8 border-t border-ink pt-4 md:grid-cols-2">
         <div>
-          <h2 className="stencil mb-3">cara lembar ini dibuat</h2>
+          <h2 className="stencil mb-3">{t.methodHeading}</h2>
           <div className="flex max-w-[58ch] flex-col gap-3 text-[0.96rem] leading-[1.6] text-ink-2">
-            <p>
-              Angka-angkanya diselesaikan sendiri, bukan diambil dari tabel.
-              Kedalaman konjugat memakai persamaan Belanger; faktor gesekan
-              memakai Colebrook-White yang implisit, diselesaikan dengan iterasi
-              Newton-Raphson; kedalaman normal memakai Manning yang dibalik
-              dengan metode bagi dua.
-            </p>
-            <p>
-              Gambarnya digambar garis demi garis, tanpa pustaka grafik siap
-              pakai. Itu sebabnya penampang, kurva log-log, dan arsiran air bisa
-              mengikuti konvensi gambar teknik alih-alih mengikuti bentuk bawaan
-              sebuah pustaka.
-            </p>
+            <p>{t.method1}</p>
+            <p>{t.method2}</p>
           </div>
         </div>
 
         <div>
-          <h2 className="stencil mb-3">aturan yang dipegang</h2>
+          <h2 className="stencil mb-3">{t.rulesHeading}</h2>
           <table className="data">
             <tbody>
-              <tr>
-                <td className="text-ink-2" style={{ width: "9.5rem" }}>
-                  Garis tebal
-                </td>
-                <td>Geometri nyata: dasar, dinding, muka air</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Garis tipis</td>
-                <td>Yang membicarakan benda: dimensi, penunjuk, arsiran</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Garis putus</td>
-                <td>Garis energi, dan hal yang tak terlihat langsung</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Titik rapat</td>
-                <td>Di luar jangkauan rumus — gambar mengaku tidak tahu</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Biru</td>
-                <td>Selalu air. Tidak pernah dipakai untuk hal lain</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Merah bata</td>
-                <td>Selalu energi</td>
-              </tr>
-              <tr>
-                <td className="text-ink-2">Ungu</td>
-                <td>Selalu kondisi kritis</td>
-              </tr>
+              {(
+                [
+                  [t.ruleBold, t.ruleBoldV],
+                  [t.ruleThin, t.ruleThinV],
+                  [t.ruleDash, t.ruleDashV],
+                  [t.ruleDot, t.ruleDotV],
+                  [t.ruleBlue, t.ruleBlueV],
+                  [t.ruleRed, t.ruleRedV],
+                  [t.rulePurple, t.rulePurpleV],
+                ] as [string, string][]
+              ).map(([k, v]) => (
+                <tr key={k}>
+                  <td className="text-ink-2" style={{ width: "9.5rem" }}>
+                    {k}
+                  </td>
+                  <td>{v}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

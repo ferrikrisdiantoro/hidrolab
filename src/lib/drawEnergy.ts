@@ -14,6 +14,8 @@ import {
   ruling,
 } from "./plate";
 import { specificEnergy } from "./hydraulics";
+import { cl } from "./strings";
+import type { Lang } from "./i18n";
 
 export type EnergyState = {
   /** Debit satuan, m2/s */
@@ -37,8 +39,10 @@ export function drawEnergy(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  s: EnergyState
+  s: EnergyState,
+  lang: Lang
 ) {
+  const T = cl(lang);
   ground(ctx, w, h);
 
   const wide = w > 660;
@@ -104,8 +108,8 @@ export function drawEnergy(
   }
   ctx.stroke();
 
-  region(ctx, "cabang subkritis", X(eMax * 0.72), Y(yMax * 0.86), C.ink3);
-  region(ctx, "cabang superkritis", X(eMax * 0.72), Y(s.yc * 0.3), C.ink3);
+  region(ctx, T.branchSub, X(eMax * 0.72), Y(yMax * 0.86), C.ink3);
+  region(ctx, T.branchSuper, X(eMax * 0.72), Y(s.yc * 0.3), C.ink3);
 
   /* ---------------- kedalaman kritis ---------------- */
   pen(ctx, W.thin, C.critical, DASH.axis);
@@ -125,7 +129,7 @@ export function drawEnergy(
     Y(s.yc) - 11,
     C.critical
   );
-  curveLabel(ctx, `E min ${Emin.toFixed(3)}`, X(Emin) + 9, baseY - 12, C.critical);
+  curveLabel(ctx, `${T.minEnergy} ${Emin.toFixed(3)}`, X(Emin) + 9, baseY - 12, C.critical);
 
   /* ---------------- kedalaman normal ---------------- */
   if (E0 <= eMax && s.y0 <= yMax) {
@@ -166,12 +170,12 @@ export function drawEnergy(
     Math.round(plotW),
     Math.round(plotH)
   );
-  axisTitle(ctx, "energi spesifik E, m", padL + plotW / 2, baseY + 34);
-  axisTitle(ctx, "kedalaman y, m", 18, padT + plotH / 2, -Math.PI / 2);
+  axisTitle(ctx, T.axEnergy, padL + plotW / 2, baseY + 34);
+  axisTitle(ctx, T.axDepthShort, 18, padT + plotH / 2, -Math.PI / 2);
 
   /* ---------------- penampang melintang ---------------- */
   if (wide) {
-    drawSection(ctx, curveW, sectionW, s, Y, baseY, padT);
+    drawSection(ctx, curveW, sectionW, s, T, Y, baseY, padT);
   }
 }
 
@@ -205,6 +209,7 @@ function drawSection(
   ox: number,
   w: number,
   s: EnergyState,
+  T: ReturnType<typeof cl>,
   Y: (y: number) => number,
   baseY: number,
   padT: number
@@ -214,7 +219,6 @@ function drawSection(
   const cx = ox + w / 2;
 
   // Lebar saluran diskalakan agar muat; kedalaman TIDAK diskalakan ulang.
-  const yMaxPx = baseY - padT;
   const wallTop = padT + 6;
   const bw = Math.min(innerW, innerW * 0.86);
   const left = cx - bw / 2;
@@ -226,7 +230,7 @@ function drawSection(
   ctx.lineTo(ox + 0.5, baseY + 20);
   ctx.stroke();
 
-  region(ctx, "penampang melintang", cx, padT - 12, C.ink3);
+  region(ctx, T.section, cx, padT - 12, C.ink3);
 
   // Air
   const wl = Y(s.y0);

@@ -15,6 +15,8 @@ import {
   ruling,
 } from "./plate";
 import { G, conjugateDepth, froude, jumpLength } from "./hydraulics";
+import { cl } from "./strings";
+import type { Lang } from "./i18n";
 
 export type JumpParams = {
   /** Kedalaman hulu, meter */
@@ -54,6 +56,7 @@ export type JumpOptions = {
   /** Panjang saluran yang digambar, meter */
   domain?: number;
   compact?: boolean;
+  lang?: Lang;
   /** Goresan aliran; bila tidak diberikan, gambar diam sepenuhnya */
   streaks?: Streak[] | null;
   /** Selang waktu sejak frame sebelumnya, detik */
@@ -83,10 +86,13 @@ export function drawJump(
     ghost = null,
     domain = 16,
     compact = false,
+    lang = "id",
     streaks = null,
     dt = 0,
     t = 0,
   } = opt;
+
+  const T = cl(lang);
 
   const padL = compact ? 22 : 62;
   const padR = compact ? 22 : 34;
@@ -140,8 +146,8 @@ export function drawJump(
     for (let x = 0; x <= domain + 1e-9; x += xStep)
       axisValue(ctx, String(Math.round(x)), X(x), bedY + 9, "center", "top");
 
-    axisTitle(ctx, "jarak sepanjang saluran, m", padL + plotW / 2, bedY + 34);
-    axisTitle(ctx, "kedalaman, m", 18, padT + plotH / 2, -Math.PI / 2);
+    axisTitle(ctx, T.axDistance, padL + plotW / 2, bedY + 34);
+    axisTitle(ctx, T.axDepth, 18, padT + plotH / 2, -Math.PI / 2);
   }
 
   /* ---------------- badan air ---------------- */
@@ -330,7 +336,7 @@ export function drawJump(
     ctx.setLineDash([]);
 
     if (!compact) {
-      curveLabel(ctx, "garis energi", X(0.35), Y(E1) - 9, C.energy);
+      curveLabel(ctx, T.energyLine, X(0.35), Y(E1) - 9, C.energy);
 
       // Kehilangan energi sebagai dimensi vertikal di hilir.
       if (hasJump && E1 - E2 > 0.02) {
@@ -395,12 +401,12 @@ export function drawJump(
       ctx.setLineDash([]);
     }
 
-    region(ctx, "superkritis", X(xJump * 0.5), padT + 14, C.ink3);
+    region(ctx, T.supercritical, X(xJump * 0.5), padT + 14, C.ink3);
     if (hasJump) {
-      region(ctx, "loncatan", X(xJump + Lj / 2), padT + 14, C.critical);
+      region(ctx, T.jump, X(xJump + Lj / 2), padT + 14, C.critical);
       region(
         ctx,
-        "subkritis",
+        T.subcritical,
         X(Math.min(domain - 2, xJump + Lj + (domain - xJump - Lj) / 2)),
         padT + 14,
         C.ink3
@@ -408,7 +414,7 @@ export function drawJump(
     } else {
       region(
         ctx,
-        "tidak terbentuk loncatan",
+        T.noJump,
         X(xJump + (domain - xJump) / 2),
         padT + 14,
         C.ink3
