@@ -49,14 +49,14 @@ const L = (
 });
 
 /**
- * Katalog lengkap: 59 laboratorium dalam 12 pokok bahasan.
+ * Katalog lengkap: 64 laboratorium dalam 12 pokok bahasan.
  *
  * Penomoran mengikuti kebiasaan berkas gambar — dua huruf pokok bahasan
  * diikuti nomor urut. Setiap lembar berdiri sendiri dan bisa direvisi
  * tanpa menyentuh lembar lain.
  */
 export const LABS: Lab[] = [
-  /* ---------------- Saluran terbuka (8) ---------------- */
+  /* ---------------- Saluran terbuka (12) ---------------- */
   L("OC-01", "loncatan-air", "OC", "Loncatan air", "Hydraulic jump",
     "Berapa kedalaman hilir setelah aliran superkritis meredam energinya?",
     "What is the downstream depth after supercritical flow dissipates its energy?", "siap"),
@@ -81,6 +81,19 @@ export const LABS: Lab[] = [
   L("OC-08", "energi-momentum", "OC", "Energi dan momentum", "Energy and momentum",
     "Kapan kekekalan energi berlaku, dan kapan harus memakai momentum?",
     "When does energy conservation hold, and when must momentum be used?"),
+
+  L("OC-09", "persamaan-energi-saluran", "OC", "Persamaan energi saluran terbuka", "Open-channel energy equation",
+    "Bagaimana garis energi dan garis muka air tersusun di sepanjang saluran?",
+    "How do the energy and water surface lines run along the channel?"),
+  L("OC-10", "hukum-gesekan", "OC", "Hukum gesekan", "Friction laws",
+    "Manning, Chezy, atau Darcy-Weisbach — mana yang dipakai pada kondisi apa?",
+    "Manning, Chezy, or Darcy-Weisbach — which applies under what conditions?"),
+  L("OC-11", "perkembangan-meander", "OC", "Perkembangan meander", "Meander development",
+    "Bagaimana sungai yang lurus berubah menjadi berkelok?",
+    "How does a straight river turn into a meandering one?"),
+  L("OC-12", "aliran-masuk-lateral", "OC", "Aliran masuk lateral", "Lateral inflow",
+    "Bagaimana muka air berubah bila air masuk di sepanjang saluran?",
+    "How does the surface change when water enters along the channel?"),
 
   /* ---------------- Bangunan air (9) ---------------- */
   L("HS-01", "bendung-ogee", "HS", "Bendung ogee", "Ogee weir",
@@ -211,7 +224,7 @@ export const LABS: Lab[] = [
     "Berapa panjang bak yang dibutuhkan agar butiran sempat mengendap?",
     "How long must a basin be for grains to settle out?"),
 
-  /* ---------------- Pengukuran debit (3) ---------------- */
+  /* ---------------- Pengukuran debit (4) ---------------- */
   L("FM-01", "ambang-v", "FM", "Ambang V", "V-notch weir",
     "Bagaimana tinggi muka air di atas ambang menentukan debit?",
     "How does the head over the notch determine discharge?", "siap"),
@@ -221,6 +234,9 @@ export const LABS: Lab[] = [
   L("FM-03", "tabung-pitot", "FM", "Tabung Pitot", "Pitot tube",
     "Bagaimana selisih tekanan diubah menjadi kecepatan aliran?",
     "How is a pressure difference turned into flow velocity?"),
+  L("FM-04", "flum-leher-panjang", "FM", "Flum berleher panjang", "Long-throated flume",
+    "Bagaimana flum berleher panjang mengukur debit tanpa kalibrasi lapangan?",
+    "How does a long-throated flume gauge discharge without field calibration?"),
 
   /* ---------------- Air tanah & rembesan (3) ---------------- */
   L("GW-01", "rembesan", "GW", "Rembesan", "Seepage",
@@ -253,9 +269,9 @@ export const LABS: Lab[] = [
     "How does catchment rainfall become river discharge?"),
 
   /* ---------------- Sistem & dinamika (1) ---------------- */
-  L("SY-01", "sistem-dinamik", "SY", "Sistem dinamik", "Dynamic systems",
-    "Bagaimana umpan balik dan tundaan membentuk perilaku sebuah sistem?",
-    "How do feedback and delay shape a system's behaviour?"),
+  L("SY-01", "regulasi-tidur", "SY", "Regulasi tidur", "Sleep regulation",
+    "Bagaimana umpan balik dan tundaan membentuk irama sebuah sistem?",
+    "How do feedback and delay shape the rhythm of a system?"),
 ];
 
 export const READY_LABS = LABS.filter((l) => l.status === "siap");
