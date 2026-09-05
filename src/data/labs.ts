@@ -4,7 +4,7 @@ export type LabStatus = "siap" | "rencana";
 
 /** Kode pokok bahasan, dipakai juga sebagai awalan nomor lembar. */
 export type Subject =
-  | "FF" | "FP" | "OC" | "HY" | "HS" | "PI" | "FM" | "EH" | "SD" | "GW" | "DM" | "SY";
+  | "FF" | "FP" | "OC" | "HY" | "HS" | "PI" | "FM" | "EH" | "EK" | "SD" | "GW" | "DM" | "SY";
 
 export const SUBJECTS: Record<Subject, Bi<string>> = {
   FF: { id: "Dasar mekanika fluida", en: "Fluid mechanics fundamentals" },
@@ -15,6 +15,7 @@ export const SUBJECTS: Record<Subject, Bi<string>> = {
   PI: { id: "Aliran dalam pipa", en: "Pipe flow" },
   FM: { id: "Pengukuran debit", en: "Flow measurement" },
   EH: { id: "Ekohidraulika", en: "Ecohydraulics" },
+  EK: { id: "Ekologi", en: "Ecology" },
   SD: { id: "Transpor sedimen", en: "Sediment transport" },
   GW: { id: "Air tanah & rembesan", en: "Groundwater & seepage" },
   DM: { id: "Bendungan & geoteknik", en: "Dams & geotechnics" },
@@ -49,7 +50,7 @@ const L = (
 });
 
 /**
- * Katalog lengkap: 64 laboratorium dalam 12 pokok bahasan.
+ * Katalog lengkap: 69 laboratorium dalam 13 pokok bahasan.
  *
  * Penomoran mengikuti kebiasaan berkas gambar — dua huruf pokok bahasan
  * diikuti nomor urut. Setiap lembar berdiri sendiri dan bisa direvisi
@@ -95,7 +96,7 @@ export const LABS: Lab[] = [
     "Bagaimana muka air berubah bila air masuk di sepanjang saluran?",
     "How does the surface change when water enters along the channel?"),
 
-  /* ---------------- Bangunan air (9) ---------------- */
+  /* ---------------- Bangunan air (10) ---------------- */
   L("HS-01", "bendung-ogee", "HS", "Bendung ogee", "Ogee weir",
     "Berapa kapasitas luapan pada berbagai tinggi energi di atas mercu?",
     "What is the spillway capacity at various heads over the crest?"),
@@ -123,6 +124,9 @@ export const LABS: Lab[] = [
   L("HS-09", "pengaruh-hilir", "HS", "Pengaruh hilir", "Downstream effects",
     "Sejauh mana bangunan di hilir mempengaruhi muka air di hulu?",
     "How far upstream does a downstream structure affect the water surface?"),
+  L("HS-10", "pelimpah-samping", "HS", "Pelimpah samping", "Side-channel spillway",
+    "Bagaimana muka air terbentuk pada pelimpah yang mengalir menyamping?",
+    "How does the water surface form along a spillway that flows sideways?"),
 
   /* ---------------- Dasar mekanika fluida (7) ---------------- */
   L("FF-01", "bernoulli", "FF", "Bernoulli", "Bernoulli",
@@ -170,7 +174,7 @@ export const LABS: Lab[] = [
     "Bagaimana garis tekanan dan garis energi tersusun di sepanjang pipa?",
     "How do the hydraulic and energy grade lines run along the pipe?"),
 
-  /* ---------------- Ekohidraulika (7) ---------------- */
+  /* ---------------- Ekohidraulika (6) ---------------- */
   L("EH-01", "tangga-ikan-kolam", "EH", "Tangga ikan kolam", "Pool fishway",
     "Berapa disipasi energi per kolam agar ikan mampu melewatinya?",
     "What energy dissipation per pool still lets fish pass?"),
@@ -189,9 +193,20 @@ export const LABS: Lab[] = [
   L("EH-06", "habitat-sungai", "EH", "Habitat sungai", "River habitat",
     "Berapa luas habitat layak pada debit tertentu?",
     "How much suitable habitat exists at a given discharge?"),
-  L("EH-07", "tingkat-trofik", "EH", "Tingkat trofik", "Trophic levels",
+
+  /* ---------------- Ekologi (4) ---------------- */
+  L("EK-01", "tingkat-trofik", "EK", "Tingkat trofik", "Trophic levels",
     "Bagaimana energi berpindah antar tingkat dalam rantai makanan sungai?",
     "How does energy move between levels in a river food chain?"),
+  L("EK-02", "aturan-panen", "EK", "Aturan panen", "Harvesting rule",
+    "Berapa hasil tangkapan yang masih menyisakan populasi lestari?",
+    "What harvest still leaves the population sustainable?"),
+  L("EK-03", "tangkap-tandai-ulang", "EK", "Tangkap-tandai-tangkap ulang", "Mark-recapture",
+    "Bagaimana ukuran populasi diperkirakan dari dua kali penangkapan?",
+    "How is population size estimated from two capture events?"),
+  L("EK-04", "lintasan-ikan-populasi", "EK", "Lintasan ikan dan populasi", "Fish passage & population",
+    "Seberapa besar pengaruh keberhasilan lintasan ikan terhadap populasi jangka panjang?",
+    "How much does fish passage success affect the long-term population?"),
 
   /* ---------------- Fenomena aliran (5) ---------------- */
   L("FP-01", "vorteks-karman", "FP", "Deret vorteks Kármán", "Kármán vortex street",
@@ -224,7 +239,7 @@ export const LABS: Lab[] = [
     "Berapa panjang bak yang dibutuhkan agar butiran sempat mengendap?",
     "How long must a basin be for grains to settle out?"),
 
-  /* ---------------- Pengukuran debit (4) ---------------- */
+  /* ---------------- Pengukuran debit (5) ---------------- */
   L("FM-01", "ambang-v", "FM", "Ambang V", "V-notch weir",
     "Bagaimana tinggi muka air di atas ambang menentukan debit?",
     "How does the head over the notch determine discharge?", "siap"),
@@ -237,6 +252,9 @@ export const LABS: Lab[] = [
   L("FM-04", "flum-leher-panjang", "FM", "Flum berleher panjang", "Long-throated flume",
     "Bagaimana flum berleher panjang mengukur debit tanpa kalibrasi lapangan?",
     "How does a long-throated flume gauge discharge without field calibration?"),
+  L("FM-05", "pengenceran-garam", "FM", "Pengukuran pengenceran garam", "Salt dilution gauging",
+    "Bagaimana debit sungai berbatu diukur dari pengenceran larutan garam?",
+    "How is discharge in a boulder stream measured from salt dilution?"),
 
   /* ---------------- Air tanah & rembesan (3) ---------------- */
   L("GW-01", "rembesan", "GW", "Rembesan", "Seepage",
