@@ -20,6 +20,7 @@ export function LabShell({
   intro,
   drawing,
   side,
+  verification,
   below,
 }: {
   sheet: string;
@@ -28,6 +29,8 @@ export function LabShell({
   intro: ReactNode;
   drawing: ReactNode;
   side: ReactNode;
+  /** Blok verifikasi, ditaruh sebelum dasar perhitungan */
+  verification?: ReactNode;
   below?: ReactNode;
 }) {
   const t = str(useLang().lang);
@@ -57,6 +60,7 @@ export function LabShell({
         <aside className="flex flex-col gap-6">{side}</aside>
       </div>
 
+      {verification && <div className="mt-9">{verification}</div>}
       {below && <div className="mt-9">{below}</div>}
     </div>
   );

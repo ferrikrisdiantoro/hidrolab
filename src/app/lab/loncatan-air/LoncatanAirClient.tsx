@@ -28,6 +28,8 @@ import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
+import { Verification } from "@/components/Verification";
+import { checksJump } from "@/lib/checks";
 
 const TXT = {
   id: {
@@ -236,6 +238,7 @@ export function LoncatanAirClient() {
           </Block>
         </>
       }
+      verification={<Verification checks={checksJump(y1, V1)} />}
       below={
         <Basis
           equations={

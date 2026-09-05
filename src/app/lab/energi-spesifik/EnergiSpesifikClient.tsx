@@ -22,6 +22,7 @@ import {
   fmt,
   froude,
   normalDepth,
+  normalDepthReachable,
   rectGeometry,
   slopeType,
   specificEnergy,
@@ -30,6 +31,8 @@ import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
+import { Verification } from "@/components/Verification";
+import { checksEnergy } from "@/lib/checks";
 
 const TXT = {
   id: {
@@ -53,6 +56,8 @@ const TXT = {
     rP: "Keliling basah",
     rR: "Jari-jari hidraulik",
     rq: "Debit satuan",
+    tak: "Melampaui kapasitas saluran",
+    takNote: "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi angka y₀ di atas hanyalah batas atas pencarian, bukan hasil yang berlaku. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
     note: "Kedalaman normal dicari dengan membalik persamaan Manning: nilai y yang membuat debit hitung sama dengan debit yang diberikan. Karena fungsi itu naik monoton terhadap y, dipakai metode bagi dua yang selalu konvergen — lebih andal daripada Newton-Raphson, yang pada kemiringan sangat kecil bisa melompat ke nilai negatif dan gagal. Kurva di sebelah kiri dan penampang di sebelah kanan memakai skala kedalaman yang sama, sehingga garis kedalaman kritis menyeberang di ketinggian yang persis sama pada keduanya.",
   },
   en: {
@@ -76,6 +81,8 @@ const TXT = {
     rP: "Wetted perimeter",
     rR: "Hydraulic radius",
     rq: "Unit discharge",
+    tak: "Exceeds channel capacity",
+    takNote: "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so the y₀ shown above is only the upper bound of the search, not a valid result. Widen the bed, steepen the slope, or reduce the discharge.",
     note: "Normal depth is found by inverting Manning's equation: the depth y at which the computed discharge equals the given one. Because that function rises monotonically with y, bisection is used and always converges — more dependable than Newton-Raphson, which on very flat slopes can jump to a negative value and fail. The curve on the left and the section on the right share the same depth scale, so the critical depth line crosses at exactly the same height on both.",
   },
 } as const;
@@ -108,6 +115,7 @@ export function EnergiSpesifikClient() {
   const q = Q / b;
   const yc = criticalDepth(q);
   const y0 = normalDepth(Q, b, n, S);
+  const terjangkau = normalDepthReachable(Q, b, n, S);
   const geo = rectGeometry(b, y0);
   const V0 = geo.A > 0 ? Q / geo.A : 0;
   const Fr0 = froude(V0, y0);
@@ -203,7 +211,13 @@ export function EnergiSpesifikClient() {
               <span className="value label text-[0.78rem] text-ink-3">
                 {slope[lang]}
               </span>
+              {!terjangkau && <Flag alert>{x.tak}</Flag>}
             </div>
+            {!terjangkau && (
+              <div className="mb-2.5">
+                <Note>{x.takNote}</Note>
+              </div>
+            )}
             <ResultTable
               rows={[
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical, strong: true },
@@ -225,6 +239,7 @@ export function EnergiSpesifikClient() {
           </Block>
         </>
       }
+      verification={<Verification checks={checksEnergy(Q, b, n, S)} />}
       below={
         <Basis
           equations={

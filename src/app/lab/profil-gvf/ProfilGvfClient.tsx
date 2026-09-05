@@ -15,11 +15,20 @@ import {
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawGvf } from "@/lib/drawGvf";
-import { criticalDepth, fmt, froude, gvfProfile, normalDepth } from "@/lib/hydraulics";
+import {
+  criticalDepth,
+  fmt,
+  froude,
+  gvfProfile,
+  normalDepth,
+  normalDepthReachable,
+} from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
+import { Verification } from "@/components/Verification";
+import { checksGvf } from "@/lib/checks";
 
 const TXT = {
   id: {
@@ -41,6 +50,8 @@ const TXT = {
     rDir: "Arah penelusuran",
     rSlope: "Jenis kemiringan",
     rDy: "Selisih terhadap kedalaman normal",
+    tak: "Melampaui kapasitas saluran",
+    takNote: "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi angka y₀ di atas hanyalah batas atas pencarian, bukan hasil yang berlaku. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
     dirUp: "Ke hulu",
     dirDown: "Ke hilir",
     mild: "Landai",
@@ -66,6 +77,8 @@ const TXT = {
     rDir: "Computation direction",
     rSlope: "Slope type",
     rDy: "Difference from normal depth",
+    tak: "Exceeds channel capacity",
+    takNote: "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so the y₀ shown above is only the upper bound of the search, not a valid result. Widen the bed, steepen the slope, or reduce the discharge.",
     dirUp: "Upstream",
     dirDown: "Downstream",
     mild: "Mild",
@@ -103,6 +116,7 @@ export function ProfilGvfClient() {
 
   const yc = criticalDepth(Q / b);
   const y0 = normalDepth(Q, b, n, S0);
+  const terjangkau = normalDepthReachable(Q, b, n, S0);
   const result = gvfProfile(Q, b, n, S0, yCtl, L, 400);
   const FrCtl = froude(Q / (b * yCtl), yCtl);
 
@@ -180,7 +194,13 @@ export function ProfilGvfClient() {
               <span className="value label text-[0.78rem] text-ink-3">
                 {result.mild ? x.mild : x.steep}
               </span>
+              {!terjangkau && <Flag alert>{x.tak}</Flag>}
             </div>
+            {!terjangkau && (
+              <div className="mb-2.5">
+                <Note>{x.takNote}</Note>
+              </div>
+            )}
             <ResultTable
               rows={[
                 { symbol: "—", label: x.rProfile, value: result.profile, tint: C.critical, strong: true },
@@ -198,6 +218,7 @@ export function ProfilGvfClient() {
           </Block>
         </>
       }
+      verification={<Verification checks={checksGvf(Q, b, n, S0)} />}
       below={
         <Basis
           equations={

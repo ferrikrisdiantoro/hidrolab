@@ -255,6 +255,62 @@ export function normalDepth(
   return (lo + hi) / 2;
 }
 
+/**
+ * Apakah kedalaman normal benar-benar ada pada kondisi ini.
+ *
+ * Saluran sempit dengan kemiringan sangat kecil punya batas atas debit yang
+ * dapat dialirkannya. Di luar batas itu tidak ada kedalaman yang memenuhi
+ * persamaan Manning, dan `normalDepth` akan mentok di batas pencariannya lalu
+ * mengembalikan angka yang keliru. Pemanggil wajib memeriksa ini sebelum
+ * menampilkan hasilnya, sesuai aturan bahwa batas keberlakuan dinyatakan,
+ * bukan disembunyikan.
+ */
+export function normalDepthReachable(
+  Q: number,
+  b: number,
+  n: number,
+  S: number,
+  yMax = 50
+): boolean {
+  if (Q <= 0 || n <= 0 || S <= 0) return false;
+  return manningDischarge(b, yMax, n, S) >= Q;
+}
+
+/**
+ * Jarak antara dua kedalaman menurut METODE LANGKAH LANGSUNG.
+ *
+ *   dx = ( E2 - E1 ) / ( S0 - Sf rata-rata )
+ *
+ * Ini metode baku yang berbeda perumusannya dari penelusuran Runge-Kutta:
+ * ia melangkah pada kedalaman lalu menghitung jaraknya, sedangkan
+ * Runge-Kutta melangkah pada jarak lalu menghitung kedalamannya. Karena itu
+ * keduanya dapat dipakai untuk saling memeriksa.
+ */
+export function gvfDistanceDirectStep(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yFrom: number,
+  yTo: number,
+  steps = 400
+): number {
+  const q = Q / b;
+  const E = (y: number) => y + (q * q) / (2 * G * y * y);
+  const dy = (yTo - yFrom) / steps;
+  let x = 0;
+
+  for (let i = 0; i < steps; i++) {
+    const ya = yFrom + i * dy;
+    const yb = ya + dy;
+    const sfAvg = (frictionSlope(Q, b, ya, n) + frictionSlope(Q, b, yb, n)) / 2;
+    const denom = S0 - sfAvg;
+    if (Math.abs(denom) < 1e-12) return Number.POSITIVE_INFINITY;
+    x += (E(yb) - E(ya)) / denom;
+  }
+  return x;
+}
+
 export type FlowRegime = "subkritis" | "kritis" | "superkritis";
 
 export function classifyRegime(y: number, yc: number): FlowRegime {

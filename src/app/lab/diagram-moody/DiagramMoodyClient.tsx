@@ -20,6 +20,8 @@ import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
+import { Verification } from "@/components/Verification";
+import { checksMoody } from "@/lib/checks";
 
 const TXT = {
   id: {
@@ -208,6 +210,7 @@ export function DiagramMoodyClient() {
           </Block>
         </>
       }
+      verification={<Verification checks={checksMoody(Re, relRough)} />}
       below={
         <Basis
           equations={

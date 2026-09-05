@@ -20,6 +20,8 @@ import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
+import { Verification } from "@/components/Verification";
+import { checksNotch } from "@/lib/checks";
 
 const TXT = {
   id: {
@@ -177,6 +179,7 @@ export function AmbangVClient() {
           </Block>
         </>
       }
+      verification={<Verification checks={checksNotch(H, theta)} />}
       below={
         <Basis
           equations={
