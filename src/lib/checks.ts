@@ -1,6 +1,21 @@
 import type { Check } from "./verify.ts";
 import {
+  FLUME_C,
   G,
+  ORIFICE_CC_SLOT,
+  VENTURI_C_MACHINED,
+  dilutionDischarge,
+  flumeDischarge,
+  orificeJet,
+  orificeTrajectory,
+  pitotHead,
+  pitotVelocity,
+  powerLawMeanRadius,
+  powerLawMeanRatio,
+  powerLawVelocity,
+  tracerCurve,
+  venturiDischarge,
+  venturiHead,
   backwaterExtent,
   conjugateFromMomentum,
   momentumFunction,
@@ -1499,6 +1514,522 @@ export function checksNappe(h: number, b: number, P: number): Check[] {
         jetTrajectory(r.V0, h) > wesNappe(h, h) ? 1 : 0,
       tol: 0,
       digits: 0,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * HS-07 Vena contracta
+ * ------------------------------------------------------------------ */
+
+export function checksOrifice(
+  H: number,
+  a: number,
+  b: number,
+  Cv: number,
+  Cc: number
+): Check[] {
+  const r = orificeJet(H, a, b, Cv, Cc);
+  const ideal = orificeJet(H, a, b, 1, Cc);
+
+  // Lintasan pancaran tanpa kehilangan kecepatan harus memenuhi x kuadrat sama
+  // dengan empat H y. Dicek pada satu absis yang bukan titik istimewa.
+  const xUji = 2 * H * 0.7;
+  const yTerbitan = (xUji * xUji) / (4 * H);
+
+  return [
+    {
+      label: {
+        id: "Koefisien kontraksi teoretis celah dua dimensi",
+        en: "Theoretical contraction coefficient of a two-dimensional slot",
+      },
+      source: "Penyelesaian Kirchhoff, pi dibagi pi tambah dua",
+      kind: "terbitan",
+      expected: 0.611015,
+      actual: ORIFICE_CC_SLOT,
+      tol: 1e-5,
+      tolReason: {
+        id: "Nilai acuannya ditulis dengan enam angka berarti, jadi toleransinya mengikuti penulisan itu, bukan ketelitian mesin.",
+        en: "The reference value is written to six significant figures, so the tolerance follows that writing rather than machine precision.",
+      },
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kecepatan tanpa kehilangan sama dengan rumus Torricelli",
+        en: "The loss-free velocity equals the Torricelli result",
+      },
+      source: "Torricelli (1643), akar dua g H",
+      kind: "terbitan",
+      expected: Math.sqrt(2 * G * H),
+      actual: r.Vth,
+      tol: 1e-12,
+      unit: "m/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Lintasan pancaran tanpa kehilangan memenuhi x kuadrat sama dengan empat H y",
+        en: "The loss-free jet path satisfies x squared equals four H y",
+      },
+      source: "Gabungan Torricelli dan gerak peluru, hasil tertutup",
+      kind: "terbitan",
+      expected: yTerbitan,
+      actual: orificeTrajectory(ideal.V, xUji),
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Koefisien debit adalah hasil kali kontraksi dan kecepatan",
+        en: "The discharge coefficient is the product of contraction and velocity",
+      },
+      source: "Definisi ketiga koefisien",
+      kind: "sifat",
+      expected: Cc * Cv,
+      actual: r.Cd,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Debit sama dengan kecepatan sesungguhnya dikali luas pancaran",
+        en: "The discharge equals the real velocity times the jet area",
+      },
+      source: "Kekekalan massa di vena contracta",
+      kind: "silang",
+      expected: r.Cd * r.area * Math.sqrt(2 * G * H),
+      actual: r.Q,
+      tol: 1e-12,
+      unit: "m³/s",
+      digits: 8,
+    },
+    {
+      label: {
+        id: "Tanpa kehilangan kecepatan, tidak ada energi yang hilang",
+        en: "With no velocity loss, no energy is lost",
+      },
+      source: "Sifat yang harus berlaku pada koefisien kecepatan sama dengan satu",
+      kind: "sifat",
+      expected: 0,
+      actual: ideal.headLoss,
+      tol: 0,
+      absTol: 1e-12,
+      unit: "m",
+      digits: 8,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * FM-02 Venturi
+ * ------------------------------------------------------------------ */
+
+export function checksVenturi(
+  D1: number,
+  D2: number,
+  dh: number,
+  C: number
+): Check[] {
+  const r = venturiDischarge(D1, D2, dh, C);
+  const A1 = (Math.PI / 4) * D1 * D1;
+  const A2 = (Math.PI / 4) * D2 * D2;
+
+  return [
+    {
+      label: {
+        id: "Koefisien debit venturi klasik dengan leher hasil pemesinan",
+        en: "Discharge coefficient of a classical Venturi with a machined throat",
+      },
+      source: "ISO 5167-4, tabung venturi klasik",
+      kind: "terbitan",
+      expected: 0.995,
+      actual: VENTURI_C_MACHINED,
+      tol: 1e-12,
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Faktor kecepatan datang sama dengan satu per akar satu kurang beta pangkat empat",
+        en: "The velocity of approach factor equals one over the root of one minus beta to the fourth",
+      },
+      source: "Bentuk tertutup pada ISO 5167",
+      kind: "terbitan",
+      expected: 1 / Math.sqrt(1 - Math.pow(D2 / D1, 4)),
+      actual: r.approachFactor,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kekekalan massa terpenuhi antara pipa dan leher",
+        en: "Continuity holds between the pipe and the throat",
+      },
+      source: "Kekekalan massa, dua penampang satu debit",
+      kind: "sifat",
+      expected: r.V1 * A1,
+      actual: r.V2 * A2,
+      tol: 1e-12,
+      unit: "m³/s",
+      digits: 8,
+    },
+    {
+      label: {
+        id: "Menghitung balik beda tinggi tekan mengembalikan bacaan semula",
+        en: "Computing the head difference back returns the original reading",
+      },
+      source: "Rumus venturi harus dapat dibalik",
+      kind: "pulang-pergi",
+      expected: dh,
+      actual: venturiHead(D1, D2, r.Q, C),
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Beda tinggi tekan sama dengan selisih tinggi kecepatan pada koefisien satu",
+        en: "The head difference equals the velocity head difference at unit coefficient",
+      },
+      source: "Persamaan Bernoulli tanpa kehilangan",
+      kind: "silang",
+      expected: dh,
+      actual: (() => {
+        const ideal = venturiDischarge(D1, D2, dh, 1);
+        return (ideal.V2 * ideal.V2 - ideal.V1 * ideal.V1) / (2 * G);
+      })(),
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Leher yang lebih sempit memberi bacaan lebih besar pada debit yang sama",
+        en: "A narrower throat gives a larger reading at the same discharge",
+      },
+      source: "Perilaku yang harus berlaku pada alat beda tekanan",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        venturiHead(D1, D2 * 0.8, r.Q, C) > venturiHead(D1, D2, r.Q, C) ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * FM-03 Tabung Pitot
+ * ------------------------------------------------------------------ */
+
+export function checksPitot(dh: number, D: number, n: number): Check[] {
+  const V = pitotVelocity(dh);
+  const R = D / 2;
+  const uMax = V;
+
+  // Integrasi numerik profil pada penampang lingkaran, dipakai sebagai
+  // pembanding bagi rumus tertutupnya.
+  const N = 4000;
+  let jumlah = 0;
+  for (let i = 0; i < N; i++) {
+    const r = ((i + 0.5) * R) / N;
+    jumlah += powerLawVelocity(r, R, uMax, n) * 2 * Math.PI * r * (R / N);
+  }
+  const rasioNumerik = jumlah / (Math.PI * R * R) / uMax;
+
+  return [
+    {
+      label: {
+        id: "Tinggi kecepatan pada satu meter per detik adalah 51 milimeter",
+        en: "The velocity head at one metre per second is 51 millimetres",
+      },
+      source: "V kuadrat per dua g, dihitung dengan tangan",
+      kind: "terbitan",
+      expected: 1 / (2 * G),
+      actual: pitotHead(1),
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Perbandingan kecepatan rata-rata terhadap sumbu pada pangkat satu per tujuh",
+        en: "Ratio of mean to centreline velocity for the one-seventh power law",
+      },
+      source: "Hasil tertutup dua n kuadrat per (n+1)(2n+1), Schlichting Boundary-Layer Theory",
+      kind: "terbitan",
+      expected: 98 / 120,
+      actual: powerLawMeanRatio(7),
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Rumus tertutup rasio kecepatan cocok dengan integrasi numerik profilnya",
+        en: "The closed-form velocity ratio matches numerical integration of the profile",
+      },
+      source: "Dua jalur perhitungan yang berbeda pada profil yang sama",
+      kind: "silang",
+      expected: powerLawMeanRatio(n),
+      actual: rasioNumerik,
+      tol: 0.002,
+      tolReason: {
+        id: "Integrasi numerik memakai empat ribu pias dan turunan profilnya menjadi tak hingga tepat di dinding, jadi sisa selisihnya milik cara integrasinya.",
+        en: "The numerical integration uses four thousand strips and the profile derivative becomes infinite exactly at the wall, so the remaining difference belongs to the integration.",
+      },
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Menghitung balik beda tinggi tekan mengembalikan bacaan semula",
+        en: "Computing the head difference back returns the original reading",
+      },
+      source: "Hubungan Pitot harus dapat dibalik",
+      kind: "pulang-pergi",
+      expected: dh,
+      actual: pitotHead(V),
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kecepatan di sumbu pipa sama dengan kecepatan maksimum profil",
+        en: "The velocity on the pipe axis equals the maximum of the profile",
+      },
+      source: "Definisi profil hukum pangkat",
+      kind: "sifat",
+      expected: uMax,
+      actual: powerLawVelocity(0, R, uMax, n),
+      tol: 1e-12,
+      unit: "m/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kecepatan setempat pada jari-jari acuan sama dengan kecepatan rata-rata",
+        en: "The local velocity at the reference radius equals the mean velocity",
+      },
+      source: "Letak titik ukur tunggal, turunan dari profilnya",
+      kind: "silang",
+      expected: uMax * powerLawMeanRatio(n),
+      actual: powerLawVelocity(powerLawMeanRadius(R, n), R, uMax, n),
+      tol: 1e-9,
+      unit: "m/s",
+      digits: 6,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * FM-04 Flum berleher panjang
+ * ------------------------------------------------------------------ */
+
+export function checksFlume(
+  h1: number,
+  bThroat: number,
+  bApproach: number,
+  p: number,
+  Lthroat: number,
+  Cd: number
+): Check[] {
+  const r = flumeDischarge(h1, bThroat, bApproach, p, Lthroat, Cd);
+
+  return [
+    {
+      label: {
+        id: "Tetapan aliran kritis pada leher persegi adalah 1,7049",
+        en: "The critical flow constant for a rectangular throat is 1.7049",
+      },
+      source: "Dua per tiga pangkat satu setengah dikali akar g, Bos (1989) Discharge Measurement Structures",
+      kind: "terbitan",
+      expected: 1.704895,
+      actual: FLUME_C,
+      tol: 1e-6,
+      tolReason: {
+        id: "Nilai acuannya ditulis dengan tujuh angka berarti, jadi toleransinya mengikuti penulisan itu.",
+        en: "The reference value is written to seven significant figures, so the tolerance follows that writing.",
+      },
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kedalaman kritis di leher adalah dua per tiga tinggi energi",
+        en: "Critical depth in the throat is two thirds of the total head",
+      },
+      source: "Kondisi kritis pada penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: (2 / 3) * r.H1,
+      actual: r.yc,
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Debit di leher sama dengan luas kritis dikali kecepatan kritis",
+        en: "The throat discharge equals the critical area times the critical velocity",
+      },
+      source: "Dua jalur perhitungan yang harus bertemu di leher",
+      kind: "silang",
+      expected: r.Q / Cd,
+      actual: bThroat * r.yc * Math.sqrt(G * r.yc),
+      tol: 1e-9,
+      unit: "m³/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Bilangan Froude di leher sama dengan satu",
+        en: "The Froude number in the throat equals one",
+      },
+      source: "Definisi kondisi kritis",
+      kind: "sifat",
+      expected: 1,
+      actual: froude(
+        r.yc > 0 ? r.Q / Cd / (bThroat * r.yc) : 0,
+        r.yc
+      ),
+      tol: 1e-9,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Koefisien kecepatan datang tidak pernah lebih kecil daripada satu",
+        en: "The velocity of approach coefficient is never smaller than one",
+      },
+      source: "Tinggi energi tidak pernah lebih kecil daripada tinggi muka air",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.Cv >= 1 - 1e-12 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Saluran datang yang lebih lebar mengecilkan koefisien kecepatan datang",
+        en: "A wider approach channel reduces the velocity of approach coefficient",
+      },
+      source: "Perilaku yang harus berlaku: kecepatan datang mengecil",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        flumeDischarge(h1, bThroat, bApproach * 3, p, Lthroat, Cd).Cv <= r.Cv
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * FM-05 Pengukuran pengenceran garam
+ * ------------------------------------------------------------------ */
+
+export function checksTracer(
+  Q: number,
+  M: number,
+  L: number,
+  A: number,
+  D: number
+): Check[] {
+  const r = tracerCurve(Q, M, L, A, D);
+  const rLebar = tracerCurve(Q, M, L, A, D * 3);
+
+  // Cara laju tetap, disusun agar hasilnya seharusnya debit yang sama, lalu
+  // dihitung ulang lewat rumus yang sama sekali berbeda.
+  const qSuntik = 0.5;
+  const c1 = 200000;
+  const c0 = 5;
+  const c2 = (qSuntik * c1 + Q * 1000 * c0) / (qSuntik + Q * 1000);
+
+  return [
+    {
+      label: {
+        id: "Luas di bawah kurva mengembalikan debit yang dipakai membuatnya",
+        en: "The area under the curve returns the discharge used to build it",
+      },
+      source: "ISO 9555, cara penyuntikan sesaat",
+      kind: "pulang-pergi",
+      expected: Q,
+      actual: r.Qgulp,
+      tol: 0.002,
+      tolReason: {
+        id: "Kurvanya dibuat dari penyelesaian sebaran lalu luasnya dijumlahkan dengan aturan trapesium pada rentang waktu yang berhingga. Ekor kurva yang terpotong dan lebar pias itulah sisa selisihnya.",
+        en: "The curve comes from the dispersion solution and its area is summed with the trapezoidal rule over a finite time window. The truncated tail and the strip width are what remain.",
+      },
+      unit: "m³/s",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Cara laju tetap memberi debit yang sama dengan cara penyuntikan sesaat",
+        en: "The constant-rate method gives the same discharge as the gulp method",
+      },
+      source: "ISO 9555 memuat kedua cara, dan keduanya harus sepakat",
+      kind: "silang",
+      expected: Q,
+      actual: dilutionDischarge(qSuntik, c1, c2, c0),
+      tol: 1e-9,
+      unit: "m³/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Sebaran yang lebih besar melebarkan kurva tetapi tidak mengubah luasnya",
+        en: "Greater dispersion widens the curve without changing its area",
+      },
+      source: "Kekekalan massa: seluruh garam yang disuntikkan pasti lewat",
+      kind: "sifat",
+      expected: r.Qgulp,
+      actual: rLebar.Qgulp,
+      tol: 0.005,
+      tolReason: {
+        id: "Kurva yang lebih lebar memotong ekornya sedikit berbeda pada rentang waktu yang dipilih, dan itu satu-satunya sumber selisihnya.",
+        en: "A wider curve truncates its tail slightly differently within the chosen time window, and that is the only source of the difference.",
+      },
+      unit: "m³/s",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Waktu tempuh sama dengan jarak dibagi kecepatan rata-rata",
+        en: "The travel time equals the distance divided by the mean velocity",
+      },
+      source: "Kinematika, dihitung dengan tangan",
+      kind: "sifat",
+      expected: (L * A) / Q,
+      actual: r.tTravel,
+      tol: 1e-12,
+      unit: "s",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Sebaran yang lebih besar menurunkan kepekatan puncak",
+        en: "Greater dispersion lowers the peak concentration",
+      },
+      source: "Perilaku yang harus berlaku: massa tetap, kurva melebar",
+      kind: "perilaku",
+      expected: 1,
+      actual: rLebar.cPeak < r.cPeak ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Massa yang disuntikkan dua kali lipat memberi kepekatan dua kali lipat",
+        en: "Doubling the injected mass doubles the concentration",
+      },
+      source: "Kelinieran persamaan sebaran terhadap massa",
+      kind: "sifat",
+      expected: 2 * r.cPeak,
+      actual: tracerCurve(Q, 2 * M, L, A, D).cPeak,
+      tol: 1e-9,
+      unit: "mg/l",
+      digits: 4,
     },
   ];
 }

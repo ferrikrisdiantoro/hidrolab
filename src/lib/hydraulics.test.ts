@@ -26,14 +26,31 @@ import {
   notchDischarge,
   rectGeometry,
   reynolds,
+  FLUME_C,
+  ORIFICE_CC_SLOT,
   RECT_WEIR_KH,
+  VENTURI_C_CAST,
+  VENTURI_C_MACHINED,
+  VENTURI_C_WELDED,
   WES_K,
   WES_N,
   momentumFunction,
   conjugateFromMomentum,
   jetTrajectory,
+  dilutionDischarge,
+  flumeDischarge,
+  orificeJet,
+  orificeTrajectory,
+  pitotHead,
+  pitotVelocity,
+  powerLawMeanRadius,
+  powerLawMeanRatio,
+  powerLawVelocity,
   rectWeirCe,
   rectWeirDischarge,
+  tracerCurve,
+  venturiDischarge,
+  venturiHead,
   wesNappe,
   reachEnergy,
   sideChannelProfile,
@@ -858,5 +875,294 @@ describe("Tirai luapan bebas di atas ambang tajam", () => {
     assert.equal(rectWeirDischarge(1.5, 2, 0.6).reason, "hP-besar");
     assert.equal(rectWeirDischarge(0.3, 2, 0.6).reason, "");
     assert.ok(!rectWeirDischarge(0.3, 2, 0.6).outOfRange);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Lubang berbibir tajam
+ * ------------------------------------------------------------------ */
+
+describe("Lubang berbibir tajam dan vena contracta", () => {
+  it("koefisien kontraksi teoretis sama dengan pi per pi tambah dua", () => {
+    close(ORIFICE_CC_SLOT, Math.PI / (Math.PI + 2), 1e-15, "penyelesaian Kirchhoff");
+    close(ORIFICE_CC_SLOT, 0.611015, 1e-5, "nilai terbitannya");
+  });
+
+  it("kecepatan tanpa kehilangan mengikuti Torricelli", () => {
+    for (const H of [0.4, 1.5, 6]) {
+      const r = orificeJet(H, 0.05, 0.1, 0.98, 0.62);
+      close(r.Vth, Math.sqrt(2 * G * H), 1e-12, `pada H ${H}`);
+      close(r.V, 0.98 * r.Vth, 1e-12, "kecepatan sesungguhnya");
+    }
+  });
+
+  it("lintasan tanpa kehilangan memenuhi x kuadrat sama dengan empat H y", () => {
+    // Percepatan gravitasi saling menghapus di sini, dan itulah yang membuat
+    // koefisien kecepatan dapat diukur hanya dengan meteran.
+    for (const H of [0.5, 2, 4]) {
+      const r = orificeJet(H, 0.04, 0.1, 1, 0.62);
+      for (const x of [0.2, 1, 2.5]) {
+        close(
+          orificeTrajectory(r.V, x),
+          (x * x) / (4 * H),
+          1e-12,
+          `pada H ${H} dan x ${x}`
+        );
+      }
+    }
+  });
+
+  it("koefisien debit adalah hasil kali kontraksi dan kecepatan", () => {
+    const r = orificeJet(1.5, 0.05, 0.1, 0.97, 0.62);
+    close(r.Cd, 0.97 * 0.62, 1e-12, "hasil kali kedua koefisien");
+    close(r.Q, r.Cd * r.area * r.Vth, 1e-12, "debit dari koefisien gabungan");
+  });
+
+  it("tanpa kehilangan kecepatan, tidak ada energi yang hilang", () => {
+    const r = orificeJet(2, 0.05, 0.1, 1, 0.62);
+    close(r.headLoss, 0, 1e-12, "kehilangan nol", 1e-12);
+    assert.ok(orificeJet(2, 0.05, 0.1, 0.95, 0.62).headLoss > 0, "gesekan memberi kehilangan");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Venturi
+ * ------------------------------------------------------------------ */
+
+describe("Venturi", () => {
+  it("faktor kecepatan datang mengikuti bentuk tertutupnya", () => {
+    for (const [D1, D2] of [
+      [0.2, 0.1],
+      [0.3, 0.2],
+      [0.5, 0.3],
+    ]) {
+      const r = venturiDischarge(D1, D2, 0.5, 0.995);
+      close(
+        r.approachFactor,
+        1 / Math.sqrt(1 - Math.pow(D2 / D1, 4)),
+        1e-12,
+        `pada beta ${(D2 / D1).toFixed(2)}`
+      );
+    }
+  });
+
+  it("melupakan faktor kecepatan datang selalu mengecilkan debit", () => {
+    // Arah kesalahannya hanya satu, dan besarnya naik cepat terhadap beta.
+    let sebelumnya = 0;
+    for (const D2 of [0.06, 0.1, 0.14, 0.15]) {
+      const r = venturiDischarge(0.2, D2, 0.5, 0.995);
+      const salah = (r.approachFactor - 1) * 100;
+      assert.ok(salah > 0, "faktornya selalu lebih besar daripada satu");
+      assert.ok(salah > sebelumnya, "kesalahannya membesar terhadap beta");
+      sebelumnya = salah;
+    }
+  });
+
+  it("kekekalan massa terpenuhi antara pipa dan leher", () => {
+    const D1 = 0.25;
+    const D2 = 0.12;
+    const r = venturiDischarge(D1, D2, 0.4, 0.984);
+    const A1 = (Math.PI / 4) * D1 * D1;
+    const A2 = (Math.PI / 4) * D2 * D2;
+    close(r.V1 * A1, r.V2 * A2, 1e-12, "satu debit di dua penampang");
+    close(r.V1 * A1, r.Q, 1e-12, "dan sama dengan debitnya");
+  });
+
+  it("rumusnya dapat dibalik kembali ke beda tinggi tekan", () => {
+    for (const dh of [0.05, 0.5, 3]) {
+      const r = venturiDischarge(0.2, 0.1, dh, 0.995);
+      close(venturiHead(0.2, 0.1, r.Q, 0.995), dh, 1e-9, `pada dh ${dh}`);
+    }
+  });
+
+  it("rentang perbandingan garis tengah dinyatakan, bukan didiamkan", () => {
+    assert.equal(venturiDischarge(0.2, 0.05, 0.5, 0.995).reason, "beta-kecil");
+    assert.equal(venturiDischarge(0.2, 0.16, 0.5, 0.995).reason, "beta-besar");
+    assert.equal(venturiDischarge(0.2, 0.1, 0.5, 0.995).reason, "");
+  });
+
+  it("koefisien terbitannya memang tiga angka yang berbeda", () => {
+    assert.equal(VENTURI_C_MACHINED, 0.995);
+    assert.equal(VENTURI_C_CAST, 0.984);
+    assert.equal(VENTURI_C_WELDED, 0.985);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Tabung Pitot
+ * ------------------------------------------------------------------ */
+
+describe("Tabung Pitot dan profil hukum pangkat", () => {
+  it("beda tinggi tekan persis tinggi kecepatan", () => {
+    for (const V of [0.5, 1, 4.2]) {
+      close(pitotHead(V), (V * V) / (2 * G), 1e-12, `pada V ${V}`);
+      close(pitotVelocity(pitotHead(V)), V, 1e-12, "pulang pergi");
+    }
+    close(pitotHead(1), 0.050968, 1e-4, "tinggi kecepatan pada satu meter per detik");
+  });
+
+  it("rasio kecepatan rata-rata terhadap sumbu cocok dengan integrasi numerik", () => {
+    // Rumus tertutupnya diturunkan dengan tangan, integrasinya dikerjakan
+    // mesin. Keduanya harus bertemu.
+    for (const n of [6, 7, 9]) {
+      const R = 0.1;
+      const uMax = 3;
+      const N = 200000;
+      let jumlah = 0;
+      for (let i = 0; i < N; i++) {
+        const r = ((i + 0.5) * R) / N;
+        jumlah += powerLawVelocity(r, R, uMax, n) * 2 * Math.PI * r * (R / N);
+      }
+      close(
+        jumlah / (Math.PI * R * R) / uMax,
+        powerLawMeanRatio(n),
+        1e-4,
+        `pada pangkat satu per ${n}`
+      );
+    }
+  });
+
+  it("pada pangkat satu per tujuh rasionya 0,8167", () => {
+    close(powerLawMeanRatio(7), 98 / 120, 1e-12, "hasil tertutup");
+    close(powerLawMeanRatio(7), 0.816667, 1e-6, "nilai terbitannya");
+  });
+
+  it("pada jari-jari acuan, kecepatan setempat sama dengan rata-rata", () => {
+    for (const n of [6, 7, 10]) {
+      const R = 0.15;
+      const uMax = 2.5;
+      close(
+        powerLawVelocity(powerLawMeanRadius(R, n), R, uMax, n),
+        uMax * powerLawMeanRatio(n),
+        1e-9,
+        `pada pangkat satu per ${n}`
+      );
+    }
+    // Letaknya sekitar tiga perempat jari-jari, dan itu yang ditandai
+    // pada batang tabung di lapangan.
+    close(powerLawMeanRadius(1, 7), 0.7577, 1e-3, "letak titik ukur tunggal");
+  });
+
+  it("kecepatan di sumbu adalah kecepatan terbesar, dan di dinding nol", () => {
+    const R = 0.1;
+    close(powerLawVelocity(0, R, 3, 7), 3, 1e-12, "di sumbu");
+    close(powerLawVelocity(R, R, 3, 7), 0, 1e-12, "di dinding", 1e-12);
+    for (const f of [0.2, 0.5, 0.9]) {
+      assert.ok(
+        powerLawVelocity(f * R, R, 3, 7) < 3,
+        "selalu lebih kecil daripada kecepatan sumbu"
+      );
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Flum berleher panjang
+ * ------------------------------------------------------------------ */
+
+describe("Flum berleher panjang", () => {
+  it("tetapannya bukan koefisien empiris melainkan hasil tertutup", () => {
+    close(FLUME_C, Math.pow(2 / 3, 1.5) * Math.sqrt(G), 1e-15, "asal-usulnya");
+    close(FLUME_C, 1.704895, 1e-6, "nilai terbitannya");
+  });
+
+  it("kedalaman kritis di leher persis dua per tiga tinggi energi", () => {
+    for (const h1 of [0.1, 0.3, 0.8]) {
+      const r = flumeDischarge(h1, 0.6, 1.2, 0.25, 0.9, 0.99);
+      close(r.yc, (2 / 3) * r.H1, 1e-12, `pada h1 ${h1}`);
+    }
+  });
+
+  it("debit di leher sama dengan luas kritis dikali kecepatan kritis", () => {
+    // Jalur kedua: bukan lewat rumus tetapannya melainkan lewat definisi
+    // aliran kritis. Keduanya harus bertemu.
+    const bt = 0.6;
+    const r = flumeDischarge(0.3, bt, 1.2, 0.25, 0.9, 0.99);
+    close(
+      bt * r.yc * Math.sqrt(G * r.yc),
+      r.Q / 0.99,
+      1e-9,
+      "dua jalur perhitungan bertemu"
+    );
+  });
+
+  it("koefisien kecepatan datang tidak pernah lebih kecil daripada satu", () => {
+    for (const bA of [0.7, 1.2, 5, 40]) {
+      const r = flumeDischarge(0.3, 0.6, bA, 0.25, 0.9, 0.99);
+      assert.ok(r.Cv >= 1 - 1e-12, `pada lebar datang ${bA}`);
+    }
+  });
+
+  it("saluran datang yang makin lebar mendekatkan koefisien itu ke satu", () => {
+    const sempit = flumeDischarge(0.3, 0.6, 0.7, 0.25, 0.9, 0.99);
+    const lebar = flumeDischarge(0.3, 0.6, 40, 0.25, 0.9, 0.99);
+    assert.ok(sempit.Cv > lebar.Cv, "makin lebar makin kecil koreksinya");
+    close(lebar.Cv, 1, 0.01, "hampir tidak ada kecepatan datang lagi");
+  });
+
+  it("rentang perbandingan tinggi energi terhadap panjang leher dinyatakan", () => {
+    assert.equal(flumeDischarge(0.05, 0.6, 1.2, 0.25, 0.9, 0.99).reason, "HL-kecil");
+    assert.equal(flumeDischarge(0.8, 0.6, 1.2, 0.25, 0.9, 0.99).reason, "HL-besar");
+    assert.equal(flumeDischarge(0.3, 0.6, 1.2, 0.25, 0.9, 0.99).reason, "");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Pengukuran pengenceran garam
+ * ------------------------------------------------------------------ */
+
+describe("Pengukuran pengenceran garam", () => {
+  it("luas di bawah kurva mengembalikan debit yang dipakai membuatnya", () => {
+    for (const [Q, M, L, A, D] of [
+      [1.2, 2, 120, 1.5, 3],
+      [0.4, 0.5, 80, 0.8, 1.5],
+      [5, 10, 300, 4, 8],
+    ]) {
+      const r = tracerCurve(Q, M, L, A, D);
+      close(r.Qgulp, Q, 0.002, `pada debit ${Q}`);
+    }
+  });
+
+  it("sebaran memanjang mengubah bentuk kurva tetapi tidak luasnya", () => {
+    // Inilah sebabnya koefisien sebaran tidak perlu diketahui sama sekali
+    // untuk mengukur debit.
+    const dasar = tracerCurve(1.2, 2, 120, 1.5, 3);
+    for (const kali of [0.5, 3, 8]) {
+      const lain = tracerCurve(1.2, 2, 120, 1.5, 3 * kali);
+      close(lain.Qgulp, dasar.Qgulp, 0.01, `pada sebaran ${kali} kali`);
+      if (kali > 1) {
+        assert.ok(lain.cPeak < dasar.cPeak, "puncaknya turun");
+        assert.ok(lain.duration > dasar.duration, "awannya melebar");
+      }
+    }
+  });
+
+  it("kepekatan sebanding lurus dengan massa yang disuntikkan", () => {
+    const satu = tracerCurve(1.2, 2, 120, 1.5, 3);
+    const dua = tracerCurve(1.2, 4, 120, 1.5, 3);
+    close(dua.cPeak, 2 * satu.cPeak, 1e-9, "dua kali massa, dua kali kepekatan");
+    close(dua.Qgulp, satu.Qgulp, 1e-9, "tetapi debitnya tidak berubah");
+  });
+
+  it("waktu tempuh rata-rata sama dengan jarak dibagi kecepatan", () => {
+    const r = tracerCurve(1.2, 2, 120, 1.5, 3);
+    close(r.tTravel, (120 * 1.5) / 1.2, 1e-12, "kinematika sederhana");
+    // Kurvanya menjulur ke kanan, jadi puncaknya datang sedikit lebih awal
+    // daripada waktu tempuh rata-rata.
+    assert.ok(r.tPeak < r.tTravel, "puncak mendahului waktu tempuh rata-rata");
+  });
+
+  it("cara laju tetap sepakat dengan cara penyuntikan sesaat", () => {
+    for (const Q of [0.4, 1.2, 5]) {
+      const q = 0.5;
+      const c1 = 200000;
+      const c0 = 5;
+      const c2 = (q * c1 + Q * 1000 * c0) / (q + Q * 1000);
+      close(dilutionDischarge(q, c1, c2, c0), Q, 1e-9, `pada debit ${Q}`);
+    }
+  });
+
+  it("kepekatan mantap yang sama dengan latar tidak memberi debit", () => {
+    assert.equal(dilutionDischarge(0.5, 200000, 5, 5), 0);
   });
 });

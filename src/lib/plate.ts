@@ -375,3 +375,98 @@ export function axisTitle(
   stencil(ctx, text, 0, 0, 1.1);
   ctx.restore();
 }
+
+/* ------------------------------------------------------------------ *
+ * Badan pipa dalam potongan memanjang
+ *
+ * Dipakai bersama oleh setiap lembar yang menggambar alat di dalam pipa.
+ * Yang diurus di sini hanya bendanya: dinding, arsiran bahan, dan sumbu.
+ * Isi alirannya diserahkan kepada pemanggil, karena itulah yang berbeda
+ * dari satu lembar ke lembar lain.
+ * ------------------------------------------------------------------ */
+
+export type PipeWall = { x: number; r: number }[];
+
+/**
+ * Menggambar dinding pipa simetris terhadap sumbunya.
+ *
+ * Profil diberikan sebagai jari-jari terhadap absis, sehingga pipa lurus,
+ * penyempitan, dan pembesaran semuanya ditangani bentuk data yang sama.
+ * Dinding digambar dengan ketebalan nyata dan diarsir bahan, karena pada
+ * potongan melintang dinding memang benda yang terpotong.
+ */
+export function pipeBody(
+  ctx: CanvasRenderingContext2D,
+  wall: PipeWall,
+  X: (x: number) => number,
+  R: (r: number) => number,
+  opts: {
+    /** Tebal dinding dalam satuan jari-jari */
+    thickness: number;
+    /** Batas bidang gambar untuk memotong arsiran */
+    clip: { x: number; y: number; w: number; h: number };
+    /** Gambar sumbu putus titik di tengah pipa */
+    axis?: boolean;
+  }
+) {
+  const urut = [...wall].sort((a, b) => a.x - b.x);
+  const t = opts.thickness;
+
+  const bidang = (tanda: 1 | -1) => {
+    ctx.beginPath();
+    urut.forEach((p, i) =>
+      i
+        ? ctx.lineTo(X(p.x), R(tanda * p.r))
+        : ctx.moveTo(X(p.x), R(tanda * p.r))
+    );
+    for (let i = urut.length - 1; i >= 0; i--) {
+      ctx.lineTo(X(urut[i].x), R(tanda * (urut[i].r + t)));
+    }
+    ctx.closePath();
+  };
+
+  for (const tanda of [1, -1] as const) {
+    ctx.save();
+    bidang(tanda);
+    ctx.clip();
+    hatchConcrete(ctx, opts.clip.x, opts.clip.y, opts.clip.w, opts.clip.h);
+    ctx.restore();
+
+    pen(ctx, W.bold, C.ink);
+    bidang(tanda);
+    ctx.stroke();
+  }
+
+  if (opts.axis) {
+    pen(ctx, W.hair, C.ink3, DASH.axis);
+    ctx.beginPath();
+    ctx.moveTo(X(urut[0].x), R(0));
+    ctx.lineTo(X(urut[urut.length - 1].x), R(0));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+/**
+ * Panah arah aliran di dalam pipa.
+ *
+ * Panjangnya sebanding dengan kecepatan setempat, jadi panah ini membawa
+ * data dan bukan hiasan: pada penyempitan ia memanjang dengan sendirinya.
+ */
+export function flowArrow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  panjang: number,
+  color: string
+) {
+  const kepala = Math.min(5, Math.abs(panjang) * 0.4);
+  pen(ctx, W.thin, color);
+  ctx.beginPath();
+  ctx.moveTo(x - panjang / 2, y);
+  ctx.lineTo(x + panjang / 2, y);
+  ctx.moveTo(x + panjang / 2 - kepala, y - kepala * 0.6);
+  ctx.lineTo(x + panjang / 2, y);
+  ctx.lineTo(x + panjang / 2 - kepala, y + kepala * 0.6);
+  ctx.stroke();
+}

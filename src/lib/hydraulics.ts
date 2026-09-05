@@ -1470,3 +1470,494 @@ export function rectWeirDischarge(
 
   return { Q, Ce, he, V0, outOfRange: reason !== "", reason };
 }
+
+/* ------------------------------------------------------------------ *
+ * Lubang berbibir tajam dan vena contracta
+ * ------------------------------------------------------------------ */
+
+/**
+ * Koefisien kontraksi teoretis untuk celah dua dimensi berbibir tajam.
+ *
+ * Angka ini bukan hasil pengukuran melainkan penyelesaian tertutup: pada
+ * aliran tanpa kekentalan yang keluar dari celah panjang pada dinding datar,
+ * lebar pancaran menyempit menjadi pi dibagi pi ditambah dua kali lebar
+ * celahnya. Nilainya 0,6110, dan pengukuran pada lubang bulat berbibir tajam
+ * memang jatuh di sekitar 0,62.
+ *
+ * Rujukan: penyelesaian Kirchhoff untuk pancaran bebas, dibahas di Lamb (1932)
+ * Hydrodynamics dan Vennard & Street, Elementary Fluid Mechanics.
+ */
+export const ORIFICE_CC_SLOT = Math.PI / (Math.PI + 2);
+
+export type OrificeResult = {
+  /** Kecepatan menurut Torricelli, tanpa kehilangan */
+  Vth: number;
+  /** Kecepatan sesungguhnya di vena contracta */
+  V: number;
+  Q: number;
+  Cc: number;
+  Cv: number;
+  /** Koefisien debit, hasil kali Cc dan Cv */
+  Cd: number;
+  /** Luas lubang */
+  area: number;
+  /** Luas penampang pancaran di vena contracta */
+  areaVena: number;
+  /** Jarak vena contracta dari bidang lubang, meter */
+  xVena: number;
+  /** Tinggi kehilangan energi pada lubang */
+  headLoss: number;
+};
+
+/**
+ * Pancaran yang keluar dari lubang berbibir tajam pada dinding tegak.
+ *
+ * Dua koefisien bekerja berurutan dan tidak boleh ditukar. Kontraksi mengurangi
+ * LUAS pancaran, karena garis arus yang datang dari samping tidak dapat
+ * berbelok tajam tepat di bibir lubang. Kecepatan mengurangi LAJU, karena ada
+ * gesekan pada bibirnya. Koefisien debit adalah hasil kali keduanya, dan itulah
+ * satu-satunya yang terbaca dari pengukuran debit.
+ */
+export function orificeJet(
+  /** Tinggi muka air di atas titik berat lubang, meter */
+  H: number,
+  /** Tinggi bukaan lubang, meter */
+  a: number,
+  /** Lebar lubang, meter */
+  bLubang: number,
+  Cv: number,
+  Cc: number
+): OrificeResult {
+  const Vth = Math.sqrt(2 * G * Math.max(H, 0));
+  const V = Cv * Vth;
+  const area = a * bLubang;
+  const areaVena = Cc * area;
+  const Q = V * areaVena;
+
+  return {
+    Vth,
+    V,
+    Q,
+    Cc,
+    Cv,
+    Cd: Cc * Cv,
+    area,
+    areaVena,
+    // Vena contracta terbentuk kira-kira setengah tinggi bukaan di hilir bibir.
+    xVena: 0.5 * a,
+    headLoss: (Vth * Vth - V * V) / (2 * G),
+  };
+}
+
+/**
+ * Lintasan pancaran mendatar dari sebuah lubang.
+ *
+ * Pancaran meninggalkan lubang mendatar dengan kecepatan V lalu jatuh bebas,
+ * sehingga lintasannya parabola. Bila kecepatannya persis Torricelli, seluruh
+ * ketergantungan pada gravitasi saling menghapus dan tersisa hubungan yang
+ * bersih: x kuadrat sama dengan empat kali H kali y. Hubungan itulah yang
+ * dipakai di laboratorium untuk mengukur koefisien kecepatan tanpa mengukur
+ * kecepatan sama sekali, cukup dengan meteran.
+ */
+export function orificeTrajectory(V: number, x: number): number {
+  if (V <= 0) return 0;
+  return (G * x * x) / (2 * V * V);
+}
+
+/* ------------------------------------------------------------------ *
+ * Venturi
+ * ------------------------------------------------------------------ */
+
+/** Koefisien debit venturi klasik dengan bagian menyempit hasil pemesinan. */
+export const VENTURI_C_MACHINED = 0.995;
+/** Koefisien debit venturi klasik dengan bagian menyempit hasil cor. */
+export const VENTURI_C_CAST = 0.984;
+/** Koefisien debit venturi dari pelat besi yang dilas kasar. */
+export const VENTURI_C_WELDED = 0.985;
+
+export type VenturiResult = {
+  /** Perbandingan garis tengah leher terhadap pipa */
+  beta: number;
+  Q: number;
+  /** Kecepatan di pipa dan di leher */
+  V1: number;
+  V2: number;
+  /** Faktor kecepatan datang, satu dibagi akar satu dikurangi beta pangkat empat */
+  approachFactor: number;
+  /** Beda tinggi tekan yang terbaca pada manometer, meter */
+  dh: number;
+  C: number;
+  /** Kehilangan tekanan tetap, ditaksir sebagai bagian dari beda tekanan */
+  permanentLoss: number;
+  outOfRange: boolean;
+  reason: "" | "beta-kecil" | "beta-besar";
+};
+
+/** Batas bawah perbandingan garis tengah yang lazim dipakai pada venturi klasik. */
+export const VENTURI_BETA_MIN = 0.3;
+/** Batas atas perbandingan garis tengah yang lazim dipakai pada venturi klasik. */
+export const VENTURI_BETA_MAX = 0.75;
+
+/**
+ * Debit yang lewat sebuah venturi dari beda tinggi tekan yang terbaca.
+ *
+ * Faktor kecepatan datang di dalam akar sering terlupa, dan melupakannya
+ * membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya.
+ * Besarnya kesalahan itu naik cepat terhadap perbandingan garis tengah: pada
+ * beta 0,5 ia sekitar tiga persen, pada beta 0,75 sudah lebih dari dua puluh
+ * persen.
+ *
+ * Rujukan: ISO 5167-4, tabung venturi klasik.
+ */
+export function venturiDischarge(
+  /** Garis tengah pipa, meter */
+  D1: number,
+  /** Garis tengah leher, meter */
+  D2: number,
+  /** Beda tinggi tekan antara pipa dan leher, meter kolom air */
+  dh: number,
+  C: number
+): VenturiResult {
+  const beta = D1 > 0 ? D2 / D1 : 0;
+  const A1 = (Math.PI / 4) * D1 * D1;
+  const A2 = (Math.PI / 4) * D2 * D2;
+  const approachFactor = 1 / Math.sqrt(Math.max(1 - Math.pow(beta, 4), 1e-9));
+  const Q = C * approachFactor * A2 * Math.sqrt(2 * G * Math.max(dh, 0));
+
+  const reason: VenturiResult["reason"] =
+    beta < VENTURI_BETA_MIN
+      ? "beta-kecil"
+      : beta > VENTURI_BETA_MAX
+        ? "beta-besar"
+        : "";
+
+  return {
+    beta,
+    Q,
+    V1: A1 > 0 ? Q / A1 : 0,
+    V2: A2 > 0 ? Q / A2 : 0,
+    approachFactor,
+    dh,
+    C,
+    // Kehilangan tetap venturi klasik jauh lebih kecil daripada pelat lubang,
+    // dan itulah alasan utama orang memilihnya. Ditaksir dari beta.
+    permanentLoss: dh * (0.218 - 0.42 * beta + 0.38 * beta * beta),
+    outOfRange: reason !== "",
+    reason,
+  };
+}
+
+/** Beda tinggi tekan yang akan terbaca pada debit tertentu. */
+export function venturiHead(
+  D1: number,
+  D2: number,
+  Q: number,
+  C: number
+): number {
+  const beta = D1 > 0 ? D2 / D1 : 0;
+  const A2 = (Math.PI / 4) * D2 * D2;
+  const approachFactor = 1 / Math.sqrt(Math.max(1 - Math.pow(beta, 4), 1e-9));
+  const V = Q / (C * approachFactor * A2);
+  return (V * V) / (2 * G);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tabung Pitot
+ * ------------------------------------------------------------------ */
+
+/**
+ * Kecepatan setempat dari beda tinggi tekan sebuah tabung Pitot statik.
+ *
+ * Lubang depan menghadap aliran dan membacanya sampai berhenti, sehingga ia
+ * membaca tekanan stagnasi. Lubang samping membaca tekanan statik. Selisih
+ * keduanya persis tinggi kecepatan, dan itulah seluruh isi alat ini.
+ */
+export function pitotVelocity(dh: number, Cp = 1): number {
+  return Cp * Math.sqrt(2 * G * Math.max(dh, 0));
+}
+
+/** Beda tinggi tekan yang akan terbaca pada kecepatan tertentu. */
+export function pitotHead(V: number, Cp = 1): number {
+  const Vk = Cp > 0 ? V / Cp : 0;
+  return (Vk * Vk) / (2 * G);
+}
+
+/**
+ * Kecepatan setempat pada jarak r dari sumbu pipa, menurut hukum pangkat.
+ *
+ * Bentuk pangkat satu per tujuh berlaku baik pada aliran turbulen di pipa licin
+ * dengan bilangan Reynolds sedang. Ia tidak berlaku di dinding, tempat
+ * turunannya menjadi tak hingga, dan tidak berlaku pada aliran laminar yang
+ * profilnya parabola penuh.
+ */
+export function powerLawVelocity(
+  r: number,
+  R: number,
+  uMax: number,
+  n = 7
+): number {
+  if (R <= 0) return 0;
+  const s = Math.max(0, 1 - Math.abs(r) / R);
+  return uMax * Math.pow(s, 1 / n);
+}
+
+/**
+ * Perbandingan kecepatan rata-rata terhadap kecepatan sumbu untuk hukum pangkat.
+ *
+ * Hasil tertutup dari mengintegrasikan profilnya pada penampang lingkaran:
+ * dua n kuadrat dibagi n tambah satu kali dua n tambah satu. Untuk n sama
+ * dengan tujuh nilainya 0,8167, dan angka itulah yang membuat satu bacaan di
+ * sumbu pipa dapat diubah menjadi debit.
+ */
+export function powerLawMeanRatio(n = 7): number {
+  return (2 * n * n) / ((n + 1) * (2 * n + 1));
+}
+
+/**
+ * Jarak dari sumbu tempat kecepatan setempat sama dengan kecepatan rata-rata.
+ *
+ * Titik inilah yang dicari juru ukur bila hanya sempat mengambil satu bacaan.
+ * Letaknya tidak di tengah dan tidak di dinding, melainkan pada pecahan tetap
+ * dari jari-jari yang hanya bergantung pada pangkatnya.
+ */
+export function powerLawMeanRadius(R: number, n = 7): number {
+  const rasio = powerLawMeanRatio(n);
+  return R * (1 - Math.pow(rasio, n));
+}
+
+/* ------------------------------------------------------------------ *
+ * Flum berleher panjang
+ * ------------------------------------------------------------------ */
+
+/**
+ * Tetapan aliran kritis pada leher persegi, satuan SI.
+ *
+ * Nilainya dua per tiga pangkat satu setengah dikali akar percepatan gravitasi,
+ * yaitu 1,7048. Ia bukan koefisien empiris melainkan akibat langsung dari dua
+ * hal: aliran di leher melewati kondisi kritis, dan pada kondisi kritis
+ * kedalaman persis dua per tiga tinggi energi.
+ */
+export const FLUME_C = Math.pow(2 / 3, 1.5) * Math.sqrt(G);
+
+export type FlumeResult = {
+  Q: number;
+  /** Tinggi energi total di penampang ukur, meter */
+  H1: number;
+  /** Kedalaman kritis di leher, yaitu dua per tiga H1 */
+  yc: number;
+  /** Koefisien kecepatan datang, H1 dibagi h1 pangkat satu setengah */
+  Cv: number;
+  /** Bilangan Froude di penampang ukur */
+  Fr1: number;
+  /** Batas muka air hilir agar flum tetap bekerja bebas */
+  tailLimit: number;
+  outOfRange: boolean;
+  reason: "" | "HL-kecil" | "HL-besar";
+};
+
+/** Batas bawah perbandingan tinggi energi terhadap panjang leher. */
+export const FLUME_HL_MIN = 0.07;
+/** Batas atas perbandingan tinggi energi terhadap panjang leher. */
+export const FLUME_HL_MAX = 0.7;
+
+/**
+ * Debit yang lewat sebuah flum berleher panjang berpenampang persegi.
+ *
+ * Kekuatan alat ini bukan pada ketelitian koefisiennya melainkan pada asalnya:
+ * lehernya dibuat cukup panjang sehingga garis arus di dalamnya sejajar, dan
+ * begitu itu terpenuhi, aliran kritis di leher menjadi hubungan yang dapat
+ * diturunkan, bukan dikalibrasi. Itu sebabnya flum berleher panjang dapat
+ * dirancang di atas kertas untuk bentuk penampang apa pun.
+ *
+ * Kecepatan datang ikut diperhitungkan lewat iterasi, karena tinggi energi
+ * bergantung pada debit sedangkan debit bergantung pada tinggi energi.
+ *
+ * Rujukan: ISO 4359, flum berleher panjang berpenampang persegi.
+ */
+export function flumeDischarge(
+  /** Tinggi muka air di atas mercu leher, terukur di penampang ukur */
+  h1: number,
+  /** Lebar leher, meter */
+  bThroat: number,
+  /** Lebar saluran datang, meter */
+  bApproach: number,
+  /** Tinggi mercu leher di atas dasar saluran datang, meter */
+  p: number,
+  /** Panjang leher searah aliran, meter */
+  Lthroat: number,
+  Cd: number
+): FlumeResult {
+  let H1 = h1;
+  let Q = 0;
+
+  // Tinggi energi dan debit saling bergantung, jadi dicari bergantian sampai
+  // keduanya berhenti berubah.
+  for (let i = 0; i < 100; i++) {
+    Q = Cd * FLUME_C * bThroat * Math.pow(Math.max(H1, 0), 1.5);
+    const A1 = bApproach * (h1 + p);
+    const V1 = A1 > 0 ? Q / A1 : 0;
+    const baru = h1 + (V1 * V1) / (2 * G);
+    if (Math.abs(baru - H1) < 1e-12) {
+      H1 = baru;
+      break;
+    }
+    H1 = baru;
+  }
+
+  const A1 = bApproach * (h1 + p);
+  const V1 = A1 > 0 ? Q / A1 : 0;
+  const rasioHL = Lthroat > 0 ? H1 / Lthroat : 0;
+
+  const reason: FlumeResult["reason"] =
+    rasioHL < FLUME_HL_MIN
+      ? "HL-kecil"
+      : rasioHL > FLUME_HL_MAX
+        ? "HL-besar"
+        : "";
+
+  return {
+    Q,
+    H1,
+    yc: (2 / 3) * H1,
+    Cv: h1 > 0 ? Math.pow(H1 / h1, 1.5) : 1,
+    Fr1: froude(V1, h1 + p),
+    // Flum berhenti bekerja bebas bila muka air hilir naik melewati kira-kira
+    // tiga perempat tinggi energi di atas mercu.
+    tailLimit: p + 0.75 * H1,
+    outOfRange: reason !== "",
+    reason,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Pengukuran pengenceran garam
+ * ------------------------------------------------------------------ */
+
+export type TracerPoint = {
+  /** Waktu sejak penyuntikan, detik */
+  t: number;
+  /** Kepekatan di atas latar, satuan mg per liter */
+  c: number;
+};
+
+export type TracerResult = {
+  points: TracerPoint[];
+  /** Kepekatan puncak di atas latar */
+  cPeak: number;
+  /** Waktu datangnya puncak, detik */
+  tPeak: number;
+  /** Luas di bawah kurva, satuan mg per liter dikali detik */
+  area: number;
+  /** Debit yang dihitung kembali dari luas kurva, meter kubik per detik */
+  Qgulp: number;
+  /** Waktu tempuh rata-rata, detik */
+  tTravel: number;
+  /** Lama awan tracer lewat, dihitung pada satu persen puncak */
+  duration: number;
+};
+
+/**
+ * Awan tracer yang lewat di penampang ukur setelah penyuntikan sesaat.
+ *
+ * Bentuk kurvanya diselesaikan dari persamaan sebaran satu dimensi: awan
+ * garam terbawa arus sambil melebar karena penyebaran memanjang. Yang penting
+ * dari kurva ini bukan bentuknya melainkan LUASNYA, karena luas di bawah kurva
+ * sama dengan massa yang disuntikkan dibagi debitnya, apa pun bentuk kurvanya.
+ * Itulah yang membuat cara ini bekerja pada sungai berbatu yang penampangnya
+ * tidak mungkin diukur.
+ *
+ * Rujukan: ISO 9555, pengukuran debit dengan tracer.
+ */
+export function tracerCurve(
+  /** Debit sungai yang sebenarnya, meter kubik per detik */
+  Q: number,
+  /** Massa garam yang disuntikkan, kilogram */
+  M: number,
+  /** Jarak dari titik suntik ke penampang ukur, meter */
+  L: number,
+  /** Luas penampang rata-rata, meter persegi */
+  A: number,
+  /** Koefisien sebaran memanjang, meter persegi per detik */
+  D: number,
+  steps = 600
+): TracerResult {
+  const u = A > 0 ? Q / A : 0;
+  const tTravel = u > 0 ? L / u : 0;
+
+  // Rentang waktu dipilih dari lebar awannya sendiri, bukan dipatok, supaya
+  // seluruh kurva selalu masuk berapa pun sebarannya.
+  const sigma = Math.sqrt((2 * D * tTravel) / Math.max(u * u, 1e-9));
+  const t0 = Math.max(0.1, tTravel - 5 * sigma);
+  const t1 = tTravel + 6 * sigma;
+  const dt = (t1 - t0) / steps;
+
+  // Massa kilogram dibagi meter kubik menjadi kg per m3; dikali sejuta
+  // menjadi mg per liter.
+  const skala = ((M / A) * 1e6) / 1000;
+
+  const points: TracerPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = t0 + i * dt;
+    const c =
+      t > 0
+        ? (skala / Math.sqrt(4 * Math.PI * D * t)) *
+          Math.exp(-Math.pow(L - u * t, 2) / (4 * D * t))
+        : 0;
+    points.push({ t, c });
+  }
+
+  let area = 0;
+  for (let i = 1; i < points.length; i++) {
+    area += ((points[i].c + points[i - 1].c) / 2) * (points[i].t - points[i - 1].t);
+  }
+
+  const puncak = points.reduce((m, p) => (p.c > m.c ? p : m), points[0]);
+  const ambang = puncak.c * 0.01;
+  const mulai = points.find((p) => p.c >= ambang);
+  const habis = [...points].reverse().find((p) => p.c >= ambang);
+
+  return {
+    points,
+    cPeak: puncak.c,
+    tPeak: puncak.t,
+    area,
+    // Massa dalam kg menjadi mg, dibagi luas kurva dalam mg per liter kali
+    // detik, menghasilkan liter per detik, lalu dibagi seribu menjadi m3/s.
+    Qgulp: area > 0 ? (M * 1e6) / area / 1000 : 0,
+    tTravel,
+    duration: mulai && habis ? habis.t - mulai.t : 0,
+  };
+}
+
+/**
+ * Debit dari penyuntikan laju tetap.
+ *
+ * Cara kedua pada standar yang sama, dan sering lebih disukai di lapangan
+ * karena hanya perlu satu bacaan kepekatan setelah keadaan mantap tercapai,
+ * bukan seluruh kurva.
+ */
+export function dilutionDischarge(
+  /** Laju suntik, liter per detik */
+  q: number,
+  /** Kepekatan larutan yang disuntikkan, mg per liter */
+  c1: number,
+  /** Kepekatan mantap di penampang ukur, mg per liter */
+  c2: number,
+  /** Kepekatan latar sungai, mg per liter */
+  c0: number
+): number {
+  const penyebut = c2 - c0;
+  if (penyebut <= 0) return 0;
+  // Hasilnya liter per detik, dibagi seribu menjadi meter kubik per detik.
+  return (q * (c1 - c2)) / penyebut / 1000;
+}
+
+/**
+ * Panjang pencampuran yang lazim disyaratkan sebelum penampang ukur.
+ *
+ * Bukan rumus melainkan patokan praktik: tracer harus sudah bercampur merata
+ * di seluruh penampang, dan pada sungai kecil berbatu hal itu lazim dicapai
+ * setelah beberapa puluh kali lebar sungainya. Angka ini dipakai di sini
+ * sebagai penanda kelayakan, bukan sebagai hasil hitungan.
+ */
+export const TRACER_MIX_WIDTHS = 25;
