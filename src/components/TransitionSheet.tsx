@@ -140,7 +140,7 @@ export function TransitionSheet({
             <div className="mt-3.5 flex flex-col gap-2.5">
               <PresetRow
                 label={t.presetExample}
-                presets={preset(mode, u, r, {
+                presets={preset(mode, u, {
                   setQ, setB1, setY1, setB2, setDz,
                 })}
               />
@@ -175,7 +175,7 @@ export function TransitionSheet({
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(mode, r, lang, y1, b1, b2Efektif, dzEfektif)}</Note>
+            <Note>{notice(mode, r, lang, y1)}</Note>
           </Block>
         </>
       }
@@ -263,7 +263,6 @@ type Umum = { [K in keyof (typeof UMUM)["id"]]: string };
 function preset(
   mode: TransitionMode,
   u: Umum,
-  r: ReturnType<typeof transition>,
   set: {
     setQ: (v: number) => void;
     setB1: (v: number) => void;
@@ -315,10 +314,7 @@ function notice(
   mode: TransitionMode,
   r: ReturnType<typeof transition>,
   lang: Lang,
-  y1: number,
-  b1: number,
-  b2: number,
-  dz: number
+  y1: number
 ): string {
   const naik = r.y2 > y1;
   const beda = Math.abs(r.y2 - y1);

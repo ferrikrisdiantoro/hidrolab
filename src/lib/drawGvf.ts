@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, W, stencil } from "./theme";
 import {
   axisTitle,
   axisValue,

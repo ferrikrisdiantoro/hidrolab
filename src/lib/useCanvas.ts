@@ -69,9 +69,16 @@ export function useCanvas(
   });
 
   // Gambar ulang saat nilai masukan berubah.
+  //
+  // Daftar kebergantungan dipakai sungguhan di sini. Sebelumnya efek ini
+  // ditulis tanpa daftar sama sekali, sehingga berjalan pada SETIAP render,
+  // dan parameter deps yang diminta dari pemanggil tidak berarti apa pun.
+  // Gambarnya kebetulan tetap benar, tetapi tiap lembar menggambar ulang
+  // walaupun tidak ada satu pun masukannya berubah.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!animate) paint.current(0, 0);
-  });
+  }, [animate, ...deps]);
 
   // Gelung gambar, hanya bila ada yang benar-benar bergerak.
   useEffect(() => {

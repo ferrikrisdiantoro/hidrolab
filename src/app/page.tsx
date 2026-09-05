@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { OpeningPlate } from "@/components/OpeningPlate";
-import { LABS, SUBJECTS, type Subject } from "@/data/labs";
+import { LABS, SUBJECTS } from "@/data/labs";
 import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 

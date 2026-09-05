@@ -5,7 +5,7 @@ import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 
 export function SiteHeader() {
-  const { lang, setLang } = useLang();
+  const { lang } = useLang();
   const t = str(lang);
 
   return (
