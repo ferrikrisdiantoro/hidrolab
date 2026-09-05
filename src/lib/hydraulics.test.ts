@@ -26,8 +26,16 @@ import {
   notchDischarge,
   rectGeometry,
   reynolds,
+  momentumFunction,
+  conjugateFromMomentum,
+  reachEnergy,
+  sideChannelProfile,
+  slopeBreak,
   slopeType,
   specificEnergy,
+  svfProfile,
+  svfSlope,
+  wideChannelNormalDepth,
   transition,
 } from "./hydraulics.ts";
 
@@ -519,5 +527,261 @@ describe("Transisi pada saluran persegi", () => {
     const q = 2.4;
     const yc = criticalDepth(q);
     assert.ok(Number.isNaN(depthFromEnergy(1.5 * yc * 0.9, q, "subkritis")));
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Garis energi sepanjang bentang
+ * ------------------------------------------------------------------ */
+
+describe("Garis energi sepanjang bentang", () => {
+  it("kehilangan gesekan sama dengan penurunan tinggi energi total", () => {
+    // Profilnya diintegrasikan dari dy/dx, bukan dari persamaan energi.
+    // Kalau keduanya bertemu, berarti integrasinya konsisten dengan asal
+    // persamaannya sendiri.
+    const r = reachEnergy(12, 5, 0.025, 0.0015, 2.8, 2000);
+    close(r.dE, r.hf, 1e-4, "selisih energi total sama dengan integral Sf");
+  });
+
+  it("garis energi selalu di atas muka air sebesar tinggi kecepatan", () => {
+    const r = reachEnergy(12, 5, 0.025, 0.0015, 2.8, 1200);
+    for (const p of r.points) {
+      close(p.egl - p.wsl, p.vHead, 1e-12, "jarak tegaknya tinggi kecepatan");
+      assert.ok(p.egl > p.wsl, "garis energi tidak pernah di bawah muka air");
+    }
+  });
+
+  it("pada kedalaman normal, kemiringan gesek sama dengan kemiringan dasar", () => {
+    const S0 = 0.0015;
+    const y0 = normalDepth(12, 5, 0.025, S0);
+    const r = reachEnergy(12, 5, 0.025, S0, y0, 800);
+    for (const p of r.points) {
+      close(p.Sf, S0, 1e-6, "aliran seragam berarti Sf sama dengan S0");
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Aliran dengan debit bertambah
+ * ------------------------------------------------------------------ */
+
+describe("Aliran berubah beraturan dengan debit bertambah", () => {
+  it("tanpa aliran masuk lateral, persamaannya kembali menjadi aliran berubah lambat", () => {
+    // Ini pemeriksaan yang paling berharga pada model ini: satu suku tambahan
+    // dimatikan, dan hasilnya harus persis sama dengan model yang sudah teruji.
+    close(
+      svfSlope(12, 0, 5, 1.6, 0.025, 0.0015),
+      gvfSlope(12, 5, 1.6, 0.025, 0.0015),
+      1e-12,
+      "kemiringan muka air identik saat q bintang nol"
+    );
+
+    const svf = svfProfile(12, 0, 5, 0.025, 0.0015, 2000, 2.8, 400);
+    const gvf = [...gvfProfile(12, 5, 0.025, 0.0015, 2.8, 2000, 400).points].sort(
+      (a, b) => a.x - b.x
+    );
+    close(svf.points[0].y, gvf[0].y, 1e-6, "kedalaman di ujung hulu sama");
+  });
+
+  it("suku aliran masuk lateral selalu menurunkan kemiringan muka air", () => {
+    // Air yang masuk dari samping harus dipercepat oleh aliran yang sudah ada,
+    // dan biayanya diambil dari tinggi tekan. Arah pengaruhnya hanya satu.
+    const tanpa = svfSlope(12, 0, 5, 1.6, 0.025, 0.0015);
+    const dengan = svfSlope(12, 0.02, 5, 1.6, 0.025, 0.0015);
+    assert.ok(dengan < tanpa, "adanya aliran masuk membuat dy/dx lebih kecil");
+  });
+
+  it("debit bertambah searah aliran, tidak pernah berkurang", () => {
+    const r = svfProfile(4, 0.02, 5, 0.025, 0.0012, 500, 2.2, 400);
+    for (let i = 1; i < r.points.length; i++) {
+      assert.ok(
+        r.points[i].Q >= r.points[i - 1].Q - 1e-12,
+        "debit tidak boleh menurun ke arah hilir"
+      );
+    }
+    close(r.Qend, 4 + 0.02 * 500, 1e-9, "debit di ujung hilir sesuai hitungan tangan");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Saluran pengumpul pelimpah samping
+ * ------------------------------------------------------------------ */
+
+describe("Saluran pengumpul pelimpah samping", () => {
+  it("muka air di pangkal lebih tinggi daripada di ujung keluar", () => {
+    // Inilah yang membuat saluran pengumpul harus dibuat dalam: muka airnya
+    // naik ke arah hulu walaupun dasarnya menurun ke arah itu juga.
+    const r = sideChannelProfile(20, 4, 0.014, 0.002, 40);
+    assert.ok(r.rise > 0, "muka air naik ke arah pangkal");
+    assert.ok(r.yMax > r.ycOut, "kedalaman terbesar melebihi kedalaman kritis");
+  });
+
+  it("kendali di ujung keluar berada tepat pada kedalaman kritis", () => {
+    const r = sideChannelProfile(20, 4, 0.014, 0.002, 40);
+    const ujung = r.points[r.points.length - 1];
+    close(ujung.y, criticalDepth(20 / 4), 1e-9, "ujung keluar pada kritis");
+    close(ujung.Fr, 1, 1e-6, "bilangan Froude satu di ujung keluar");
+  });
+
+  it("debit di pangkal nol dan bertambah lurus sampai ujung", () => {
+    const r = sideChannelProfile(20, 4, 0.014, 0.002, 40, 40);
+    close(r.points[0].Q, 0, 1e-9, "belum ada air yang masuk di pangkal", 1e-9);
+    const tengah = r.points[Math.floor(r.points.length / 2)];
+    close(tengah.Q, 10, 0.05, "separuh panjang membawa separuh debit");
+  });
+
+  it("aliran tetap subkritis di sepanjang saluran pengumpul", () => {
+    // Kalau tidak, rancangannya salah: loncatan air di dalam saluran pengumpul
+    // merusak pola aliran menuju saluran peluncur.
+    const r = sideChannelProfile(50, 6, 0.014, 0.005, 60);
+    assert.ok(!r.anySupercritical, "tidak ada penampang yang superkritis");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Patahan kemiringan dasar
+ * ------------------------------------------------------------------ */
+
+describe("Patahan kemiringan dasar", () => {
+  it("patahan landai ke curam meletakkan kendali tepat di patahan", () => {
+    const r = slopeBreak(12, 5, 0.025, 0.0008, 0.02, 600, 200);
+    assert.equal(r.kind, "landai-curam");
+    assert.ok(r.criticalAtBreak, "kendali berada di patahan");
+    close(r.yBreak, criticalDepth(12 / 5), 1e-9, "kedalaman di patahan kritis");
+    assert.equal(r.hulu.name, "M2");
+    assert.equal(r.hilir.name, "S2");
+  });
+
+  it("ruas hulu yang curam tidak dipengaruhi apa pun di seberang patahan", () => {
+    // Aliran superkritis dikendalikan dari hulu. Kalau ruas hulu ikut berubah
+    // saat kemiringan hilir diubah, ada arah pengaruh yang bocor.
+    const a = slopeBreak(12, 5, 0.025, 0.08, 0.003, 150, 100);
+    const b = slopeBreak(12, 5, 0.025, 0.08, 0.006, 150, 100);
+    assert.equal(a.hulu.profile, null, "ruas hulu seragam");
+    close(a.hulu.y0, b.hulu.y0, 1e-12, "kedalaman ruas hulu tidak ikut berubah");
+  });
+
+  it("letak loncatan memenuhi syarat kedalaman konjugat", () => {
+    const r = slopeBreak(12, 5, 0.025, 0.08, 0.003, 150, 100);
+    assert.equal(r.kind, "curam-landai");
+    assert.ok(r.jumpAt !== null, "loncatan ditemukan di ruas hilir");
+    const y1 = r.jumpFrom as number;
+    const q = 12 / 5;
+    close(
+      conjugateDepth(y1, froude(q / y1, y1)),
+      r.jumpTo as number,
+      0.005,
+      "konjugat di titik loncatan setinggi muka air hilir"
+    );
+  });
+
+  it("muka air hilir yang terlalu tinggi menenggelamkan loncatan", () => {
+    const r = slopeBreak(12, 5, 0.025, 0.03, 0.0015, 150, 200);
+    assert.equal(r.kind, "curam-landai");
+    assert.equal(r.jumpAt, null, "loncatan tidak muat di ruas hilir");
+    assert.ok(r.jumpDrowned, "keadaannya dinyatakan, bukan didiamkan");
+  });
+
+  it("profil M3 berhenti di kedalaman kritis, tidak melewatinya", () => {
+    const r = slopeBreak(12, 5, 0.025, 0.03, 0.005, 150, 200);
+    const pts = r.hilir.profile?.points ?? [];
+    for (const p of pts) {
+      assert.ok(p.y <= r.yc + 1e-9, "tidak ada titik di atas kedalaman kritis");
+    }
+  });
+
+  it("kedua ruas landai membuat ruas hilir seragam", () => {
+    const r = slopeBreak(12, 5, 0.025, 0.002, 0.0008, 800, 600);
+    assert.equal(r.kind, "landai-landai");
+    assert.equal(r.hilir.profile, null, "kendali ruas hilir jauh di hilir");
+    assert.equal(r.hulu.name, "M1");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Fungsi momentum
+ * ------------------------------------------------------------------ */
+
+describe("Fungsi momentum", () => {
+  it("nilainya minimum tepat pada kedalaman kritis", () => {
+    const q = 2.4;
+    const yc = criticalDepth(q);
+    const M = momentumFunction(yc, q);
+    for (const f of [0.9, 0.99, 1.01, 1.1, 1.5]) {
+      assert.ok(
+        momentumFunction(yc * f, q) > M,
+        `M pada ${f} kali yc lebih besar daripada M minimum`
+      );
+    }
+  });
+
+  it("nilai minimumnya satu setengah kali kuadrat kedalaman kritis", () => {
+    // Hasil tertutup yang diterbitkan, tidak bergantung pada kode ini.
+    for (const q of [0.7, 2.4, 5]) {
+      const yc = criticalDepth(q);
+      close(
+        momentumFunction(yc, q),
+        1.5 * yc * yc,
+        1e-12,
+        "M minimum sama dengan 1,5 yc kuadrat"
+      );
+    }
+  });
+
+  it("pasangan momentum sama persis dengan persamaan Belanger", () => {
+    // Dua jalur yang sama sekali berbeda: satu mencari akar fungsi momentum,
+    // satu memakai rumus tertutup. Keduanya harus bertemu.
+    for (const [y1, Fr1] of [
+      [1, 5],
+      [0.4, 3],
+      [2, 1.8],
+    ]) {
+      const q = y1 * Fr1 * Math.sqrt(G * y1);
+      close(
+        conjugateFromMomentum(y1, q),
+        conjugateDepth(y1, Fr1),
+        1e-9,
+        `pasangan konjugat pada Fr ${Fr1}`
+      );
+    }
+  });
+
+  it("mencari pasangan dari sisi subkritis mengembalikan kedalaman semula", () => {
+    const q = 2.4;
+    const y1 = 0.35;
+    const y2 = conjugateFromMomentum(y1, q);
+    close(conjugateFromMomentum(y2, q), y1, 1e-6, "pulang pergi kembali ke asal");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Rumus saluran sangat lebar
+ * ------------------------------------------------------------------ */
+
+describe("Rumus tertutup saluran sangat lebar", () => {
+  it("mendekati hasil pencari akar bila salurannya memang lebar", () => {
+    for (const [q, n, S] of [
+      [2, 0.025, 0.001],
+      [5, 0.03, 0.002],
+      [0.8, 0.014, 0.0005],
+    ]) {
+      const b = 2000;
+      close(
+        normalDepth(q * b, b, n, S),
+        wideChannelNormalDepth(q, n, S),
+        0.002,
+        "rumus tertutup dan pencari akar bertemu"
+      );
+    }
+  });
+
+  it("makin lebar salurannya, makin kecil selisihnya", () => {
+    const q = 2;
+    const n = 0.025;
+    const S = 0.001;
+    const acuan = wideChannelNormalDepth(q, n, S);
+    const beda = (b: number) => Math.abs(normalDepth(q * b, b, n, S) - acuan);
+    assert.ok(beda(4000) < beda(1000), "selisih mengecil saat lebar bertambah");
+    assert.ok(beda(1000) < beda(200), "dan mengecil lagi pada lebar sedang");
   });
 });

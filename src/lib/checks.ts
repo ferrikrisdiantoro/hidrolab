@@ -1,6 +1,13 @@
 import type { Check } from "./verify.ts";
 import {
   G,
+  backwaterExtent,
+  momentumFunction,
+  reachEnergy,
+  sideChannelProfile,
+  svfProfile,
+  svfSlope,
+  type TroughResult,
   NOTCH_KH,
   colebrookFriction,
   conjugateDepth,
@@ -16,8 +23,10 @@ import {
   normalDepth,
   notchCe,
   notchDischarge,
+  slopeBreak,
   specificEnergy,
   transition,
+  wideChannelNormalDepth,
 } from "./hydraulics.ts";
 
 /**
@@ -624,4 +633,670 @@ export function checksTransition(
       digits: 0,
     },
   ];
+}
+
+
+/* ------------------------------------------------------------------ *
+ * OC-06 Transisi kemiringan
+ * ------------------------------------------------------------------ */
+
+/**
+ * Kemiringan kritis: kemiringan yang membuat kedalaman normal persis sama
+ * dengan kedalaman kritis. Dipakai di sini untuk menyusun kasus uji yang
+ * dijamin landai atau dijamin curam, apa pun masukan yang sedang dipakai.
+ */
+function kemiringanKritis(Q: number, b: number, n: number): number {
+  const yc = criticalDepth(Q / b);
+  const A = b * yc;
+  const R = A / (b + 2 * yc);
+  return Math.pow((Q * n) / (A * Math.pow(R, 2 / 3)), 2);
+}
+
+export function checksSlopeBreak(
+  Q: number,
+  b: number,
+  n: number,
+  Sa: number
+): Check[] {
+  const q = Q / b;
+  const yc = criticalDepth(q);
+  const Sc = kemiringanKritis(Q, b, n);
+
+  // Saluran uji yang sangat lebar, dipakai membandingkan pencari akar kami
+  // dengan rumus tertutup yang berlaku bila jari-jari hidrolik mendekati
+  // kedalaman.
+  const bLebar = 2000;
+
+  const landai = slopeBreak(Q, b, n, Sc / 4, Sc * 4, 600);
+  const curam = slopeBreak(Q, b, n, Sc * 4, Sc * 0.85, 400);
+  const y0a = normalDepth(Q, b, n, Sa);
+
+  return [
+    {
+      label: {
+        id: "Kedalaman normal saluran sangat lebar, dibanding rumus tertutup",
+        en: "Normal depth in a very wide channel, against the closed form",
+      },
+      source: "Rumus saluran sangat lebar, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: wideChannelNormalDepth(q, n, Sa),
+      actual: normalDepth(q * bLebar, bLebar, n, Sa),
+      tol: 0.01,
+      tolReason: {
+        id: "Saluran uji lebarnya 2.000 m, jadi jari-jari hidroliknya belum persis sama dengan kedalaman. Sisa selisih itu memang sifat pendekatannya, bukan galat pencari akar.",
+        en: "The test channel is 2,000 m wide, so its hydraulic radius is not yet exactly equal to the depth. The remaining difference belongs to the approximation, not to the root finder.",
+      },
+      unit: "m",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Pada kemiringan kritis, kedalaman normal sama dengan kedalaman kritis",
+        en: "At the critical slope, normal depth equals critical depth",
+      },
+      source: "Definisi kemiringan kritis, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: yc,
+      actual: normalDepth(Q, b, n, Sc),
+      tol: 1e-6,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Patahan landai ke curam memaksa kedalaman kritis tepat di patahan",
+        en: "A mild-to-steep break forces critical depth exactly at the break",
+      },
+      source: "Letak kendali pada patahan kemiringan, Chow (1959) Bab 9",
+      kind: "terbitan",
+      expected: yc,
+      actual: landai.yBreak,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kedalaman normal dikembalikan ke Manning menghasilkan debit semula",
+        en: "Feeding normal depth back into Manning returns the original discharge",
+      },
+      source: "Pembalikan persamaan Manning harus dapat dibalik lagi",
+      kind: "pulang-pergi",
+      expected: Q,
+      actual: manningDischarge(b, y0a, n, Sa),
+      tol: 1e-7,
+      unit: "m³/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kedalaman konjugat di titik loncatan sama dengan kedalaman normal hilir",
+        en: "The conjugate depth at the jump equals the downstream normal depth",
+      },
+      source: "Syarat letak loncatan air, Chow (1959) Bab 15",
+      kind: "silang",
+      expected: curam.jumpTo ?? 0,
+      actual:
+        curam.jumpFrom !== null
+          ? conjugateDepth(
+              curam.jumpFrom,
+              froude(q / curam.jumpFrom, curam.jumpFrom)
+            )
+          : (curam.jumpTo ?? 0),
+      tol: 0.005,
+      tolReason: {
+        id: "Letak loncatan dibaca dengan menyisipkan di antara dua titik penelusuran, jadi ketelitiannya dibatasi lebar langkah, bukan oleh persamaannya.",
+        en: "The jump location is read by interpolating between two computed points, so its precision is limited by the step width rather than by the equation.",
+      },
+      unit: "m",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Kemiringan yang lebih curam memberi kedalaman normal yang lebih kecil",
+        en: "A steeper slope gives a smaller normal depth",
+      },
+      source: "Perilaku yang harus berlaku pada persamaan Manning",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        normalDepth(Q, b, n, Sa * 4) < normalDepth(Q, b, n, Sa) ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * OC-09 Persamaan energi saluran terbuka
+ * ------------------------------------------------------------------ */
+
+export function checksReachEnergy(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yControl: number,
+  L: number
+): Check[] {
+  const q = Q / b;
+  const yc = criticalDepth(q);
+  const r = reachEnergy(Q, b, n, S0, yControl, L);
+  const tengah = r.points[Math.floor(r.points.length / 2)];
+  const y0 = normalDepth(Q, b, n, S0);
+  const seragam = reachEnergy(Q, b, n, S0, y0, L);
+
+  return [
+    {
+      label: {
+        id: "Kedalaman normal saluran sangat lebar, dibanding rumus tertutup",
+        en: "Normal depth in a very wide channel, against the closed form",
+      },
+      source: "Rumus saluran sangat lebar, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: wideChannelNormalDepth(q, n, S0),
+      actual: normalDepth(q * 2000, 2000, n, S0),
+      tol: 0.01,
+      tolReason: {
+        id: "Saluran uji lebarnya 2.000 m, sehingga jari-jari hidroliknya belum persis sama dengan kedalaman. Sisa selisihnya milik pendekatan itu, bukan milik pencari akar.",
+        en: "The test channel is 2,000 m wide, so its hydraulic radius is not yet exactly equal to the depth. The remaining difference belongs to that approximation, not to the root finder.",
+      },
+      unit: "m",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Energi minimum sama dengan satu setengah kali kedalaman kritis",
+        en: "Minimum specific energy equals one and a half times critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * yc,
+      actual: specificEnergy(yc, q),
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Penurunan tinggi energi total sama dengan integral kemiringan gesek",
+        en: "The drop in total energy equals the integral of the friction slope",
+      },
+      source: "Persamaan energi dan persamaan aliran berubah lambat harus sepakat",
+      kind: "silang",
+      expected: r.hf,
+      actual: r.dE,
+      tol: 0.002,
+      tolReason: {
+        id: "Profilnya diintegrasikan dari dy/dx dengan Runge-Kutta, sedangkan kehilangan gesekan dijumlahkan dengan aturan trapesium. Dua cara penjumlahan yang berbeda menyisakan selisih sebesar lebar langkahnya.",
+        en: "The profile is integrated from dy/dx with Runge-Kutta while the friction loss is summed with the trapezoidal rule. Two different summations leave a difference of the order of the step width.",
+      },
+      unit: "m",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Jarak tegak garis energi ke muka air sama dengan tinggi kecepatan",
+        en: "The gap between the energy line and the water surface is the velocity head",
+      },
+      source: "Definisi garis energi",
+      kind: "sifat",
+      expected: tengah.vHead,
+      actual: tengah.egl - tengah.wsl,
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Pada aliran seragam, kemiringan gesek sama dengan kemiringan dasar",
+        en: "In uniform flow the friction slope equals the bed slope",
+      },
+      source: "Definisi aliran seragam",
+      kind: "sifat",
+      expected: S0,
+      actual: seragam.points[Math.floor(seragam.points.length / 2)].Sf,
+      tol: 1e-6,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kedalaman normal dikembalikan ke Manning menghasilkan debit semula",
+        en: "Feeding normal depth back into Manning returns the original discharge",
+      },
+      source: "Pembalikan persamaan Manning harus dapat dibalik lagi",
+      kind: "pulang-pergi",
+      expected: Q,
+      actual: manningDischarge(b, y0, n, S0),
+      tol: 1e-7,
+      unit: "m³/s",
+      digits: 6,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * HS-09 Pengaruh hilir
+ * ------------------------------------------------------------------ */
+
+export function checksBackwater(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yControl: number
+): Check[] {
+  const q = Q / b;
+  const yc = criticalDepth(q);
+  const y0 = normalDepth(Q, b, n, S0);
+  const r = backwaterExtent(Q, b, n, S0, yControl);
+
+  // Kemiringan kritis dipakai sebagai kasus uji yang nilainya sudah diketahui
+  // lebih dulu dari definisinya, bukan dari hitungan ini.
+  const A = b * yc;
+  const R = A / (b + 2 * yc);
+  const Sc = Math.pow((Q * n) / (A * Math.pow(R, 2 / 3)), 2);
+
+  // Dua metode penelusuran yang sama sekali berbeda, dibandingkan pada
+  // perjalanan yang sama dan seluruhnya di satu sisi kedalaman kritis.
+  const yA = y0 * 1.5;
+  const yB = y0 * 1.15;
+  const langsung = Math.abs(gvfDistanceDirectStep(Q, b, n, S0, yA, yB, 4000));
+  const rk = jarakDariProfil(Q, b, n, S0, yA, yB);
+
+  return [
+    {
+      label: {
+        id: "Kedalaman normal saluran sangat lebar, dibanding rumus tertutup",
+        en: "Normal depth in a very wide channel, against the closed form",
+      },
+      source: "Rumus saluran sangat lebar, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: wideChannelNormalDepth(q, n, S0),
+      actual: normalDepth(q * 2000, 2000, n, S0),
+      tol: 0.01,
+      tolReason: {
+        id: "Saluran uji lebarnya 2.000 m, sehingga jari-jari hidroliknya belum persis sama dengan kedalaman.",
+        en: "The test channel is 2,000 m wide, so its hydraulic radius is not yet exactly equal to the depth.",
+      },
+      unit: "m",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Pada kemiringan kritis, kedalaman normal sama dengan kedalaman kritis",
+        en: "At the critical slope, normal depth equals critical depth",
+      },
+      source: "Definisi kemiringan kritis, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: yc,
+      actual: normalDepth(Q, b, n, Sc),
+      tol: 1e-6,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Metode langkah langsung memberi jarak yang sama dengan Runge-Kutta",
+        en: "The direct-step method gives the same distance as Runge-Kutta",
+      },
+      source: "Dua metode penelusuran yang berbeda pada perjalanan yang sama",
+      kind: "silang",
+      expected: langsung,
+      actual: rk,
+      tol: 0.02,
+      tolReason: {
+        id: "Metode langkah langsung membagi rentang kedalaman, sedangkan Runge-Kutta membagi jarak. Titik bacanya tidak pernah persis berimpit, dan sisa selisihnya berasal dari situ.",
+        en: "The direct-step method divides the depth range while Runge-Kutta divides the distance. Their sample points never coincide exactly, and the remaining difference comes from that.",
+      },
+      unit: "m",
+      digits: 1,
+    },
+    {
+      label: {
+        id: "Tanpa kenaikan muka air, tidak ada pengaruh yang menjalar",
+        en: "With no rise in water level, no influence propagates",
+      },
+      source: "Sifat yang harus berlaku: bendung setinggi nol tidak mengubah apa pun",
+      kind: "sifat",
+      expected: 0,
+      actual: backwaterExtent(Q, b, n, S0, y0).distance,
+      tol: 0,
+      absTol: 1e-6,
+      unit: "m",
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Kenaikan yang lebih besar menjalar lebih jauh ke hulu",
+        en: "A larger rise propagates further upstream",
+      },
+      source: "Perilaku yang harus berlaku pada kurva pembendungan",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        backwaterExtent(Q, b, n, S0, y0 + (yControl - y0) * 2).distance >=
+        r.distance
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Batas satu persen selalu lebih jauh daripada batas sepuluh persen",
+        en: "The one per cent limit always lies further than the ten per cent limit",
+      },
+      source: "Sifat kurva pembendungan yang mendekati kedalaman normal secara asimtotik",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        backwaterExtent(Q, b, n, S0, yControl, 0.01).distance >=
+        backwaterExtent(Q, b, n, S0, yControl, 0.1).distance
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/**
+ * Jarak antara dua kedalaman, dibaca dari profil Runge-Kutta.
+ *
+ * Dipakai hanya untuk membandingkan dengan metode langkah langsung. Titik
+ * perlintasan disisipkan di antara dua langkah, bukan dibaca per langkah,
+ * supaya perbandingannya tidak dibatasi lebar langkah lebih dari perlunya.
+ */
+function jarakDariProfil(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yFrom: number,
+  yTo: number
+): number {
+  // Penampang kendali ditaruh pada kedalaman yang lebih besar. Pada kurva
+  // pembendungan, kedalaman berkurang ke arah hulu, jadi kendali di kedalaman
+  // yang lebih kecil tidak akan pernah sampai ke kedalaman yang lebih besar.
+  const r = gvfProfile(Q, b, n, S0, Math.max(yFrom, yTo), 20000, 4000);
+  const pts = [...r.points].sort((a, c) => a.x - c.x);
+  const cari = (target: number): number | null => {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const c = pts[i];
+      if ((a.y - target) * (c.y - target) <= 0 && Math.abs(c.y - a.y) > 1e-12) {
+        return a.x + ((target - a.y) / (c.y - a.y)) * (c.x - a.x);
+      }
+    }
+    return null;
+  };
+  const xa = cari(yFrom);
+  const xb = cari(yTo);
+  return xa !== null && xb !== null ? Math.abs(xb - xa) : 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * OC-12 Aliran masuk lateral
+ * ------------------------------------------------------------------ */
+
+export function checksSvf(
+  Q0: number,
+  qStar: number,
+  b: number,
+  n: number,
+  S0: number,
+  L: number,
+  yEnd: number
+): Check[] {
+  const Qend = Q0 + qStar * L;
+  const qEnd = Qend / b;
+  const ycEnd = criticalDepth(qEnd);
+  const r = svfProfile(Q0, qStar, b, n, S0, L, yEnd);
+  const tengah = r.points[Math.floor(r.points.length / 2)];
+
+  // Keadaan uji untuk pemeriksaan pembanding.
+  //
+  // Penelusuran ini mengandaikan kendali di ujung hilir, dan andaian itu hanya
+  // berlaku pada aliran subkritis. Kalau masukan yang sedang dipakai membuat
+  // ujung hilirnya superkritis, pembandingnya diambil pada kedalaman subkritis
+  // terdekat, bukan dibiarkan membandingkan dua perjalanan yang arahnya
+  // berlawanan. Yang diperiksa memang kesepakatan dua penyelesai, bukan
+  // kelayakan masukannya.
+  const yUji = Math.max(yEnd, ycEnd * 1.15);
+
+  // Pembandingnya memakai debit ujung hilir, bukan debit masuk. Debit masuk
+  // boleh saja nol, misalnya pada saluran tepi jalan yang seluruh airnya datang
+  // dari samping, dan penelusuran pada debit nol tidak membandingkan apa pun.
+  const svfTanpa = svfProfile(Qend, 0, b, n, S0, L, yUji);
+  const gvf = [...gvfProfile(Qend, b, n, S0, yUji, L, 400).points].sort(
+    (a, c) => a.x - c.x
+  );
+
+  return [
+    {
+      label: {
+        id: "Tanpa aliran masuk, persamaannya kembali menjadi aliran berubah lambat",
+        en: "With no inflow, the equation reduces to gradually varied flow",
+      },
+      source: "Chow (1959) Bab 12 memuat Bab 9 sebagai kasus khususnya",
+      kind: "silang",
+      expected: gvfSlope(tengah.Q, b, yUji, n, S0),
+      actual: svfSlope(tengah.Q, 0, b, yUji, n, S0),
+      tol: 1e-12,
+      digits: 8,
+    },
+    {
+      label: {
+        id: "Penelusuran tanpa aliran masuk berhimpit dengan penelusuran biasa",
+        en: "The traverse with no inflow coincides with the ordinary traverse",
+      },
+      source: "Dua penyelesai yang harus memberi profil yang sama",
+      kind: "silang",
+      expected: gvf[0].y,
+      actual: svfTanpa.points[0].y,
+      tol: 1e-4,
+      tolReason: {
+        id: "Kedua penyelesai memakai Runge-Kutta orde empat, tetapi yang satu membagi langkahnya lagi secara adaptif. Sisa selisihnya sebesar galat pemotongan langkah, bukan perbedaan persamaan.",
+        en: "Both solvers use fourth-order Runge-Kutta, but one subdivides its steps adaptively. The remaining difference is step truncation error, not a difference of equations.",
+      },
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Energi minimum di ujung hilir sama dengan satu setengah kali kedalaman kritis",
+        en: "Minimum energy at the outlet equals one and a half times critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * ycEnd,
+      actual: specificEnergy(ycEnd, qEnd),
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Debit di ujung hilir sama dengan debit masuk ditambah seluruh aliran lateral",
+        en: "The outlet discharge equals the inflow plus all the lateral inflow",
+      },
+      source: "Kekekalan massa, dihitung dengan tangan",
+      kind: "sifat",
+      expected: Qend,
+      actual: r.Qend,
+      tol: 1e-9,
+      unit: "m³/s",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Suku aliran masuk lateral selalu menurunkan kemiringan muka air",
+        en: "The lateral inflow term always lowers the water surface slope",
+      },
+      source: "Air yang masuk dari samping harus dipercepat oleh aliran yang sudah ada",
+      kind: "perilaku",
+      expected: 1,
+      // Diperiksa pada debit di tengah bentang, bukan pada debit masuk. Kalau
+      // debit yang lewat nol, tidak ada apa pun yang perlu dipercepat dan
+      // pemeriksaannya kehilangan arti, bukan gagal.
+      actual:
+        svfSlope(Math.max(tengah.Q, 1e-3), Math.max(qStar, 1e-4), b, yUji, n, S0) <
+        svfSlope(Math.max(tengah.Q, 1e-3), 0, b, yUji, n, S0)
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Kedalaman normal saluran sangat lebar, dibanding rumus tertutup",
+        en: "Normal depth in a very wide channel, against the closed form",
+      },
+      source: "Rumus saluran sangat lebar, Chow (1959) Bab 6",
+      kind: "terbitan",
+      expected: wideChannelNormalDepth(qEnd, n, S0),
+      actual: normalDepth(qEnd * 2000, 2000, n, S0),
+      tol: 0.01,
+      tolReason: {
+        id: "Saluran uji lebarnya 2.000 m, sehingga jari-jari hidroliknya belum persis sama dengan kedalaman.",
+        en: "The test channel is 2,000 m wide, so its hydraulic radius is not yet exactly equal to the depth.",
+      },
+      unit: "m",
+      digits: 4,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * HS-10 Pelimpah samping
+ * ------------------------------------------------------------------ */
+
+export function checksSideChannel(
+  Qtotal: number,
+  b: number,
+  n: number,
+  S0: number,
+  L: number
+): Check[] {
+  const r = sideChannelProfile(Qtotal, b, n, S0, L);
+  const keluar = r.points[r.points.length - 1];
+  const q = Qtotal / b;
+  const yc = criticalDepth(q);
+  const tengah = r.points[Math.floor(r.points.length / 2)];
+
+  return [
+    {
+      label: {
+        id: "Energi minimum di ujung keluar sama dengan satu setengah kali kedalaman kritis",
+        en: "Minimum energy at the outlet equals one and a half times critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * yc,
+      actual: specificEnergy(keluar.y, q),
+      tol: 1e-6,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Fungsi momentum di ujung keluar sama dengan satu setengah kali kuadrat kedalaman kritis",
+        en: "The momentum function at the outlet equals one and a half times the square of critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * yc * yc,
+      actual: momentumFunction(keluar.y, q),
+      tol: 1e-6,
+      unit: "m³/m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Bilangan Froude di ujung keluar sama dengan satu",
+        en: "The Froude number at the outlet equals one",
+      },
+      source: "Letak kendali saluran pengumpul, Chow (1959) Bab 12",
+      kind: "sifat",
+      expected: 1,
+      actual: keluar.Fr,
+      tol: 1e-6,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Separuh panjang saluran mengumpulkan separuh debit",
+        en: "Half the channel length collects half the discharge",
+      },
+      source: "Limpasan merata sepanjang mercu, dihitung dengan tangan",
+      kind: "sifat",
+      expected: Qtotal / 2,
+      actual: tengah.Q,
+      tol: 0.02,
+      tolReason: {
+        id: "Titik tengah dibaca dari senarai titik yang jumlahnya genap, jadi ia tidak jatuh persis di separuh panjang.",
+        en: "The midpoint is read from a list with an even number of points, so it does not land exactly at half the length.",
+      },
+      unit: "m³/s",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Muka air di pangkal lebih tinggi daripada di ujung keluar",
+        en: "The water surface at the head is higher than at the outlet",
+      },
+      source: "Perilaku yang harus berlaku pada saluran pengumpul",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.rise > 0 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Iterasi tiap langkah benar-benar memenuhi persamaan momentumnya",
+        en: "The iteration at each step really does satisfy its momentum equation",
+      },
+      source: "Bentuk beda hingga Hinds (1926), dikutip Chow (1959) Bab 12",
+      kind: "silang",
+      expected: 0,
+      actual: sisaMomentumTerbesar(r, b, n, L),
+      tol: 0,
+      absTol: 1e-6,
+      unit: "m",
+      digits: 8,
+    },
+  ];
+}
+
+/**
+ * Sisa terbesar persamaan momentum di sepanjang saluran pengumpul.
+ *
+ * Nilai yang tersimpan dimasukkan kembali ke persamaan yang seharusnya
+ * dipenuhinya. Kalau iterasinya berhenti terlalu cepat, sisa ini tidak nol,
+ * dan itu tidak akan terlihat dari gambarnya.
+ */
+function sisaMomentumTerbesar(
+  r: TroughResult,
+  b: number,
+  n: number,
+  L: number
+): number {
+  const dx = L / (r.points.length - 1);
+  let terbesar = 0;
+  for (let i = 1; i < r.points.length; i++) {
+    const p1 = r.points[i - 1];
+    const p2 = r.points[i];
+    const jumlahQ = p1.Q + p2.Q;
+    if (jumlahQ <= 0) continue;
+    const dyMomentum =
+      ((p1.V + p2.V) / (G * jumlahQ)) *
+      (p1.Q * (p2.V - p1.V) + p2.V * (p2.Q - p1.Q));
+    const hf =
+      ((frictionSlope(p1.Q, b, p1.y, n) + frictionSlope(p2.Q, b, p2.y, n)) / 2) *
+      dx;
+    terbesar = Math.max(terbesar, Math.abs(p1.ws - (p2.ws + dyMomentum + hf)));
+  }
+  return terbesar;
 }

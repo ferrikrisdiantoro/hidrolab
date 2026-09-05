@@ -75,7 +75,7 @@ export const LABS: Lab[] = [
     "What happens to the water surface when the channel narrows?", "siap"),
   L("OC-06", "transisi-kemiringan", "OC", "Transisi kemiringan", "Slope transition",
     "Bagaimana muka air menyesuaikan saat kemiringan dasar berubah?",
-    "How does the surface adjust when the bed slope changes?"),
+    "How does the surface adjust when the bed slope changes?", "siap"),
   L("OC-07", "transisi-dasar", "OC", "Transisi elevasi dasar", "Bed-level transition",
     "Kapan ambang di dasar saluran memaksa aliran melewati kondisi kritis?",
     "When does a bed step force the flow through critical conditions?", "siap"),
@@ -85,7 +85,7 @@ export const LABS: Lab[] = [
 
   L("OC-09", "persamaan-energi-saluran", "OC", "Persamaan energi saluran terbuka", "Open-channel energy equation",
     "Bagaimana garis energi dan garis muka air tersusun di sepanjang saluran?",
-    "How do the energy and water surface lines run along the channel?"),
+    "How do the energy and water surface lines run along the channel?", "siap"),
   L("OC-10", "hukum-gesekan", "OC", "Hukum gesekan", "Friction laws",
     "Manning, Chezy, atau Darcy-Weisbach — mana yang dipakai pada kondisi apa?",
     "Manning, Chezy, or Darcy-Weisbach — which applies under what conditions?"),
@@ -94,7 +94,7 @@ export const LABS: Lab[] = [
     "How does a straight river turn into a meandering one?"),
   L("OC-12", "aliran-masuk-lateral", "OC", "Aliran masuk lateral", "Lateral inflow",
     "Bagaimana muka air berubah bila air masuk di sepanjang saluran?",
-    "How does the surface change when water enters along the channel?"),
+    "How does the surface change when water enters along the channel?", "siap"),
 
   /* ---------------- Bangunan air (10) ---------------- */
   L("HS-01", "bendung-ogee", "HS", "Bendung ogee", "Ogee weir",
@@ -123,10 +123,10 @@ export const LABS: Lab[] = [
     "What stone size resists this flow velocity?"),
   L("HS-09", "pengaruh-hilir", "HS", "Pengaruh hilir", "Downstream effects",
     "Sejauh mana bangunan di hilir mempengaruhi muka air di hulu?",
-    "How far upstream does a downstream structure affect the water surface?"),
+    "How far upstream does a downstream structure affect the water surface?", "siap"),
   L("HS-10", "pelimpah-samping", "HS", "Pelimpah samping", "Side-channel spillway",
     "Bagaimana muka air terbentuk pada pelimpah yang mengalir menyamping?",
-    "How does the water surface form along a spillway that flows sideways?"),
+    "How does the water surface form along a spillway that flows sideways?", "siap"),
 
   /* ---------------- Dasar mekanika fluida (7) ---------------- */
   L("FF-01", "bernoulli", "FF", "Bernoulli", "Bernoulli",

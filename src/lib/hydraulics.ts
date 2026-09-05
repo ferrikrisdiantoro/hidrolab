@@ -500,6 +500,276 @@ function clampDepth(y: number, yc: number): number {
 }
 
 /* ------------------------------------------------------------------ *
+ * Jangkauan pengaruh bangunan di hilir
+ * ------------------------------------------------------------------ */
+
+export type BackwaterExtent = {
+  /** Jarak sampai pengaruhnya tinggal sekian bagian, meter */
+  distance: number;
+  /** Kenaikan muka air di penampang kendali terhadap kedalaman normal */
+  rise: number;
+  y0: number;
+  /** Benar bila pengaruhnya belum habis pada bentang terpanjang yang dicari */
+  beyondSearch: boolean;
+};
+
+/**
+ * Sejauh mana ke hulu sebuah bangunan masih terasa.
+ *
+ * Profil pembendungan mendekati kedalaman normal secara asimtotik, jadi
+ * pertanyaan "sampai di mana pengaruhnya berhenti" tidak punya jawaban tegas.
+ * Yang dapat dijawab adalah sampai di mana pengaruhnya tinggal sekian persen,
+ * dan angka itulah yang dipakai dalam praktik untuk menentukan batas kajian
+ * genangan. Nilai lazimnya satu persen.
+ */
+export function backwaterExtent(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yControl: number,
+  fraction = 0.01,
+  maxLength = 500000
+): BackwaterExtent {
+  const y0 = normalDepth(Q, b, n, S0);
+  const rise = yControl - y0;
+  if (Math.abs(rise) < 1e-9) {
+    return { distance: 0, rise: 0, y0, beyondSearch: false };
+  }
+
+  const target = y0 + rise * fraction;
+  const langkah = 2000;
+  const r = gvfProfile(Q, b, n, S0, yControl, maxLength, langkah);
+
+  // Penampang kendali ada di hilir untuk aliran subkritis, jadi dibaca mundur.
+  const dariHilir = r.direction === "hulu";
+  const urut = dariHilir ? [...r.points].reverse() : r.points;
+  const kendaliX = urut[0].x;
+
+  const lewat = (y: number) => (rise > 0 ? y <= target : y >= target);
+  for (let i = 1; i < urut.length; i++) {
+    if (lewat(urut[i].y) && !lewat(urut[i - 1].y)) {
+      const a = urut[i - 1];
+      const c = urut[i];
+      const beda = c.y - a.y;
+      const f = Math.abs(beda) < 1e-12 ? 0 : (target - a.y) / beda;
+      return {
+        distance: Math.abs(kendaliX - (a.x + (c.x - a.x) * f)),
+        rise,
+        y0,
+        beyondSearch: false,
+      };
+    }
+  }
+  return { distance: maxLength, rise, y0, beyondSearch: true };
+}
+
+/* ------------------------------------------------------------------ *
+ * Patahan kemiringan dasar
+ * ------------------------------------------------------------------ */
+
+export type SlopeBreakKind =
+  | "landai-curam"
+  | "curam-landai"
+  | "landai-landai"
+  | "curam-curam";
+
+export type SlopeBreakReach = {
+  y0: number;
+  mild: boolean;
+  /**
+   * Profil pada ruas ini, atau null bila ruas ini seragam pada kedalaman
+   * normalnya. Ruas yang kendalinya berada di luar bentang yang digambar
+   * memang tidak punya profil peralihan untuk ditelusuri.
+   */
+  profile: GvfResult | null;
+  /** Nama profil, atau penanda seragam */
+  name: string;
+};
+
+export type SlopeBreak = {
+  yc: number;
+  kind: SlopeBreakKind;
+  hulu: SlopeBreakReach;
+  hilir: SlopeBreakReach;
+  /** Kedalaman tepat di patahan */
+  yBreak: number;
+  /** Benar bila aliran melewati kondisi kritis tepat di patahan */
+  criticalAtBreak: boolean;
+  /** Jarak loncatan air dari patahan ke arah hilir, meter; null bila tidak ada */
+  jumpAt: number | null;
+  /** Kedalaman sesudah loncatan, yang harus sama dengan kedalaman normal ruas hilir */
+  jumpTo: number | null;
+  /** Kedalaman tepat sebelum loncatan */
+  jumpFrom: number | null;
+  /**
+   * Benar bila loncatan tidak muat di ruas hilir karena muka air hilir terlalu
+   * tinggi. Loncatan lalu terdorong ke hulu melewati patahan dan ruas curam
+   * ikut tergenang. Ini keadaan yang berbeda, bukan kegagalan hitungan.
+   */
+  jumpDrowned: boolean;
+};
+
+/**
+ * Dua ruas saluran dengan kemiringan dasar berbeda.
+ *
+ * Yang menentukan seluruh gambar adalah letak penampang kendalinya, dan letak
+ * itu tidak dipilih melainkan jatuh dari jenis patahannya:
+ *
+ * - Landai ke curam. Aliran melewati kondisi kritis TEPAT di patahan, dan di
+ *   situlah kendalinya. Ruas hulu ditelusuri ke hulu dari kedalaman kritis,
+ *   ruas hilir ditelusuri ke hilir dari kedalaman yang sama.
+ * - Landai ke landai. Kendali ruas hilir berada jauh di hilir, sehingga ruas
+ *   hilir praktis seragam pada kedalaman normalnya. Ruas hulu menyesuaikan diri
+ *   terhadap kedalaman itu di patahan.
+ * - Ruas hulu curam. Aliran superkritis dikendalikan dari hulu, jadi apa pun
+ *   yang terjadi di hilir tidak dapat menjalar naik: ruas hulu seragam pada
+ *   kedalaman normalnya, apa pun kemiringan di seberang patahan.
+ * - Curam ke landai. Aliran superkritis meneruskan perjalanannya melewati
+ *   patahan sebagai profil M3, melambat, lalu naik lewat loncatan air ke
+ *   kedalaman normal ruas hilir. Letak loncatannya dicari, bukan ditaruh di
+ *   patahan begitu saja.
+ */
+export function slopeBreak(
+  Q: number,
+  b: number,
+  n: number,
+  Sa: number,
+  Sb: number,
+  panjangHulu = 600,
+  panjangHilir = panjangHulu
+): SlopeBreak {
+  const q = Q / b;
+  const yc = criticalDepth(q);
+  const y0a = normalDepth(Q, b, n, Sa);
+  const y0b = normalDepth(Q, b, n, Sb);
+  const mildA = y0a > yc;
+  const mildB = y0b > yc;
+
+  const kind: SlopeBreakKind = mildA
+    ? mildB
+      ? "landai-landai"
+      : "landai-curam"
+    : mildB
+      ? "curam-landai"
+      : "curam-curam";
+
+  const seragam = (y0: number, mild: boolean): SlopeBreakReach => ({
+    y0,
+    mild,
+    profile: null,
+    name: "y₀",
+  });
+
+  /**
+   * Memotong profil di tempat ia mencapai kondisi kritis.
+   *
+   * Profil M3 naik menuju kedalaman kritis dan berhenti di situ; kelanjutannya
+   * bukan aliran superkritis lagi. Langkah integrasi yang lebar dapat
+   * melompatinya, jadi titik sesudah perlintasan dibuang alih-alih digambar.
+   */
+  const potongDiKritis = (r: GvfResult): GvfResult => {
+    const urut = [...r.points].sort((a, c) => a.x - c.x);
+    const batas = urut.findIndex((p) => p.y >= yc * 0.995);
+    if (batas <= 0) return r;
+
+    // Titik perlintasan digeser tepat ke kedalaman kritis, supaya ujung profil
+    // tidak tampak sedikit melewatinya hanya karena lebar langkah.
+    const potong = urut.slice(0, batas + 1);
+    const a = potong[potong.length - 2];
+    const c = potong[potong.length - 1];
+    if (a && Math.abs(c.y - a.y) > 1e-9) {
+      const f = (yc - a.y) / (c.y - a.y);
+      potong[potong.length - 1] = {
+        x: a.x + (c.x - a.x) * f,
+        y: yc,
+        nearCritical: true,
+      };
+    }
+    return { ...r, points: potong };
+  };
+
+  const bertelusur = (
+    S: number,
+    yKendali: number,
+    mild: boolean,
+    y0: number,
+    panjang: number
+  ): SlopeBreakReach => {
+    const r = gvfProfile(Q, b, n, S, yKendali, panjang, 600);
+    return { y0, mild, profile: r, name: r.profile };
+  };
+
+  let hulu: SlopeBreakReach;
+  let hilir: SlopeBreakReach;
+  let yBreak: number;
+  let jumpAt: number | null = null;
+  let jumpTo: number | null = null;
+  let jumpFrom: number | null = null;
+  let jumpDrowned = false;
+
+  if (mildA && !mildB) {
+    // Kendali tepat di patahan. Sedikit di atas dan di bawah kritis dipakai
+    // sebagai titik awal, karena persamaannya tidak terdefinisi tepat di kritis.
+    yBreak = yc;
+    hulu = bertelusur(Sa, yc * 1.02, true, y0a, panjangHulu);
+    hilir = bertelusur(Sb, yc * 0.98, false, y0b, panjangHilir);
+  } else if (mildA && mildB) {
+    yBreak = y0b;
+    hulu = bertelusur(Sa, y0b, true, y0a, panjangHulu);
+    hilir = seragam(y0b, true);
+  } else if (!mildA && !mildB) {
+    yBreak = y0a;
+    hulu = seragam(y0a, false);
+    hilir = bertelusur(Sb, y0a, false, y0b, panjangHilir);
+  } else {
+    yBreak = y0a;
+    hulu = seragam(y0a, false);
+    const m3 = bertelusur(Sb, y0a, true, y0b, panjangHilir);
+    hilir = { ...m3, profile: m3.profile ? potongDiKritis(m3.profile) : null };
+
+    // Loncatan terjadi di tempat kedalaman konjugat aliran superkritis sudah
+    // sama tinggi dengan muka air hilir.
+    //
+    // Sepanjang profil M3 kedalaman naik, bilangan Froude turun, dan kedalaman
+    // konjugatnya IKUT TURUN. Jadi konjugat terbesar ada tepat di patahan.
+    // Kalau yang terbesar pun masih di bawah kedalaman normal ruas hilir,
+    // loncatan tidak muat di mana pun dan terdorong ke hulu.
+    const konj = (yy: number) => conjugateDepth(yy, froude(q / yy, yy));
+    const pts = hilir.profile
+      ? [...hilir.profile.points].sort((a, c) => a.x - c.x)
+      : [];
+    for (let i = 1; i < pts.length; i++) {
+      const sebelum = konj(pts[i - 1].y) - y0b;
+      const sesudah = konj(pts[i].y) - y0b;
+      if (sebelum >= 0 && sesudah < 0) {
+        const f = sebelum / (sebelum - sesudah);
+        jumpAt = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f;
+        jumpFrom = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f;
+        jumpTo = y0b;
+        break;
+      }
+    }
+    if (jumpAt === null && pts.length > 0 && konj(pts[0].y) < y0b) {
+      jumpDrowned = true;
+    }
+  }
+
+  return {
+    yc,
+    kind,
+    hulu,
+    hilir,
+    yBreak,
+    criticalAtBreak: mildA && !mildB,
+    jumpAt,
+    jumpTo,
+    jumpFrom,
+    jumpDrowned,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * Transisi pada saluran persegi
  *
  * Satu model untuk tiga lembar: perubahan elevasi dasar, perubahan lebar,
@@ -683,3 +953,420 @@ export function notchDischarge(H: number, thetaDeg: number): NotchResult {
 
 /** Batas bawah tinggi muka air yang masih di dalam rentang keberlakuan. */
 export const NOTCH_H_MIN = 0.05;
+
+/* ------------------------------------------------------------------ *
+ * Garis energi sepanjang bentang
+ * ------------------------------------------------------------------ */
+
+export type ReachEnergyPoint = {
+  /** Jarak dari ujung hulu, meter */
+  x: number;
+  /** Elevasi dasar terhadap datum di ujung hilir */
+  zb: number;
+  y: number;
+  V: number;
+  /** Tinggi kecepatan, V kuadrat per dua g */
+  vHead: number;
+  /** Garis muka air, yaitu zb ditambah y */
+  wsl: number;
+  /** Garis energi, yaitu muka air ditambah tinggi kecepatan */
+  egl: number;
+  Sf: number;
+  nearCritical: boolean;
+};
+
+export type ReachEnergyResult = {
+  points: ReachEnergyPoint[];
+  y0: number;
+  yc: number;
+  profile: string;
+  mild: boolean;
+  /** Kehilangan tinggi tekan akibat gesekan, hasil integrasi Sf sepanjang bentang */
+  hf: number;
+  /** Penurunan dasar sepanjang bentang, yaitu S0 dikali panjang */
+  dz: number;
+  /** Selisih tinggi energi total antara ujung hulu dan ujung hilir */
+  dE: number;
+};
+
+/**
+ * Menyusun garis energi dan garis muka air sepanjang satu bentang.
+ *
+ * Dua garis inilah yang membuat persamaan energi saluran terbuka dapat dibaca.
+ * Jarak tegak antara garis energi dan muka air adalah tinggi kecepatan, dan
+ * kemiringan garis energi adalah kemiringan gesek. Keduanya diturunkan dari
+ * profil yang sama, bukan digambar terpisah, sehingga tidak mungkin saling
+ * bertentangan di layar.
+ */
+export function reachEnergy(
+  Q: number,
+  b: number,
+  n: number,
+  S0: number,
+  yControl: number,
+  L: number,
+  steps = 300
+): ReachEnergyResult {
+  const r = gvfProfile(Q, b, n, S0, yControl, L, steps);
+
+  // Titik dari gvfProfile boleh berurut ke hulu; di sini selalu dari hulu.
+  const urut = [...r.points].sort((a, c) => a.x - c.x);
+
+  const points: ReachEnergyPoint[] = urut.map((p) => {
+    const zb = (L - p.x) * S0;
+    const V = Q / (b * p.y);
+    const vHead = (V * V) / (2 * G);
+    return {
+      x: p.x,
+      zb,
+      y: p.y,
+      V,
+      vHead,
+      wsl: zb + p.y,
+      egl: zb + p.y + vHead,
+      Sf: frictionSlope(Q, b, p.y, n),
+      nearCritical: p.nearCritical,
+    };
+  });
+
+  let hf = 0;
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i].x - points[i - 1].x;
+    hf += ((points[i].Sf + points[i - 1].Sf) / 2) * dx;
+  }
+
+  return {
+    points,
+    y0: r.y0,
+    yc: r.yc,
+    profile: r.profile,
+    mild: r.mild,
+    hf,
+    dz: S0 * L,
+    dE: points[0].egl - points[points.length - 1].egl,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Aliran berubah beraturan dengan debit bertambah
+ * ------------------------------------------------------------------ */
+
+export type SvfPoint = {
+  x: number;
+  y: number;
+  /** Debit yang lewat di penampang ini, bertambah ke arah hilir */
+  Q: number;
+  V: number;
+  Fr: number;
+  nearCritical: boolean;
+};
+
+export type SvfResult = {
+  points: SvfPoint[];
+  /** Debit di ujung hilir */
+  Qend: number;
+  /** Kedalaman kritis di ujung hilir, tempat debitnya terbesar */
+  ycEnd: number;
+  /** Benar bila ada titik yang melewati kondisi kritis di tengah bentang */
+  crossesCritical: boolean;
+  yMax: number;
+  /**
+   * Benar bila aliran di ujung hilir ternyata superkritis.
+   *
+   * Penelusuran ini mengandaikan kendali berada di ujung hilir, dan andaian itu
+   * hanya berlaku untuk aliran subkritis. Pada aliran superkritis kendalinya
+   * pindah ke hulu, sehingga hasil penelusuran ini tidak berlaku dan harus
+   * dinyatakan demikian alih-alih ditampilkan seolah berlaku.
+   */
+  outletSupercritical: boolean;
+};
+
+/**
+ * Kemiringan muka air pada aliran dengan debit bertambah di sepanjang jalan.
+ *
+ * Bedanya dengan aliran berubah lambat ada pada satu suku tambahan di
+ * pembilang. Air yang masuk dari samping datang tanpa membawa momentum searah
+ * saluran, jadi ia harus dipercepat oleh aliran yang sudah ada, dan biaya
+ * percepatan itu diambil dari tinggi tekan. Suku itulah yang membuat muka air
+ * pada saluran pengumpul naik ke arah hulu walaupun dasarnya menurun.
+ *
+ * Rujukan: Chow (1959) Bab 12, aliran berubah beraturan dengan debit bertambah.
+ */
+export function svfSlope(
+  Q: number,
+  qStar: number,
+  b: number,
+  y: number,
+  n: number,
+  S0: number
+): number {
+  const A = b * y;
+  const Sf = frictionSlope(Q, b, y, n);
+  const Fr2 = (Q * Q) / (G * b * b * y * y * y);
+  const lateral = (2 * Q * qStar) / (G * A * A);
+  const denom = 1 - Fr2;
+  const kecil = Math.abs(denom) < 1e-4;
+  return (S0 - Sf - lateral) / (kecil ? Math.sign(denom || 1) * 1e-4 : denom);
+}
+
+/**
+ * Menelusuri muka air pada saluran yang menerima aliran masuk merata.
+ *
+ * Penelusuran dimulai dari ujung hilir dan berjalan ke hulu, karena aliran
+ * subkritis dikendalikan dari hilir. Debit di setiap penampang dihitung dari
+ * jaraknya, bukan dianggap tetap, dan itulah yang membedakan lembar ini dari
+ * penelusuran biasa.
+ *
+ * Andaian kendali di ujung hilir tidak berlaku bila aliran di sana superkritis.
+ * Keadaan itu tidak dilarang di sini, melainkan dilaporkan lewat
+ * outletSupercritical, supaya lembar yang memakainya dapat menyatakannya
+ * kepada pembaca alih-alih menampilkan angka yang tidak berarti.
+ */
+export function svfProfile(
+  Q0: number,
+  qStar: number,
+  b: number,
+  n: number,
+  S0: number,
+  L: number,
+  yEnd: number,
+  steps = 400
+): SvfResult {
+  const dx = L / steps;
+  const Qat = (x: number) => Math.max(1e-6, Q0 + qStar * x);
+
+  const pts: SvfPoint[] = [];
+  let y = yEnd;
+
+  const rekam = (x: number, yy: number) => {
+    const Q = Qat(x);
+    const V = Q / (b * yy);
+    const Fr = froude(V, yy);
+    pts.push({ x, y: yy, Q, V, Fr, nearCritical: Math.abs(Fr - 1) < 0.06 });
+  };
+
+  rekam(L, y);
+
+  // Runge-Kutta orde empat, melangkah mundur sebesar dx tiap kali.
+  const f = (xx: number, yy: number) =>
+    svfSlope(Qat(xx), qStar, b, Math.max(0.01, yy), n, S0);
+
+  // Langkah dibagi lagi secara adaptif bila muka air sedang curam.
+  //
+  // Di dekat kondisi kritis penyebut (1 - Fr kuadrat) menuju nol dan kemiringan
+  // muka air membesar tanpa batas. Langkah tetap akan melompati keadaan itu dan
+  // menghasilkan kedalaman yang tidak berarti apa pun. Yang dilakukan di sini
+  // adalah memperkecil langkah sampai perubahan kedalaman per langkah tetap
+  // kecil terhadap kedalamannya sendiri.
+  const rk4 = (x: number, yy: number, h: number) => {
+    const k1 = f(x, yy);
+    const k2 = f(x + h / 2, yy + (h / 2) * k1);
+    const k3 = f(x + h / 2, yy + (h / 2) * k2);
+    const k4 = f(x + h, yy + h * k3);
+    return yy + (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+  };
+
+  for (let i = 1; i <= steps; i++) {
+    const x = L - (i - 1) * dx;
+    const kasar = Math.abs(f(x, y) * dx);
+    const bagi = Math.min(200, Math.max(1, Math.ceil(kasar / (0.02 * y))));
+    const h = -dx / bagi;
+    for (let j = 0; j < bagi; j++) {
+      y = Math.max(0.01, rk4(x + j * h, y, h));
+    }
+    rekam(x - dx, y);
+  }
+
+  pts.reverse();
+
+  return {
+    points: pts,
+    Qend: Qat(L),
+    ycEnd: criticalDepth(Qat(L) / b),
+    crossesCritical: pts.some((p) => p.Fr > 1) && pts.some((p) => p.Fr < 1),
+    yMax: pts.reduce((m, p) => Math.max(m, p.y), 0),
+    outletSupercritical: yEnd < criticalDepth(Qat(L) / b),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Fungsi momentum
+ * ------------------------------------------------------------------ */
+
+/**
+ * Fungsi momentum per satuan lebar untuk penampang persegi, satuan meter kubik
+ * per meter. Nilainya minimum tepat pada kedalaman kritis, sama seperti energi
+ * spesifik, dan itu bukan kebetulan: keduanya turun dari kondisi yang sama.
+ */
+export function momentumFunction(y: number, q: number): number {
+  return (y * y) / 2 + (q * q) / (G * y);
+}
+
+/**
+ * Kedalaman lain yang memberi nilai fungsi momentum sama.
+ *
+ * Inilah pasangan konjugat loncatan air, dicari langsung dari fungsi
+ * momentumnya alih-alih dari persamaan Belanger. Kalau keduanya bertemu di
+ * angka yang sama, dua jalur perhitungan yang berbeda saling membenarkan.
+ */
+export function conjugateFromMomentum(y: number, q: number): number {
+  const M = momentumFunction(y, q);
+  const yc = criticalDepth(q);
+  const naik = y < yc;
+
+  let lo = naik ? yc : 1e-6;
+  let hi = naik ? Math.max(yc * 50, y * 50, 1) : yc;
+
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const nilai = momentumFunction(mid, q);
+    // Di atas yc fungsi momentum naik terhadap y, di bawahnya turun.
+    if (naik ? nilai < M : nilai > M) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * Saluran pengumpul pelimpah samping, metode Hinds
+ * ------------------------------------------------------------------ */
+
+export type TroughPoint = {
+  x: number;
+  y: number;
+  Q: number;
+  V: number;
+  Fr: number;
+  /** Elevasi dasar terhadap datum di ujung hilir */
+  zb: number;
+  /** Elevasi muka air terhadap datum yang sama */
+  ws: number;
+};
+
+export type TroughResult = {
+  points: TroughPoint[];
+  /** Kedalaman kritis di ujung keluar, tempat kendalinya berada */
+  ycOut: number;
+  Qout: number;
+  /** Kedalaman terbesar di sepanjang saluran pengumpul */
+  yMax: number;
+  /** Kenaikan muka air dari ujung keluar ke pangkal saluran */
+  rise: number;
+  /** Benar bila ada penampang yang menjadi superkritis, yang berarti rancangannya perlu diperiksa */
+  anySupercritical: boolean;
+};
+
+/**
+ * Muka air di dalam saluran pengumpul sebuah pelimpah samping.
+ *
+ * Dipakai bentuk beda hingga dari persamaan momentum, bukan bentuk diferensial,
+ * dan itu bukan pilihan gaya. Kendali saluran pengumpul berada tepat pada
+ * kondisi kritis di ujung keluarnya, dan di titik itu bentuk diferensial
+ * membagi dengan (1 - Fr kuadrat) yang menuju nol, sehingga penelusuran meledak
+ * pada langkah pertama. Bentuk beda hingga tidak pernah membagi dengan suku itu.
+ *
+ * Bentuk yang dipakai sudah dirapikan agar tidak membagi dengan debit di hulu,
+ * supaya pangkal saluran yang debitnya nol tetap dapat dihitung.
+ *
+ * Rujukan: Hinds (1926), dikutip Chow (1959) Bab 12 dan USBR Design of Small Dams.
+ */
+export function sideChannelProfile(
+  /** Debit total yang melimpah masuk sepanjang saluran, meter kubik per detik */
+  Qtotal: number,
+  /** Lebar dasar saluran pengumpul, meter */
+  b: number,
+  n: number,
+  S0: number,
+  L: number,
+  steps = 120
+): TroughResult {
+  const dx = L / steps;
+  const qStar = Qtotal / L;
+  const Qat = (x: number) => qStar * x;
+
+  const ycOut = criticalDepth(Qtotal / b);
+
+  const pts: TroughPoint[] = [];
+  let y = ycOut;
+  let ws = ycOut; // dasar di ujung keluar dijadikan datum
+
+  const simpan = (x: number, yy: number, wsn: number) => {
+    const Q = Qat(x);
+    const V = yy > 0 ? Q / (b * yy) : 0;
+    pts.push({ x, y: yy, Q, V, Fr: froude(V, yy), zb: wsn - yy, ws: wsn });
+  };
+
+  simpan(L, y, ws);
+
+  for (let i = 1; i <= steps; i++) {
+    const x2 = L - (i - 1) * dx;
+    const x1 = x2 - dx;
+    const Q2 = Qat(x2);
+    const Q1 = Qat(x1);
+    const y2 = y;
+    const V2 = Q2 / (b * y2);
+    const zb1 = pts[pts.length - 1].zb + S0 * dx;
+
+    // Kedalaman di hulu muncul di kedua ruas, jadi dicari dengan iterasi.
+    // Iterasinya dituntut bertemu sampai ketelitian mesin, bukan sampai
+    // gambarnya terlihat benar: sisa iterasi yang tertinggal tidak akan
+    // pernah tampak di layar tetapi tetap terbawa ke langkah berikutnya.
+    let y1 = y2;
+    for (let k = 0; k < 300; k++) {
+      const V1 = Q1 > 0 ? Q1 / (b * y1) : 0;
+      const jumlahQ = Q1 + Q2;
+      const dyMomentum =
+        jumlahQ > 0
+          ? ((V1 + V2) / (G * jumlahQ)) * (Q1 * (V2 - V1) + V2 * (Q2 - Q1))
+          : 0;
+      const hf =
+        ((frictionSlope(Q1, b, y1, n) + frictionSlope(Q2, b, y2, n)) / 2) * dx;
+      const wsBaru = ws + dyMomentum + hf;
+      const yBaru = Math.max(0.01, wsBaru - zb1);
+      if (Math.abs(yBaru - y1) < 1e-13) {
+        y1 = yBaru;
+        break;
+      }
+      y1 = y1 + (yBaru - y1) * 0.6;
+    }
+
+    ws = zb1 + y1;
+    y = y1;
+    simpan(x1, y, ws);
+  }
+
+  pts.reverse();
+
+  return {
+    points: pts,
+    ycOut,
+    Qout: Qtotal,
+    yMax: pts.reduce((m, p) => Math.max(m, p.y), 0),
+    rise: pts[0].ws - pts[pts.length - 1].ws,
+    anySupercritical: pts.some((p) => p.Q > 0 && p.Fr > 1.001),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Rumus tertutup untuk saluran sangat lebar
+ * ------------------------------------------------------------------ */
+
+/**
+ * Kedalaman normal pada saluran yang jauh lebih lebar daripada dalamnya.
+ *
+ * Pada saluran semacam itu jari-jari hidrolik mendekati kedalaman, sehingga
+ * persamaan Manning dapat dibalik secara langsung tanpa iterasi. Rumus ini
+ * tidak dipakai untuk menghitung apa pun yang tampil di layar; keberadaannya
+ * semata sebagai pembanding terbitan yang bebas dari pencari akar kami sendiri,
+ * dipakai pada blok verifikasi.
+ *
+ * Rujukan: Chow (1959) Bab 6, saluran sangat lebar.
+ */
+export function wideChannelNormalDepth(
+  q: number,
+  n: number,
+  S: number
+): number {
+  return Math.pow((q * n) / Math.sqrt(S), 3 / 5);
+}

@@ -80,6 +80,8 @@ export const F = {
   labelSm: '600 9px "Public Sans", system-ui, sans-serif',
   value: '500 11px "Public Sans", system-ui, sans-serif',
   region: '600 10px "Public Sans", system-ui, sans-serif',
+  /** Nama besar di dalam gambar, misalnya nama profil muka air */
+  heading: '700 15px "Public Sans", system-ui, sans-serif',
 } as const;
 
 /** Menulis teks kapital dengan jarak huruf, seperti stensil lettering. */
