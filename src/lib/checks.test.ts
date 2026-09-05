@@ -7,6 +7,7 @@ import {
   checksJump,
   checksMoody,
   checksNotch,
+  checksTransition,
 } from "./checks.ts";
 import { evaluate, summarise, type Check } from "./verify.ts";
 
@@ -37,6 +38,9 @@ describe("Blok verifikasi memenuhi aturan PRD", () => {
     ["OC-03", checksGvf(12, 5, 0.025, 0.0015)],
     ["PI-01", checksMoody(6e5, 8.667e-4)],
     ["FM-01", checksNotch(0.2, 90)],
+    ["OC-04", checksTransition(12, 5, 1.5, 4.2, 0.1)],
+    ["OC-05", checksTransition(12, 5, 1.5, 4.0, 0)],
+    ["OC-07", checksTransition(12, 5, 1.5, 5.0, 0.2)],
   ];
 
   it("tiap lembar punya minimal 5 pemeriksaan", () => {
@@ -136,6 +140,23 @@ describe("Blok verifikasi bertahan di seluruh rentang penggeser", () => {
     for (const Re of [1e3, 2.5e3, 1e4, 1e5, 1e6, 1e7, 1e8]) {
       for (const rr of [0, 1e-5, 1e-4, 1e-3, 0.01, 0.05]) {
         semuaLolos(checksMoody(Re, rr), `Re=${Re} rr=${rr}`);
+      }
+    }
+  });
+
+  it("OC-04, OC-05, OC-07 transisi", () => {
+    for (const Q of [1, 12, 60]) {
+      for (const b1 of [2, 5, 12]) {
+        for (const y1 of [0.3, 0.8, 1.5, 3]) {
+          for (const b2 of [b1 * 0.5, b1 * 0.8, b1, b1 * 1.4]) {
+            for (const dz of [-0.2, 0, 0.15, 0.5]) {
+              semuaLolos(
+                checksTransition(Q, b1, y1, b2, dz),
+                `Q=${Q} b1=${b1} y1=${y1} b2=${b2} dz=${dz}`
+              );
+            }
+          }
+        }
       }
     }
   });

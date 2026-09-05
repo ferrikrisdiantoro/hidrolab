@@ -5,6 +5,7 @@ import {
   colebrookFriction,
   conjugateDepth,
   criticalDepth,
+  depthFromEnergy,
   frictionSlope,
   froude,
   gvfDistanceDirectStep,
@@ -16,6 +17,7 @@ import {
   notchCe,
   notchDischarge,
   specificEnergy,
+  transition,
 } from "./hydraulics.ts";
 
 /**
@@ -513,6 +515,109 @@ export function checksNotch(H: number, theta: number): Check[] {
       actual:
         notchDischarge(0.03, 90).outOfRange &&
         !notchDischarge(0.05, 90).outOfRange
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
+ * OC-04, OC-05, OC-07 Transisi pada saluran persegi
+ * ------------------------------------------------------------------ */
+
+export function checksTransition(
+  Q: number,
+  b1: number,
+  y1: number,
+  b2: number,
+  dz: number
+): Check[] {
+  const r = transition({ Q, b1, y1, b2, dz });
+
+  // Keadaan pada ambang tersendat, dipakai beberapa pemeriksaan sekaligus.
+  const dasar = transition({ Q, b1, y1, b2, dz: 0 });
+  const diAmbang = transition({ Q, b1, y1, b2, dz: dasar.dzMax });
+
+  return [
+    {
+      label: {
+        id: "Kenaikan dasar terbesar sama dengan E₁ dikurangi 1,5 kali kedalaman kritis",
+        en: "Maximum bed rise equals E₁ minus 1.5 times critical depth",
+      },
+      source: "Chow (1959) Bab 3, syarat aliran tersendat",
+      kind: "terbitan",
+      expected: dasar.E1 - 1.5 * dasar.yc2,
+      actual: dasar.dzMax,
+      tol: 1e-9,
+      unit: "m",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Tepat pada kenaikan dasar terbesar, bilangan Froude menjadi satu",
+        en: "At the maximum bed rise the Froude number becomes one",
+      },
+      source: "Definisi kondisi kritis pada penampang tersendat",
+      kind: "sifat",
+      expected: 1,
+      actual: diAmbang.Fr2,
+      tol: 1e-4,
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Energi spesifik kekal dikurangi kenaikan dasar",
+        en: "Specific energy is conserved less the bed rise",
+      },
+      source: "Kekekalan energi pada transisi tanpa gesekan",
+      kind: "silang",
+      expected: r.E1,
+      actual: r.choked
+        ? r.E1
+        : specificEnergy(r.y2, r.q2) + dz,
+      tol: 1e-9,
+      unit: "m",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Tanpa perubahan apa pun, kedalaman hilir sama dengan hulu",
+        en: "With no change at all the downstream depth equals the upstream depth",
+      },
+      source: "Keadaan batas yang harus dipenuhi model",
+      kind: "sifat",
+      expected: y1,
+      actual: transition({ Q, b1, y1, b2: b1, dz: 0 }).y2,
+      tol: 1e-9,
+      unit: "m",
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Mencari kedalaman dari energi lalu kembali menghasilkan angka semula",
+        en: "Solving depth from energy and back returns the original figure",
+      },
+      source: "Persamaan energi spesifik dibalik dengan metode bagi dua",
+      kind: "pulang-pergi",
+      expected: y1,
+      actual: depthFromEnergy(specificEnergy(y1, r.q1), r.q1, r.branch),
+      tol: 1e-6,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Aliran tetap pada cabangnya selama belum tersendat",
+        en: "The flow stays on its branch while it is not choked",
+      },
+      source: "Aliran tidak dapat berpindah cabang tanpa melewati kondisi kritis",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        r.choked ||
+        (r.branch === "subkritis" ? r.y2 > r.yc2 : r.y2 <= r.yc2 + 1e-9)
           ? 1
           : 0,
       tol: 0,

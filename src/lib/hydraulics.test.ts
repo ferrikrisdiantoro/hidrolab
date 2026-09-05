@@ -11,6 +11,7 @@ import {
   colebrookFriction,
   conjugateDepth,
   criticalDepth,
+  depthFromEnergy,
   frictionFactor,
   frictionSlope,
   froude,
@@ -27,6 +28,7 @@ import {
   reynolds,
   slopeType,
   specificEnergy,
+  transition,
 } from "./hydraulics.ts";
 
 /**
@@ -423,5 +425,99 @@ describe("Ambang ukur V", () => {
   it("tidak menghasilkan nilai negatif pada tinggi muka air nol", () => {
     const { Q } = notchDischarge(0, 90);
     assert.ok(Q >= 0 && Number.isFinite(Q), "Q pada H=0 harus wajar");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+
+describe("Transisi pada saluran persegi", () => {
+  const dasar = { Q: 12, b1: 5, y1: 1.5, b2: 5, dz: 0 };
+
+  it("tanpa perubahan apa pun, kedalaman hilir sama dengan hulu", () => {
+    const r = transition(dasar);
+    close(r.y2, dasar.y1, 1e-9, "y2 tanpa transisi");
+    close(r.Fr2, r.Fr1, 1e-9, "Fr tidak berubah");
+    assert.equal(r.choked, false);
+  });
+
+  it("energi spesifik kekal dikurangi kenaikan dasar", () => {
+    for (const dz of [0, 0.1, 0.2, 0.3]) {
+      const r = transition({ ...dasar, dz });
+      close(
+        specificEnergy(r.y2, r.q2) + dz,
+        r.E1,
+        1e-9,
+        `kekekalan energi pada dz=${dz}`
+      );
+    }
+  });
+
+  it("aliran tetap pada cabangnya, tidak melompat sendiri", () => {
+    // Subkritis harus tetap subkritis selama belum tersendat.
+    for (const dz of [0, 0.15, 0.3, 0.37]) {
+      const r = transition({ ...dasar, dz });
+      if (!r.choked) {
+        assert.ok(r.y2 > r.yc2, `y2 harus di atas yc pada dz=${dz}`);
+        assert.ok(r.Fr2 < 1, `Fr2 harus di bawah 1 pada dz=${dz}`);
+      }
+    }
+    // Superkritis harus tetap superkritis.
+    const sup = transition({ Q: 12, b1: 5, y1: 0.4, b2: 5, dz: 0 });
+    assert.equal(sup.branch, "superkritis");
+    assert.ok(sup.y2 < sup.yc2 + 1e-9, "y2 tetap di cabang superkritis");
+  });
+
+  it("tepat pada kenaikan dasar maksimum, aliran mencapai kondisi kritis", () => {
+    // Ini nilai baku: dzMax = E1 - 1,5 yc, dan di sanalah Fr menjadi satu.
+    const r0 = transition(dasar);
+    const r = transition({ ...dasar, dz: r0.dzMax });
+    close(r.y2, r.yc2, 1e-6, "y2 pada dz maksimum");
+    close(r.Fr2, 1, 1e-4, "Fr2 pada dz maksimum");
+  });
+
+  it("melewati kenaikan dasar maksimum berarti tersendat", () => {
+    const r0 = transition(dasar);
+    const r = transition({ ...dasar, dz: r0.dzMax * 1.05 });
+    assert.equal(r.choked, true, "harus ditandai tersendat");
+  });
+
+  it("tepat pada lebar tersempit, aliran mencapai kondisi kritis", () => {
+    const r0 = transition(dasar);
+    const r = transition({ ...dasar, b2: r0.b2Min });
+    close(r.Fr2, 1, 1e-4, "Fr2 pada lebar minimum");
+    close(r.y2, r.yc2, 1e-6, "y2 pada lebar minimum");
+  });
+
+  it("penyempitan menaikkan debit satuan dan menurunkan kedalaman subkritis", () => {
+    const lebar = transition(dasar);
+    const sempit = transition({ ...dasar, b2: 4 });
+    assert.ok(sempit.q2 > lebar.q2, "debit satuan naik saat menyempit");
+    assert.ok(sempit.y2 < lebar.y2, "muka air turun pada aliran subkritis");
+  });
+
+  it("pada aliran superkritis, penyempitan justru menaikkan muka air", () => {
+    // Perilaku ini berlawanan dengan naluri, dan justru itu yang membuat
+    // lembarnya berguna. Ia langsung terbaca dari bentuk kurva energi.
+    const a = transition({ Q: 12, b1: 5, y1: 0.4, b2: 5, dz: 0 });
+    const b = transition({ Q: 12, b1: 5, y1: 0.4, b2: 4.2, dz: 0 });
+    assert.ok(!a.choked && !b.choked, "keduanya belum tersendat");
+    assert.ok(b.y2 > a.y2, "muka air naik saat menyempit pada aliran superkritis");
+  });
+
+  it("mencari kedalaman dari energi memberi dua akar yang benar", () => {
+    const q = 2.4;
+    const yc = criticalDepth(q);
+    const E = 1.9;
+    const sub = depthFromEnergy(E, q, "subkritis");
+    const sup = depthFromEnergy(E, q, "superkritis");
+    assert.ok(sub > yc && sup < yc, "satu akar di tiap sisi kedalaman kritis");
+    close(specificEnergy(sub, q), E, 1e-9, "akar subkritis memenuhi persamaan");
+    close(specificEnergy(sup, q), E, 1e-9, "akar superkritis memenuhi persamaan");
+  });
+
+  it("di bawah energi minimum tidak ada akar sama sekali", () => {
+    const q = 2.4;
+    const yc = criticalDepth(q);
+    assert.ok(Number.isNaN(depthFromEnergy(1.5 * yc * 0.9, q, "subkritis")));
   });
 });

@@ -199,6 +199,10 @@ export const CANVAS = {
     control: "penampang kendali",
     belowRange: "di luar rentang",
     elevation: "elevasi, m",
+    upstream: "hulu",
+    downstream: "hilir",
+    choked: "tersendat",
+    planView: "tampak atas",
   },
   en: {
     axDistance: "distance along channel, m",
@@ -231,6 +235,10 @@ export const CANVAS = {
     control: "control section",
     belowRange: "below valid range",
     elevation: "elevation, m",
+    upstream: "upstream",
+    downstream: "downstream",
+    choked: "choked",
+    planView: "plan view",
   },
 } as const;
 

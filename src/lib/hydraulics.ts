@@ -500,6 +500,143 @@ function clampDepth(y: number, yc: number): number {
 }
 
 /* ------------------------------------------------------------------ *
+ * Transisi pada saluran persegi
+ *
+ * Satu model untuk tiga lembar: perubahan elevasi dasar, perubahan lebar,
+ * dan peralihan melewati kondisi kritis. Ketiganya persoalan yang sama,
+ * yaitu energi spesifik yang tersedia di penampang hilir dibandingkan
+ * dengan energi minimum yang dibutuhkan di sana.
+ * ------------------------------------------------------------------ */
+
+export type TransitionBranch = "subkritis" | "superkritis";
+
+/**
+ * Mencari kedalaman dari energi spesifik yang diketahui.
+ *
+ * Persamaan E = y + q^2 / (2 g y^2) punya DUA akar untuk setiap E di atas
+ * energi minimum, satu di tiap sisi kedalaman kritis. Cabang mana yang
+ * dipakai ditentukan fisika aliran masuknya, bukan dipilih sembarang:
+ * aliran tidak dapat berpindah cabang tanpa melewati kondisi kritis.
+ *
+ * Dipakai metode bagi dua karena fungsinya monoton pada masing-masing
+ * cabang, sehingga selalu konvergen.
+ */
+export function depthFromEnergy(
+  E: number,
+  q: number,
+  branch: TransitionBranch
+): number {
+  const yc = criticalDepth(q);
+  if (E < 1.5 * yc) return NaN;
+
+  let lo: number;
+  let hi: number;
+  if (branch === "subkritis") {
+    lo = yc;
+    hi = E;
+  } else {
+    lo = 1e-9;
+    hi = yc;
+  }
+
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const Em = specificEnergy(mid, q);
+    // Pada cabang subkritis E naik seiring y, pada cabang superkritis E turun.
+    if (branch === "subkritis") {
+      if (Em < E) lo = mid;
+      else hi = mid;
+    } else {
+      if (Em > E) lo = mid;
+      else hi = mid;
+    }
+    if (hi - lo < 1e-12) break;
+  }
+  return (lo + hi) / 2;
+}
+
+export type TransitionInput = {
+  /** Debit, m3/s */
+  Q: number;
+  /** Lebar dasar di hulu, m */
+  b1: number;
+  /** Kedalaman di hulu, m */
+  y1: number;
+  /** Lebar dasar di hilir, m */
+  b2: number;
+  /** Kenaikan elevasi dasar, m. Positif berarti dasar naik */
+  dz: number;
+};
+
+export type TransitionResult = {
+  q1: number;
+  q2: number;
+  yc1: number;
+  yc2: number;
+  /** Energi spesifik di hulu, diukur dari dasar hulu */
+  E1: number;
+  /** Energi spesifik yang tersedia di hilir, diukur dari dasar hilir */
+  E2: number;
+  /** Energi minimum yang dibutuhkan di penampang hilir */
+  Emin2: number;
+  y2: number;
+  Fr1: number;
+  Fr2: number;
+  branch: TransitionBranch;
+  /**
+   * Benar bila energi yang tersedia tidak cukup, sehingga aliran tersendat.
+   * Pada keadaan ini kedalaman hulu terpaksa naik, dan angka y2 tidak berlaku.
+   */
+  choked: boolean;
+  /** Kenaikan dasar terbesar yang masih dapat dilewati */
+  dzMax: number;
+  /** Lebar hilir tersempit yang masih dapat dilewati */
+  b2Min: number;
+  /** Seberapa dekat ke keadaan tersendat, 1 berarti tepat di ambangnya */
+  chokeRatio: number;
+};
+
+/**
+ * Transisi antara dua penampang.
+ *
+ * Gesekan pada bentang transisi diabaikan, sebagaimana lazimnya pada
+ * perhitungan transisi pendek. Yang berlaku hanya kekekalan energi
+ * spesifik dikurangi kenaikan dasar.
+ */
+export function transition(inp: TransitionInput): TransitionResult {
+  const { Q, b1, y1, b2, dz } = inp;
+  const q1 = Q / b1;
+  const q2 = Q / b2;
+  const yc1 = criticalDepth(q1);
+  const yc2 = criticalDepth(q2);
+  const E1 = specificEnergy(y1, q1);
+  const E2 = E1 - dz;
+  const Emin2 = 1.5 * yc2;
+  const branch: TransitionBranch = y1 > yc1 ? "subkritis" : "superkritis";
+
+  const choked = E2 < Emin2;
+  const y2 = choked ? yc2 : depthFromEnergy(E2, q2, branch);
+  const Fr1 = froude(q1 / y1, y1);
+  const Fr2 = Number.isFinite(y2) && y2 > 0 ? froude(q2 / y2, y2) : 1;
+
+  // Kenaikan dasar terbesar yang masih dapat dilewati pada lebar hilir ini.
+  const dzMax = E1 - Emin2;
+
+  // Lebar tersempit yang masih dapat dilewati pada kenaikan dasar ini.
+  const Etersedia = E1 - dz;
+  const b2Min =
+    Etersedia > 0
+      ? Q / Math.sqrt(G * Math.pow(Etersedia / 1.5, 3))
+      : Number.POSITIVE_INFINITY;
+
+  return {
+    q1, q2, yc1, yc2, E1, E2, Emin2, y2, Fr1, Fr2, branch,
+    choked, dzMax, b2Min,
+    chokeRatio: Emin2 > 0 ? Emin2 / Math.max(E2, 1e-9) : 0,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * Ambang ukur V (thin-plate V-notch weir)
  * ------------------------------------------------------------------ */
 
