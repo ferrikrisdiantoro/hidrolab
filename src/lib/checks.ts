@@ -2,6 +2,7 @@ import type { Check } from "./verify.ts";
 import {
   G,
   backwaterExtent,
+  conjugateFromMomentum,
   momentumFunction,
   reachEnergy,
   sideChannelProfile,
@@ -18,12 +19,16 @@ import {
   gvfDistanceDirectStep,
   gvfProfile,
   gvfSlope,
+  jetTrajectory,
   jumpEnergyLoss,
   manningDischarge,
   normalDepth,
   notchCe,
   notchDischarge,
+  rectWeirCe,
+  rectWeirDischarge,
   slopeBreak,
+  wesNappe,
   specificEnergy,
   transition,
   wideChannelNormalDepth,
@@ -1299,4 +1304,201 @@ function sisaMomentumTerbesar(
     terbesar = Math.max(terbesar, Math.abs(p1.ws - (p2.ws + dyMomentum + hf)));
   }
   return terbesar;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * OC-08 Energi dan momentum
+ * ------------------------------------------------------------------ */
+
+export function checksEnergyMomentum(y1: number, V1: number): Check[] {
+  const Fr1 = froude(V1, y1);
+  const q = V1 * y1;
+  const yc = criticalDepth(q);
+  const y2 = Fr1 > 1 ? conjugateDepth(y1, Fr1) : y1;
+  const E1 = specificEnergy(y1, q);
+  const E2 = specificEnergy(y2, q);
+
+  // Rumus tertutup kehilangan energi pada loncatan air. Ia diterbitkan
+  // terpisah dari persamaan konjugatnya, jadi membandingkan keduanya benar
+  // benar membandingkan dua hal.
+  const hilangTerbitan = Math.pow(y2 - y1, 3) / (4 * y1 * y2);
+
+  return [
+    {
+      label: {
+        id: "Energi spesifik minimum sama dengan satu setengah kali kedalaman kritis",
+        en: "Minimum specific energy equals one and a half times critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * yc,
+      actual: specificEnergy(yc, q),
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Fungsi momentum minimum sama dengan satu setengah kali kuadrat kedalaman kritis",
+        en: "The minimum momentum function equals one and a half times the square of critical depth",
+      },
+      source: "Hasil tertutup untuk penampang persegi, Chow (1959) Bab 3",
+      kind: "terbitan",
+      expected: 1.5 * yc * yc,
+      actual: momentumFunction(yc, q),
+      tol: 1e-9,
+      unit: "m³/m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kehilangan energi sama dengan rumus tertutup Belanger",
+        en: "The energy loss equals the closed-form Belanger result",
+      },
+      source: "Rumus (y₂ − y₁)³ / (4 y₁ y₂), Chow (1959) Bab 15",
+      kind: "terbitan",
+      expected: hilangTerbitan,
+      actual: Fr1 > 1 ? E1 - E2 : 0,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kedua kedalaman punya fungsi momentum yang sama persis",
+        en: "Both depths have exactly the same momentum function",
+      },
+      source: "Syarat berdirinya loncatan air",
+      kind: "sifat",
+      expected: momentumFunction(y1, q),
+      actual: momentumFunction(y2, q),
+      tol: 1e-9,
+      unit: "m³/m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Mencari pasangan lewat fungsi momentum sama dengan lewat Belanger",
+        en: "Finding the pair through the momentum function matches Belanger",
+      },
+      source: "Dua jalur perhitungan yang sama sekali berbeda",
+      kind: "silang",
+      expected: y2,
+      actual: Fr1 > 1 ? conjugateFromMomentum(y1, q) : y1,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Energi tidak pernah bertambah melewati loncatan",
+        en: "Energy never increases across the jump",
+      },
+      source: "Hukum kedua termodinamika, diterapkan pada loncatan air",
+      kind: "perilaku",
+      expected: 1,
+      actual: E1 - E2 >= -1e-12 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+
+/* ------------------------------------------------------------------ *
+ * HS-06 Tirai luapan bebas
+ * ------------------------------------------------------------------ */
+
+export function checksNappe(h: number, b: number, P: number): Check[] {
+  const r = rectWeirDischarge(h, b, P);
+
+  // Bentuk WES bersifat serupa diri: y dibagi Hd hanya bergantung pada x
+  // dibagi Hd. Dua tinggi rancangan yang berbeda harus memberi angka yang sama.
+  const serupaA = wesNappe(1, 0.4) / 1;
+  const serupaB = wesNappe(3, 1.2) / 3;
+
+  // Membalik rumus debit untuk menemukan kembali tinggi muka airnya.
+  const heBalik = Math.pow(
+    r.Q / ((2 / 3) * r.Ce * Math.sqrt(2 * G) * b),
+    2 / 3
+  );
+
+  return [
+    {
+      label: {
+        id: "Pada jarak sejauh tinggi rancangan, tirai sudah turun setengahnya",
+        en: "At a distance equal to the design head, the nappe has dropped by half",
+      },
+      source: "Persamaan bentuk mercu WES, USACE Hydraulic Design Criteria",
+      kind: "terbitan",
+      expected: h / 2,
+      actual: wesNappe(h, h),
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Pada batas atas rentang, h dibagi P sama dengan dua, koefisiennya 0,752",
+        en: "At the upper limit of the range, h over P equal to two, the coefficient is 0.752",
+      },
+      source: "ISO 1438, bentuk Kindsvater-Carter untuk ambang selebar penuh",
+      kind: "terbitan",
+      expected: 0.752,
+      actual: rectWeirCe(2 * P, P),
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Bentuk tirai serupa diri terhadap tinggi rancangannya",
+        en: "The nappe shape is self-similar with respect to its design head",
+      },
+      source: "Sifat persamaan pangkat yang harus berlaku",
+      kind: "sifat",
+      expected: serupaA,
+      actual: serupaB,
+      tol: 1e-12,
+      digits: 8,
+    },
+    {
+      label: {
+        id: "Membalik rumus debit mengembalikan tinggi muka air efektif",
+        en: "Inverting the discharge formula returns the effective head",
+      },
+      source: "Rumus ambang tajam harus dapat dibalik",
+      kind: "pulang-pergi",
+      expected: r.he,
+      actual: heBalik,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Koefisien debit naik saat ambangnya diperpendek",
+        en: "The discharge coefficient rises as the weir is shortened",
+      },
+      source: "Kecepatan datang yang makin besar, ISO 1438",
+      kind: "perilaku",
+      expected: 1,
+      actual: rectWeirCe(h, P / 2) > rectWeirCe(h, P) ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Lintasan peluru selalu jatuh lebih cepat daripada tirai sesungguhnya",
+        en: "The projectile path always falls faster than the real nappe",
+      },
+      source: "Lintasan peluru mengabaikan tekanan dan lengkung aliran di atas mercu",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        jetTrajectory(r.V0, h) > wesNappe(h, h) ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
 }

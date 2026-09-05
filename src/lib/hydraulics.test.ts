@@ -26,8 +26,15 @@ import {
   notchDischarge,
   rectGeometry,
   reynolds,
+  RECT_WEIR_KH,
+  WES_K,
+  WES_N,
   momentumFunction,
   conjugateFromMomentum,
+  jetTrajectory,
+  rectWeirCe,
+  rectWeirDischarge,
+  wesNappe,
   reachEnergy,
   sideChannelProfile,
   slopeBreak,
@@ -783,5 +790,73 @@ describe("Rumus tertutup saluran sangat lebar", () => {
     const beda = (b: number) => Math.abs(normalDepth(q * b, b, n, S) - acuan);
     assert.ok(beda(4000) < beda(1000), "selisih mengecil saat lebar bertambah");
     assert.ok(beda(1000) < beda(200), "dan mengecil lagi pada lebar sedang");
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * Tirai luapan bebas
+ * ------------------------------------------------------------------ */
+
+describe("Tirai luapan bebas di atas ambang tajam", () => {
+  it("pada jarak sejauh tinggi rancangan, tirai turun tepat setengahnya", () => {
+    // Angka ini jatuh langsung dari persamaan WES dan tidak bergantung pada
+    // tinggi rancangannya, jadi ia berlaku sebagai titik acuan.
+    for (const Hd of [0.2, 0.5, 1.2, 3]) {
+      close(wesNappe(Hd, Hd), Hd / 2, 1e-12, `titik acuan pada Hd ${Hd}`);
+    }
+  });
+
+  it("bentuknya serupa diri terhadap tinggi rancangan", () => {
+    for (const f of [0.2, 0.6, 1.4]) {
+      close(
+        wesNappe(1, f) / 1,
+        wesNappe(4, 4 * f) / 4,
+        1e-12,
+        `bentuk tak berubah pada x/Hd sama dengan ${f}`
+      );
+    }
+  });
+
+  it("pangkat dan tetapannya memang yang diterbitkan", () => {
+    assert.equal(WES_N, 1.85);
+    assert.equal(WES_K, 2);
+  });
+
+  it("lintasan peluru selalu jatuh lebih cepat daripada tirai sesungguhnya", () => {
+    // Lintasan peluru mengabaikan tekanan dan lengkung aliran di puncak mercu,
+    // dan arah kesalahannya hanya satu.
+    for (const h of [0.1, 0.3, 0.8]) {
+      const r = rectWeirDischarge(h, 2, 0.6);
+      for (const f of [0.5, 1, 2]) {
+        assert.ok(
+          jetTrajectory(r.V0, h * f) > wesNappe(h, h * f),
+          `pada x sama dengan ${f} kali h, lintasan peluru lebih rendah`
+        );
+      }
+    }
+  });
+
+  it("koefisien debit naik terhadap perbandingan tinggi muka air dan tinggi ambang", () => {
+    close(rectWeirCe(0, 1), 0.602, 1e-12, "tanpa tinggi luapan, nilai dasarnya");
+    close(rectWeirCe(2, 1), 0.752, 1e-12, "pada batas atas rentang, h/P = 2");
+    assert.ok(rectWeirCe(0.5, 0.5) > rectWeirCe(0.5, 1), "ambang pendek memberi Ce lebih besar");
+  });
+
+  it("rumus debit dapat dibalik kembali ke tinggi muka air efektif", () => {
+    const h = 0.3;
+    const b = 2;
+    const P = 0.6;
+    const r = rectWeirDischarge(h, b, P);
+    const he = Math.pow(r.Q / ((2 / 3) * r.Ce * Math.sqrt(2 * G) * b), 2 / 3);
+    close(he, h + RECT_WEIR_KH, 1e-9, "kembali ke tinggi efektif semula");
+  });
+
+  it("rentang keberlakuan dinyatakan, bukan didiamkan", () => {
+    assert.equal(rectWeirDischarge(0.02, 1, 0.5).reason, "h-kecil");
+    assert.equal(rectWeirDischarge(0.3, 2, 0.05).reason, "P-kecil");
+    assert.equal(rectWeirDischarge(1.5, 2, 0.6).reason, "hP-besar");
+    assert.equal(rectWeirDischarge(0.3, 2, 0.6).reason, "");
+    assert.ok(!rectWeirDischarge(0.3, 2, 0.6).outOfRange);
   });
 });

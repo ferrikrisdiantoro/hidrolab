@@ -81,7 +81,7 @@ export const LABS: Lab[] = [
     "When does a bed step force the flow through critical conditions?", "siap"),
   L("OC-08", "energi-momentum", "OC", "Energi dan momentum", "Energy and momentum",
     "Kapan kekekalan energi berlaku, dan kapan harus memakai momentum?",
-    "When does energy conservation hold, and when must momentum be used?"),
+    "When does energy conservation hold, and when must momentum be used?", "siap"),
 
   L("OC-09", "persamaan-energi-saluran", "OC", "Persamaan energi saluran terbuka", "Open-channel energy equation",
     "Bagaimana garis energi dan garis muka air tersusun di sepanjang saluran?",
@@ -114,7 +114,7 @@ export const LABS: Lab[] = [
     "How much backwater does pier contraction cause?"),
   L("HS-06", "tirai-luapan", "HS", "Tirai luapan bebas", "Free nappe",
     "Bagaimana bentuk pancaran yang jatuh bebas dari mercu?",
-    "What shape does the jet take as it falls free of the crest?"),
+    "What shape does the jet take as it falls free of the crest?", "siap"),
   L("HS-07", "vena-contracta", "HS", "Vena contracta", "Vena contracta",
     "Seberapa jauh pancaran menyempit setelah melewati bukaan?",
     "How far does a jet contract after passing an opening?"),

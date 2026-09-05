@@ -1370,3 +1370,103 @@ export function wideChannelNormalDepth(
 ): number {
   return Math.pow((q * n) / Math.sqrt(S), 3 / 5);
 }
+
+/* ------------------------------------------------------------------ *
+ * Tirai luapan bebas di atas ambang tajam
+ * ------------------------------------------------------------------ */
+
+/** Pangkat pada persamaan bentuk mercu WES untuk muka hulu tegak. */
+export const WES_N = 1.85;
+/** Tetapan pada persamaan bentuk mercu WES untuk muka hulu tegak. */
+export const WES_K = 2.0;
+
+/**
+ * Permukaan bawah tirai luapan bebas, diukur turun dari puncak mercu.
+ *
+ * Bentuk ini bukan parabola. Ia diperoleh dari pengukuran tirai luapan pada
+ * ambang tajam yang diberi udara, lalu dirumuskan sebagai persamaan pangkat
+ * dengan pangkat 1,85 untuk muka hulu tegak. Bentuk mercu ogee dirancang
+ * mengikuti permukaan ini persis, sehingga pada tinggi energi rancangan tirai
+ * air menempel pada mercu tanpa menekan maupun terangkat.
+ *
+ * Rujukan: USACE, Hydraulic Design Criteria, lembar mercu WES.
+ */
+export function wesNappe(Hd: number, x: number): number {
+  if (Hd <= 0 || x < 0) return 0;
+  return Math.pow(x, WES_N) / (WES_K * Math.pow(Hd, WES_N - 1));
+}
+
+/**
+ * Lintasan pancaran bebas sebagai gerak peluru.
+ *
+ * Ini penyederhanaan yang lazim dipakai di buku pengantar: air dianggap
+ * meninggalkan mercu mendatar dengan kecepatan tetap lalu jatuh bebas.
+ * Dibandingkan bentuk WES, lintasan ini turun terlalu cepat di dekat mercu,
+ * karena mengabaikan tekanan dan lengkung aliran di atas puncak. Selisih itu
+ * digambar pada lembarnya, bukan disembunyikan.
+ */
+export function jetTrajectory(V0: number, x: number): number {
+  if (V0 <= 0) return 0;
+  return (G * x * x) / (2 * V0 * V0);
+}
+
+/** Tetapan koreksi tinggi muka air untuk ambang tajam persegi, meter. */
+export const RECT_WEIR_KH = 0.001;
+/** Tinggi muka air terkecil yang masih di dalam rentang keberlakuan, meter. */
+export const RECT_WEIR_H_MIN = 0.03;
+/** Tinggi ambang terkecil yang masih di dalam rentang keberlakuan, meter. */
+export const RECT_WEIR_P_MIN = 0.1;
+/** Perbandingan tinggi muka air terhadap tinggi ambang yang masih berlaku. */
+export const RECT_WEIR_HP_MAX = 2.0;
+
+/**
+ * Koefisien debit ambang tajam persegi selebar penuh saluran.
+ *
+ * Naik terhadap perbandingan tinggi muka air dan tinggi ambang, karena makin
+ * pendek ambangnya makin besar kecepatan datang yang sudah dimiliki air
+ * sebelum melewatinya.
+ *
+ * Rujukan: ISO 1438, bentuk Kindsvater-Carter untuk ambang selebar penuh.
+ */
+export function rectWeirCe(h: number, P: number): number {
+  return 0.602 + 0.075 * (P > 0 ? h / P : 0);
+}
+
+export type RectWeirResult = {
+  Q: number;
+  Ce: number;
+  /** Tinggi muka air efektif, yaitu tinggi terukur ditambah koreksi */
+  he: number;
+  /** Kecepatan rata-rata di atas mercu, dipakai untuk lintasan pancaran */
+  V0: number;
+  outOfRange: boolean;
+  /** Alasan berada di luar rentang, kosong bila di dalam rentang */
+  reason: "" | "h-kecil" | "P-kecil" | "hP-besar";
+};
+
+/**
+ * Debit yang lewat di atas ambang tajam persegi selebar penuh saluran.
+ *
+ * Rujukan: ISO 1438, ambang tipis persegi.
+ */
+export function rectWeirDischarge(
+  h: number,
+  b: number,
+  P: number
+): RectWeirResult {
+  const Ce = rectWeirCe(h, P);
+  const he = h + RECT_WEIR_KH;
+  const Q = (2 / 3) * Ce * Math.sqrt(2 * G) * b * Math.pow(Math.max(he, 0), 1.5);
+  const V0 = h > 0 ? Q / (b * h) : 0;
+
+  const reason: RectWeirResult["reason"] =
+    h < RECT_WEIR_H_MIN
+      ? "h-kecil"
+      : P < RECT_WEIR_P_MIN
+        ? "P-kecil"
+        : h / P > RECT_WEIR_HP_MAX
+          ? "hP-besar"
+          : "";
+
+  return { Q, Ce, he, V0, outOfRange: reason !== "", reason };
+}
