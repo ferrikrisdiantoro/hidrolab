@@ -1,7 +1,8 @@
-import { C, DASH, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme";
 import {
   axisTitle,
   axisValue,
+  clampLabelX,
   curveLabel,
   dimV,
   ground,
@@ -15,12 +16,22 @@ import {
 import type { GvfResult } from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
+import { fmtPlain } from "./hydraulics";
 
 export type GvfDrawState = {
   result: GvfResult;
   /** Panjang bentang yang digambar, meter */
   length: number;
   S0: number;
+  /**
+   * Benar bila saluran tidak sanggup mengalirkan debit ini berapa pun dalamnya.
+   *
+   * Tanpa kedalaman normal, tidak ada profil yang dapat ditelusuri: penyebut
+   * persamaannya kehilangan acuan dan penelusurannya menghasilkan angka yang
+   * tidak berarti apa pun. Dalam keadaan itu lembar ini TIDAK menggambar muka
+   * air sama sekali, melainkan menyatakan bahwa profilnya tidak dapat dihitung.
+   */
+  normalUnreachable?: boolean;
 };
 
 /**
@@ -55,14 +66,34 @@ export function drawGvf(
   const zb = (x: number) => (L - x) * S0;
   const zbMax = zb(0);
 
-  const maxSurface = r.points.reduce(
-    (m, p) => Math.max(m, zb(p.x) + p.y),
-    zbMax + r.yc
-  );
-  const zTop = Math.max(maxSurface, zbMax + r.y0) * 1.12;
+  const takAda = s.normalUnreachable === true;
+
+  // Kedalaman di penampang kendali adalah satu-satunya kedalaman yang tetap
+  // berarti saat kedalaman normal tidak ada, karena ia masukan pengguna dan
+  // bukan hasil penelusuran.
+  const ctrl = r.direction === "hulu" ? r.points[r.points.length - 1] : r.points[0];
+
+  const maxSurface = takAda
+    ? zbMax + Math.max(r.yc, ctrl.y) * 1.7
+    : r.points.reduce((m, p) => Math.max(m, zb(p.x) + p.y), zbMax + r.yc);
+
+  // Kedalaman normal sengaja tidak ikut menentukan skala saat ia tidak ada,
+  // sebab angkanya hanyalah batas atas pencarian dan akan menggepengkan
+  // seluruh gambar.
+  const zTop = (takAda ? maxSurface : Math.max(maxSurface, zbMax + r.y0)) * 1.12;
 
   const X = (x: number) => padL + (x / L) * plotW;
   const Z = (z: number) => padT + plotH - (z / zTop) * plotH;
+
+  /*
+   * Label kedalaman normal dan kritis dijauhkan dari penampang kendali.
+   *
+   * Kendali aliran subkritis berada di ujung hilir, kendali aliran superkritis
+   * di ujung hulu, dan dimensi kedalamannya berdiri tegak di situ. Label yang
+   * dipatok di satu tempat tetap akan bertumpuk dengan dimensi itu pada salah
+   * satu dari dua keadaan.
+   */
+  const xLabel = r.direction === "hilir" ? L * 0.62 : L * 0.06;
 
   ground(ctx, w, h);
 
@@ -79,7 +110,7 @@ export function drawGvf(
   });
 
   for (let v = 0; v <= zTop + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(1), padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 1), padL - 8, Z(v), "right", "middle");
   for (let x = 0; x <= L + 1e-9; x += xStep)
     axisValue(ctx, String(Math.round(x)), X(x), padT + plotH + 9, "center", "top");
 
@@ -87,6 +118,7 @@ export function drawGvf(
   axisTitle(ctx, T.elevation, 18, padT + plotH / 2, -Math.PI / 2);
 
   /* ---------------- badan air ---------------- */
+  if (!takAda) {
   const clipWater = () => {
     ctx.beginPath();
     ctx.moveTo(X(r.points[0].x), Z(zb(r.points[0].x)));
@@ -114,7 +146,8 @@ export function drawGvf(
   }
   ctx.stroke();
   ctx.setLineDash([]);
-  curveLabel(ctx, `y₀ ${r.y0.toFixed(2)} m`, X(L * 0.06), Z(zb(L * 0.06) + r.y0) - 10, C.water);
+  curveLabel(ctx, `y₀ ${fmtPlain(r.y0, 2)} m`, X(xLabel), Z(zb(xLabel) + r.y0) - 10, C.water);
+  }
 
   pen(ctx, W.thin, C.critical, DASH.axis);
   ctx.beginPath();
@@ -127,16 +160,19 @@ export function drawGvf(
   ctx.setLineDash([]);
   curveLabel(
     ctx,
-    `yc ${r.yc.toFixed(2)} m`,
-    X(L * 0.06),
-    Z(zb(L * 0.06) + r.yc) + 11,
+    `yc ${fmtPlain(r.yc, 2)} m`,
+    X(xLabel),
+    Z(zb(xLabel) + r.yc) + 11,
     C.critical
   );
 
   /* ---------------- muka air ---------------- */
-  /* Ruas yang jauh dari kondisi kritis digambar menerus; ruas yang
-     mendekatinya digambar titik rapat, karena di sana persamaannya
-     tidak lagi berlaku. */
+  /* Ruas yang muka airnya masih landai digambar menerus; ruas yang sudah
+     terlalu curam untuk disebut berubah lambat digambar titik rapat.
+     Penandanya kecuraman muka air, bukan kedekatan dengan kondisi kritis:
+     jendela di sekitar kritis dilewati dalam kurang dari satu meter saluran,
+     sehingga tidak pernah cukup panjang untuk digambar sebagai garis. */
+  if (!takAda) {
   let run: { pts: [number, number][]; invalid: boolean } | null = null;
   const flush = () => {
     if (!run || run.pts.length < 2) return;
@@ -154,17 +190,18 @@ export function drawGvf(
 
   for (const p of r.points) {
     const pt: [number, number] = [X(p.x), Z(zb(p.x) + p.y)];
-    if (!run || run.invalid !== p.nearCritical) {
+    if (!run || run.invalid !== p.rapid) {
       if (run) {
         run.pts.push(pt);
         flush();
       }
-      run = { pts: [pt], invalid: p.nearCritical };
+      run = { pts: [pt], invalid: p.rapid };
     } else {
       run.pts.push(pt);
     }
   }
   flush();
+  }
 
   /* ---------------- dasar saluran ---------------- */
   const bedPts: [number, number][] = [];
@@ -189,7 +226,6 @@ export function drawGvf(
   ctx.stroke();
 
   /* ---------------- penampang kendali ---------------- */
-  const ctrl = r.direction === "hulu" ? r.points[r.points.length - 1] : r.points[0];
   const cxp = X(ctrl.x);
   pen(ctx, W.thin, C.signal, DASH.axis);
   ctx.beginPath();
@@ -203,26 +239,117 @@ export function drawGvf(
     cxp + (r.direction === "hulu" ? -26 : 26),
     Z(zb(ctrl.x) + ctrl.y),
     Z(zb(ctrl.x)),
-    `${ctrl.y.toFixed(2)} m`,
+    `${fmtPlain(ctrl.y, 2)} m`,
     C.signal
   );
-  region(ctx, T.control, cxp, padT + 12, C.signal);
-
-  /* ---------------- nama profil ---------------- */
-  const mid = r.points[Math.floor(r.points.length / 2)];
-  ctx.fillStyle = C.ink;
-  ctx.font = '700 15px "Public Sans", system-ui, sans-serif';
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  stencil(ctx, r.profile, X(mid.x), Z(zb(mid.x) + mid.y) - 16, 2);
-
   region(
     ctx,
-    r.mild ? T.subcritical : T.supercritical,
-    X(mid.x),
-    Z(zb(mid.x) + mid.y) - 34,
-    C.ink3
+    T.control,
+    clampLabelX(ctx, T.control, cxp, padL, padL + plotW),
+    padT + 12,
+    C.signal
   );
+
+  /* ---------------- ujung profil ---------------- */
+  /*
+   * Profil yang berhenti karena mencapai kedalaman kritis hampir selalu jauh
+   * lebih pendek daripada bentang yang digambar. Tanpa penanda, sisa bidang
+   * yang kosong terbaca sebagai gambar yang gagal, padahal justru itu
+   * jawabannya: profilnya memang sependek itu.
+   */
+  if (!takAda && r.endsAtCritical) {
+    const urutX = [...r.points].sort((a, c) => a.x - c.x);
+    const ujung = r.direction === "hulu" ? urutX[0] : urutX[urutX.length - 1];
+    const xp = X(ujung.x);
+    pen(ctx, W.thin, C.signal, DASH.axis);
+    ctx.beginPath();
+    ctx.moveTo(xp, padT + 26);
+    ctx.lineTo(xp, Z(zb(ujung.x)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    region(
+      ctx,
+      T.profileEnds,
+      clampLabelX(ctx, T.profileEnds, xp, padL, padL + plotW),
+      padT + 32,
+      C.signal
+    );
+  }
+
+  /* ---------------- ruas yang terlalu pendek untuk digambar ---------------- */
+  /*
+   * Bila ruas berubah cepat lebih sempit daripada beberapa piksel, ia tidak
+   * dapat dibaca sebagai garis titik-titik dan akan hilang begitu saja. Dalam
+   * keadaan itu ia ditandai sebagai satu penampang, supaya pembaca tetap
+   * diberitahu bahwa ada tempat di mana persamaannya kehilangan keberlakuan.
+   */
+  //
+  // Dilewati bila ujung profil sudah ditandai, karena pada profil yang berakhir
+  // di kedalaman kritis kedua penanda menunjuk tempat yang praktis sama dan
+  // tulisannya bertumpuk.
+  if (!takAda && !r.endsAtCritical && r.rvf) {
+    const lebarPiksel = X(r.rvf.to) - X(r.rvf.from);
+    if (lebarPiksel < 8) {
+      const xr = (r.rvf.from + r.rvf.to) / 2;
+      const xp = X(xr);
+      pen(ctx, W.thin, C.signal, DASH.invalid);
+      ctx.beginPath();
+      ctx.moveTo(xp, padT + 26);
+      ctx.lineTo(xp, Z(zb(xr)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      region(
+        ctx,
+        T.rapidlyVaried,
+        clampLabelX(ctx, T.rapidlyVaried, xp, padL, padL + plotW),
+        padT + 32,
+        C.signal
+      );
+    }
+  }
+
+  /* ---------------- nama profil ---------------- */
+  if (takAda) {
+    // Tanpa kedalaman normal tidak ada profil untuk dinamai. Yang ditulis di
+    // tengah bidang justru pengakuan bahwa ia tidak dapat dihitung, supaya
+    // bidang yang kosong tidak terbaca sebagai gambar yang belum selesai.
+    ctx.fillStyle = C.signal;
+    ctx.font = F.heading;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    stencil(ctx, T.noProfile, padL + plotW / 2, padT + plotH * 0.42, 2);
+    region(
+      ctx,
+      T.noNormalDepth,
+      padL + plotW / 2,
+      padT + plotH * 0.42 + 20,
+      C.ink3
+    );
+  } else {
+    const mid = r.points[Math.floor(r.points.length / 2)];
+    ctx.fillStyle = C.ink;
+    ctx.font = F.heading;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    stencil(ctx, r.profile, X(mid.x), Z(zb(mid.x) + mid.y) - 16, 2);
+
+    /*
+     * Regime aliran ditentukan kedalaman terhadap kedalaman kritis, BUKAN oleh
+     * jenis kemiringan salurannya.
+     *
+     * Keduanya sering berbarengan sehingga mudah tertukar, tetapi tidak selalu:
+     * profil M3 mengalir superkritis di atas saluran landai, dan profil S1
+     * mengalir subkritis di atas saluran curam. Sebelumnya yang dibaca jenis
+     * kemiringan, sehingga M3 diberi label subkritis.
+     */
+    region(
+      ctx,
+      mid.y > r.yc ? T.subcritical : T.supercritical,
+      X(mid.x),
+      Z(zb(mid.x) + mid.y) - 34,
+      C.ink3
+    );
+  }
 
   /* ---------------- bingkai ---------------- */
   pen(ctx, W.thin, C.ink);

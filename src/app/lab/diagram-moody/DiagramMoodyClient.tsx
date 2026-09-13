@@ -167,7 +167,7 @@ export function DiagramMoodyClient() {
             <InputTable>
               <InputRow symbol="V" label={x.dV} value={V} min={0.02} max={8} step={0.01} unit="m/s" onChange={setV} />
               <InputRow symbol="D" label={x.dD} value={D} min={0.02} max={2} step={0.005} digits={3} unit="m" onChange={setD} />
-              <InputRow symbol="ε" label={x.dE} value={epsMm} min={0} max={3} step={0.005} digits={3} unit="mm" onChange={setEpsMm} tint={C.water} />
+              <InputRow symbol="ε" label={x.dE} value={epsMm} min={0} max={3} step={0.0005} digits={4} unit="mm" onChange={setEpsMm} tint={C.water} />
               <InputRow symbol="L" label={x.dL} value={L} min={5} max={2000} step={5} digits={0} unit="m" onChange={setL} />
               <InputRow symbol="T" label={x.dT} value={T} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setT} />
             </InputTable>
@@ -194,13 +194,13 @@ export function DiagramMoodyClient() {
             <ResultTable
               rows={[
                 { symbol: "Re", label: x.rRe, value: fmtSci(Re), strong: true },
-                { symbol: "f", label: x.rf, value: f.toFixed(4), tint: C.water, strong: true },
+                { symbol: "f", label: x.rf, value: fmt(f, 4), tint: C.water, strong: true },
                 { symbol: "ε/D", label: x.rRR, value: fmtSci(relRough), tint: C.water },
                 { symbol: "ν", label: x.rNu, value: fmtSci(nu), unit: "m²/s" },
-                { symbol: "Q", label: x.rQ, value: fmt(Q, 4), unit: "m³/s" },
+                { symbol: "Q", label: x.rQ, value: Q < 0.01 ? fmtSci(Q) : fmt(Q, 4), unit: "m³/s" },
                 { symbol: "hf", label: x.rHf, value: fmt(hf, 3), unit: "m", tint: C.energy },
                 { symbol: "S", label: x.rS, value: fmt((hf / L) * 1000, 2), unit: "‰", tint: C.energy },
-                { symbol: "—", label: x.rVh, value: fmt((V * V) / 19.62, 4), unit: "m" },
+                { symbol: "—", label: x.rVh, value: (V * V) / 19.62 < 0.001 ? fmtSci((V * V) / 19.62) : fmt((V * V) / 19.62, 4), unit: "m" },
               ]}
             />
           </Block>
@@ -249,23 +249,23 @@ function notice(
   s: { f: number; regime: string; hf: number; L: number; fullyRough: boolean },
   lang: Lang
 ): string {
-  const L0 = s.L.toFixed(0);
+  const L0 = fmt(s.L, 0);
 
   if (lang === "en") {
     if (s.regime === "laminar")
-      return `Below Re 2,000 the flow is still laminar, and wall roughness has no effect at all — f depends on Re alone. Try moving the roughness now: the operating point does not budge. Head loss over ${L0} m is only ${s.hf.toFixed(3)} m.`;
+      return `Below Re 2,000 the flow is still laminar, and wall roughness has no effect at all — f depends on Re alone. Try moving the roughness now: the operating point does not budge. Head loss over ${L0} m is only ${fmt(s.hf, 3)} m.`;
     if (s.regime === "transisi")
       return "The operating point sits inside the empty band on the chart. Values here cannot be relied on: the flow may switch between laminar and turbulent depending on upstream disturbance. In design this range is best avoided — choose a diameter that moves the point clear of the band.";
     if (s.fullyRough)
       return "The operating point has passed the fully rough boundary and the curve has flattened. Raising Re further barely lowers f, meaning more velocity no longer buys efficiency. From here the only way to cut head loss is a larger diameter or a smoother wall.";
-    return `Turbulent, but not yet fully rough: a friction factor of ${s.f.toFixed(4)} still falls as Re rises. Head loss is ${s.hf.toFixed(2)} m over ${L0} m of pipe. Move the roughness and watch the point travel between curves — the further right, the less Re matters and the more roughness dominates.`;
+    return `Turbulent, but not yet fully rough: a friction factor of ${fmt(s.f, 4)} still falls as Re rises. Head loss is ${fmt(s.hf, 2)} m over ${L0} m of pipe. Move the roughness and watch the point travel between curves — the further right, the less Re matters and the more roughness dominates.`;
   }
 
   if (s.regime === "laminar")
-    return `Pada Re di bawah 2.000 aliran masih laminar, dan kekasaran dinding sama sekali tidak berpengaruh — f hanya bergantung pada Re. Coba geser kekasaran sekarang: titik operasi tidak bergerak. Kehilangan tekan sepanjang ${L0} m hanya ${s.hf.toFixed(3)} m.`;
+    return `Pada Re di bawah 2.000 aliran masih laminar, dan kekasaran dinding sama sekali tidak berpengaruh — f hanya bergantung pada Re. Coba geser kekasaran sekarang: titik operasi tidak bergerak. Kehilangan tekan sepanjang ${L0} m hanya ${fmt(s.hf, 3)} m.`;
   if (s.regime === "transisi")
     return "Titik operasi berada di dalam pita kosong pada diagram. Nilai di sini tidak dapat diandalkan: aliran bisa berbalik-balik antara laminar dan turbulen tergantung gangguan di hulu. Dalam desain, rentang ini sebaiknya dihindari — pilih diameter yang menggeser titik operasi keluar dari pita.";
   if (s.fullyRough)
     return "Titik operasi sudah melewati batas turbulen penuh, dan kurvanya mendatar. Menaikkan Re lagi hampir tidak menurunkan f — artinya menambah kecepatan tidak lagi memperbaiki efisiensi. Pada tahap ini satu-satunya cara menurunkan kehilangan tekan adalah memperbesar diameter atau memperhalus dinding.";
-  return `Aliran turbulen, tetapi belum sepenuhnya kasar: faktor gesekan ${s.f.toFixed(4)} masih ikut turun bila Re dinaikkan. Kehilangan tekan ${s.hf.toFixed(2)} m sepanjang ${L0} m pipa. Geser kekasaran dan perhatikan titik operasi berpindah antar kurva — semakin ke kanan, semakin kecil pengaruh Re dan semakin dominan pengaruh kekasaran.`;
+  return `Aliran turbulen, tetapi belum sepenuhnya kasar: faktor gesekan ${fmt(s.f, 4)} masih ikut turun bila Re dinaikkan. Kehilangan tekan ${fmt(s.hf, 2)} m sepanjang ${L0} m pipa. Geser kekasaran dan perhatikan titik operasi berpindah antar kurva — semakin ke kanan, semakin kecil pengaruh Re dan semakin dominan pengaruh kekasaran.`;
 }

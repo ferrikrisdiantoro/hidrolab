@@ -21,7 +21,7 @@ import {
   type ReachRegion,
   type ReachSeries,
 } from "@/lib/drawReach";
-import { fmt, sideChannelProfile, type TroughResult } from "@/lib/hydraulics";
+import { criticalDepth, fmt, fmtPlain, sideChannelProfile, type TroughResult } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -44,7 +44,7 @@ const TXT = {
     pSempit: "Saluran terlalu sempit",
     rQ: "Debit di ujung keluar",
     rYc: "Kedalaman kritis di ujung keluar",
-    rYmax: "Kedalaman terbesar, di pangkal",
+    rYmax: "Kedalaman terbesar di saluran pengumpul",
     rRise: "Kenaikan muka air ke arah pangkal",
     rFree: "Jagaan terhadap mercu",
     rDrop: "Penurunan dasar sepanjang saluran",
@@ -52,9 +52,9 @@ const TXT = {
     tenggelam: "Mercu tenggelam",
     tenggelamNote:
       "Muka air di dalam saluran pengumpul naik sampai melewati elevasi mercu. Bila itu terjadi, pelimpahnya tidak lagi bekerja sebagai ambang bebas: debit yang lewat berkurang, dan seluruh perhitungan kapasitas pelimpah yang mengandaikan aliran bebas menjadi tidak berlaku. Perdalam saluran pengumpul dengan menaikkan mercu, perlebar dasarnya, atau perpanjang mercunya supaya limpasan per satuan panjang berkurang.",
-    superkritis: "Ada penampang superkritis",
+    superkritis: "Aliran superkritis di bagian hulu",
     superkritisNote:
-      "Ada penampang di dalam saluran pengumpul yang menjadi superkritis. Loncatan air di dalam saluran pengumpul mengganggu pola aliran menuju saluran peluncur dan menimbulkan getaran, sehingga rancangan seperti ini biasanya dihindari. Landaikan dasar saluran pengumpul atau perbesar lebarnya.",
+      "Dari titik yang ditandai ke arah pangkal, aliran di saluran pengumpul menjadi superkritis. Kendali di ujung keluar tidak lagi menjangkau bagian itu, jadi muka airnya tidak digambar dan kedalaman di pangkal, kenaikan, serta jagaan tidak dilaporkan. Di dalam saluran akan terbentuk loncatan air yang mengganggu pola aliran menuju saluran peluncur, sehingga rancangan seperti ini dihindari. Landaikan dasar saluran pengumpul atau perbesar lebarnya sampai seluruh salurannya subkritis.",
     exagg: "pelebihan tegak",
     note:
       "Yang dipakai di sini bentuk beda hingga dari persamaan momentum, bukan bentuk diferensial, dan itu bukan pilihan gaya melainkan keharusan. Kendali saluran pengumpul berada tepat pada kondisi kritis di ujung keluarnya, dan di titik itu bentuk diferensial membagi dengan satu dikurangi kuadrat bilangan Froude yang menuju nol, sehingga penelusuran meledak pada langkah pertama. Bentuk beda hingga tidak pernah membagi dengan suku itu. Bentuk yang dipakai juga sudah dirapikan supaya tidak membagi dengan debit di hulu, sehingga pangkal saluran yang debitnya nol tetap dapat dihitung. Yang membuat saluran pengumpul dalam bukan gesekan melainkan momentum: air yang jatuh dari mercu masuk tegak lurus terhadap arah saluran dan harus dibelokkan serta dipercepat oleh aliran yang sudah ada di bawahnya. Biaya itu diambil dari tinggi tekan, dan hasilnya muka air yang justru naik ke arah pangkal walaupun dasarnya juga naik ke arah itu. Karena kedua permukaan naik bersamaan, kedalaman di pangkal tidak sebesar kenaikan muka airnya, dan itulah yang membuat pembacaan sepintas pada gambar mudah keliru.",
@@ -73,7 +73,7 @@ const TXT = {
     pSempit: "Trough too narrow",
     rQ: "Discharge at the outlet",
     rYc: "Critical depth at the outlet",
-    rYmax: "Greatest depth, at the head",
+    rYmax: "Greatest depth in the trough",
     rRise: "Rise in water level toward the head",
     rFree: "Freeboard below the crest",
     rDrop: "Bed drop along the trough",
@@ -81,9 +81,9 @@ const TXT = {
     tenggelam: "Crest submerged",
     tenggelamNote:
       "The water surface inside the trough rises past the crest elevation. When that happens the spillway no longer acts as a free weir: the discharge passing drops, and every capacity calculation that assumed free flow stops being valid. Deepen the trough by raising the crest, widen the bed, or lengthen the crest so that the overflow per unit length falls.",
-    superkritis: "A supercritical section is present",
+    superkritis: "Supercritical flow in the upper part",
     superkritisNote:
-      "Some section inside the trough has become supercritical. A hydraulic jump inside the collector disturbs the flow pattern entering the chute and sets up vibration, so such a design is normally avoided. Flatten the trough bed or widen it.",
+      "From the marked point toward the head, flow in the collector becomes supercritical. The control at the outlet no longer reaches that part, so its water surface is not drawn and the head depth, rise, and freeboard are not reported. A hydraulic jump would form inside the trough and disturb the flow into the chute, so such a design is avoided. Flatten the trough or widen it until the whole channel is subcritical.",
     exagg: "vertical exaggeration",
     note:
       "What is used here is the finite-difference form of the momentum equation rather than the differential form, and that is not a matter of style but a necessity. The control of a collector trough sits exactly at critical conditions at its outlet, and there the differential form divides by one minus the square of the Froude number, which tends to zero, so the traverse explodes on the first step. The finite-difference form never divides by that term. The form used has also been rearranged so that it does not divide by the upstream discharge, which keeps the head of the trough, where the discharge is zero, computable. What makes a collector trough deep is not friction but momentum: water falling off the crest enters at right angles to the channel and has to be turned and accelerated by the flow already beneath it. That cost is taken from head, and the result is a water surface that rises toward the head even though the bed rises that way too. Because both surfaces rise together, the depth at the head is smaller than the rise in level, and that is what makes a quick reading of the drawing easy to get wrong.",
@@ -118,16 +118,21 @@ export function PelimpahSampingClient() {
   const [zCrest, setZCrest] = useState(4.5);
 
   const r = sideChannelProfile(Q, b, n, S0, L);
+  // Bila bagian hulu superkritis, titik pertama bukan pangkal saluran dan
+  // semua besaran yang dibaca darinya tidak berarti. Yang dilaporkan cuma
+  // yang memang dihitung.
+  const terpotong = r.supercriticalFrom !== null;
   const pangkal = r.points[0];
   const jagaan = zCrest - pangkal.ws;
-  const tenggelam = jagaan < 0;
+  const tenggelam = !terpotong && jagaan < 0;
+  const takAda = "—";
 
   const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, L, zCrest, lang)),
+    (ctx, w, h) => drawReach(ctx, w, h, susun(r, b, L, S0, zCrest, lang)),
     [Q, b, n, S0, L, zCrest, lang]
   );
 
-  const zSpan = Math.max(zCrest, pangkal.ws, 1e-3);
+  const zSpan = Math.max(zCrest, pangkal.ws, S0 * L, 1e-3);
   const exagg = L / zSpan / 1.9;
 
   return (
@@ -165,8 +170,8 @@ export function PelimpahSampingClient() {
             { label: "yc", value: `${fmt(r.ycOut, 3)} m`, tint: C.critical },
             {
               label: x.rFree,
-              value: `${fmt(jagaan, 2)} m`,
-              tint: tenggelam ? C.signal : undefined,
+              value: terpotong ? takAda : `${fmt(jagaan, 2)} m`,
+              tint: tenggelam || terpotong ? C.signal : undefined,
             },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 1)}×` },
           ]}
@@ -200,30 +205,32 @@ export function PelimpahSampingClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={tenggelam ? undefined : C.water} alert={tenggelam}>
-                {tenggelam ? x.tenggelam : `${fmt(jagaan, 2)} m ${x.rFree.toLowerCase()}`}
-              </Flag>
-              {r.anySupercritical && <Flag alert>{x.superkritis}</Flag>}
+              {!terpotong && (
+                <Flag tint={tenggelam ? undefined : C.water} alert={tenggelam}>
+                  {tenggelam ? x.tenggelam : `${fmt(jagaan, 2)} m ${x.rFree.toLowerCase()}`}
+                </Flag>
+              )}
+              {terpotong && <Flag alert>{x.superkritis}</Flag>}
             </div>
             {tenggelam && (
               <div className="mb-2.5">
                 <Note>{x.tenggelamNote}</Note>
               </div>
             )}
-            {r.anySupercritical && (
+            {terpotong && (
               <div className="mb-2.5">
                 <Note>{x.superkritisNote}</Note>
               </div>
             )}
             <ResultTable
               rows={[
-                { symbol: "y_max", label: x.rYmax, value: fmt(r.yMax, 3), unit: "m", tint: C.water, strong: true },
-                { symbol: "Δws", label: x.rRise, value: fmt(r.rise, 3), unit: "m", tint: C.energy, strong: true },
+                { symbol: "y_max", label: x.rYmax, value: terpotong ? takAda : fmt(r.yMax, 3), unit: terpotong ? undefined : "m", tint: C.water, strong: true },
+                { symbol: "Δws", label: x.rRise, value: terpotong ? takAda : fmt(r.rise, 3), unit: terpotong ? undefined : "m", tint: C.energy, strong: true },
                 { symbol: "yc", label: x.rYc, value: fmt(r.ycOut, 3), unit: "m", tint: C.critical },
                 { symbol: "Q", label: x.rQ, value: fmt(r.Qout, 1), unit: "m³/s", tint: C.water },
                 { symbol: "q*", label: x.rQstar, value: fmt((Q / L) * 1000, 0), unit: "l/s·m" },
                 { symbol: "Δz", label: x.rDrop, value: fmt(S0 * L, 3), unit: "m" },
-                { symbol: "f", label: x.rFree, value: fmt(jagaan, 3), unit: "m", tint: tenggelam ? C.signal : undefined },
+                { symbol: "f", label: x.rFree, value: terpotong ? takAda : fmt(jagaan, 3), unit: terpotong ? undefined : "m", tint: tenggelam || terpotong ? C.signal : undefined },
               ]}
             />
           </Block>
@@ -267,10 +274,16 @@ export function PelimpahSampingClient() {
  * Penyusunan gambar
  * ------------------------------------------------------------------ */
 
-function susun(r: TroughResult, L: number, zCrest: number, lang: Lang) {
+function susun(r: TroughResult, b: number, L: number, S0: number, zCrest: number, lang: Lang) {
   const T = cl(lang);
+  const terpotong = r.supercriticalFrom !== null;
 
-  const bed: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: p.zb }));
+  // Dasarnya diketahui di sepanjang saluran. Muka airnya hanya sejauh yang
+  // dihitung: bila bagian hulu superkritis, deretnya berhenti di sana.
+  const bed: ReachPoint[] = [
+    { x: 0, z: S0 * L },
+    { x: L, z: 0 },
+  ];
   const air: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: p.ws }));
 
   const garis: ReachSeries[] = [
@@ -288,15 +301,20 @@ function susun(r: TroughResult, L: number, zCrest: number, lang: Lang) {
       labelAt: 0.12,
       labelDy: -9,
     },
+    // Kedalaman kritis SETEMPAT, bukan kedalaman kritis ujung keluar yang
+    // ditarik lurus. Debitnya bertambah sepanjang saluran, jadi garis kritisnya
+    // menurun ke arah pangkal sampai nol. Garis lurus pada nilai ujung keluar
+    // membuat muka air yang dangkal di pangkal terbaca superkritis, padahal
+    // debit di sana hampir nol.
     {
-      pts: [
-        { x: 0, z: r.points[0].zb + r.ycOut },
-        { x: L, z: r.ycOut },
-      ],
+      pts: Array.from({ length: 41 }, (_, i) => {
+        const xx = (L * i) / 40;
+        return { x: xx, z: S0 * (L - xx) + criticalDepth(((r.Qout * xx) / L) / b) };
+      }),
       color: C.critical,
       weight: W.hair,
       dash: DASH.axis,
-      label: `yc ${r.ycOut.toFixed(2)} m`,
+      label: "yc(x)",
       labelAt: 0.55,
       labelDy: 11,
     },
@@ -307,18 +325,6 @@ function susun(r: TroughResult, L: number, zCrest: number, lang: Lang) {
 
   const tanda: ReachMarker[] = [
     {
-      x: 0,
-      label: T.collector,
-      color: C.water,
-      zBottom: pangkal.zb,
-      dim: {
-        zTop: pangkal.ws,
-        zBottom: pangkal.zb,
-        text: `${pangkal.y.toFixed(2)} m`,
-        side: 1,
-      },
-    },
-    {
       x: L,
       label: T.control,
       color: C.signal,
@@ -326,20 +332,53 @@ function susun(r: TroughResult, L: number, zCrest: number, lang: Lang) {
       dim: {
         zTop: keluar.ws,
         zBottom: 0,
-        text: `${keluar.y.toFixed(2)} m`,
+        text: `${fmtPlain(keluar.y, 2)} m`,
         side: -1,
       },
     },
   ];
 
+  if (terpotong) {
+    // Penelusuran berhenti di sini. Di hulunya tidak ada muka air yang
+    // digambar, dan gambar harus mengatakan itu, bukan membiarkan kertas
+    // kosong terbaca sebagai saluran kering.
+    tanda.push({
+      x: pangkal.x,
+      label: T.profileEnds,
+      color: C.signal,
+      zBottom: pangkal.zb,
+    });
+  } else {
+    tanda.push({
+      x: 0,
+      label: T.collector,
+      color: C.water,
+      zBottom: pangkal.zb,
+      dim: {
+        zTop: pangkal.ws,
+        zBottom: pangkal.zb,
+        text: `${fmtPlain(pangkal.y, 2)} m`,
+        side: 1,
+      },
+    });
+  }
+
   const wilayah: ReachRegion[] = [
     {
       x: L * 0.5,
-      z: Math.max(zCrest, pangkal.ws) * 1.05,
+      z: Math.max(zCrest, pangkal.ws, S0 * L) * 1.05,
       text: T.lateralInflow,
       color: C.ink3,
     },
   ];
+  if (terpotong) {
+    wilayah.push({
+      x: pangkal.x / 2,
+      z: S0 * (L - pangkal.x / 2) + r.ycOut,
+      text: `${T.supercritical}, ${T.noProfile}`,
+      color: C.signal,
+    });
+  }
 
   return {
     length: L,
@@ -361,8 +400,18 @@ function notice(
   lang: Lang
 ): string {
   const turunDasar = S0 * L;
+  // Kedalaman terbesar tidak selalu di pangkal: dasar dan muka air sama-sama
+  // naik ke arah itu, dan selisihnya bisa memuncak sedikit di hilir pangkal.
+  const yPangkal = r.points[0].y;
+
+  if (r.supercriticalFrom !== null) {
+    const bagian = fmt((r.supercriticalFrom / L) * 100, 0);
+    return lang === "en"
+      ? `The traverse from the outlet control stops ${fmt(r.supercriticalFrom, 1)} m from the head, ${bagian} per cent of the way along. Upstream of that the flow is supercritical and the outlet no longer governs it, so nothing about the head can be read from this sheet. The trough is too steep or too narrow for the discharge it collects: flatten it, widen it, or lengthen the crest so that less water enters per metre.`
+      : `Penelusuran dari kendali di ujung keluar berhenti ${fmt(r.supercriticalFrom, 1)} m dari pangkal, ${bagian} persen dari panjangnya. Di hulu titik itu alirannya superkritis dan ujung keluar tidak lagi mengendalikannya, jadi tidak ada yang bisa dibaca tentang pangkal dari lembar ini. Saluran pengumpulnya terlalu curam atau terlalu sempit untuk debit yang dikumpulkannya: landaikan, perlebar, atau perpanjang mercunya supaya air yang masuk per meter berkurang.`;
+  }
 
   if (lang === "en")
-    return `The water surface rises ${r.rise.toFixed(3)} m toward the head of the trough while the bed rises ${turunDasar.toFixed(3)} m over the same length, so the depth at the head works out at ${r.yMax.toFixed(3)} m against ${r.ycOut.toFixed(3)} m at the outlet. ${jagaan < 0 ? "The surface has already passed the crest, which invalidates the free-weir assumption behind the discharge." : `That leaves ${jagaan.toFixed(2)} m of freeboard below the crest.`} Raise the trough slope and watch two things move in opposite directions: the bed drops away faster, but the outlet sits lower, so the freeboard at the head does not improve as much as the slope alone would suggest.`;
-  return `Muka air naik ${r.rise.toFixed(3)} m ke arah pangkal saluran pengumpul, sementara dasarnya naik ${turunDasar.toFixed(3)} m sepanjang jarak yang sama, sehingga kedalaman di pangkal menjadi ${r.yMax.toFixed(3)} m berbanding ${r.ycOut.toFixed(3)} m di ujung keluar. ${jagaan < 0 ? "Muka airnya sudah melewati mercu, dan itu membatalkan andaian ambang bebas yang menjadi dasar perhitungan debitnya." : `Sisanya ${jagaan.toFixed(2)} m sebagai jagaan di bawah mercu.`} Curamkan dasar saluran pengumpul, lalu perhatikan dua hal bergerak berlawanan arah: dasarnya menurun lebih cepat, tetapi ujung keluarnya juga duduk lebih rendah, sehingga jagaan di pangkal tidak membaik sebanyak yang dijanjikan kemiringannya sendiri.`;
+    return `The water surface rises ${fmt(r.rise, 3)} m toward the head of the trough while the bed rises ${fmt(turunDasar, 3)} m over the same length, so the depth at the head works out at ${fmt(yPangkal, 3)} m against ${fmt(r.ycOut, 3)} m at the outlet. ${jagaan < 0 ? "The surface has already passed the crest, which invalidates the free-weir assumption behind the discharge." : `That leaves ${fmt(jagaan, 2)} m of freeboard below the crest.`} Raise the trough slope and watch two things move in opposite directions: the bed drops away faster, but the outlet sits lower, so the freeboard at the head does not improve as much as the slope alone would suggest.`;
+  return `Muka air naik ${fmt(r.rise, 3)} m ke arah pangkal saluran pengumpul, sementara dasarnya naik ${fmt(turunDasar, 3)} m sepanjang jarak yang sama, sehingga kedalaman di pangkal menjadi ${fmt(yPangkal, 3)} m berbanding ${fmt(r.ycOut, 3)} m di ujung keluar. ${jagaan < 0 ? "Muka airnya sudah melewati mercu, dan itu membatalkan andaian ambang bebas yang menjadi dasar perhitungan debitnya." : `Sisanya ${fmt(jagaan, 2)} m sebagai jagaan di bawah mercu.`} Curamkan dasar saluran pengumpul, lalu perhatikan dua hal bergerak berlawanan arah: dasarnya menurun lebih cepat, tetapi ujung keluarnya juga duduk lebih rendah, sehingga jagaan di pangkal tidak membaik sebanyak yang dijanjikan kemiringannya sendiri.`;
 }

@@ -53,6 +53,9 @@ const TXT = {
     rTanpa: "Debit bila faktor kecepatan datang diabaikan",
     rSalah: "Kesalahan bila faktor itu diabaikan",
     luar: "Di luar perbandingan yang lazim",
+    bukan: "Leher tidak lebih sempit dari pipa",
+    bukanNote:
+      "Garis tengah leher sama dengan atau lebih besar daripada garis tengah pipa, jadi tidak ada penyempitan dan tidak ada percepatan. Rumus venturi membagi dengan akar dari satu dikurangi beta pangkat empat, yang nol pada beta satu, sehingga tidak ada debit yang dapat dihitung. Bacaan manometer yang dimasukkan pun tidak punya arti pada geometri ini. Kecilkan garis tengah lehernya.",
     luarKecil:
       "Perbandingan garis tengah di bawah 0,3. Leher sesempit itu menghasilkan kecepatan yang sangat tinggi dan beda tekanan yang besar, tetapi juga mendekatkan tekanan di leher ke tekanan uap, sehingga kavitasi menjadi risiko nyata. Koefisien debit terbitan juga tidak dijamin berlaku di luar rentang itu.",
     luarBesar:
@@ -80,6 +83,9 @@ const TXT = {
     rTanpa: "Discharge if the approach factor is ignored",
     rSalah: "Error from ignoring that factor",
     luar: "Outside the usual ratio",
+    bukan: "Throat no narrower than the pipe",
+    bukanNote:
+      "The throat diameter equals or exceeds the pipe diameter, so there is no contraction and no acceleration. The venturi formula divides by the square root of one minus beta to the fourth, which is zero at beta one, so no discharge can be computed. The manometer reading entered has no meaning for this geometry either. Reduce the throat diameter.",
     luarKecil:
       "The diameter ratio is below 0.3. A throat that narrow gives very high velocity and a large pressure difference, but it also brings the throat pressure close to vapour pressure, so cavitation becomes a real risk. The published discharge coefficient is not guaranteed outside that range either.",
     luarBesar:
@@ -115,8 +121,10 @@ export function VenturiClient() {
   const [Cc, setCc] = useState(VENTURI_C_MACHINED);
 
   const r = venturiDischarge(D1, D2, dh, Cc);
-  const tanpaFaktor = r.Q / r.approachFactor;
-  const salah = ((r.Q - tanpaFaktor) / r.Q) * 100;
+  const bukan = r.reason === "bukan-venturi";
+  const tanpaFaktor = bukan ? 0 : r.Q / r.approachFactor;
+  const salah = bukan ? 0 : ((r.Q - tanpaFaktor) / r.Q) * 100;
+  const takAda = "—";
 
   const ref = useCanvas(
     (ctx, w, h) =>
@@ -132,6 +140,7 @@ export function VenturiClient() {
           dh,
           permanentLoss: r.permanentLoss,
           outOfRange: r.outOfRange,
+          notVenturi: bukan,
         },
         lang
       ),
@@ -139,7 +148,13 @@ export function VenturiClient() {
   );
 
   const alasan =
-    r.reason === "beta-kecil" ? x.luarKecil : r.reason === "beta-besar" ? x.luarBesar : "";
+    r.reason === "beta-kecil"
+      ? x.luarKecil
+      : r.reason === "beta-besar"
+        ? x.luarBesar
+        : r.reason === "bukan-venturi"
+          ? x.bukanNote
+          : "";
 
   return (
     <LabShell
@@ -174,7 +189,7 @@ export function VenturiClient() {
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "β", value: fmt(r.beta, 3), tint: r.outOfRange ? C.signal : undefined },
             { label: "Δh", value: `${fmt(dh, 3)} m`, tint: C.energy },
-            { label: "Q", value: `${fmt(r.Q * 1000, 1)} l/s`, tint: C.water },
+            { label: "Q", value: bukan ? takAda : `${fmt(r.Q * 1000, 1)} l/s`, tint: bukan ? C.signal : C.water },
             { label: "C", value: fmt(Cc, 3) },
           ]}
         >
@@ -205,8 +220,8 @@ export function VenturiClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.water}>{`${fmt(r.Q * 1000, 1)} l/s`}</Flag>
-              {r.outOfRange && <Flag alert>{x.luar}</Flag>}
+              {!bukan && <Flag tint={C.water}>{`${fmt(r.Q * 1000, 1)} l/s`}</Flag>}
+              {r.outOfRange && <Flag alert>{bukan ? x.bukan : x.luar}</Flag>}
             </div>
             {r.outOfRange && (
               <div className="mb-2.5">
@@ -215,15 +230,15 @@ export function VenturiClient() {
             )}
             <ResultTable
               rows={[
-                { symbol: "Q", label: x.rQ, value: fmt(r.Q * 1000, 2), unit: "l/s", tint: C.water, strong: true },
+                { symbol: "Q", label: x.rQ, value: bukan ? takAda : fmt(r.Q * 1000, 2), unit: bukan ? undefined : "l/s", tint: C.water, strong: true },
                 { symbol: "β", label: x.rBeta, value: fmt(r.beta, 4), tint: r.outOfRange ? C.signal : undefined, strong: true },
-                { symbol: "E", label: x.rFaktor, value: fmt(r.approachFactor, 4), tint: C.energy },
-                { symbol: "Q′", label: x.rTanpa, value: fmt(tanpaFaktor * 1000, 2), unit: "l/s", tint: C.ink3 },
-                { symbol: "ε", label: x.rSalah, value: fmt(salah, 2), unit: "%", tint: C.signal },
-                { symbol: "V₁", label: x.rV1, value: fmt(r.V1, 3), unit: "m/s" },
-                { symbol: "V₂", label: x.rV2, value: fmt(r.V2, 3), unit: "m/s", tint: C.water },
-                { symbol: "hL", label: x.rLoss, value: fmt(r.permanentLoss, 4), unit: "m", tint: C.signal },
-                { symbol: "%", label: x.rLossPct, value: fmt(dh > 0 ? (r.permanentLoss / dh) * 100 : 0, 1), unit: "%" },
+                { symbol: "E", label: x.rFaktor, value: bukan ? takAda : fmt(r.approachFactor, 4), tint: C.energy },
+                { symbol: "Q′", label: x.rTanpa, value: bukan ? takAda : fmt(tanpaFaktor * 1000, 2), unit: bukan ? undefined : "l/s", tint: C.ink3 },
+                { symbol: "ε", label: x.rSalah, value: bukan ? takAda : fmt(salah, 2), unit: bukan ? undefined : "%", tint: C.signal },
+                { symbol: "V₁", label: x.rV1, value: bukan ? takAda : fmt(r.V1, 3), unit: bukan ? undefined : "m/s" },
+                { symbol: "V₂", label: x.rV2, value: bukan ? takAda : fmt(r.V2, 3), unit: bukan ? undefined : "m/s", tint: C.water },
+                { symbol: "hL", label: x.rLoss, value: bukan ? takAda : fmt(r.permanentLoss, 4), unit: bukan ? undefined : "m", tint: C.signal },
+                { symbol: "%", label: x.rLossPct, value: bukan ? takAda : fmt(dh > 0 ? (r.permanentLoss / dh) * 100 : 0, 1), unit: bukan ? undefined : "%" },
               ]}
             />
           </Block>
@@ -262,8 +277,12 @@ export function VenturiClient() {
 
 function notice(r: VenturiResult, salah: number, dh: number, lang: Lang): string {
   const pulih = dh > 0 ? (1 - r.permanentLoss / dh) * 100 : 0;
+  if (r.reason === "bukan-venturi")
+    return lang === "en"
+      ? "There is nothing to notice yet: without a contraction there is no venturi. Bring the throat diameter below the pipe diameter and the pressure head line, the discharge, and the approach factor all come back."
+      : "Belum ada yang perlu diperhatikan: tanpa penyempitan tidak ada venturi. Kecilkan garis tengah leher sampai di bawah garis tengah pipa, dan garis tinggi tekan, debit, serta faktor kecepatan datang akan kembali.";
 
   if (lang === "en")
-    return `At a diameter ratio of ${r.beta.toFixed(3)} the velocity of approach factor is ${r.approachFactor.toFixed(4)}, so leaving it out would understate the discharge by ${salah.toFixed(2)} per cent. Push the throat diameter up toward the pipe diameter and watch that error grow far faster than the ratio does. On the upper panel, ${pulih.toFixed(0)} per cent of the head difference comes back downstream; an orifice plate at the same ratio would return far less, and that recovery is the whole reason a Venturi costs more.`;
-  return `Pada perbandingan garis tengah ${r.beta.toFixed(3)}, faktor kecepatan datangnya ${r.approachFactor.toFixed(4)}, sehingga melupakannya akan mengecilkan debit sebesar ${salah.toFixed(2)} persen. Naikkan garis tengah leher mendekati garis tengah pipa, lalu perhatikan kesalahan itu bertambah jauh lebih cepat daripada perbandingannya sendiri. Pada panel atas, ${pulih.toFixed(0)} persen dari beda tinggi tekan kembali di hilir; pelat lubang pada perbandingan yang sama mengembalikan jauh lebih sedikit, dan pemulihan itulah seluruh alasan venturi lebih mahal.`;
+    return `At a diameter ratio of ${fmt(r.beta, 3)} the velocity of approach factor is ${fmt(r.approachFactor, 4)}, so leaving it out would understate the discharge by ${fmt(salah, 2)} per cent. Push the throat diameter up toward the pipe diameter and watch that error grow far faster than the ratio does. On the upper panel, ${fmt(pulih, 0)} per cent of the head difference comes back downstream; an orifice plate at the same ratio would return far less, and that recovery is the whole reason a Venturi costs more.`;
+  return `Pada perbandingan garis tengah ${fmt(r.beta, 3)}, faktor kecepatan datangnya ${fmt(r.approachFactor, 4)}, sehingga melupakannya akan mengecilkan debit sebesar ${fmt(salah, 2)} persen. Naikkan garis tengah leher mendekati garis tengah pipa, lalu perhatikan kesalahan itu bertambah jauh lebih cepat daripada perbandingannya sendiri. Pada panel atas, ${fmt(pulih, 0)} persen dari beda tinggi tekan kembali di hilir; pelat lubang pada perbandingan yang sama mengembalikan jauh lebih sedikit, dan pemulihan itulah seluruh alasan venturi lebih mahal.`;
 }

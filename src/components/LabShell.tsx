@@ -56,7 +56,20 @@ export function LabShell({
       </header>
 
       <div className="grid gap-7 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
-        <div className="min-w-0">{drawing}</div>
+        {/*
+          Gambar menempel, kartu di sampingnya yang bergerak.
+
+          Seluruh janji lembar ini adalah "geser satu masukan, gambarnya ikut
+          berubah". Kolom kanan hampir selalu lebih tinggi daripada gambarnya,
+          jadi tanpa ini pengguna yang sedang berada di slider sudah kehilangan
+          gambarnya dari layar, dan janji itu tidak pernah terlihat.
+
+          self-start wajib: tanpa itu kotaknya diregangkan setinggi baris grid
+          dan tidak tersisa ruang untuk menempel. Hanya berlaku mulai lebar lg,
+          karena di bawah itu kolomnya bertumpuk dan gambar yang menempel justru
+          akan menutupi masukannya.
+        */}
+        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">{drawing}</div>
         <aside className="flex flex-col gap-6">{side}</aside>
       </div>
 

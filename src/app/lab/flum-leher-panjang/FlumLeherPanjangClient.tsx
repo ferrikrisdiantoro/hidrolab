@@ -26,8 +26,7 @@ import {
   FLUME_HL_MIN,
   flumeDischarge,
   fmt,
-  type FlumeResult,
-} from "@/lib/hydraulics";
+  type FlumeResult, fmtPlain } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -54,9 +53,15 @@ const TXT = {
     rYc: "Kedalaman kritis di leher",
     rCv: "Koefisien kecepatan datang",
     rHL: "Perbandingan tinggi energi terhadap panjang leher",
+    rFr: "Bilangan Froude di penampang ukur",
     rV: "Kecepatan di leher",
     rTail: "Batas muka air hilir agar tetap bebas",
     luar: "Di luar rentang keberlakuan",
+    luarFr:
+      "Bilangan Froude di penampang ukur melampaui 0,5, batas yang ditetapkan ISO 4359. Pada aliran datang secepat itu muka air bergelombang dan bacaan tinggi muka air tidak lagi dapat dipercaya; kecepatan datang juga sudah menjadi bagian besar dari tinggi energi. Perlebar saluran datang atau tinggikan mercu.",
+    takKendali: "Leher tidak mengendalikan aliran",
+    takKendaliNote:
+      "Lehernya terlalu lebar untuk saluran datangnya. Pada kedalaman ini saluran datang tidak sanggup membawa debit yang akan dilewatkan leher, jadi tidak ada tinggi energi yang memenuhi persamaan kecepatan datang, dan kondisi kritis tidak terbentuk di leher. Tidak ada debit yang dapat dihitung dari tinggi muka air. Sempitkan leher, perlebar saluran datang, atau tinggikan mercu.",
     luarKecil:
       "Tinggi energi terlalu kecil dibanding panjang leher. Gesekan di sepanjang leher menjadi terlalu besar untuk diabaikan, dan koefisien debitnya tidak lagi mendekati satu. Perpendek lehernya atau ukur pada debit yang lebih besar.",
     luarBesar:
@@ -86,9 +91,15 @@ const TXT = {
     rYc: "Critical depth in the throat",
     rCv: "Velocity of approach coefficient",
     rHL: "Ratio of head to throat length",
+    rFr: "Froude number at the gauging section",
     rV: "Velocity in the throat",
     rTail: "Tailwater limit for free flow",
     luar: "Outside the valid range",
+    luarFr:
+      "The Froude number at the gauging section exceeds 0.5, the limit set by ISO 4359. With approach flow that fast the surface is wavy and the head reading can no longer be trusted; the velocity head is also a large part of the total head. Widen the approach channel or raise the sill.",
+    takKendali: "Throat does not control the flow",
+    takKendaliNote:
+      "The throat is too wide for its approach channel. At this depth the approach channel cannot carry the discharge the throat would pass, so no energy head satisfies the velocity-of-approach equation and critical flow does not form in the throat. No discharge can be computed from the head. Narrow the throat, widen the approach, or raise the sill.",
     luarKecil:
       "The head is too small against the throat length. Friction along the throat becomes too large to ignore, and the discharge coefficient no longer sits close to one. Shorten the throat or gauge at a larger discharge.",
     luarBesar:
@@ -131,7 +142,9 @@ export function FlumLeherPanjangClient() {
   const [tail, setTail] = useState(0.25);
 
   const r = flumeDischarge(h1, bt, bA, p, Lt, Cd);
-  const tenggelam = tail > r.tailLimit;
+  const takKendali = !r.controlled;
+  const tenggelam = r.controlled && tail > r.tailLimit;
+  const takAda = "—";
 
   const ref = useCanvas(
     (ctx, w, h) => drawReach(ctx, w, h, susun(r, h1, p, Lt, tail, lang)),
@@ -139,7 +152,15 @@ export function FlumLeherPanjangClient() {
   );
 
   const alasan =
-    r.reason === "HL-kecil" ? x.luarKecil : r.reason === "HL-besar" ? x.luarBesar : "";
+    r.reason === "HL-kecil"
+      ? x.luarKecil
+      : r.reason === "HL-besar"
+        ? x.luarBesar
+        : r.reason === "Fr-besar"
+          ? x.luarFr
+          : r.reason === "tak-terkendali"
+            ? x.takKendaliNote
+            : "";
 
   return (
     <LabShell
@@ -173,12 +194,23 @@ export function FlumLeherPanjangClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "h₁", value: `${fmt(h1, 3)} m`, tint: C.water },
-            { label: "Q", value: `${fmt(r.Q, 4)} m³/s`, tint: C.water },
-            { label: "yc", value: `${fmt(r.yc, 4)} m`, tint: C.critical },
+            { label: "Q", value: takKendali ? takAda : `${fmt(r.Q, 4)} m³/s`, tint: takKendali ? C.signal : C.water },
+            { label: "yc", value: takKendali ? takAda : `${fmt(r.yc, 4)} m`, tint: C.critical },
+            // Merah hanya pada besaran yang memang di luar rentang. Sebelum
+            // ini sel ini ikut merah saat yang bermasalah bilangan Froude,
+            // sehingga pembaca melihat H/L 0,385 ditandai padahal ia sehat.
             {
               label: "H/L",
-              value: fmt(r.H1 / Lt, 3),
-              tint: r.outOfRange ? C.signal : undefined,
+              value: takKendali ? takAda : fmt(r.H1 / Lt, 3),
+              tint:
+                takKendali || r.reason === "HL-kecil" || r.reason === "HL-besar"
+                  ? C.signal
+                  : undefined,
+            },
+            {
+              label: "Fr₁",
+              value: takKendali ? takAda : fmt(r.Fr1, 3),
+              tint: r.reason === "Fr-besar" ? C.signal : undefined,
             },
           ]}
         >
@@ -212,8 +244,8 @@ export function FlumLeherPanjangClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.water}>{`${fmt(r.Q * 1000, 0)} l/s`}</Flag>
-              {r.outOfRange && <Flag alert>{x.luar}</Flag>}
+              {!takKendali && <Flag tint={C.water}>{`${fmt(r.Q * 1000, 0)} l/s`}</Flag>}
+              {r.outOfRange && <Flag alert>{takKendali ? x.takKendali : x.luar}</Flag>}
               {tenggelam && <Flag alert>{x.tenggelam}</Flag>}
             </div>
             {r.outOfRange && (
@@ -228,13 +260,14 @@ export function FlumLeherPanjangClient() {
             )}
             <ResultTable
               rows={[
-                { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water, strong: true },
-                { symbol: "H₁", label: x.rH1, value: fmt(r.H1, 4), unit: "m", tint: C.energy, strong: true },
-                { symbol: "yc", label: x.rYc, value: fmt(r.yc, 4), unit: "m", tint: C.critical },
-                { symbol: "Vc", label: x.rV, value: fmt(r.yc > 0 ? Math.sqrt(9.81 * r.yc) : 0, 3), unit: "m/s" },
-                { symbol: "Cv", label: x.rCv, value: fmt(r.Cv, 4) },
-                { symbol: "H/L", label: x.rHL, value: fmt(r.H1 / Lt, 3), tint: r.outOfRange ? C.signal : undefined },
-                { symbol: "y*", label: x.rTail, value: fmt(r.tailLimit, 3), unit: "m", tint: tenggelam ? C.signal : undefined },
+                { symbol: "Q", label: x.rQ, value: takKendali ? takAda : fmt(r.Q, 4), unit: takKendali ? undefined : "m³/s", tint: C.water, strong: true },
+                { symbol: "H₁", label: x.rH1, value: takKendali ? takAda : fmt(r.H1, 4), unit: takKendali ? undefined : "m", tint: C.energy, strong: true },
+                { symbol: "yc", label: x.rYc, value: takKendali ? takAda : fmt(r.yc, 4), unit: takKendali ? undefined : "m", tint: C.critical },
+                { symbol: "Vc", label: x.rV, value: takKendali ? takAda : fmt(r.yc > 0 ? Math.sqrt(9.81 * r.yc) : 0, 3), unit: takKendali ? undefined : "m/s" },
+                { symbol: "Cv", label: x.rCv, value: takKendali ? takAda : fmt(r.Cv, 4) },
+                { symbol: "Fr₁", label: x.rFr, value: takKendali ? takAda : fmt(r.Fr1, 3), tint: r.reason === "Fr-besar" ? C.signal : undefined },
+                { symbol: "H/L", label: x.rHL, value: takKendali ? takAda : fmt(r.H1 / Lt, 3), tint: r.reason === "HL-kecil" || r.reason === "HL-besar" ? C.signal : undefined },
+                { symbol: "y*", label: x.rTail, value: takKendali ? takAda : fmt(r.tailLimit, 3), unit: takKendali ? undefined : "m", tint: tenggelam ? C.signal : undefined },
               ]}
             />
           </Block>
@@ -348,7 +381,7 @@ function susun(
       color: C.energy,
       weight: W.thin,
       dash: DASH.hidden,
-      label: `H₁ ${r.H1.toFixed(3)} m`,
+      label: `H₁ ${fmtPlain(r.H1, 3)} m`,
       labelAt: 0.5,
       labelDy: -9,
     },
@@ -360,7 +393,7 @@ function susun(
       color: C.critical,
       weight: W.hair,
       dash: DASH.axis,
-      label: `yc ${r.yc.toFixed(3)} m`,
+      label: `yc ${fmtPlain(r.yc, 3)} m`,
       labelAt: 0.04,
       labelDy: 11,
     },
@@ -385,7 +418,7 @@ function susun(
       label: T.gauging,
       color: C.water,
       zBottom: 0,
-      dim: { zTop: zUkur, zBottom: p, text: `h₁ ${h1.toFixed(3)} m`, side: -1 },
+      dim: { zTop: zUkur, zBottom: p, text: `h₁ ${fmtPlain(h1, 3)} m`, side: -1 },
     },
     {
       x: (a2 + a3) / 2,
@@ -395,7 +428,7 @@ function susun(
       dim: {
         zTop: zKritis,
         zBottom: p,
-        text: `${r.yc.toFixed(3)} m`,
+        text: `${fmtPlain(r.yc, 3)} m`,
         side: 1,
       },
     },
@@ -417,6 +450,33 @@ function susun(
     },
   ];
 
+  // Leher yang tidak mengendalikan aliran: tidak ada kondisi kritis, tidak
+  // ada garis energi, tidak ada batas tenggelam. Muka air digambar mendatar
+  // pada tinggi yang dimasukkan dan seluruhnya bertitik rapat, karena lembar
+  // ini memang tidak tahu bentuknya, dan gambar menulis mengapa.
+  if (!r.controlled) {
+    return {
+      length: L,
+      bed,
+      water: [
+        { x: 0, z: zUkur, invalid: true },
+        { x: L, z: zUkur, invalid: true },
+      ],
+      series: [],
+      markers: [tanda[0]],
+      regions: [
+        {
+          x: L * 0.5,
+          z: zUkur * 1.22,
+          text: T.throatNoControl,
+          color: C.signal,
+        },
+      ],
+      axisX: T.axStation,
+      axisZ: T.elevation,
+    };
+  }
+
   return {
     length: L,
     bed,
@@ -430,6 +490,16 @@ function susun(
 }
 
 function notice(r: FlumeResult, tenggelam: boolean, lang: Lang): string {
+  if (!r.controlled) {
+    return lang === "id"
+      ? "Tidak ada yang bisa dibaca dari leher yang tidak mengendalikan aliran. Sempitkan lehernya sampai di bawah lebar saluran datang, atau tinggikan mercunya, lalu perhatikan garis energi dan kedalaman kritis muncul kembali."
+      : "Nothing can be read from a throat that does not control the flow. Narrow the throat below the approach width, or raise the sill, and watch the energy line and critical depth reappear.";
+  }
+  if (r.reason === "Fr-besar") {
+    return lang === "id"
+      ? `Bilangan Froude di penampang ukur ${fmt(r.Fr1, 3)}, di atas batas 0,5. Angka debitnya tetap keluar dari persamaan, tetapi bacaan tinggi muka air pada aliran secepat ini tidak dapat dipercaya. Perlebar saluran datang, lalu perhatikan koefisien kecepatan datang ${fmt(r.Cv, 4)} turun mendekati satu.`
+      : `The Froude number at the gauging section is ${fmt(r.Fr1, 3)}, above the 0.5 limit. The discharge still comes out of the equation, but a head reading in flow this fast cannot be trusted. Widen the approach channel and watch the velocity-of-approach coefficient ${fmt(r.Cv, 4)} fall toward one.`;
+  }
   if (tenggelam) {
     return lang === "id"
       ? "Selama muka air hilir masih di atas batas kerja bebas, tinggi muka air di hulu tidak lagi menentukan debit sendirian, dan angka pada tabel di atas tidak berlaku. Turunkan muka air hilirnya, lalu perhatikan garis merah putus-putus di hilir leher turun di bawah muka airnya."
@@ -439,6 +509,6 @@ function notice(r: FlumeResult, tenggelam: boolean, lang: Lang): string {
   const bagian = (r.yc / r.H1) * 100;
 
   if (lang === "en")
-    return `Read the throat against the energy line above it. Critical depth sits at ${r.yc.toFixed(3)} m, which is ${bagian.toFixed(1)} per cent of the total head of ${r.H1.toFixed(3)} m, and that fraction stays at two thirds no matter what you change. The velocity of approach coefficient is ${r.Cv.toFixed(4)}, so ignoring the approach velocity would understate the discharge by ${((r.Cv - 1) * 100).toFixed(2)} per cent. Widen the approach channel and watch that error shrink toward nothing.`;
-  return `Bacalah leher terhadap garis energi di atasnya. Kedalaman kritis duduk di ${r.yc.toFixed(3)} m, yaitu ${bagian.toFixed(1)} persen dari tinggi energi ${r.H1.toFixed(3)} m, dan pecahan itu tetap dua per tiga apa pun yang diubah. Koefisien kecepatan datangnya ${r.Cv.toFixed(4)}, jadi mengabaikan kecepatan datang akan mengecilkan debit sebesar ${((r.Cv - 1) * 100).toFixed(2)} persen. Perlebar saluran datangnya, lalu perhatikan kesalahan itu menyusut mendekati nol.`;
+    return `Read the throat against the energy line above it. Critical depth sits at ${fmt(r.yc, 3)} m, which is ${fmt(bagian, 1)} per cent of the total head of ${fmt(r.H1, 3)} m, and that fraction stays at two thirds no matter what you change. The velocity of approach coefficient is ${fmt(r.Cv, 4)}, so ignoring the approach velocity would understate the discharge by ${fmt(((r.Cv - 1) * 100), 2)} per cent. Widen the approach channel and watch that error shrink toward nothing.`;
+  return `Bacalah leher terhadap garis energi di atasnya. Kedalaman kritis duduk di ${fmt(r.yc, 3)} m, yaitu ${fmt(bagian, 1)} persen dari tinggi energi ${fmt(r.H1, 3)} m, dan pecahan itu tetap dua per tiga apa pun yang diubah. Koefisien kecepatan datangnya ${fmt(r.Cv, 4)}, jadi mengabaikan kecepatan datang akan mengecilkan debit sebesar ${fmt(((r.Cv - 1) * 100), 2)} persen. Perlebar saluran datangnya, lalu perhatikan kesalahan itu menyusut mendekati nol.`;
 }

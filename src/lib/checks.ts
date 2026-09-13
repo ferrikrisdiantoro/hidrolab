@@ -286,7 +286,12 @@ export function checksGvf(
       const c = urut[i];
       const beda = c.y - a.y;
       const f = Math.abs(beda) < 1e-12 ? 0 : (yTarget - a.y) / beda;
-      titik = { x: a.x + (c.x - a.x) * f, y: yTarget, nearCritical: false };
+      titik = {
+        x: a.x + (c.x - a.x) * f,
+        y: yTarget,
+        nearCritical: false,
+        rapid: false,
+      };
       break;
     }
   }
@@ -535,15 +540,18 @@ export function checksNotch(H: number, theta: number): Check[] {
     },
     {
       label: {
-        id: "Tinggi muka air di bawah 5 cm ditandai di luar rentang",
-        en: "A head below 5 cm is flagged outside the valid range",
+        id: "Di luar 5 sampai 38 cm dan 20 sampai 100 derajat ditandai di luar rentang",
+        en: "Outside 5 to 38 cm and 20 to 100 degrees is flagged outside the valid range",
       },
-      source: "Batas keberlakuan pada ISO 1438",
+      source: "Batas keberlakuan pada ISO 1438:2017",
       kind: "perilaku",
       expected: 1,
       actual:
         notchDischarge(0.03, 90).outOfRange &&
-        !notchDischarge(0.05, 90).outOfRange
+        notchDischarge(0.40, 90).outOfRange &&
+        notchDischarge(0.2, 110).outOfRange &&
+        !notchDischarge(0.05, 90).outOfRange &&
+        !notchDischarge(0.38, 100).outOfRange
           ? 1
           : 0,
       tol: 0,
@@ -1203,7 +1211,12 @@ export function checksSideChannel(
   const keluar = r.points[r.points.length - 1];
   const q = Qtotal / b;
   const yc = criticalDepth(q);
-  const tengah = r.points[Math.floor(r.points.length / 2)];
+  // Titik yang paling dekat ke separuh panjang. Bila senarainya terpotong
+  // karena bagian hulu superkritis, yang dibandingkan tetap titik yang ada,
+  // dengan debit yang diharapkan pada absisnya sendiri.
+  const tengah = r.points.reduce((a, p) =>
+    Math.abs(p.x - L / 2) < Math.abs(a.x - L / 2) ? p : a
+  );
 
   return [
     {
@@ -1251,13 +1264,9 @@ export function checksSideChannel(
       },
       source: "Limpasan merata sepanjang mercu, dihitung dengan tangan",
       kind: "sifat",
-      expected: Qtotal / 2,
+      expected: (Qtotal * tengah.x) / L,
       actual: tengah.Q,
-      tol: 0.02,
-      tolReason: {
-        id: "Titik tengah dibaca dari senarai titik yang jumlahnya genap, jadi ia tidak jatuh persis di separuh panjang.",
-        en: "The midpoint is read from a list with an even number of points, so it does not land exactly at half the length.",
-      },
+      tol: 1e-9,
       unit: "m³/s",
       digits: 4,
     },
@@ -1303,11 +1312,13 @@ function sisaMomentumTerbesar(
   n: number,
   L: number
 ): number {
-  const dx = L / (r.points.length - 1);
   let terbesar = 0;
   for (let i = 1; i < r.points.length; i++) {
     const p1 = r.points[i - 1];
     const p2 = r.points[i];
+    // Jarak dibaca dari titiknya sendiri, bukan dari L dibagi jumlah titik:
+    // senarainya bisa terpotong bila ada bagian hulu yang superkritis.
+    const dx = p2.x - p1.x;
     const jumlahQ = p1.Q + p2.Q;
     if (jumlahQ <= 0) continue;
     const dyMomentum =
@@ -1921,6 +1932,23 @@ export function checksFlume(
       tol: 0,
       digits: 0,
     },
+    {
+      label: {
+        id: "Froude di penampang ukur di atas 0,5 ditandai, dan leher yang terlalu lebar ditolak",
+        en: "Froude above 0.5 at the gauging section is flagged, and an over-wide throat is refused",
+      },
+      source: "Batas Fr₁ ≤ 0,5 pada ISO 4359, dan syarat adanya penampang kendali",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        flumeDischarge(0.3, 1.0, 1.2, 0, 0.9, 0.99).reason === "Fr-besar" &&
+        !flumeDischarge(0.02, 0.6, 0.15, 0, 0.9, 0.99).controlled &&
+        flumeDischarge(0.3, 0.6, 1.2, 0.25, 0.9, 0.99).reason === ""
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    }
   ];
 }
 

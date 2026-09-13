@@ -23,9 +23,12 @@ import {
 } from "@/lib/drawReach";
 import {
   backwaterExtent,
+  broadCrestControlDepth,
   criticalDepth,
   fmt,
+  fmtPlain,
   gvfProfile,
+  minControllingHeight,
   normalDepth,
   normalDepthReachable,
 } from "@/lib/hydraulics";
@@ -59,6 +62,10 @@ const TXT = {
     tak: "Melampaui kapasitas saluran",
     takNote:
       "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Kedalaman normal yang tampil hanyalah batas atas pencarian.",
+    tenggelam: "Bangunan tenggelam, tidak membendung",
+    tenggelamNote:
+      "Energi aliran normal saluran sudah melampaui yang dibutuhkan untuk melewati mercu, jadi air lewat di atasnya tanpa harus menjadi kritis dan kedalaman di hulu tetap pada kedalaman normal. Tidak ada pembendungan, tidak ada jangkauan yang bisa dihitung. Bangunan ini baru mulai membendung bila tingginya melampaui",
+    tbDrowned: "tidak membendung",
     jauh: "Melewati batas pencarian",
     jauhNote:
       "Pengaruhnya belum habis bahkan setelah 500 km ke hulu. Ini bukan kesalahan hitungan melainkan sifat saluran yang sangat landai: makin datar dasarnya, makin jauh sebuah bangunan terasa. Curamkan sedikit dasarnya, atau turunkan bangunannya, untuk melihat angka yang berarti.",
@@ -88,6 +95,10 @@ const TXT = {
     tak: "Exceeds channel capacity",
     takNote:
       "At this width and slope the channel cannot carry that discharge at any depth. The normal depth shown is only the upper bound of the search.",
+    tenggelam: "Structure drowned, no backwater",
+    tenggelamNote:
+      "The energy of the channel's normal flow already exceeds what is needed to pass the crest, so water goes over without having to turn critical and the upstream depth stays at normal depth. There is no backwater and no extent to compute. The structure only begins to hold water back once its height exceeds",
+    tbDrowned: "no backwater",
     jauh: "Beyond the search limit",
     jauhNote:
       "The influence has still not died out 500 km upstream. That is not a calculation error but the nature of a very flat channel: the flatter the bed, the further a structure is felt. Steepen the bed slightly, or lower the structure, to see a meaningful number.",
@@ -128,21 +139,33 @@ export function PengaruhHilirClient() {
   const y0 = normalDepth(Q, b, n, S0);
   const terjangkau = normalDepthReachable(Q, b, n, S0);
 
-  // Kedalaman di bangunan: tinggi bangunan ditambah tinggi luapan di atasnya.
-  // Tinggi luapan didekati dengan kedalaman kritis, yang berlaku bila mercunya
-  // cukup lebar sehingga aliran melewati kondisi kritis di atas mercu.
-  const yCtl = Math.max(P + yc, y0 * 1.001);
+  /*
+   * Kedalaman di hulu bangunan, dari persamaan energi untuk mercu lebar.
+   *
+   * Bangunan yang terlalu rendah tidak membendung apa pun: energi aliran
+   * normal sudah cukup untuk melewati mercunya. Pada keadaan itu kedalaman
+   * kendalinya adalah kedalaman normal itu sendiri, sehingga seluruh hitungan
+   * di bawah dengan sendirinya memberi kenaikan nol dan jangkauan nol. Tanpa
+   * itu, pembaca akan membaca "jangkauan pengaruh 29 km" untuk kenaikan
+   * beberapa milimeter.
+   */
+  const pMin = minControllingHeight(y0, Q / b);
+  const tenggelam = P <= pMin;
+  const yCtl = tenggelam ? y0 : broadCrestControlDepth(P, Q / b);
   const r = backwaterExtent(Q, b, n, S0, yCtl, pers / 100);
   const r10 = backwaterExtent(Q, b, n, S0, yCtl, 0.1);
 
   // Bentang yang digambar dibuat sedikit lebih panjang daripada jangkauannya,
   // supaya ujung kurva yang sudah menyatu dengan kedalaman normal ikut terlihat.
-  const L = Math.min(200000, Math.max(200, r.beyondSearch ? 20000 : r.distance * 1.25));
+  // Saat bangunannya tenggelam tidak ada jangkauan, jadi dipakai bentang tetap.
+  const L = tenggelam
+    ? 2000
+    : Math.min(200000, Math.max(200, r.beyondSearch ? 20000 : r.distance * 1.25));
   const profil = gvfProfile(Q, b, n, S0, yCtl, L, 800);
 
   const ref = useCanvas(
     (ctx, w, h) =>
-      drawReach(ctx, w, h, susun(profil.points, y0, yc, L, S0, P, r.distance, r.beyondSearch, lang)),
+      drawReach(ctx, w, h, susun(profil.points, y0, yc, L, S0, P, r.distance, r.beyondSearch, tenggelam, lang)),
     [Q, b, n, S0, P, pers, lang]
   );
 
@@ -193,8 +216,8 @@ export function PengaruhHilirClient() {
             { label: "Q", value: `${fmt(Q, 1)} m³/s`, tint: C.water },
             { label: "y₀", value: `${fmt(y0, 3)} m`, tint: C.water },
             {
-              label: `L${pers.toFixed(0)}%`,
-              value: r.beyondSearch ? "> 500 km" : `${fmt(r.distance / 1000, 2)} km`,
+              label: `L${fmt(pers, 0)}%`,
+              value: tenggelam ? x.tbDrowned : r.beyondSearch ? "> 500 km" : `${fmt(r.distance / 1000, 2)} km`,
               tint: C.signal,
             },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 0)}×` },
@@ -220,8 +243,8 @@ export function PengaruhHilirClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pBendung, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0012); setP(1.4); setPers(1); } },
-                  { label: x.pDatar, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0002); setP(1.4); setPers(1); } },
-                  { label: x.pKecil, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0012); setP(0.35); setPers(1); } },
+                  { label: x.pDatar, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0002); setP(3.0); setPers(1); } },
+                  { label: x.pKecil, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0012); setP(1.0); setPers(1); } },
                 ]}
               />
             </div>
@@ -229,13 +252,23 @@ export function PengaruhHilirClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.critical}>{profil.profile}</Flag>
+              {/* Saat tenggelam muka airnya seragam; nama zona dari penelusuran
+                  tidak berlaku, karena penelusurannya mulai tepat di y₀. */}
+              <Flag tint={C.critical}>{tenggelam ? cl(lang).uniform : profil.profile}</Flag>
               {!terjangkau && <Flag alert>{x.tak}</Flag>}
+              {tenggelam && <Flag alert>{x.tenggelam}</Flag>}
               {r.beyondSearch && <Flag alert>{x.jauh}</Flag>}
             </div>
             {!terjangkau && (
               <div className="mb-2.5">
                 <Note>{x.takNote}</Note>
+              </div>
+            )}
+            {tenggelam && (
+              <div className="mb-2.5">
+                <Note>
+                  {x.tenggelamNote} {fmt(pMin, 2)} m.
+                </Note>
               </div>
             )}
             {r.beyondSearch && (
@@ -248,16 +281,16 @@ export function PengaruhHilirClient() {
                 {
                   symbol: "L",
                   label: x.rDist,
-                  value: r.beyondSearch ? "> 500.000" : fmt(r.distance, 0),
-                  unit: "m",
+                  value: tenggelam ? "—" : r.beyondSearch ? "> 500.000" : fmt(r.distance, 0),
+                  unit: tenggelam ? undefined : "m",
                   tint: C.signal,
                   strong: true,
                 },
                 {
                   symbol: "L₁₀",
                   label: x.rDist10,
-                  value: r10.beyondSearch ? "> 500.000" : fmt(r10.distance, 0),
-                  unit: "m",
+                  value: tenggelam ? "—" : r10.beyondSearch ? "> 500.000" : fmt(r10.distance, 0),
+                  unit: tenggelam ? undefined : "m",
                 },
                 { symbol: "y₀", label: x.rY0, value: fmt(y0, 3), unit: "m", tint: C.water },
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical },
@@ -269,7 +302,7 @@ export function PengaruhHilirClient() {
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(r.distance, r.beyondSearch, r10.distance, S0, pers, lang)}</Note>
+            <Note>{notice(r.distance, r.beyondSearch, tenggelam, r10.distance, S0, pers, lang)}</Note>
           </Block>
         </>
       }
@@ -318,6 +351,7 @@ function susun(
   P: number,
   jarak: number,
   lewatBatas: boolean,
+  tenggelam: boolean,
   lang: Lang
 ) {
   const T = cl(lang);
@@ -344,7 +378,7 @@ function susun(
       color: C.water,
       weight: W.thin,
       dash: DASH.hidden,
-      label: `y₀ ${y0.toFixed(2)} m`,
+      label: `y₀ ${fmtPlain(y0, 2)} m`,
       labelAt: 0.02,
       labelDy: 11,
     },
@@ -356,7 +390,7 @@ function susun(
       color: C.critical,
       weight: W.hair,
       dash: DASH.axis,
-      label: `yc ${yc.toFixed(2)} m`,
+      label: `yc ${fmtPlain(yc, 2)} m`,
       labelAt: 0.5,
       labelDy: 11,
     },
@@ -380,13 +414,13 @@ function susun(
       dim: {
         zTop: P,
         zBottom: 0,
-        text: `P ${P.toFixed(2)} m`,
+        text: `P ${fmtPlain(P, 2)} m`,
         side: -1,
       },
     },
   ];
 
-  if (!lewatBatas && jarak <= L) {
+  if (!tenggelam && !lewatBatas && jarak <= L) {
     const xr = L - jarak;
     tanda.push({
       x: xr,
@@ -396,18 +430,21 @@ function susun(
       dim: {
         zTop: zb(xr) + (urut.find((p) => p.x >= xr)?.y ?? y0),
         zBottom: zb(xr),
-        text: `${jarak.toFixed(0)} m`,
+        text: `${fmtPlain(jarak, 0)} m`,
         side: 1,
       },
     });
   }
 
+  // Gambar harus menyatakan hal yang sama dengan tabel. Saat bangunannya
+  // tenggelam, muka airnya seragam dan nama profil tidak berlaku, jadi yang
+  // ditulis di gambar adalah keadaannya, dengan warna sinyal.
   const wilayah: ReachRegion[] = [
     {
       x: L * 0.55,
       z: zb(L * 0.55) + Math.max(y0, yc) * 2.1,
-      text: "M1",
-      color: C.ink,
+      text: tenggelam ? T.structureDrowned : "M1",
+      color: tenggelam ? C.signal : C.ink,
       big: true,
     },
   ];
@@ -427,11 +464,17 @@ function susun(
 function notice(
   jarak: number,
   lewatBatas: boolean,
+  tenggelam: boolean,
   jarak10: number,
   S0: number,
   pers: number,
   lang: Lang
 ): string {
+  if (tenggelam) {
+    return lang === "id"
+      ? "Tidak ada yang perlu dikaji: bangunan serendah ini tidak mengubah muka air di hulunya. Tinggikan bangunannya melewati batas yang disebut di atas, lalu perhatikan jangkauan yang muncul begitu ia mulai membendung."
+      : "There is nothing to study: a structure this low does not change the water level upstream of it. Raise it past the limit given above and watch the extent appear the moment it begins to hold water back.";
+  }
   if (lewatBatas) {
     return lang === "id"
       ? "Pengaruhnya belum juga habis setelah 500 km, dan itu jawaban yang jujur untuk saluran sedatar ini. Dalam praktik, batas kajian pada kasus seperti ini tidak ditentukan oleh hitungan hidraulika melainkan oleh tempat sungai bertemu bangunan lain, cabang, atau perubahan penampang yang mengambil alih kendali. Curamkan dasarnya sedikit untuk melihat angka yang berarti."
@@ -441,6 +484,6 @@ function notice(
   const rasio = jarak10 > 0 ? jarak / jarak10 : 0;
 
   if (lang === "en")
-    return `The influence reaches ${(jarak / 1000).toFixed(2)} km upstream at the ${pers.toFixed(1)} per cent threshold, but only ${(jarak10 / 1000).toFixed(2)} km at ten per cent. The ratio is ${rasio.toFixed(1)} to one, and it comes from the shape of the curve rather than from the structure: the last fraction of the rise takes the longest to disappear. Halve the bed slope, currently ${(S0 * 1000).toFixed(2)} per mille, and watch the extent grow by far more than double.`;
-  return `Pengaruhnya mencapai ${(jarak / 1000).toFixed(2)} km ke hulu pada ambang ${pers.toFixed(1)} persen, tetapi hanya ${(jarak10 / 1000).toFixed(2)} km pada ambang sepuluh persen. Perbandingannya ${rasio.toFixed(1)} banding satu, dan itu datang dari bentuk kurvanya, bukan dari bangunannya: bagian terakhir dari kenaikan itulah yang paling lama hilang. Turunkan kemiringan dasar menjadi separuh, sekarang ${(S0 * 1000).toFixed(2)} per mil, lalu perhatikan jangkauannya bertambah jauh lebih dari dua kali lipat.`;
+    return `The influence reaches ${fmt((jarak / 1000), 2)} km upstream at the ${fmt(pers, 1)} per cent threshold, but only ${fmt((jarak10 / 1000), 2)} km at ten per cent. The ratio is ${fmt(rasio, 1)} to one, and it comes from the shape of the curve rather than from the structure: the last fraction of the rise takes the longest to disappear. Halve the bed slope, currently ${fmt((S0 * 1000), 2)} per mille, and watch the extent grow by far more than double.`;
+  return `Pengaruhnya mencapai ${fmt((jarak / 1000), 2)} km ke hulu pada ambang ${fmt(pers, 1)} persen, tetapi hanya ${fmt((jarak10 / 1000), 2)} km pada ambang sepuluh persen. Perbandingannya ${fmt(rasio, 1)} banding satu, dan itu datang dari bentuk kurvanya, bukan dari bangunannya: bagian terakhir dari kenaikan itulah yang paling lama hilang. Turunkan kemiringan dasar menjadi separuh, sekarang ${fmt((S0 * 1000), 2)} per mil, lalu perhatikan jangkauannya bertambah jauh lebih dari dua kali lipat.`;
 }

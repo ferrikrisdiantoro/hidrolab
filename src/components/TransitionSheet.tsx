@@ -310,12 +310,55 @@ function preset(
  * Catatan yang menyesuaikan keadaan
  * ------------------------------------------------------------------ */
 
+/**
+ * Sebutan bagi tindakan yang mengurangi energi tersedia, menurut mode lembar.
+ *
+ * Ketiga lembar transisi memakai satu komponen yang sama, tetapi masing-masing
+ * mengisolasi sebab yang berbeda: satu menyempitkan lebar, satu menaikkan
+ * dasar, satu membuka keduanya. Kalimat penjelasnya karena itu tidak boleh
+ * menyebut satu sebab saja, sebab pada dua lembar lainnya ia akan berbicara
+ * tentang tindakan yang tidak ada di layar.
+ */
+function sebutan(mode: TransitionMode, lang: Lang) {
+  if (lang === "en") {
+    return {
+      width: {
+        aksi: "narrowing the channel",
+        tambah: "a little more narrowing",
+      },
+      step: {
+        aksi: "raising the bed",
+        tambah: "a slightly higher step",
+      },
+      critical: {
+        aksi: "narrowing the channel or raising its bed",
+        tambah: "a little more narrowing or a slightly higher step",
+      },
+    }[mode];
+  }
+  return {
+    width: {
+      aksi: "menyempitkan saluran",
+      tambah: "sedikit saja penyempitan tambahan",
+    },
+    step: {
+      aksi: "menaikkan dasar saluran",
+      tambah: "sedikit saja tambahan tinggi ambang",
+    },
+    critical: {
+      aksi: "menyempitkan saluran atau menaikkan dasarnya",
+      tambah: "sedikit saja penyempitan tambahan atau ambang yang lebih tinggi",
+    },
+  }[mode];
+}
+
 function notice(
   mode: TransitionMode,
   r: ReturnType<typeof transition>,
   lang: Lang,
   y1: number
 ): string {
+  const kata = sebutan(mode, lang);
   const naik = r.y2 > y1;
   const beda = Math.abs(r.y2 - y1);
   const sisa = (1 - r.chokeRatio) * 100;
@@ -324,31 +367,31 @@ function notice(
     if (r.choked) {
       const sebab =
         mode === "width"
-          ? `narrowing below ${r.b2Min.toFixed(2)} m`
-          : `a bed rise above ${r.dzMax.toFixed(3)} m`;
+          ? `narrowing below ${fmt(r.b2Min, 2)} m`
+          : `a bed rise above ${fmt(r.dzMax, 3)} m`;
       return `The flow is choked: ${sebab} leaves less energy downstream than the minimum the section needs. The transition cannot pass this discharge at the given upstream depth, so in reality the upstream water level rises until it can. The y₂ figure no longer applies, which is why it is shown as a dash rather than a number.`;
     }
     if (r.branch === "superkritis") {
-      return `The flow is supercritical, and here it behaves against intuition: ${naik ? "narrowing or raising the bed makes the water rise" : "the depth falls"}, the opposite of the subcritical case. Read it off the energy curve: on the lower branch, less available energy means a greater depth. The margin before choking is ${sisa.toFixed(1)} per cent.`;
+      return `The flow is supercritical, and here it behaves against intuition: ${naik ? `${kata.aksi} makes the water rise` : "the depth falls"}, the opposite of the subcritical case. Read it off the energy curve: on the lower branch, less available energy means a greater depth. The margin before choking is ${fmt(sisa, 1)} per cent.`;
     }
     if (sisa < 12) {
-      return `Only ${sisa.toFixed(1)} per cent of energy margin is left before choking. At this point a small extra narrowing or a slightly higher step tips the flow through critical, and the upstream level starts to rise. In design this is the boundary worth staying away from, not the one to sit on.`;
+      return `Only ${fmt(sisa, 1)} per cent of energy margin is left before choking. At this point ${kata.tambah} tips the flow through critical, and the upstream level starts to rise. In design this is the boundary worth staying away from, not the one to sit on.`;
     }
-    return `Subcritical flow: the depth ${naik ? "rises" : "falls"} by ${beda.toFixed(3)} m through the transition. This is the direction people find surprising, because narrowing a subcritical channel lowers the water rather than raising it. The upper branch of the energy curve explains it: less available energy means a smaller depth. Margin before choking is ${sisa.toFixed(1)} per cent.`;
+    return `Subcritical flow: the depth ${naik ? "rises" : "falls"} by ${fmt(beda, 3)} m through the transition. This is the direction people find surprising, because ${kata.aksi} in subcritical flow lowers the water rather than raising it. The upper branch of the energy curve explains it: less available energy means a smaller depth. Margin before choking is ${fmt(sisa, 1)} per cent.`;
   }
 
   if (r.choked) {
     const sebab =
       mode === "width"
-        ? `penyempitan di bawah ${r.b2Min.toFixed(2)} m`
-        : `kenaikan dasar di atas ${r.dzMax.toFixed(3)} m`;
+        ? `penyempitan di bawah ${fmt(r.b2Min, 2)} m`
+        : `kenaikan dasar di atas ${fmt(r.dzMax, 3)} m`;
     return `Aliran tersendat: ${sebab} menyisakan energi di hilir lebih kecil daripada energi minimum yang dibutuhkan penampang itu. Transisi ini tidak sanggup melewatkan debit tersebut pada kedalaman hulu yang diberikan, jadi di lapangan muka air hulu akan naik sampai sanggup. Angka y₂ tidak berlaku lagi, karena itu ditampilkan sebagai garis, bukan angka.`;
   }
   if (r.branch === "superkritis") {
-    return `Alirannya superkritis, dan di sini perilakunya berlawanan naluri: ${naik ? "menyempitkan atau menaikkan dasar justru menaikkan muka air" : "kedalamannya justru turun"}, kebalikan dari kasus subkritis. Bacanya dari kurva energi: pada cabang bawah, energi yang lebih kecil berarti kedalaman yang lebih besar. Cadangan sebelum tersendat tinggal ${sisa.toFixed(1)} persen.`;
+    return `Alirannya superkritis, dan di sini perilakunya berlawanan naluri: ${naik ? `${kata.aksi} justru menaikkan muka air` : "kedalamannya justru turun"}, kebalikan dari kasus subkritis. Bacanya dari kurva energi: pada cabang bawah, energi yang lebih kecil berarti kedalaman yang lebih besar. Cadangan sebelum tersendat tinggal ${fmt(sisa, 1)} persen.`;
   }
   if (sisa < 12) {
-    return `Cadangan energi tinggal ${sisa.toFixed(1)} persen sebelum tersendat. Pada titik ini, sedikit saja penyempitan tambahan atau ambang yang lebih tinggi sudah cukup melemparkan aliran melewati kondisi kritis, dan muka air hulu mulai naik. Dalam desain, batas ini untuk dijauhi, bukan untuk ditempati.`;
+    return `Cadangan energi tinggal ${fmt(sisa, 1)} persen sebelum tersendat. Pada titik ini, ${kata.tambah} sudah cukup melemparkan aliran melewati kondisi kritis, dan muka air hulu mulai naik. Dalam desain, batas ini untuk dijauhi, bukan untuk ditempati.`;
   }
-  return `Aliran subkritis: kedalaman ${naik ? "naik" : "turun"} sebesar ${beda.toFixed(3)} m melewati transisi. Arah inilah yang sering mengejutkan, karena menyempitkan saluran subkritis justru menurunkan muka air, bukan menaikkannya. Cabang atas kurva energi menjelaskannya: energi tersedia yang lebih kecil berarti kedalaman yang lebih kecil. Cadangan sebelum tersendat ${sisa.toFixed(1)} persen.`;
+  return `Aliran subkritis: kedalaman ${naik ? "naik" : "turun"} sebesar ${fmt(beda, 3)} m melewati transisi. Arah inilah yang sering mengejutkan, karena ${kata.aksi} pada aliran subkritis justru menurunkan muka air, bukan menaikkannya. Cabang atas kurva energi menjelaskannya: energi tersedia yang lebih kecil berarti kedalaman yang lebih kecil. Cadangan sebelum tersendat ${fmt(sisa, 1)} persen.`;
 }

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -14,7 +14,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { G, orificeTrajectory } from "./hydraulics";
+import { G, orificeTrajectory, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -33,6 +33,8 @@ export type OrificeDrawState = {
   Vth: number;
   /** Jarak vena contracta dari bidang lubang */
   xVena: number;
+  /** Benar bila bibir atas lubang berada di atas muka air */
+  notSubmerged: boolean;
 };
 
 /**
@@ -96,11 +98,11 @@ export function drawOrifice(
 
   const digits = zStep < 0.1 ? 2 : zStep < 1 ? 1 : 0;
   for (let v = 0; v <= zAtas + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(digits), padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, digits), padL - 8, Z(v), "right", "middle");
   for (let v = Math.ceil(xKiri / xStep) * xStep; v <= xKanan + 1e-9; v += xStep)
-    axisValue(ctx, v.toFixed(digits), X(v), padT + plotH + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, digits), X(v), padT + plotH + 9, "center", "top");
 
-  axisTitle(ctx, T.axStation, padL + plotW / 2, padT + plotH + 34);
+  axisTitle(ctx, T.axFromOrifice, padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.elevation, 16, padT + plotH / 2, -Math.PI / 2);
 
   /* ---------------- air di dalam bak ---------------- */
@@ -275,22 +277,39 @@ export function drawOrifice(
     X(s.xVena) + 30,
     Z(s.z0 + tVena),
     Z(s.z0 - tVena),
-    `${(s.Cc * s.a * 1000).toFixed(1)} mm`,
+    `${fmtPlain((s.Cc * s.a * 1000), 1)} mm`,
     C.signal
   );
-  region(ctx, T.venaContracta, X(s.xVena), Z(zMuka) - 14, C.signal);
+  // Alas kertas: garis sumbu vena contracta lewat tepat di bawah tulisan ini
+  // dan mencoret hurufnya, dan pada bukaan besar nama panel ikut mendarat di
+  // baris yang sama.
+  ctx.font = F.region;
+  const wVena = stencilWidth(ctx, T.venaContracta, 1.4);
+  const xVenaTeks = Math.min(
+    Math.max(X(s.xVena), padL + wVena / 2 + 4),
+    padL + plotW - wVena / 2 - 4
+  );
+  // Tidak ditulis saat bibir atas lubang di atas muka air: pada keadaan itu
+  // tidak ada vena contracta, dan catatan lembar mengatakan hal yang sama.
+  // Menamai sesuatu yang tidak ada sekaligus membuatnya berebut baris dengan
+  // judul panel yang justru menyatakan ketiadaannya.
+  if (!s.notSubmerged) {
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(xVenaTeks - wVena / 2 - 3, Z(zMuka) - 21, wVena + 6, 14);
+    region(ctx, T.venaContracta, xVenaTeks, Z(zMuka) - 14, C.signal);
+  }
 
   /* ---------------- dimensi ---------------- */
-  dimV(ctx, X(xKiri) + 28, Z(zMuka), Z(s.z0), `H ${s.H.toFixed(3)} m`, C.water);
+  dimV(ctx, X(xKiri) + 28, Z(zMuka), Z(s.z0), `H ${fmtPlain(s.H, 3)} m`, C.water);
   dimV(
     ctx,
     X(0) - 16,
     Z(zAtasLubang),
     Z(zBawahLubang),
-    `a ${(s.a * 1000).toFixed(0)} mm`,
+    `a ${fmtPlain((s.a * 1000), 0)} mm`,
     C.ink
   );
-  dimH(ctx, Z(0) - 14, X(0), X(s.xVena), `${(s.xVena * 1000).toFixed(0)} mm`, C.signal);
+  dimH(ctx, Z(0) - 14, X(0), X(s.xVena), `${fmtPlain((s.xVena * 1000), 0)} mm`, C.signal);
 
   leader(
     ctx,
@@ -307,7 +326,27 @@ export function drawOrifice(
   ctx.font = F.heading;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  stencil(ctx, T.jet, X(xKanan * 0.55), Z(s.z0) - 26, 2);
+  // Nama panel menyatakan keadaan yang digambar. Bila bibir atas lubang ada
+  // di atas muka air, yang terjadi bukan pancaran lubang, dan menuliskan
+  // "pancaran" di sana adalah kalimat yang dibantah penanda di sebelahnya.
+  ctx.fillStyle = s.notSubmerged ? C.signal : C.ink;
+  // Judul keadaan tidak terendam jauh lebih panjang daripada "pancaran", dan
+  // pada bukaan besar ia mendarat di baris nama vena contracta. Ditahan di
+  // dalam bingkai, lalu digeser ke bawah bila baris itu sudah terpakai.
+  const judul = s.notSubmerged ? T.notSubmerged : T.jet;
+  ctx.font = F.heading;
+  const wJudul = stencilWidth(ctx, judul, 2);
+  const xJudul = Math.min(
+    Math.max(X(xKanan * 0.55), padL + wJudul / 2 + 6),
+    padL + plotW - wJudul / 2 - 6
+  );
+  const yJudul = Z(s.z0) - 26;
+  const bentrok =
+    !s.notSubmerged &&
+    Math.abs(yJudul - (Z(zMuka) - 14)) < 18 &&
+    xJudul - wJudul / 2 < xVenaTeks + wVena / 2 + 6 &&
+    xJudul + wJudul / 2 > xVenaTeks - wVena / 2 - 6;
+  stencil(ctx, judul, xJudul, bentrok ? yJudul + 20 : yJudul, 2);
 
   /* ---------------- bingkai ---------------- */
   pen(ctx, W.thin, C.ink);

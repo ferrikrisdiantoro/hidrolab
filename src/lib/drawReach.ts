@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -12,6 +12,7 @@ import {
   region,
   ruling,
 } from "./plate";
+import { fmtPlain } from "./hydraulics";
 
 export type ReachPoint = {
   /** Jarak dari ujung hulu, meter */
@@ -28,7 +29,13 @@ export type ReachSeries = {
   weight: number;
   dash?: readonly number[];
   label?: string;
-  /** Letak label sebagai pecahan panjang deret, 0 di hulu dan 1 di hilir */
+  /**
+   * Letak label sebagai pecahan panjang deret, 0 di hulu dan 1 di hilir.
+   *
+   * Nilainya benar-benar pecahan jarak, bukan pecahan jumlah titik. Deret yang
+   * lurus cukup diberi dua titik ujungnya saja, dan labelnya tetap dapat
+   * ditaruh di mana pun di antara keduanya.
+   */
   labelAt?: number;
   labelAlign?: CanvasTextAlign;
   /** Geseran tegak label, piksel */
@@ -51,6 +58,15 @@ export type ReachRegion = {
   color?: string;
   /** Ditulis besar; dipakai untuk nama profil */
   big?: boolean;
+  /**
+   * Geseran tegak dalam PIKSEL, bukan dalam meter.
+   *
+   * Jarak antar label harus tetap sama di layar berapa pun skala tegaknya.
+   * Menyatakannya dalam meter membuatnya menyusut sampai bertumpuk pada ruas
+   * curam, karena di sana sumbu tegaknya didominasi penurunan dasar dan bukan
+   * oleh kedalaman airnya.
+   */
+  dy?: number;
 };
 
 export type ReachState = {
@@ -125,11 +141,15 @@ export function drawReach(
 
   const zDigits = zStep < 0.1 ? 2 : zStep < 1 ? 1 : 0;
   for (let v = 0; v <= zTop + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(zDigits), padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, zDigits), padL - 8, Z(v), "right", "middle");
+  // Angka desimalnya mengikuti langkah, bukan dibulatkan ke bilangan bulat:
+  // pada bentang pendek langkahnya setengah meter, dan pembulatan membuat
+  // sumbunya terbaca "0 1 1 2 2 3 3".
+  const xDigits = xStep < 0.1 ? 2 : xStep < 1 ? 1 : 0;
   for (let x = 0; x <= L + 1e-9; x += xStep)
     axisValue(
       ctx,
-      String(Math.round(x)),
+      fmtPlain(x, xDigits),
       X(x),
       padT + plotH + 9,
       "center",
@@ -167,6 +187,87 @@ export function drawReach(
 
   hatchWater(ctx, jalurAir, padL, padL + plotW, padT + 4, padT + plotH, 10);
 
+  /*
+   * Satu daftar kotak terpakai untuk SELURUH tulisan di dalam bidang.
+   *
+   * Label kurva dan nama penampang digambar oleh dua bagian yang berbeda,
+   * tetapi keduanya berebut ruang yang sama. Menahan tumpukan hanya di salah
+   * satunya membuat cacatnya berpindah, bukan hilang: pada profil yang jauh
+   * lebih pendek daripada bentangnya, semua tulisan tumpah ke tepi kiri.
+   */
+  const dipakai: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+
+  /**
+   * Menempatkan satu tulisan: ditahan agar utuh di dalam bingkai, lalu
+   * digeser ke bawah bila tempatnya sudah dipakai tulisan lain.
+   *
+   * Perataan ikut diperhitungkan, karena tulisan rata kiri tumbuh ke kanan
+   * dari absisnya sedangkan tulisan rata kanan tumbuh ke kiri. Menahan
+   * keduanya dengan cara yang sama akan memotong salah satunya.
+   */
+  const tempatkan = (
+    teks: string,
+    x: number,
+    y: number,
+    spacing: number,
+    align: CanvasTextAlign = "center",
+    font?: string
+  ) => {
+    ctx.font = font ?? (spacing > 1 ? F.region : F.labelSm);
+    const w = stencilWidth(ctx, teks, spacing) + 8;
+    const kiri = align === "left" ? 0 : align === "right" ? w : w / 2;
+    const xx = Math.min(
+      Math.max(x, padL + kiri),
+      padL + plotW - (w - kiri)
+    );
+    const x0 = xx - kiri;
+    const x1 = x0 + w;
+
+    /*
+     * Tinggi tulisan ikut diperhitungkan, tidak dianggap sama rata.
+     *
+     * Nama wilayah besar memakai huruf lima belas piksel dengan garis dasar di
+     * bawah, sedangkan label biasa sepuluh piksel dengan garis dasar di tengah.
+     * Selama keduanya dibandingkan dengan satu jarak tetap sebelas piksel,
+     * tulisan besar yang sudah digeser pun tetap menindih tetangganya dari atas.
+     */
+    const besar = (font ?? "").includes("15px");
+    const naik = besar ? 17 : 7;
+    const turun = besar ? 3 : 7;
+
+    let yy = y;
+    let putar = 0;
+    while (
+      putar < 10 &&
+      dipakai.some(
+        (d) => x0 < d.x1 && x1 > d.x0 && yy - naik < d.bawah && yy + turun > d.atas
+      )
+    ) {
+      yy += 12;
+      putar++;
+    }
+    dipakai.push({ x0, x1, atas: yy - naik, bawah: yy + turun });
+    return { x: xx, y: yy, x0, x1, atas: yy - naik, bawah: yy + turun };
+  };
+
+  /**
+   * Alas kertas di belakang tulisan.
+   *
+   * Nama wilayah dan nama penampang ditulis di bagian atas bidang, tempat
+   * garis energi dan muka air juga lewat. Tanpa alas, garis itu menembus
+   * hurufnya dan keduanya sama-sama sulit dibaca. Ini kebiasaan gambar
+   * teknik: tulisan memotong garis, bukan sebaliknya.
+   */
+  const alas = (pos: {
+    x0: number;
+    x1: number;
+    atas: number;
+    bawah: number;
+  }) => {
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(pos.x0 + 3, pos.atas, pos.x1 - pos.x0 - 6, pos.bawah - pos.atas);
+  };
+
   /* ---------------- garis tambahan ---------------- */
   for (const d of s.series ?? []) {
     if (d.pts.length < 2) continue;
@@ -179,18 +280,41 @@ export function drawReach(
     ctx.setLineDash([]);
 
     if (d.label) {
-      const i = Math.min(
-        d.pts.length - 1,
-        Math.max(0, Math.round((d.labelAt ?? 0.08) * (d.pts.length - 1)))
-      );
-      curveLabel(
-        ctx,
+      /*
+       * Letak label dicari dengan menyisipkan di sepanjang JARAK, bukan dengan
+       * memilih titik ke sekian.
+       *
+       * Deret yang lurus wajar diberi dua titik ujungnya saja, dan pada deret
+       * seperti itu memilih titik ke sekian hanya bisa menghasilkan salah satu
+       * ujung. Akibatnya label yang diminta di tengah selalu mendarat di tepi,
+       * tempat ia bertabrakan dengan dimensi penampang atau terpotong bingkai.
+       */
+      const f = Math.min(1, Math.max(0, d.labelAt ?? 0.08));
+      const xa = d.pts[0].x;
+      const xb = d.pts[d.pts.length - 1].x;
+      const xt = xa + (xb - xa) * f;
+
+      let zt = d.pts[0].z;
+      for (let k = 1; k < d.pts.length; k++) {
+        const a = d.pts[k - 1];
+        const c = d.pts[k];
+        if ((xt - a.x) * (xt - c.x) <= 0) {
+          const t = Math.abs(c.x - a.x) < 1e-12 ? 0 : (xt - a.x) / (c.x - a.x);
+          zt = a.z + (c.z - a.z) * t;
+          break;
+        }
+        zt = c.z;
+      }
+
+      const rata = d.labelAlign ?? "left";
+      const pos = tempatkan(
         d.label,
-        X(d.pts[i].x),
-        Z(d.pts[i].z) + (d.labelDy ?? -10),
-        d.color,
-        d.labelAlign ?? "left"
+        X(xt),
+        Z(zt) + (d.labelDy ?? -10),
+        0.6,
+        rata
       );
+      curveLabel(ctx, d.label, pos.x, pos.y, d.color, rata);
     }
   }
 
@@ -245,7 +369,9 @@ export function drawReach(
   );
   ctx.stroke();
 
-  /* ---------------- penampang bertanda ---------------- */
+  /* ---------------- penampang bertanda ----------------
+     Label ditumpuk ke bawah bila penampang berikutnya terlalu dekat, karena
+     dua nama yang berdesakan lebih buruk daripada satu nama yang bergeser. */
   for (const m of s.markers ?? []) {
     const xp = X(m.x);
     pen(ctx, W.thin, m.color, DASH.axis);
@@ -254,7 +380,10 @@ export function drawReach(
     ctx.lineTo(xp, Z(m.zBottom ?? 0));
     ctx.stroke();
     ctx.setLineDash([]);
-    region(ctx, m.label, xp, padT + 12, m.color);
+
+    const pos = tempatkan(m.label, xp, padT + 12, 1.4, "center");
+    alas(pos);
+    region(ctx, m.label, pos.x, pos.y, m.color);
 
     if (m.dim) {
       dimV(
@@ -270,14 +399,31 @@ export function drawReach(
 
   /* ---------------- nama wilayah ---------------- */
   for (const g of s.regions ?? []) {
+    /*
+     * Ordinat ditahan LEBIH DULU, baru geserannya ditambahkan.
+     *
+     * Urutan ini penting. Bila penahan dipasang sesudah geseran, dua label yang
+     * sama-sama berada di luar bidang akan dijepit ke baris yang sama dan
+     * geserannya lenyap, sehingga keduanya bertumpuk justru pada keadaan yang
+     * paling membutuhkan pemisahan.
+     */
+    const yDasar = Math.max(Z(g.z), padT + 14);
+    const yg = Math.min(yDasar + (g.dy ?? 0), padT + plotH - 8);
+    // Nama wilayah ikut daftar kotak terpakai yang sama dengan nama penampang.
+    // Keduanya berebut baris teratas bidang, dan sebelum ini nama wilayah
+    // digambar tanpa memeriksa apa pun, jadi "Fr = 1" selalu menimpa "leher".
+    const pos = g.big
+      ? tempatkan(g.text, X(g.x), yg, 2, "center", F.heading)
+      : tempatkan(g.text, X(g.x), yg, 1.4, "center");
+    alas(pos);
     if (g.big) {
       ctx.fillStyle = g.color ?? C.ink;
       ctx.font = F.heading;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      stencil(ctx, g.text, X(g.x), Z(g.z), 2);
+      stencil(ctx, g.text, pos.x, pos.y, 2);
     } else {
-      region(ctx, g.text, X(g.x), Z(g.z), g.color ?? C.ink3);
+      region(ctx, g.text, pos.x, pos.y, g.color ?? C.ink3);
     }
   }
 

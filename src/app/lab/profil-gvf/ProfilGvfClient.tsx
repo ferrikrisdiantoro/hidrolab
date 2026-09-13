@@ -17,6 +17,7 @@ import { useCanvas } from "@/lib/useCanvas";
 import { drawGvf } from "@/lib/drawGvf";
 import {
   criticalDepth,
+  type GvfResult,
   fmt,
   froude,
   gvfProfile,
@@ -50,6 +51,8 @@ const TXT = {
     rDir: "Arah penelusuran",
     rSlope: "Jenis kemiringan",
     rDy: "Selisih terhadap kedalaman normal",
+    rLen: "Panjang profil sampai kondisi kritis",
+    berhenti: "Profil berakhir sebelum ujung bentang",
     tak: "Melampaui kapasitas saluran",
     takNote: "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi angka y₀ di atas hanyalah batas atas pencarian, bukan hasil yang berlaku. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
     dirUp: "Ke hulu",
@@ -77,6 +80,8 @@ const TXT = {
     rDir: "Computation direction",
     rSlope: "Slope type",
     rDy: "Difference from normal depth",
+    rLen: "Profile length up to critical conditions",
+    berhenti: "Profile ends before the end of the reach",
     tak: "Exceeds channel capacity",
     takNote: "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so the y₀ shown above is only the upper bound of the search, not a valid result. Widen the bed, steepen the slope, or reduce the discharge.",
     dirUp: "Upstream",
@@ -120,8 +125,19 @@ export function ProfilGvfClient() {
   const result = gvfProfile(Q, b, n, S0, yCtl, L, 400);
   const FrCtl = froude(Q / (b * yCtl), yCtl);
 
+  // Profil yang berhenti di kedalaman kritis lebih pendek daripada bentangnya.
+  const urutX = [...result.points].sort((a, c) => a.x - c.x);
+  const panjangProfil = urutX[urutX.length - 1].x - urutX[0].x;
+
   const ref = useCanvas(
-    (ctx, w, h) => drawGvf(ctx, w, h, { result, length: L, S0 }, lang),
+    (ctx, w, h) =>
+      drawGvf(
+        ctx,
+        w,
+        h,
+        { result, length: L, S0, normalUnreachable: !terjangkau },
+        lang
+      ),
     [Q, b, n, S0, yCtl, L, lang]
   );
 
@@ -182,7 +198,11 @@ export function ProfilGvfClient() {
                 presets={[
                   { label: x.pM1, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0015); setYCtl(2.8); setL(2000); } },
                   { label: x.pM2, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.0015); setYCtl(0.95); setL(800); } },
-                  { label: x.pS2, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.02); setYCtl(0.84); setL(400); } },
+                  // Kedalaman kendali harus di BAWAH kedalaman kritis, yang pada debit
+                  // dan lebar ini bernilai 0,8374 m. Nilai 0,84 yang dipakai sebelumnya
+                  // berada 3 mm di atasnya, sehingga alirannya digolongkan subkritis dan
+                  // profil yang keluar S1, bukan S2 seperti tertulis pada tombolnya.
+                  { label: x.pS2, apply: () => { setQ(12); setB(5); setN(0.025); setS0(0.02); setYCtl(0.8); setL(400); } },
                 ]}
               />
             </div>
@@ -195,6 +215,9 @@ export function ProfilGvfClient() {
                 {result.mild ? x.mild : x.steep}
               </span>
               {!terjangkau && <Flag alert>{x.tak}</Flag>}
+              {terjangkau && result.endsAtCritical && (
+                <Flag alert>{x.berhenti}</Flag>
+              )}
             </div>
             {!terjangkau && (
               <div className="mb-2.5">
@@ -209,12 +232,23 @@ export function ProfilGvfClient() {
                 { symbol: "Fr", label: x.rFrC, value: fmt(FrCtl) },
                 { symbol: "—", label: x.rDir, value: result.direction === "hulu" ? x.dirUp : x.dirDown },
                 { symbol: "Δy", label: x.rDy, value: fmt(Math.abs(result.points[0].y - y0), 3), unit: "m" },
+                ...(result.endsAtCritical
+                  ? [
+                      {
+                        symbol: "Lp",
+                        label: x.rLen,
+                        value: fmt(panjangProfil, 1),
+                        unit: "m",
+                        tint: C.signal,
+                      },
+                    ]
+                  : []),
               ]}
             />
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(result.profile, result.points[0].y, y0, L, lang)}</Note>
+            <Note>{notice(result, panjangProfil, y0, L, lang)}</Note>
           </Block>
         </>
       }
@@ -245,20 +279,30 @@ export function ProfilGvfClient() {
 }
 
 function notice(
-  profile: string,
-  yFar: number,
+  result: GvfResult,
+  panjangProfil: number,
   y0: number,
   L: number,
   lang: Lang
 ): string {
-  const gap = Math.abs(yFar - y0);
+  const profile = result.profile;
+  const gap = Math.abs(result.points[0].y - y0);
   const close = gap < 0.05;
+
+  // Profil yang berakhir di kedalaman kritis hampir selalu jauh lebih pendek
+  // daripada bentang yang dipilih, dan pembaca perlu diberi tahu supaya tidak
+  // menyangka gambarnya gagal.
+  if (result.endsAtCritical) {
+    return lang === "en"
+      ? `The profile ends after ${fmt(panjangProfil, 1)} m, where the depth reaches critical. It cannot continue past that point: crossing critical conditions requires a hydraulic jump, and a jump is not gradually varied flow. The reach drawn is ${L} m, so almost all of the frame is empty on purpose. Shorten the reach length to about ${Math.max(20, Math.ceil(panjangProfil * 1.5 / 10) * 10)} m to see the profile properly, and see sheet OC-01 for what happens at the jump itself.`
+      : `Profilnya berakhir setelah ${fmt(panjangProfil, 1)} m, di tempat kedalamannya mencapai kondisi kritis. Ia tidak dapat diteruskan melewati titik itu: melintasi kondisi kritis menuntut loncatan air, dan loncatan bukan aliran berubah lambat. Bentang yang digambar ${L} m, jadi hampir seluruh bidangnya memang sengaja kosong. Perpendek panjang bentang menjadi sekitar ${Math.max(20, Math.ceil(panjangProfil * 1.5 / 10) * 10)} m untuk melihat profilnya dengan jelas, dan lihat lembar OC-01 untuk apa yang terjadi tepat di loncatannya.`;
+  }
 
   if (lang === "en") {
     if (profile === "M1")
-      return `A backwater curve. The weir holds the depth above normal, and the effect reaches upstream until the surface settles back to y₀. After ${L} m the depth is still ${gap.toFixed(3)} m away from normal${close ? " — practically settled" : ", so the reach drawn is not yet long enough to contain the whole influence"}. This is the curve that decides how far upstream a structure floods land.`;
+      return `A backwater curve. The weir holds the depth above normal, and the effect reaches upstream until the surface settles back to y₀. After ${L} m the depth is still ${fmt(gap, 3)} m away from normal${close ? " — practically settled" : ", so the reach drawn is not yet long enough to contain the whole influence"}. This is the curve that decides how far upstream a structure floods land.`;
     if (profile === "M2")
-      return "A drawdown curve toward a free overfall. The depth falls from normal toward critical, and the surface steepens as it approaches it. Notice the dotted section near the downstream end: there the equation loses validity, because gradually varied flow assumes the surface curvature stays gentle.";
+      return "A drawdown curve toward a free overfall. The depth falls from normal toward critical, and the surface steepens as it approaches it. Lower the control depth toward critical depth and watch the red marker appear at the downstream end: there the surface has become too steep to be called gradually varied, and the equation loses its validity.";
     if (profile === "M3")
       return "The flow is supercritical on a mild slope — this happens below a gate. The depth rises toward critical going downstream, and a hydraulic jump will form where it meets the tailwater. Sheet OC-01 covers what happens at that point.";
     if (profile === "S2")
@@ -267,9 +311,9 @@ function notice(
   }
 
   if (profile === "M1")
-    return `Kurva pembendungan. Bendung menahan kedalaman di atas normal, dan pengaruhnya menjalar ke hulu sampai muka air kembali ke y₀. Setelah ${L} m, kedalamannya masih berselisih ${gap.toFixed(3)} m dari normal${close ? " — praktis sudah kembali" : ", jadi bentang yang digambar belum cukup panjang untuk memuat seluruh pengaruhnya"}. Kurva inilah yang menentukan sejauh mana ke hulu sebuah bangunan menggenangi lahan.`;
+    return `Kurva pembendungan. Bendung menahan kedalaman di atas normal, dan pengaruhnya menjalar ke hulu sampai muka air kembali ke y₀. Setelah ${L} m, kedalamannya masih berselisih ${fmt(gap, 3)} m dari normal${close ? " — praktis sudah kembali" : ", jadi bentang yang digambar belum cukup panjang untuk memuat seluruh pengaruhnya"}. Kurva inilah yang menentukan sejauh mana ke hulu sebuah bangunan menggenangi lahan.`;
   if (profile === "M2")
-    return "Kurva penurunan menuju terjunan bebas. Kedalaman turun dari normal menuju kritis, dan muka air makin curam saat mendekatinya. Perhatikan ruas titik-titik di dekat ujung hilir: di situ persamaannya kehilangan keberlakuan, karena aliran berubah lambat mengandaikan lengkung permukaan tetap landai.";
+    return "Kurva penurunan menuju terjunan bebas. Kedalaman turun dari normal menuju kritis, dan muka air makin curam saat mendekatinya. Turunkan kedalaman di penampang kendali sampai mendekati kedalaman kritis, lalu perhatikan penanda merah muncul di ujung hilir: di situ muka air sudah terlalu curam untuk disebut berubah lambat, dan persamaannya kehilangan keberlakuan.";
   if (profile === "M3")
     return "Aliran superkritis di atas saluran landai — ini yang terjadi di hilir pintu. Kedalaman naik menuju kritis ke arah hilir, dan loncatan air akan terbentuk di tempat ia bertemu muka air hilir. Lembar OC-01 membahas apa yang terjadi di titik itu.";
   if (profile === "S2")

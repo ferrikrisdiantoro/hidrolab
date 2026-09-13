@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -12,6 +12,7 @@ import {
   RE_LAMINAR_MAX,
   RE_TURBULENT_MIN,
   colebrookFriction,
+  fmtPlain
 } from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
@@ -108,7 +109,7 @@ export function drawMoody(
       "top"
     );
   for (const f of [0.01, 0.02, 0.03, 0.04, 0.06, 0.08, 0.1])
-    axisValue(ctx, f.toFixed(2), padL - 8, Y(f), "right", "middle");
+    axisValue(ctx, fmtPlain(f, 2), padL - 8, Y(f), "right", "middle");
 
   /* ---------------- zona kritis: ruang kosong yang jujur ---------- */
   const xc0 = X(RE_LAMINAR_MAX);
@@ -148,7 +149,14 @@ export function drawMoody(
   }
   ctx.stroke();
   curveLabel(ctx, "f = 64 / Re", X(1.15e3), Y(64 / 1250) - 11, C.ink);
-  region(ctx, T.laminar, X(1.45e3), padT + plotH - 16, C.ink3);
+  // Nama wilayah laminar duduk di sudut kiri bawah, tempat label Re titik
+  // operasi juga mendarat bila Re di bawah 3·10³. Bila keduanya bertemu,
+  // nama wilayahnya yang mengalah ke atas.
+  const xLam = X(1.45e3);
+  const lamTertimpa =
+    s.Re >= RE_MIN && s.Re <= RE_MAX && s.f >= F_MIN && s.f <= F_MAX &&
+    Math.abs(X(s.Re) - xLam) < 70;
+  region(ctx, T.laminar, xLam, padT + plotH - (lamTertimpa ? 34 : 16), C.ink3);
 
   /* ---------------- keluarga kurva kekasaran ---------------- */
   const roughLocus: [number, number][] = [];
@@ -219,8 +227,11 @@ export function drawMoody(
     roughLocus.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.stroke();
     ctx.setLineDash([]);
-    const mid = roughLocus[Math.floor(roughLocus.length * 0.55)];
-    if (mid) region(ctx, T.fullyRough, mid[0] + 4, mid[1] - 16, C.critical);
+    // Ditaruh di bagian atas garis batas, tempat bidangnya kosong. Di tengah
+    // garis, label ini bertumpuk dengan jalur baca titik operasi pada pipa
+    // beton biasa, yaitu keadaan yang paling sering dilihat.
+    const mid = roughLocus[Math.floor(roughLocus.length * 0.22)];
+    if (mid) region(ctx, T.fullyRough, mid[0] + 62, mid[1] - 10, C.critical);
   }
 
   /* ---------------- jalur baca dan titik operasi ---------------- */
@@ -253,10 +264,14 @@ export function drawMoody(
     ctx.font = F.label;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
+    // Label f duduk di tepi kiri, tempat jalur bacanya menyentuh sumbu. Bila
+    // titiknya sendiri dekat tepi kiri, yaitu Re di bawah 3·10³, kotak label
+    // itu akan menutupi belah ketupatnya, jadi labelnya pindah ke kanan titik.
+    const xF = px < padL + 60 ? px + 9 : padL + 5;
     ctx.fillStyle = C.sheet;
-    ctx.fillRect(padL + 2, py - 7, 46, 14);
+    ctx.fillRect(xF - 3, py - 7, 46, 14);
     ctx.fillStyle = C.signal;
-    stencil(ctx, `f ${s.f.toFixed(4)}`, padL + 5, py + 0.5);
+    stencil(ctx, `f ${fmtPlain(s.f, 4)}`, xF, py + 0.5);
 
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
@@ -264,6 +279,19 @@ export function drawMoody(
     ctx.fillRect(px - 30, padT + plotH - 16, 60, 14);
     ctx.fillStyle = C.signal;
     stencil(ctx, `Re ${fmtRe(s.Re)}`, px, padT + plotH - 14);
+  } else {
+    // Titik yang jatuh di luar bidang tidak boleh sekadar hilang: pembaca
+    // akan mengira diagramnya tidak menanggapi masukan. Diagram ini memang
+    // memotong Re di 10³ dan f di 0,1, seperti diagram Moody cetak.
+    // Di pita antara f 0,08 dan 0,1, satu-satunya bagian bidang yang tidak
+    // dilewati kurva mana pun, dan diberi latar kertas supaya tetap terbaca
+    // bila kurva kekasaran terbesar ikut tersorot di dekatnya.
+    const teks = `${T.pointOffChart}: Re ${fmtRe(s.Re)}, f ${fmtPlain(s.f, 4)}`;
+    ctx.font = F.region;
+    const lebar = stencilWidth(ctx, teks, 1.4) + 12;
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(padL + plotW / 2 - lebar / 2, padT + 6, lebar, 16);
+    region(ctx, teks, padL + plotW / 2, padT + 14, C.signal);
   }
 
   /* ---------------- bingkai dan judul sumbu ---------------- */
@@ -283,17 +311,17 @@ export function drawMoody(
 function fmtRe(Re: number): string {
   const exp = Math.floor(Math.log10(Re));
   const mant = Re / Math.pow(10, exp);
-  return `${mant.toFixed(1)}·10${sup(exp)}`;
+  return `${fmtPlain(mant, 1)}·10${sup(exp)}`;
 }
 
 function fmtRR(rr: number): string {
-  if (rr >= 0.01) return rr.toFixed(2);
-  if (rr >= 1e-3) return rr.toFixed(3);
+  if (rr >= 0.01) return fmtPlain(rr, 2);
+  if (rr >= 1e-3) return fmtPlain(rr, 3);
   const exp = Math.round(Math.log10(rr));
   const mant = rr / Math.pow(10, exp);
   return Math.abs(mant - 1) < 0.1
     ? `10${sup(exp)}`
-    : `${mant.toFixed(0)}·10${sup(exp)}`;
+    : `${fmtPlain(mant, 0)}·10${sup(exp)}`;
 }
 
 function sup(n: number): string {

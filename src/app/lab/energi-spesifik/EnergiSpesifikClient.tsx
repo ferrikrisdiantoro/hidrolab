@@ -273,21 +273,21 @@ function notice(
   s: { regime: string; y0: number; yc: number; Fr0: number; E0: number; Emin: number },
   lang: Lang
 ): string {
-  const y0 = s.y0.toFixed(3);
-  const yc = s.yc.toFixed(3);
-  const res = (s.E0 - s.Emin).toFixed(3);
+  const y0 = fmt(s.y0, 3);
+  const yc = fmt(s.yc, 3);
+  const res = fmt((s.E0 - s.Emin), 3);
 
   if (lang === "en") {
     if (s.regime === "kritis")
       return "Normal depth almost coincides with critical depth. This looks tidy on paper but is unstable in the field: a small disturbance sets the water surface swinging up and down without settling. In design, critical slope is best avoided.";
     if (s.regime === "subkritis")
       return `Normal depth ${y0} m sits above critical depth ${yc} m, so the channel is mild and the flow subcritical. Control comes from downstream — a structure below will affect the water surface far upstream. There is ${res} m of energy in reserve above the minimum.`;
-    return `Normal depth ${y0} m sits below critical depth, so the channel is steep and the flow supercritical with a Froude number of ${s.Fr0.toFixed(2)}. Control now comes from upstream, and disturbances downstream cannot travel back up. Where flow this fast meets calm tailwater, a hydraulic jump forms — exactly the condition on sheet OC-01.`;
+    return `Normal depth ${y0} m sits below critical depth, so the channel is steep and the flow supercritical with a Froude number of ${fmt(s.Fr0, 2)}. Control now comes from upstream, and disturbances downstream cannot travel back up. Where flow this fast meets calm tailwater, a hydraulic jump forms — exactly the condition on sheet OC-01.`;
   }
 
   if (s.regime === "kritis")
     return "Kedalaman normal hampir berimpit dengan kedalaman kritis. Kondisi ini terlihat rapi di atas kertas, tetapi di lapangan justru tidak stabil: gangguan kecil membuat muka air berayun naik-turun tanpa henti. Dalam desain, kemiringan kritis sebaiknya dihindari.";
   if (s.regime === "subkritis")
     return `Kedalaman normal ${y0} m berada di atas kedalaman kritis ${yc} m, jadi salurannya landai dan alirannya subkritis. Pengendalian datang dari hilir — bangunan di hilir akan mempengaruhi muka air jauh ke arah hulu. Cadangan energinya ${res} m di atas energi minimum.`;
-  return `Kedalaman normal ${y0} m berada di bawah kedalaman kritis, sehingga salurannya curam dan alirannya superkritis dengan Froude ${s.Fr0.toFixed(2)}. Pengendalian kini datang dari hulu, dan gangguan di hilir tidak dapat menjalar ke atas. Bila aliran secepat ini bertemu air tenang di hilir, akan terbentuk loncatan air — persis kondisi pada lembar OC-01.`;
+  return `Kedalaman normal ${y0} m berada di bawah kedalaman kritis, sehingga salurannya curam dan alirannya superkritis dengan Froude ${fmt(s.Fr0, 2)}. Pengendalian kini datang dari hulu, dan gangguan di hilir tidak dapat menjalar ke atas. Bila aliran secepat ini bertemu air tenang di hilir, akan terbentuk loncatan air — persis kondisi pada lembar OC-01.`;
 }

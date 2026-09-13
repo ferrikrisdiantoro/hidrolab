@@ -51,6 +51,9 @@ const TXT = {
     rLoss: "Tinggi energi yang hilang",
     rJangkau: "Jangkauan pancaran sampai lantai",
     teori: "Sama dengan nilai teoretis",
+    takRendam: "Lubang tidak terendam penuh",
+    takRendamNote:
+      "Tinggi muka air di atas titik berat lubang lebih kecil daripada setengah tinggi bukaannya, jadi bibir atas lubang muncul di atas permukaan. Yang terjadi bukan lagi aliran lubang melainkan luapan di atas ambang, dan seluruh rumus di lembar ini berdiri di atas andaian bahwa bukaan terendam penuh. Angka yang tampil tetap keluar dari persamaannya, tetapi tidak menggambarkan apa pun. Turunkan tinggi bukaan, atau naikkan muka airnya melewati",
     note:
       "Dua koefisien bekerja berurutan di sini, dan menukarnya adalah kesalahan yang paling sering terjadi pada perhitungan lubang. Kontraksi mengurangi LUAS pancaran, bukan lajunya. Sebabnya bentuk geometri, bukan gesekan: air yang mendekati lubang dari atas dan dari bawah tidak dapat berbelok tajam tepat di bibirnya, sehingga garis arusnya masih melengkung sebentar setelah keluar. Di tempat lengkungan itu selesai, pancaran paling sempit dan garis arusnya sejajar, dan hanya di situ tekanannya nol. Itulah sebabnya penampang acuan bukan bibir lubang melainkan vena contracta, kira-kira setengah tinggi bukaan di hilirnya. Koefisien kecepatan mengurangi LAJU, dan inilah yang berasal dari gesekan di bibir lubang. Nilainya dekat sekali dengan satu, biasanya 0,97 sampai 0,99, jauh lebih dekat daripada koefisien kontraksinya. Hasil kali keduanya adalah koefisien debit, dan hanya hasil kali itulah yang dapat dibaca dari pengukuran debit. Untuk memisahkan keduanya diperlukan pengukuran kedua, dan yang paling murah bukan mengukur kecepatan melainkan mengukur lintasan pancarannya dengan meteran, karena lintasan tanpa kehilangan memenuhi hubungan x kuadrat sama dengan empat H y.",
   },
@@ -76,6 +79,9 @@ const TXT = {
     rLoss: "Head lost",
     rJangkau: "Jet reach to the floor",
     teori: "Equal to the theoretical value",
+    takRendam: "Opening not fully submerged",
+    takRendamNote:
+      "The head above the centroid is less than half the opening height, so the top lip stands above the water surface. What happens then is not orifice flow but flow over a weir, and every formula on this sheet assumes a fully submerged opening. The numbers still come out of the equations but describe nothing. Reduce the opening height, or raise the head past",
     note:
       "Two coefficients act in sequence here, and swapping them is the most common error in orifice calculations. Contraction reduces the AREA of the jet, not its speed. The cause is geometry, not friction: water approaching the orifice from above and below cannot turn sharply at the lip, so its streamlines keep curving for a short distance after leaving. Where that curvature ends, the jet is narrowest and its streamlines are parallel, and only there is the pressure zero. That is why the reference section is not the lip but the vena contracta, roughly half an opening height downstream. The velocity coefficient reduces the SPEED, and it is this one that comes from friction at the lip. Its value sits very close to one, usually 0.97 to 0.99, far closer than the contraction coefficient. The product of the two is the discharge coefficient, and only that product can be read from a discharge measurement. Separating them needs a second measurement, and the cheapest is not to measure velocity but to measure the jet path with a tape, because the loss-free path satisfies x squared equals four H y.",
   },
@@ -111,6 +117,7 @@ export function VenaContractaClient() {
   const r = orificeJet(H, a, bLubang, Cv, Cc);
   const jangkau = r.V * Math.sqrt((2 * z0) / 9.81);
   const dekatTeori = Math.abs(Cc - ORIFICE_CC_SLOT) < 0.002;
+  const takRendam = !r.submerged;
 
   const ref = useCanvas(
     (ctx, w, h) =>
@@ -118,7 +125,7 @@ export function VenaContractaClient() {
         ctx,
         w,
         h,
-        { H, a, z0, Cc, V: r.V, Vth: r.Vth, xVena: r.xVena },
+        { H, a, z0, Cc, V: r.V, Vth: r.Vth, xVena: r.xVena, notSubmerged: takRendam },
         lang
       ),
     [H, a, bLubang, z0, Cv, Cc, lang]
@@ -190,7 +197,15 @@ export function VenaContractaClient() {
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <Flag tint={C.water}>{`${fmt(r.Q * 1000, 2)} l/s`}</Flag>
               {dekatTeori && <Flag tint={C.critical}>{x.teori}</Flag>}
+              {takRendam && <Flag alert>{x.takRendam}</Flag>}
             </div>
+            {takRendam && (
+              <div className="mb-2.5">
+                <Note>
+                  {x.takRendamNote} {fmt(r.minHead, 3)} m.
+                </Note>
+              </div>
+            )}
             <ResultTable
               rows={[
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q * 1000, 3), unit: "l/s", tint: C.water, strong: true },
@@ -207,7 +222,7 @@ export function VenaContractaClient() {
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(r, H, Cc, lang)}</Note>
+            <Note>{notice(r, H, Cc, takRendam, lang)}</Note>
           </Block>
         </>
       }
@@ -244,11 +259,22 @@ export function VenaContractaClient() {
   );
 }
 
-function notice(r: OrificeResult, H: number, Cc: number, lang: Lang): string {
+function notice(
+  r: OrificeResult,
+  H: number,
+  Cc: number,
+  takRendam: boolean,
+  lang: Lang
+): string {
+  if (takRendam) {
+    return lang === "id"
+      ? `Tidak ada vena contracta untuk diamati selama bibir atas lubang masih di atas muka air. Naikkan muka airnya melewati ${fmt(r.minHead, 3)} m, atau perkecil tinggi bukaannya, lalu pancarannya kembali terbentuk.`
+      : `There is no vena contracta to look at while the top lip stands above the water surface. Raise the head past ${fmt(r.minHead, 3)} m, or reduce the opening height, and the jet forms again.`;
+  }
   const susut = (1 - Cc) * 100;
   const lambat = (1 - r.Cv) * 100;
 
   if (lang === "en")
-    return `Compare the two losses side by side. Contraction takes ${susut.toFixed(1)} per cent of the area away, while friction takes only ${lambat.toFixed(1)} per cent of the speed. That imbalance is the point: almost everything that separates the ideal discharge from the real one is geometry, not friction. Set the contraction coefficient to ${ORIFICE_CC_SLOT.toFixed(3)} and the velocity coefficient to one, and the sheet reproduces the exact two-dimensional solution, where the phantom path and the real path fall on top of each other and the jet obeys x² = 4Hy with H at ${H.toFixed(2)} m.`;
-  return `Bandingkan kedua kehilangan itu berdampingan. Kontraksi mengambil ${susut.toFixed(1)} persen dari luasnya, sedangkan gesekan hanya mengambil ${lambat.toFixed(1)} persen dari lajunya. Ketimpangan itulah intinya: hampir seluruh yang memisahkan debit ideal dari debit nyata adalah geometri, bukan gesekan. Setel koefisien kontraksi ke ${ORIFICE_CC_SLOT.toFixed(3)} dan koefisien kecepatan ke satu, dan lembar ini mengulang penyelesaian dua dimensi yang tertutup itu: garis khayal dan lintasan sesungguhnya berimpit, dan pancarannya memenuhi x² = 4Hy dengan H sebesar ${H.toFixed(2)} m.`;
+    return `Compare the two losses side by side. Contraction takes ${fmt(susut, 1)} per cent of the area away, while friction takes only ${fmt(lambat, 1)} per cent of the speed. That imbalance is the point: almost everything that separates the ideal discharge from the real one is geometry, not friction. Set the contraction coefficient to ${fmt(ORIFICE_CC_SLOT, 3)} and the velocity coefficient to one, and the sheet reproduces the exact two-dimensional solution, where the phantom path and the real path fall on top of each other and the jet obeys x² = 4Hy with H at ${fmt(H, 2)} m.`;
+  return `Bandingkan kedua kehilangan itu berdampingan. Kontraksi mengambil ${fmt(susut, 1)} persen dari luasnya, sedangkan gesekan hanya mengambil ${fmt(lambat, 1)} persen dari lajunya. Ketimpangan itulah intinya: hampir seluruh yang memisahkan debit ideal dari debit nyata adalah geometri, bukan gesekan. Setel koefisien kontraksi ke ${fmt(ORIFICE_CC_SLOT, 3)} dan koefisien kecepatan ke satu, dan lembar ini mengulang penyelesaian dua dimensi yang tertutup itu: garis khayal dan lintasan sesungguhnya berimpit, dan pancarannya memenuhi x² = 4Hy dengan H sebesar ${fmt(H, 2)} m.`;
 }

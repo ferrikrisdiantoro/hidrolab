@@ -48,6 +48,7 @@ import {
   powerLawVelocity,
   rectWeirCe,
   rectWeirDischarge,
+  TRACER_PECLET_MIN,
   tracerCurve,
   venturiDischarge,
   venturiHead,
@@ -441,8 +442,14 @@ describe("Ambang ukur V", () => {
 
   it("menandai tinggi muka air di bawah rentang keberlakuan", () => {
     assert.equal(notchDischarge(0.03, 90).outOfRange, true);
+    assert.equal(notchDischarge(0.03, 90).reason, "tinggi-rendah");
     assert.equal(notchDischarge(NOTCH_H_MIN, 90).outOfRange, false);
     assert.equal(notchDischarge(0.2, 90).outOfRange, false);
+    // Batas atas kalibrasi dan rentang sudut kurva Ce, ISO 1438:2017.
+    assert.equal(notchDischarge(0.40, 90).reason, "tinggi-tinggi");
+    assert.equal(notchDischarge(0.38, 90).reason, null);
+    assert.equal(notchDischarge(0.2, 110).reason, "sudut");
+    assert.equal(notchDischarge(0.2, 100).reason, null);
   });
 
   it("debit naik monoton terhadap tinggi muka air", () => {
@@ -659,6 +666,19 @@ describe("Saluran pengumpul pelimpah samping", () => {
     // merusak pola aliran menuju saluran peluncur.
     const r = sideChannelProfile(50, 6, 0.014, 0.005, 60);
     assert.ok(!r.anySupercritical, "tidak ada penampang yang superkritis");
+    assert.equal(r.supercriticalFrom, null, "penelusuran sampai ke pangkal");
+    assert.equal(r.points[0].x, 0, "titik pertama di pangkal");
+  });
+
+  it("saluran yang terlalu curam menghentikan penelusuran, bukan meledakkannya", () => {
+    // Sebelum ini, kedalaman yang terjepit ke batas bawah membuat kemiringan
+    // gesekan meledak dan muka air "naik" dua kilometer dalam beberapa langkah.
+    const r = sideChannelProfile(10, 6, 0.014, 0.04, 60);
+    assert.ok(r.anySupercritical, "bagian hulunya superkritis");
+    assert.ok(r.supercriticalFrom !== null && r.supercriticalFrom > 0, "berhenti sebelum pangkal");
+    assert.ok(r.points[0].x === r.supercriticalFrom, "titik pertama di tempat berhenti");
+    const wsTerbesar = r.points.reduce((m, p) => Math.max(m, p.ws), 0);
+    assert.ok(wsTerbesar < 0.04 * 60 + 5, "muka air tetap dalam ukuran salurannya");
   });
 });
 
@@ -1164,5 +1184,69 @@ describe("Pengukuran pengenceran garam", () => {
 
   it("kepekatan mantap yang sama dengan latar tidak memberi debit", () => {
     assert.equal(dilutionDischarge(0.5, 200000, 5, 5), 0);
+  });
+});
+
+describe("Venturi dengan leher yang tidak lebih sempit", () => {
+  it("menolak menghitung, bukan mengeluarkan debit jutaan liter", () => {
+    const r = venturiDischarge(0.2, 0.2, 0.5, 0.995);
+    assert.equal(r.reason, "bukan-venturi");
+    assert.equal(r.Q, 0);
+    const r2 = venturiDischarge(0.025, 0.5, 5, 1);
+    assert.equal(r2.reason, "bukan-venturi");
+    assert.equal(r2.Q, 0);
+  });
+});
+
+describe("Flum yang lehernya tidak mengendalikan aliran", () => {
+  it("menolak, bukan meledak ke tak hingga", () => {
+    // Leher 0,6 m pada saluran datang 0,15 m tanpa mercu: dulu Q = Infinity.
+    const r = flumeDischarge(0.02, 0.6, 0.15, 0, 0.9, 0.99);
+    assert.equal(r.controlled, false);
+    assert.equal(r.reason, "tak-terkendali");
+    assert.ok(Number.isFinite(r.Q));
+  });
+
+  it("menandai Froude datang di atas 0,5 dan tetap memberi debit", () => {
+    const r = flumeDischarge(0.3, 1.0, 1.2, 0, 0.9, 0.99);
+    assert.equal(r.reason, "Fr-besar");
+    assert.ok(r.Fr1 > 0.5 && r.Q > 0);
+  });
+
+  it("hasil bagi dua sama dengan iterasi titik tetap pada kasus biasa", () => {
+    const r = flumeDischarge(0.3, 0.6, 1.2, 0.25, 0.9, 0.99);
+    close(r.H1, 0.3033, 2e-4, "tinggi energi kasus contoh");
+    close(r.Q, 0.1692, 2e-4, "debit kasus contoh");
+  });
+});
+
+describe("Tracer pada sungai yang penyebarannya menguasai", () => {
+  it("luas kurva memulangkan debit pada Peclet besar, di seluruh rentang slider", () => {
+    // Sebelum ini batas bawah rentang waktu dipatok sepersepuluh detik, dan
+    // pada sungai kecil yang cepat separuh kurvanya terpotong.
+    let terbesar = 0;
+    for (const Q of [0.05, 1.2, 20])
+      for (const M of [0.1, 2, 30])
+        for (const L of [10, 120, 600])
+          for (const A of [0.2, 1.5, 20])
+            for (const D of [0.2, 3, 30]) {
+              const r = tracerCurve(Q, M, L, A, D);
+              if (r.peclet < TRACER_PECLET_MIN) continue;
+              terbesar = Math.max(terbesar, Math.abs(r.Qgulp - Q) / Q);
+            }
+    assert.ok(terbesar < 0.005, `selisih terbesar ${(terbesar * 100).toFixed(2)} persen`);
+  });
+
+  it("menandai keadaan yang penyebarannya menguasai", () => {
+    assert.equal(tracerCurve(0.05, 0.1, 10, 1.5, 30).dispersionDominated, true);
+    assert.equal(tracerCurve(1.2, 2, 120, 1.5, 3).dispersionDominated, false);
+  });
+});
+
+describe("Lubang yang tidak terendam penuh", () => {
+  it("ditandai, bukan dihitung diam-diam", () => {
+    assert.equal(orificeJet(0.1, 0.3, 0.1, 0.98, 0.62).submerged, false);
+    assert.equal(orificeJet(0.15, 0.3, 0.1, 0.98, 0.62).submerged, true);
+    assert.equal(orificeJet(1.5, 0.05, 0.1, 0.98, 0.62).submerged, true);
   });
 });

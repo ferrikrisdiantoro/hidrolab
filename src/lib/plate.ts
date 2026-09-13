@@ -134,12 +134,19 @@ export function dimV(
   tick45(ctx, x, yBottom, true);
 
   // Angka dibaca dari kanan pada dimensi vertikal.
+  //
+  // Bila dimensinya lebih pendek daripada teksnya, teks ditaruh di luar
+  // dimensi, di atas tanda atasnya, seperti lazimnya gambar teknik. Kalau
+  // tetap dipusatkan, teks akan menjulur melewati kedua ujung dan menabrak
+  // apa pun yang ada di bawahnya, misalnya sumbu.
   ctx.save();
-  ctx.translate(x - 5, (yTop + yBottom) / 2);
+  ctx.font = F.label;
+  const lebar = stencilWidth(ctx, label);
+  const muat = Math.abs(yBottom - yTop) >= lebar + 6;
+  ctx.translate(x - 5, muat ? (yTop + yBottom) / 2 : Math.min(yTop, yBottom) - 4);
   ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = color;
-  ctx.font = F.label;
-  ctx.textAlign = "center";
+  ctx.textAlign = muat ? "center" : "left";
   ctx.textBaseline = "bottom";
   stencil(ctx, label, 0, 0);
   ctx.restore();
@@ -469,4 +476,27 @@ export function flowArrow(
   ctx.lineTo(x + panjang / 2, y);
   ctx.lineTo(x + panjang / 2 - kepala, y + kepala * 0.6);
   ctx.stroke();
+}
+
+
+/**
+ * Menahan absis sebuah label agar seluruh teksnya tetap di dalam bidang gambar.
+ *
+ * Nama wilayah dan nama penampang diletakkan dengan titik tengah pada absis
+ * bendanya. Bila bendanya berada tepat di tepi bidang, separuh tulisannya
+ * jatuh di luar bingkai dan terpotong. Yang digeser cukup labelnya; garis
+ * penunjuknya tetap berdiri di tempat bendanya berada.
+ */
+export function clampLabelX(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  x0: number,
+  x1: number,
+  spacing = 1.4
+): number {
+  ctx.font = F.region;
+  const separuh = stencilWidth(ctx, text, spacing) / 2 + 5;
+  if (x1 - x0 < separuh * 2) return (x0 + x1) / 2;
+  return Math.min(Math.max(x, x0 + separuh), x1 - separuh);
 }

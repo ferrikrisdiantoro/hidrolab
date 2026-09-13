@@ -13,6 +13,7 @@ import {
 import type { TracerPoint } from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
+import { fmtPlain } from "./hydraulics";
 
 export type TracerDrawState = {
   points: TracerPoint[];
@@ -64,11 +65,16 @@ export function drawTracer(
   const t0 = s.points[0].t;
   const t1 = s.points[s.points.length - 1].t;
   const spanT = Math.max(t1 - t0, 1e-6);
-  const cTop = Math.max(
-    s.cPeak * 1.22,
-    (s.plateau ?? 0) * 1.35,
-    1e-6
-  );
+  /*
+   * Skala tegak diatur oleh kurva gulp, bukan oleh garis laju tetap.
+   *
+   * Kepekatan mantap cara laju tetap bisa berkali lipat puncak awan gulp,
+   * dan ketika ia ikut menentukan skala, kurva yang menjadi isi lembar ini
+   * tergencet ke seperlima bidang. Garis laju tetap tetap digambar; kalau ia
+   * berada di luar bidang, angkanya dinyatakan sebagai tulisan di tepi atas.
+   */
+  const cTop = Math.max(s.cPeak * 1.22, 1e-6);
+  const plateauDiLuar = (s.plateau ?? 0) > cTop;
 
   const X = (t: number) => padL + ((t - t0) / spanT) * plotW;
   const Y = (c: number) => padT + plotH - (c / cTop) * plotH;
@@ -88,7 +94,7 @@ export function drawTracer(
 
   const cDigits = cStep < 0.1 ? 2 : cStep < 1 ? 1 : 0;
   for (let v = 0; v <= cTop + 1e-9; v += cStep)
-    axisValue(ctx, v.toFixed(cDigits), padL - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, cDigits), padL - 8, Y(v), "right", "middle");
   for (let v = Math.ceil(t0 / tStep) * tStep; v <= t1 + 1e-9; v += tStep)
     axisValue(ctx, String(Math.round(v)), X(v), padT + plotH + 9, "center", "top");
 
@@ -143,7 +149,7 @@ export function drawTracer(
   }
 
   /* ---------------- kepekatan mantap cara laju tetap ---------------- */
-  if (s.plateau !== undefined && s.plateau > 0) {
+  if (s.plateau !== undefined && s.plateau > 0 && !plateauDiLuar) {
     pen(ctx, W.thin, C.energy, DASH.hidden);
     ctx.beginPath();
     ctx.moveTo(padL, Y(s.plateau));
@@ -152,7 +158,7 @@ export function drawTracer(
     ctx.setLineDash([]);
     curveLabel(
       ctx,
-      `${T.steadyRate} ${s.plateau.toFixed(2)} mg/l`,
+      `${T.steadyRate} ${fmtPlain(s.plateau, 2)} mg/l`,
       padL + plotW - 4,
       Y(s.plateau) - 10,
       C.energy,
@@ -198,10 +204,21 @@ export function drawTracer(
     ctx.setLineDash([]);
     curveLabel(
       ctx,
-      `L / u = ${s.tTravel.toFixed(0)} s`,
+      `L / u = ${fmtPlain(s.tTravel, 0)} s`,
       X(s.tTravel) + 5,
       padT + 12,
       C.critical
+    );
+  }
+
+  if (s.plateau !== undefined && plateauDiLuar) {
+    curveLabel(
+      ctx,
+      `${T.steadyRate} ${fmtPlain(s.plateau, 2)} mg/l ${T.aboveChart}`,
+      padL + plotW - 4,
+      padT + 8,
+      C.energy,
+      "right"
     );
   }
 
@@ -210,7 +227,7 @@ export function drawTracer(
     Y(s.cPeak * 0.34),
     X(s.points[0].t),
     X(s.points[s.points.length - 1].t),
-    `${T.areaUnder} ${s.area.toFixed(1)} mg·s/l`,
+    `${T.areaUnder} ${fmtPlain(s.area, 1)} mg·s/l`,
     C.water
   );
 
@@ -219,7 +236,11 @@ export function drawTracer(
   ctx.font = F.heading;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  stencil(ctx, `Q = ${s.Qgulp.toFixed(3)} m3/s`, padL + 12, padT + 10, 2);
+  // Di sudut kiri bawah bidang, bukan kiri atas: di atas ia bertabrakan
+  // dengan label waktu tempuh pada awan yang datangnya cepat.
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = s.outOfRange ? C.signal : C.ink;
+  stencil(ctx, `Q = ${fmtPlain(s.Qgulp, 3)} m3/s`, padL + 12, padT + plotH - 10, 2);
 
   /* ---------------- bingkai ---------------- */
   pen(ctx, W.thin, C.ink);

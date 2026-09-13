@@ -53,7 +53,7 @@ const TXT = {
     rYup: "Kedalaman di ujung hulu",
     rYdn: "Kedalaman di ujung hilir",
     rFrMax: "Bilangan Froude terbesar",
-    rBeda: "Selisih terhadap tanpa aliran masuk",
+    rBeda: "Selisih terhadap hitungan tanpa suku percepatan",
     rYc: "Kedalaman kritis di ujung hilir",
     lintas: "Melewati kondisi kritis",
     hilirSuper: "Kendali tidak di ujung hilir",
@@ -63,7 +63,7 @@ const TXT = {
       "Profilnya melintasi kondisi kritis di tengah bentang. Di titik itu penyebut persamaan menuju nol dan kemiringan muka air menjadi tegak, sehingga hasil di sekitarnya digambar titik rapat dan tidak boleh dibaca sebagai angka. Keadaan nyata di situ adalah loncatan air atau penampang kendali, yang penanganannya berbeda. Perkecil aliran masuk, perbesar lebar dasar, atau naikkan kedalaman di ujung hilir.",
     exagg: "pelebihan tegak",
     note:
-      "Persamaannya sama dengan aliran berubah lambat kecuali satu suku tambahan di pembilang, dan suku itulah seluruh isi lembar ini. Air yang masuk dari samping datang tanpa membawa momentum searah saluran, sehingga ia harus dipercepat oleh aliran yang sudah ada, dan biaya percepatan itu diambil dari tinggi tekan. Akibatnya muka air selalu lebih tinggi daripada seandainya debit yang sama mengalir tanpa penambahan di sepanjang jalan. Garis putus panjang pada gambar memperlihatkan perbandingannya: itulah profil yang akan terbentuk bila seluruh debit sudah masuk sejak ujung hulu. Selisih di antara keduanya bukan pengaruh gesekan dan bukan pula pengaruh bertambahnya debit semata, melainkan biaya mempercepat air yang baru masuk. Dalam perancangan saluran drainase tepi jalan dan saluran pembuang, selisih itulah yang menentukan tinggi jagaan, dan mengabaikannya membuat saluran tampak cukup di atas kertas tetapi melimpah di lapangan.",
+      "Persamaannya sama dengan aliran berubah lambat kecuali satu suku tambahan di pembilang, dan suku itulah seluruh isi lembar ini. Air yang masuk dari samping datang tanpa membawa momentum searah saluran, sehingga ia harus dipercepat oleh aliran yang sudah ada, dan biaya percepatan itu diambil dari tinggi tekan. Akibatnya muka air selalu lebih tinggi daripada seandainya debit yang sama mengalir tanpa penambahan di sepanjang jalan. Garis putus panjang pada gambar memperlihatkan perbandingannya: itulah profil yang keluar bila debit di setiap penampang dihitung dengan benar tetapi suku percepatannya dilupakan, yaitu hitungan yang paling lazim dikerjakan orang. Debit di kedua profil sama persis di setiap penampang, sehingga selisih di antara keduanya bukan pengaruh gesekan dan bukan pula pengaruh bertambahnya debit, melainkan murni biaya mempercepat air yang baru masuk. Dalam perancangan saluran drainase tepi jalan dan saluran pembuang, selisih itulah yang menentukan tinggi jagaan, dan mengabaikannya membuat saluran tampak cukup di atas kertas tetapi melimpah di lapangan.",
   },
   en: {
     title: "Lateral inflow",
@@ -83,7 +83,7 @@ const TXT = {
     rYup: "Depth at the upstream end",
     rYdn: "Depth at the downstream end",
     rFrMax: "Largest Froude number",
-    rBeda: "Difference against no lateral inflow",
+    rBeda: "Difference against the calculation without the acceleration term",
     rYc: "Critical depth at the downstream end",
     lintas: "Crosses critical conditions",
     hilirSuper: "Control is not at the downstream end",
@@ -93,7 +93,7 @@ const TXT = {
       "The profile crosses critical conditions in mid reach. There the denominator of the equation tends to zero and the surface slope becomes vertical, so results around that point are drawn with fine dots and must not be read as numbers. What really happens there is a hydraulic jump or a control section, which is handled differently. Reduce the inflow, widen the bed, or raise the depth at the downstream end.",
     exagg: "vertical exaggeration",
     note:
-      "The equation is the same as for gradually varied flow except for one extra term in the numerator, and that term is the whole content of this sheet. Water entering from the side arrives with no momentum along the channel, so it has to be accelerated by the flow already there, and the cost of that acceleration is taken from head. The water surface therefore always sits higher than it would if the same discharge flowed without being added along the way. The long dashed line on the drawing shows the comparison: that is the profile that would form if the whole discharge had entered at the upstream end. The gap between them is neither friction nor the mere growth of discharge, but the cost of accelerating the newly arrived water. In designing roadside drains and field drainage channels, that gap is what sets the freeboard, and ignoring it makes a channel look adequate on paper while it overtops in the field.",
+      "The equation is the same as for gradually varied flow except for one extra term in the numerator, and that term is the whole content of this sheet. Water entering from the side arrives with no momentum along the channel, so it has to be accelerated by the flow already there, and the cost of that acceleration is taken from head. The water surface therefore always sits higher than it would if the same discharge flowed without being added along the way. The long dashed line on the drawing shows the comparison: it is the profile that comes out when the discharge at each section is computed correctly but the acceleration term is forgotten, which is the calculation people most often make. The discharge in both profiles is identical at every section, so the gap between them is neither friction nor the growth of discharge, but purely the cost of accelerating the newly arrived water. In designing roadside drains and field drainage channels, that gap is what sets the freeboard, and ignoring it makes a channel look adequate on paper while it overtops in the field.",
   },
 } as const;
 
@@ -127,7 +127,17 @@ export function AliranMasukLateralClient() {
 
   const qStar = qLit / 1000;
   const r = svfProfile(Q0, qStar, b, n, S0, L, yEnd);
-  const tanpa = svfProfile(Q0 + qStar * L, 0, b, n, S0, L, yEnd);
+  /*
+   * Pembanding memakai distribusi debit YANG SAMA, hanya suku percepatannya
+   * dimatikan.
+   *
+   * Pembanding sebelumnya memakai debit penuh sejak pangkal, dan itu mengukur
+   * hal yang berbeda: profil dengan debit penuh tentu lebih dalam di hulu,
+   * sehingga selisihnya berlawanan arah dengan yang mau ditunjukkan. Yang mau
+   * ditunjukkan adalah harga mempercepat air yang masuk dari samping, dan itu
+   * hanya terisolasi bila debit di setiap penampang dibuat sama persis.
+   */
+  const tanpa = svfProfile(Q0, qStar, b, n, S0, L, yEnd, 400, true);
   const ycEnd = criticalDepth(r.Qend / b);
 
   const ref = useCanvas(
@@ -315,8 +325,8 @@ function susun(
       color: C.critical,
       weight: W.hair,
       dash: DASH.axis,
-      label: `yc ${ycEnd.toFixed(2)} m`,
-      labelAt: 0.62,
+      label: `yc ${fmt(ycEnd, 2)} m`,
+      labelAt: 0.45,
       labelDy: 11,
     },
   ];
@@ -330,7 +340,7 @@ function susun(
       dim: {
         zTop: r.points[r.points.length - 1].y,
         zBottom: 0,
-        text: `${r.points[r.points.length - 1].y.toFixed(2)} m`,
+        text: `${fmt(r.points[r.points.length - 1].y, 2)} m`,
         side: -1,
       },
     },
@@ -342,7 +352,7 @@ function susun(
       dim: {
         zTop: zb(0) + r.points[0].y,
         zBottom: zb(0),
-        text: `${r.points[0].y.toFixed(2)} m`,
+        text: `${fmt(r.points[0].y, 2)} m`,
         side: 1,
       },
     },
@@ -378,13 +388,13 @@ function notice(
 ): string {
   if (qStar <= 0) {
     return lang === "id"
-      ? "Aliran masuk lateral dimatikan, jadi suku tambahannya hilang dan yang tersisa adalah persamaan aliran berubah lambat biasa. Profil menerus dan garis putus panjang berimpit, dan memang harus berimpit: itu pemeriksaan paling murah yang tersedia untuk model ini, dan blok verifikasi di bawah melakukannya dengan angka."
+      ? "Aliran masuk lateral dimatikan, jadi suku tambahannya hilang dan yang tersisa adalah persamaan aliran berubah lambat biasa. Profil menerus dan garis putus panjang berimpit tepat, dan memang harus berimpit: keduanya menyelesaikan persamaan yang sama persis. Itu pemeriksaan paling murah yang tersedia untuk model ini, dan blok verifikasi di bawah melakukannya dengan angka."
       : "The lateral inflow is switched off, so the extra term vanishes and what remains is the ordinary gradually varied flow equation. The solid profile and the long dashed line coincide, and they must: that is the cheapest check available for this model, and the verification block below performs it numerically.";
   }
 
   const persen = r.points[0].y > 0 ? (beda / r.points[0].y) * 100 : 0;
 
   if (lang === "en")
-    return `Over ${L} m the channel picks up ${(qStar * L).toFixed(2)} m³/s along its length. At the upstream end the surface stands ${beda.toFixed(3)} m higher than it would if that same discharge had arrived all at once at the head, which is ${persen.toFixed(1)} per cent of the depth there. That difference is the price of accelerating water that entered sideways, and it is the part most often left out of a hand calculation.`;
-  return `Sepanjang ${L} m, saluran ini memungut ${(qStar * L).toFixed(2)} m³/s di sepanjang jalannya. Di ujung hulu, muka airnya berdiri ${beda.toFixed(3)} m lebih tinggi daripada seandainya debit yang sama sudah masuk seluruhnya sejak pangkal, yaitu ${persen.toFixed(1)} persen dari kedalaman di situ. Selisih itu adalah harga mempercepat air yang masuk dari samping, dan justru bagian itulah yang paling sering tertinggal dalam hitungan tangan.`;
+    return `Over ${L} m the channel picks up ${fmt((qStar * L), 2)} m³/s along its length. At the upstream end the surface stands ${fmt(beda, 3)} m higher than the same calculation gives when the acceleration term is left out, which is ${fmt(persen, 1)} per cent of the depth there. That difference is the price of accelerating water that entered sideways, and it is the part most often left out of a hand calculation.`;
+  return `Sepanjang ${L} m, saluran ini memungut ${fmt((qStar * L), 2)} m³/s di sepanjang jalannya. Di ujung hulu, muka airnya berdiri ${fmt(beda, 3)} m lebih tinggi daripada hitungan yang sama tanpa suku percepatan, yaitu ${fmt(persen, 1)} persen dari kedalaman di situ. Selisih itu adalah harga mempercepat air yang masuk dari samping, dan justru bagian itulah yang paling sering tertinggal dalam hitungan tangan.`;
 }

@@ -13,7 +13,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { specificEnergy } from "./hydraulics";
+import { specificEnergy, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -76,9 +76,9 @@ export function drawEnergy(
   ruling(ctx, padL, padT, padL + plotW, baseY, { horizontal: hs, vertical: vs });
 
   for (let v = 0; v <= yMax + 1e-9; v += ys)
-    axisValue(ctx, v.toFixed(1), padL - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 1), padL - 8, Y(v), "right", "middle");
   for (let v = 0; v <= eMax + 1e-9; v += es)
-    axisValue(ctx, v.toFixed(1), X(v), baseY + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 1), X(v), baseY + 9, "center", "top");
 
   /* ---------------- asimtot E = y ---------------- */
   const lim = Math.min(yMax, eMax);
@@ -90,8 +90,12 @@ export function drawEnergy(
   ctx.setLineDash([]);
   curveLabel(ctx, "E = y", X(lim * 0.78), Y(lim * 0.78) - 10, C.ink3);
 
-  /* ---------------- kurva energi spesifik ---------------- */
-  pen(ctx, W.bold, C.water);
+  /* ---------------- kurva energi spesifik ----------------
+     Kurva digambar dengan tinta, bukan dengan warna. Warna dalam berkas ini
+     dikunci untuk BENDA dan besaran: biru air, merah energi, ungu kritis.
+     Kurva bukan benda melainkan hubungan antara dua besaran, dan mewarnainya
+     akan menabrak arti warna yang sudah dipakai garis-garis di sekitarnya. */
+  pen(ctx, W.bold, C.ink);
   ctx.beginPath();
   let started = false;
   for (let i = 1; i <= 600; i++) {
@@ -124,12 +128,12 @@ export function drawEnergy(
   marker(ctx, X(Emin), Y(s.yc), C.critical);
   curveLabel(
     ctx,
-    `yc ${s.yc.toFixed(3)} m`,
+    `yc ${fmtPlain(s.yc, 3)} m`,
     X(Emin) + 9,
     Y(s.yc) - 11,
     C.critical
   );
-  curveLabel(ctx, `${T.minEnergy} ${Emin.toFixed(3)}`, X(Emin) + 9, baseY - 12, C.critical);
+  curveLabel(ctx, `${T.minEnergy} ${fmtPlain(Emin, 3)}`, X(Emin) + 9, baseY - 12, C.critical);
 
   /* ---------------- kedalaman normal ---------------- */
   if (E0 <= eMax && s.y0 <= yMax) {
@@ -143,7 +147,7 @@ export function drawEnergy(
     marker(ctx, X(E0), Y(s.y0), C.water, true);
     curveLabel(
       ctx,
-      `y₀ ${s.y0.toFixed(3)} m`,
+      `y₀ ${fmtPlain(s.y0, 3)} m`,
       X(E0) + 10,
       Y(s.y0) + 11,
       C.water
@@ -156,7 +160,7 @@ export function drawEnergy(
         Y(s.y0) - 22,
         X(Emin),
         X(E0),
-        `+${(E0 - Emin).toFixed(3)} m`,
+        `+${fmtPlain((E0 - Emin), 3)} m`,
         C.energy
       );
     }
@@ -285,13 +289,13 @@ function drawSection(
   ctx.strokeRect(left - thk + 0.5, baseY + 0.5, bw + thk * 2, thk);
 
   // Dimensi
-  dimV(ctx, left - thk - 16, wl, baseY, `y₀ ${s.y0.toFixed(2)}`, C.water);
+  dimV(ctx, left - thk - 16, wl, baseY, `y₀ ${fmtPlain(s.y0, 2)}`, C.water);
   dimH(
     ctx,
     baseY + thk + 20,
     left,
     right,
-    `b ${s.b.toFixed(2)} m`,
+    `b ${fmtPlain(s.b, 2)} m`,
     C.ink2,
     baseY + thk
   );

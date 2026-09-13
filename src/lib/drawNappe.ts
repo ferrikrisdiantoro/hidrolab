@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -14,7 +14,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { jetTrajectory, wesNappe } from "./hydraulics";
+import { jetTrajectory, wesNappe, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -91,9 +91,9 @@ export function drawNappe(
 
   const digits = zStep < 0.1 ? 2 : zStep < 1 ? 1 : 0;
   for (let v = 0; v <= zAtas + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(digits), padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, digits), padL - 8, Z(v), "right", "middle");
   for (let v = Math.ceil(xKiri / xStep) * xStep; v <= xKanan + 1e-9; v += xStep)
-    axisValue(ctx, v.toFixed(digits), X(v), padT + plotH + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, digits), X(v), padT + plotH + 9, "center", "top");
 
   axisTitle(ctx, T.axStation, padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.elevation, 16, padT + plotH / 2, -Math.PI / 2);
@@ -238,16 +238,29 @@ export function drawNappe(
   ctx.restore();
 
   /* ---------------- rongga udara ---------------- */
+  // Saat muka air hilir melampaui mercu, tidak ada rongga udara: ruang itu
+  // terisi air. Menuliskannya di sana sama saja menyatakan tirainya masih
+  // jatuh bebas, padahal lembar ini sendiri menandai ambangnya tenggelam.
+  const tenggelam = s.tail > s.P;
   const xRongga = Math.min(xJatuh * 0.45, xKanan * 0.4);
   const zRongga = (s.P - wesNappe(s.h, xRongga)) * 0.45;
-  region(
-    ctx,
-    s.aerated ? T.airPocket : T.notAerated,
-    X(xRongga),
-    Z(zRongga),
-    s.aerated ? C.ink3 : C.signal
-  );
-  if (!s.aerated) {
+  if (!tenggelam) {
+    // Alas kertas: muka air hilir lewat tepat di ketinggian ini, dan garisnya
+    // mencoret hurufnya.
+    const teksRongga = s.aerated ? T.airPocket : T.notAerated;
+    ctx.font = F.region;
+    const wRongga = stencilWidth(ctx, teksRongga, 1.4);
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(X(xRongga) - wRongga / 2 - 3, Z(zRongga) - 7, wRongga + 6, 14);
+    region(
+      ctx,
+      teksRongga,
+      X(xRongga),
+      Z(zRongga),
+      s.aerated ? C.ink3 : C.signal
+    );
+  }
+  if (!s.aerated && !tenggelam) {
     leader(
       ctx,
       X(xRongga * 0.6),
@@ -260,8 +273,8 @@ export function drawNappe(
   }
 
   /* ---------------- dimensi ---------------- */
-  dimV(ctx, X(xKiri) + 26, Z(s.P + s.h), Z(s.P), `h ${s.h.toFixed(3)} m`, C.water);
-  dimV(ctx, X(xKiri) + 62, Z(s.P), Z(0), `P ${s.P.toFixed(3)} m`, C.ink);
+  dimV(ctx, X(xKiri) + 26, Z(s.P + s.h), Z(s.P), `h ${fmtPlain(s.h, 3)} m`, C.water);
+  dimV(ctx, X(xKiri) + 62, Z(s.P), Z(0), `P ${fmtPlain(s.P, 3)} m`, C.ink);
 
   // Titik acuan bentuk WES: pada x sama dengan tinggi rancangan, tirai sudah
   // turun tepat setengahnya. Angka itu jatuh langsung dari persamaannya.
@@ -284,11 +297,22 @@ export function drawNappe(
   }
 
   /* ---------------- nama wilayah ---------------- */
-  ctx.fillStyle = C.ink;
+  // Judul panel menyatakan keadaan yang sedang digambar, bukan satu nama
+  // tetap. "Tirai luapan bebas" pada ambang yang tenggelam adalah kalimat
+  // yang dibantah oleh penanda merah di sebelahnya.
+  const judul = tenggelam ? T.drownedNappe : T.freeNappe;
+  ctx.fillStyle = tenggelam ? C.signal : C.ink;
   ctx.font = F.heading;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  stencil(ctx, T.freeNappe, X((0 + xKanan) / 2), padT + 20, 2);
+  // Judul keadaan tenggelam jauh lebih panjang daripada judul biasa, dan
+  // dipusatkan pada tengah tirai ia keluar bingkai di sisi kanan.
+  const wJudul = stencilWidth(ctx, judul, 2);
+  const xJudul = Math.min(
+    Math.max(X((0 + xKanan) / 2), padL + wJudul / 2 + 6),
+    padL + plotW - wJudul / 2 - 6
+  );
+  stencil(ctx, judul, xJudul, padT + 20, 2);
 
   region(ctx, T.upstream, X(xKiri * 0.55), Z(s.P + s.h) - 16, C.ink3);
 

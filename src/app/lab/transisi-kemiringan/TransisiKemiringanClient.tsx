@@ -373,7 +373,7 @@ function susun(
       color: C.water,
       weight: W.thin,
       dash: DASH.hidden,
-      label: `y₀ ${r.hulu.y0.toFixed(2)} m`,
+      label: `y₀ ${fmt(r.hulu.y0, 2)} m`,
       labelAt: 0.02,
     },
     {
@@ -384,7 +384,7 @@ function susun(
       color: C.water,
       weight: W.thin,
       dash: DASH.hidden,
-      label: `y₀ ${r.hilir.y0.toFixed(2)} m`,
+      label: `y₀ ${fmt(r.hilir.y0, 2)} m`,
       labelAt: 0.98,
       labelAlign: "right",
     },
@@ -397,8 +397,8 @@ function susun(
       color: C.critical,
       weight: W.thin,
       dash: DASH.axis,
-      label: `yc ${r.yc.toFixed(2)} m`,
-      labelAt: 0.5,
+      label: `yc ${fmt(r.yc, 2)} m`,
+      labelAt: 0.25,
       labelDy: 11,
     },
   ];
@@ -413,7 +413,7 @@ function susun(
       dim: {
         zTop: zBreak + r.yBreak,
         zBottom: zBreak,
-        text: `${r.yBreak.toFixed(2)} m`,
+        text: `${fmt(r.yBreak, 2)} m`,
         side: r.hilir.profile ? 1 : -1,
       },
     },
@@ -427,38 +427,51 @@ function susun(
       dim: {
         zTop: zb(La + r.jumpAt) + (r.jumpTo ?? 0),
         zBottom: zb(La + r.jumpAt) + (r.jumpFrom ?? 0),
-        text: `${(r.jumpTo ?? 0).toFixed(2)} m`,
+        text: `${fmt((r.jumpTo ?? 0), 2)} m`,
         side: 1,
       },
     });
   }
 
   /* -------- nama wilayah -------- */
+  /*
+   * Nama profil dan nama regime ditumpuk dengan geseran PIKSEL, bukan dengan
+   * selisih elevasi.
+   *
+   * Sebelumnya keduanya dipisahkan sejauh sepersekian kedalaman air. Pada ruas
+   * curam, sumbu tegak gambar didominasi penurunan dasar yang belasan meter,
+   * sehingga jarak setengah meter itu menyusut menjadi belasan piksel dan kedua
+   * tulisan bertumpuk.
+   */
+  const xHulu = La * 0.45;
+  const xHilir = La + Lb * 0.55;
   const wilayah: ReachRegion[] = [
     {
-      x: La * 0.45,
-      z: zb(La * 0.45) + Math.max(r.hulu.y0, r.yc) * 1.5,
+      x: xHulu,
+      z: zb(xHulu) + Math.max(r.hulu.y0, r.yc) * 1.5,
       text: r.hulu.profile ? r.hulu.name : T.uniform,
       color: C.ink,
       big: true,
     },
     {
-      x: La + Lb * 0.55,
-      z: zb(La + Lb * 0.55) + Math.max(r.hilir.y0, r.yc) * 1.5,
+      x: xHilir,
+      z: zb(xHilir) + Math.max(r.hilir.y0, r.yc) * 1.5,
       text: r.hilir.profile ? r.hilir.name : T.uniform,
       color: C.ink,
       big: true,
     },
     {
-      x: La * 0.45,
-      z: zb(La * 0.45) + Math.max(r.hulu.y0, r.yc) * 1.5 + zSpanKecil(r),
-      text: r.hulu.mild ? T.subcritical : T.supercritical,
+      x: xHulu,
+      z: zb(xHulu) + Math.max(r.hulu.y0, r.yc) * 1.5,
+      dy: 15,
+      text: regime(r.hulu, r.yc, T),
       color: C.ink3,
     },
     {
-      x: La + Lb * 0.55,
-      z: zb(La + Lb * 0.55) + Math.max(r.hilir.y0, r.yc) * 1.5 + zSpanKecil(r),
-      text: r.hilir.mild ? T.subcritical : T.supercritical,
+      x: xHilir,
+      z: zb(xHilir) + Math.max(r.hilir.y0, r.yc) * 1.5,
+      dy: 15,
+      text: regime(r.hilir, r.yc, T),
       color: C.ink3,
     },
   ];
@@ -475,9 +488,22 @@ function susun(
   };
 }
 
-/** Jarak tegak antara nama profil dan nama regime di bawahnya, dalam meter. */
-function zSpanKecil(r: SlopeBreak): number {
-  return Math.max(r.hulu.y0, r.hilir.y0, r.yc) * 0.42;
+/**
+ * Regime aliran pada satu ruas.
+ *
+ * Ditentukan kedalaman terhadap kedalaman kritis, BUKAN oleh jenis
+ * kemiringannya. Pada patahan curam ke landai, ruas hilir berkemiringan landai
+ * tetapi membawa profil M3 yang superkritis, sehingga membaca jenis kemiringan
+ * akan memberi label yang terbalik.
+ */
+function regime(
+  ruas: SlopeBreak["hulu"],
+  yc: number,
+  T: ReturnType<typeof cl>
+): string {
+  const pts = ruas.profile?.points;
+  const y = pts && pts.length > 0 ? pts[Math.floor(pts.length / 2)].y : ruas.y0;
+  return y > yc ? T.subcritical : T.supercritical;
 }
 
 function notice(r: SlopeBreak, lang: Lang): string {
@@ -486,7 +512,7 @@ function notice(r: SlopeBreak, lang: Lang): string {
       return `The flow passes through critical depth exactly at the break, and that is the only place in this drawing where its depth is known without knowing anything else. Everything to the left is computed upstream from that point as an M2 drawdown; everything to the right is computed downstream from it as an S2. Move the downstream slope back below the critical slope and watch the control disappear: the break stops governing, and the upstream reach starts taking its cue from the downstream reach instead.`;
     if (r.kind === "curam-landai")
       return r.jumpAt !== null
-        ? `The supercritical flow does not stop at the break. It carries on into the mild reach as an M3 profile, slowing down over ${r.jumpAt.toFixed(1)} m, and only then rises through a hydraulic jump to the downstream normal depth. That distance matters in practice: it is the length of channel that has to be lined, because it is where the fast flow is still in contact with the bed.`
+        ? `The supercritical flow does not stop at the break. It carries on into the mild reach as an M3 profile, slowing down over ${fmt(r.jumpAt, 1)} m, and only then rises through a hydraulic jump to the downstream normal depth. That distance matters in practice: it is the length of channel that has to be lined, because it is where the fast flow is still in contact with the bed.`
         : `The tailwater is higher than any conjugate depth the supercritical flow can reach, so the jump does not fit in the downstream reach at all. It is pushed upstream past the break and drowns the steep reach. Steepen the downstream slope, or lower the discharge, and watch the jump appear at the break and then walk downstream.`;
     if (r.kind === "landai-landai")
       return `Both reaches are subcritical, so control comes from downstream in both. The downstream reach simply sits at its own normal depth, and the upstream reach spends its whole length adjusting to that depth at the break. Notice that the profile name changes between M1 and M2 as soon as the downstream normal depth crosses the upstream one.`;
@@ -497,7 +523,7 @@ function notice(r: SlopeBreak, lang: Lang): string {
     return `Aliran melewati kedalaman kritis tepat di patahan, dan itu satu-satunya tempat pada gambar ini yang kedalamannya dapat diketahui tanpa mengetahui apa pun yang lain. Segala yang di kiri ditelusuri ke hulu dari titik itu sebagai profil M2, segala yang di kanan ditelusuri ke hilir sebagai S2. Turunkan kemiringan ruas hilir sampai di bawah kemiringan kritis, lalu perhatikan kendalinya lenyap: patahan berhenti memerintah, dan ruas hulu mulai mengikuti ruas hilir.`;
   if (r.kind === "curam-landai")
     return r.jumpAt !== null
-      ? `Aliran superkritis tidak berhenti di patahan. Ia meneruskan perjalanannya masuk ke ruas landai sebagai profil M3, melambat sepanjang ${r.jumpAt.toFixed(1)} m, dan baru sesudah itu naik lewat loncatan air ke kedalaman normal hilir. Jarak itu penting dalam praktik: itulah panjang saluran yang harus dilapis, karena di situ aliran cepat masih bersentuhan dengan dasar.`
+      ? `Aliran superkritis tidak berhenti di patahan. Ia meneruskan perjalanannya masuk ke ruas landai sebagai profil M3, melambat sepanjang ${fmt(r.jumpAt, 1)} m, dan baru sesudah itu naik lewat loncatan air ke kedalaman normal hilir. Jarak itu penting dalam praktik: itulah panjang saluran yang harus dilapis, karena di situ aliran cepat masih bersentuhan dengan dasar.`
       : `Muka air hilir lebih tinggi daripada kedalaman konjugat mana pun yang sanggup dicapai aliran superkritis, jadi loncatan tidak muat sama sekali di ruas hilir. Ia terdorong ke hulu melewati patahan dan menenggelamkan ruas curam. Curamkan kemiringan ruas hilir, atau turunkan debitnya, lalu perhatikan loncatan muncul di patahan lalu berjalan ke hilir.`;
   if (r.kind === "landai-landai")
     return `Kedua ruas subkritis, jadi kendali datang dari hilir pada keduanya. Ruas hilir cukup duduk pada kedalaman normalnya sendiri, dan ruas hulu memakai seluruh panjangnya untuk menyesuaikan diri terhadap kedalaman itu di patahan. Perhatikan nama profilnya berpindah antara M1 dan M2 begitu kedalaman normal hilir melewati kedalaman normal hulu.`;

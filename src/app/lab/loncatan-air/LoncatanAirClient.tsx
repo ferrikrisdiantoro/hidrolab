@@ -108,7 +108,13 @@ export function LoncatanAirClient() {
   const [V1, setV1] = useState(7.0);
   const [showEnergy, setShowEnergy] = useState(true);
   const [showFlow, setShowFlow] = useState(true);
-  const streaks = useRef<Streak[]>(makeStreaks(150));
+  // Goresan aliran dibuat sekali saja.
+  //
+  // Nilai awal useRef tetap dihitung ulang pada SETIAP render walaupun hanya
+  // yang pertama yang dipakai, jadi menaruh makeStreaks langsung di dalamnya
+  // membuang seratus lima puluh objek tiap kali slider digeser.
+  const streaks = useRef<Streak[] | null>(null);
+  if (streaks.current === null) streaks.current = makeStreaks(150);
 
   const Fr1 = froude(V1, y1);
   const hasJump = Fr1 > 1;
@@ -270,10 +276,10 @@ function notice(
   lang: Lang
 ): string {
   const rasio = s.y2 / s.y1;
-  const pct0 = s.lossPct.toFixed(0);
-  const pct1 = s.lossPct.toFixed(1);
-  const lj = s.Lj.toFixed(1);
-  const r1 = rasio.toFixed(1);
+  const pct0 = fmt(s.lossPct, 0);
+  const pct1 = fmt(s.lossPct, 1);
+  const lj = fmt(s.Lj, 1);
+  const r1 = fmt(rasio, 1);
 
   if (lang === "en") {
     if (!s.hasJump)

@@ -10,7 +10,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { momentumFunction, specificEnergy } from "./hydraulics";
+import { momentumFunction, specificEnergy, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -101,11 +101,11 @@ export function drawEnergyMomentum(
   });
 
   for (let v = 0; v <= yMax + 1e-9; v += ys)
-    axisValue(ctx, v.toFixed(1), kiriX0 - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 1), kiriX0 - 8, Y(v), "right", "middle");
   for (let v = 0; v <= eMax + 1e-9; v += es)
-    axisValue(ctx, v.toFixed(1), XE(v), baseY + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 1), XE(v), baseY + 9, "center", "top");
   for (let v = 0; v <= mMax + 1e-9; v += ms)
-    axisValue(ctx, v.toFixed(1), XM(v), baseY + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 1), XM(v), baseY + 9, "center", "top");
 
   axisTitle(ctx, T.axEnergy, kiriX0 + panelW / 2, baseY + 34);
   axisTitle(ctx, T.axMomentum, kananX0 + panelW / 2, baseY + 34);
@@ -136,7 +136,14 @@ export function drawEnergyMomentum(
     ctx.stroke();
   };
 
-  gambarKurva((y) => specificEnergy(y, s.q), XE, C.energy, eMax);
+  /*
+   * Kedua kurva digambar dengan tinta.
+   *
+   * Sebelumnya kurva energi diberi warna merah energi, dan itu menabrak dimensi
+   * kehilangan energi pada panel yang sama yang memakai merah sinyal. Dua merah
+   * dengan arti berbeda dalam satu bidang membatalkan gunanya warna dikunci.
+   */
+  gambarKurva((y) => specificEnergy(y, s.q), XE, C.ink, eMax);
   gambarKurva((y) => momentumFunction(y, s.q), XM, C.ink, mMax);
 
   // Asimtot E = y pada panel energi. Ia menjelaskan mengapa cabang atas kurva
@@ -161,10 +168,10 @@ export function drawEnergyMomentum(
     curveLabel(ctx, teks, kananX0 + panelW - 4, Y(y) - 9, warna, "right");
   };
 
-  mendatar(s.yc, C.critical, DASH.axis, `yc ${s.yc.toFixed(3)} m`);
+  mendatar(s.yc, C.critical, DASH.axis, `yc ${fmtPlain(s.yc, 3)} m`);
   if (!s.noJump) {
-    mendatar(s.y1, C.water, DASH.hidden, `y₁ ${s.y1.toFixed(3)} m`);
-    mendatar(s.y2, C.water, DASH.hidden, `y₂ ${s.y2.toFixed(3)} m`);
+    mendatar(s.y1, C.water, DASH.hidden, `y₁ ${fmtPlain(s.y1, 3)} m`);
+    mendatar(s.y2, C.water, DASH.hidden, `y₂ ${fmtPlain(s.y2, 3)} m`);
   }
 
   /* ---------------- nilai minimum kedua kurva ---------------- */
@@ -181,8 +188,8 @@ export function drawEnergyMomentum(
     ctx.textBaseline = "top";
     stencil(ctx, teks, X(nilai), baseY - 15, 0.6);
   };
-  tandaMin(XE, Emin, C.energy, `E min ${Emin.toFixed(2)}`);
-  tandaMin(XM, Mmin, C.ink, `M min ${Mmin.toFixed(2)}`);
+  tandaMin(XE, Emin, C.ink3, `E min ${fmtPlain(Emin, 2)}`);
+  tandaMin(XM, Mmin, C.ink3, `M min ${fmtPlain(Mmin, 2)}`);
 
   /* ---------------- inti lembar ---------------- */
   if (!s.noJump) {
@@ -233,7 +240,7 @@ export function drawEnergyMomentum(
       Y(yDim),
       XE(Math.min(E1, E2)),
       XE(Math.max(E1, E2)),
-      `ΔE ${Math.abs(E1 - E2).toFixed(3)} m`,
+      `ΔE ${fmtPlain(Math.abs(E1 - E2), 3)} m`,
       C.signal
     );
   }

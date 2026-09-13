@@ -1,4 +1,4 @@
-import { C, DASH, W } from "./theme";
+import { C, DASH, F, W, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -14,7 +14,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { G, conjugateDepth, froude, jumpLength } from "./hydraulics";
+import { G, conjugateDepth, froude, jumpLength, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -107,15 +107,40 @@ export function drawJump(
   const hasJump = Fr1 > 1;
   const y2 = hasJump ? conjugateDepth(p.y1, Fr1) : p.y1;
   const Lj = hasJump ? jumpLength(y2) : 0;
+  const E1 = p.y1 + (p.V1 * p.V1) / (2 * G);
 
-  const yMax = Math.max(y2 * 2.0, p.y1 * 3, 0.9);
-  const sx = plotW / domain;
+  /*
+   * Bentang yang digambar mengikuti panjang loncatannya, bukan dipatok.
+   *
+   * Panjang loncatan enam kali kedalaman hilir, jadi pada bilangan Froude
+   * tinggi ia dengan mudah melebihi bentang tetap berapa pun. Bila itu
+   * dibiarkan, loncatannya terpotong bingkai dan nama-nama wilayah jatuh
+   * bertumpuk di tepi kanan. Loncatan mulai pada sepertiga bentang, jadi agar
+   * ia beserta ekor subkritisnya muat, bentangnya harus sekitar dua kali
+   * panjang loncatan.
+   */
+  const bentang = Math.max(domain, hasJump ? Lj * 2 : 0);
+
+  /*
+   * Skala tegak ikut memuat garis energi, tetapi hanya bila garis itu memang
+   * ditampilkan. Pada kecepatan tinggi, tinggi kecepatan jauh melampaui
+   * kedalaman airnya, dan skala yang hanya melihat kedalaman akan menggambar
+   * garis energi di luar kotak. Mematikan garis energi lewat tombol tampilan
+   * dengan sendirinya mengembalikan skala ke airnya saja.
+   */
+  const yMax = Math.max(
+    y2 * 2.0,
+    p.y1 * 3,
+    0.9,
+    showEnergy ? E1 * 1.08 : 0
+  );
+  const sx = plotW / bentang;
   const sy = plotH / yMax;
 
   const X = (m: number) => padL + m * sx;
   const Y = (m: number) => bedY - m * sy;
 
-  const xJump = domain * 0.33;
+  const xJump = bentang * 0.33;
   const q = p.V1 * p.y1;
 
   const depthAt = (x: number): number => {
@@ -130,11 +155,11 @@ export function drawJump(
 
   /* ---------------- kisi ---------------- */
   const yStep = niceStep(yMax, 5);
-  const xStep = niceStep(domain, 8);
+  const xStep = niceStep(bentang, 8);
   const hs: number[] = [];
   const vs: number[] = [];
   for (let v = 0; v <= yMax + 1e-9; v += yStep) hs.push(Y(v));
-  for (let x = 0; x <= domain + 1e-9; x += xStep) vs.push(X(x));
+  for (let x = 0; x <= bentang + 1e-9; x += xStep) vs.push(X(x));
   ruling(ctx, padL, padT, padL + plotW, bedY, {
     horizontal: hs,
     vertical: vs,
@@ -142,8 +167,8 @@ export function drawJump(
 
   if (!compact) {
     for (let v = 0; v <= yMax + 1e-9; v += yStep)
-      axisValue(ctx, v.toFixed(1), padL - 8, Y(v), "right", "middle");
-    for (let x = 0; x <= domain + 1e-9; x += xStep)
+      axisValue(ctx, fmtPlain(v, 1), padL - 8, Y(v), "right", "middle");
+    for (let x = 0; x <= bentang + 1e-9; x += xStep)
       axisValue(ctx, String(Math.round(x)), X(x), bedY + 9, "center", "top");
 
     axisTitle(ctx, T.axDistance, padL + plotW / 2, bedY + 34);
@@ -154,7 +179,7 @@ export function drawJump(
   const step = Math.max(1, Math.floor(plotW / 320));
   const pts: [number, number][] = [];
   for (let px = 0; px <= plotW; px += step) {
-    const xm = (px / plotW) * domain;
+    const xm = (px / plotW) * bentang;
     pts.push([padL + px, Y(depthAt(xm))]);
   }
 
@@ -185,11 +210,11 @@ export function drawJump(
     ctx.clip();
 
     for (const st of streaks) {
-      const xm = st.x * domain;
+      const xm = st.x * bentang;
       const d = depthAt(xm);
       const V = q / Math.max(d, 0.02);
 
-      st.x += (V * dt) / domain;
+      st.x += (V * dt) / bentang;
       if (st.x > 1) {
         st.x -= 1;
         st.yr = 0.1 + ((st.seed * 7.3) % 1) * 0.8;
@@ -233,7 +258,7 @@ export function drawJump(
     pen(ctx, W.thin, C.ink3, DASH.phantom);
     ctx.beginPath();
     for (let px = 0; px <= plotW; px += step) {
-      const xm = (px / plotW) * domain;
+      const xm = (px / plotW) * bentang;
       const py = Y(gDepth(xm));
       if (px === 0) ctx.moveTo(padL + px, py);
       else ctx.lineTo(padL + px, py);
@@ -253,7 +278,7 @@ export function drawJump(
   if (hasJump) {
     ctx.beginPath();
     ctx.moveTo(X(xJump + Lj), Y(y2));
-    ctx.lineTo(X(domain), Y(y2));
+    ctx.lineTo(X(bentang), Y(y2));
     ctx.stroke();
 
     // Bagian dalam loncatan: bentuk permukaan TIDAK diberikan oleh
@@ -271,7 +296,7 @@ export function drawJump(
     pen(ctx, W.bold, C.water);
     ctx.beginPath();
     ctx.moveTo(X(xJump), Y(p.y1));
-    ctx.lineTo(X(domain), Y(p.y1));
+    ctx.lineTo(X(bentang), Y(p.y1));
     ctx.stroke();
   }
 
@@ -308,7 +333,7 @@ export function drawJump(
       const V2 = q / y2;
       flowArrow(
         ctx,
-        X(Math.min(domain - 2.2, xJump + Lj + 2.2)),
+        X(Math.min(bentang - 2.2, xJump + Lj + 2.2)),
         Y(y2 * 0.5),
         Math.min(46, 6 + V2 * 4)
       );
@@ -317,7 +342,6 @@ export function drawJump(
 
   /* ---------------- garis energi ---------------- */
   if (showEnergy) {
-    const E1 = p.y1 + (p.V1 * p.V1) / (2 * G);
     const V2 = q / y2;
     const E2 = y2 + (V2 * V2) / (2 * G);
 
@@ -331,7 +355,7 @@ export function drawJump(
         ctx.lineTo(X(x), Y(E1 + (E2 - E1) * (s * s * (3 - 2 * s))));
       }
     }
-    ctx.lineTo(X(domain), Y(E2));
+    ctx.lineTo(X(bentang), Y(E2));
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -340,8 +364,8 @@ export function drawJump(
 
       // Kehilangan energi sebagai dimensi vertikal di hilir.
       if (hasJump && E1 - E2 > 0.02) {
-        const xd = X(domain) - 6;
-        dimV(ctx, xd, Y(E1), Y(E2), `ΔE ${(E1 - E2).toFixed(3)} m`, C.energy);
+        const xd = X(bentang) - 6;
+        dimV(ctx, xd, Y(E1), Y(E2), `ΔE ${fmtPlain((E1 - E2), 3)} m`, C.energy);
       }
     }
   }
@@ -367,17 +391,17 @@ export function drawJump(
       X(xJump * 0.62),
       Y(p.y1),
       Y(0),
-      `y₁ ${p.y1.toFixed(2)} m`,
+      `y₁ ${fmtPlain(p.y1, 2)} m`,
       C.water
     );
 
     if (hasJump) {
       dimV(
         ctx,
-        X(Math.min(domain - 0.7, xJump + Lj + 3.4)),
+        X(Math.min(bentang - 0.7, xJump + Lj + 3.4)),
         Y(y2),
         Y(0),
-        `y₂ ${y2.toFixed(2)} m`,
+        `y₂ ${fmtPlain(y2, 2)} m`,
         C.water
       );
       dimH(
@@ -385,7 +409,7 @@ export function drawJump(
         bedY + bedThk + 16,
         X(xJump),
         X(xJump + Lj),
-        `Lj ≈ ${Lj.toFixed(1)} m`,
+        `Lj ≈ ${fmtPlain(Lj, 1)} m`,
         C.critical,
         bedY + bedThk
       );
@@ -401,24 +425,28 @@ export function drawJump(
       ctx.setLineDash([]);
     }
 
-    region(ctx, T.supercritical, X(xJump * 0.5), padT + 14, C.ink3);
+    /*
+     * Nama wilayah diletakkan di TENGAH wilayahnya sendiri, dan dilewati bila
+     * wilayah itu terlalu sempit untuk memuatnya.
+     *
+     * Sebelumnya letaknya dihitung dari titik awal loncatan lalu dijepit ke
+     * tepi kanan, sehingga pada loncatan panjang dua nama berdesakan di tempat
+     * yang hampir sama dan terbaca saling menimpa. Nama yang tidak muat lebih
+     * baik tidak ada sama sekali daripada ada tetapi tidak terbaca.
+     */
+    const namaZona = (x0: number, x1: number, teks: string, warna: string) => {
+      const lebarZona = X(x1) - X(x0);
+      ctx.font = F.region;
+      if (stencilWidth(ctx, teks, 1.4) + 12 > lebarZona) return;
+      region(ctx, teks, X((x0 + x1) / 2), padT + 14, warna);
+    };
+
+    namaZona(0, xJump, T.supercritical, C.ink3);
     if (hasJump) {
-      region(ctx, T.jump, X(xJump + Lj / 2), padT + 14, C.critical);
-      region(
-        ctx,
-        T.subcritical,
-        X(Math.min(domain - 2, xJump + Lj + (domain - xJump - Lj) / 2)),
-        padT + 14,
-        C.ink3
-      );
+      namaZona(xJump, xJump + Lj, T.jump, C.critical);
+      namaZona(xJump + Lj, bentang, T.subcritical, C.ink3);
     } else {
-      region(
-        ctx,
-        T.noJump,
-        X(xJump + (domain - xJump) / 2),
-        padT + 14,
-        C.ink3
-      );
+      namaZona(xJump, bentang, T.noJump, C.ink3);
     }
 
     // Penanda bilangan Froude pada penampang masuk.
@@ -428,7 +456,7 @@ export function drawJump(
       Y(p.y1),
       X(xJump) - 46,
       Y(p.y1) - 34,
-      `Fr₁ ${Fr1.toFixed(2)}`,
+      `Fr₁ ${fmtPlain(Fr1, 2)}`,
       hasJump ? C.ink : C.signal
     );
   }

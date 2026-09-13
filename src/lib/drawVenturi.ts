@@ -15,6 +15,7 @@ import {
 } from "./plate";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
+import { fmtPlain } from "./hydraulics";
 
 export type VenturiDrawState = {
   /** Garis tengah pipa, meter */
@@ -30,6 +31,8 @@ export type VenturiDrawState = {
   permanentLoss: number;
   /** Di luar rentang perbandingan garis tengah yang lazim */
   outOfRange: boolean;
+  /** Leher tidak lebih sempit dari pipa: tidak ada garis tinggi tekan yang bisa digambar */
+  notVenturi: boolean;
 };
 
 /**
@@ -95,7 +98,9 @@ export function drawVenturi(
     { x: L, r: s.D1 / 2 },
   ];
 
-  const rMax = (s.D1 / 2) * 1.55;
+  // Skala jari-jari dari yang terbesar di antara pipa dan leher, supaya
+  // leher yang lebih besar dari pipa tetap tergambar di dalam panelnya.
+  const rMax = (Math.max(s.D1, s.D2) / 2) * 1.55;
   const R = (r: number) => bawahY + tinggiBawah / 2 - (r / rMax) * (tinggiBawah / 2);
 
   /* -------- panel atas: garis tinggi tekan -------- */
@@ -119,18 +124,18 @@ export function drawVenturi(
 
   const digits = zStep < 0.1 ? 3 : zStep < 1 ? 2 : 1;
   for (let v = 0; v <= zTop + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(digits), padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, digits), padL - 8, Z(v), "right", "middle");
   for (let v = 0; v <= L + 1e-9; v += xStep)
     axisValue(
       ctx,
-      v.toFixed(2),
+      fmtPlain(v, 2),
       X(v),
       bawahY + tinggiBawah + 9,
       "center",
       "top"
     );
 
-  axisTitle(ctx, T.axStation, padL + plotW / 2, bawahY + tinggiBawah + 34);
+  axisTitle(ctx, T.axAlongPipe, padL + plotW / 2, bawahY + tinggiBawah + 34);
   axisTitle(ctx, T.axHead, 18, atasY + tinggiAtas / 2, -Math.PI / 2);
 
   // Garis tinggi tekan. Tinggi tekan datang dipatok sebagai acuan, lalu
@@ -153,37 +158,46 @@ export function drawVenturi(
   }
   hgl.push([L, zPulih]);
 
-  pen(ctx, W.bold, C.energy);
-  ctx.beginPath();
-  hgl.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Z(z)) : ctx.moveTo(X(x), Z(z))));
-  ctx.stroke();
-  curveLabel(ctx, T.pressureLine, X(a1 * 0.15), Z(zMasuk) - 10, C.energy);
+  // Bila lehernya tidak lebih sempit, tidak ada penurunan tekanan yang bisa
+  // digambar: bacaan manometer yang dimasukkan tidak punya arti di sini, dan
+  // panel atas menyatakan itu alih-alih menggambar garis dari angka itu.
+  if (s.notVenturi) {
+    region(ctx, T.notVenturi, padL + plotW / 2, atasY + tinggiAtas / 2, C.signal);
+  } else {
+    pen(ctx, W.bold, C.energy);
+    ctx.beginPath();
+    hgl.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Z(z)) : ctx.moveTo(X(x), Z(z))));
+    ctx.stroke();
+    curveLabel(ctx, T.pressureLine, X(a1 * 0.15), Z(zMasuk) - 10, C.energy);
 
-  // Tinggi tekan datang sebagai garis khayal, supaya bagian yang tidak pulih
-  // terbaca sebagai jarak, bukan sebagai kesan.
-  pen(ctx, W.hair, C.ink3, DASH.phantom);
-  ctx.beginPath();
-  ctx.moveTo(X(0), Z(zMasuk));
-  ctx.lineTo(X(L), Z(zMasuk));
-  ctx.stroke();
-  ctx.setLineDash([]);
+    // Tinggi tekan datang sebagai garis khayal, supaya bagian yang tidak pulih
+    // terbaca sebagai jarak, bukan sebagai kesan.
+    pen(ctx, W.hair, C.ink3, DASH.phantom);
+    ctx.beginPath();
+    ctx.moveTo(X(0), Z(zMasuk));
+    ctx.lineTo(X(L), Z(zMasuk));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
-  dimV(
-    ctx,
-    X((a2 + a3) / 2),
-    Z(zMasuk),
-    Z(zLeher),
-    `Δh ${s.dh.toFixed(4)} m`,
-    C.energy
-  );
-  dimV(
-    ctx,
-    X(L) - 26,
-    Z(zMasuk),
-    Z(zPulih),
-    `${s.permanentLoss.toFixed(4)} m`,
-    C.signal
-  );
+  if (!s.notVenturi) {
+    dimV(
+      ctx,
+      X((a2 + a3) / 2),
+      Z(zMasuk),
+      Z(zLeher),
+      `Δh ${fmtPlain(s.dh, 4)} m`,
+      C.energy
+    );
+    dimV(
+      ctx,
+      X(L) - 26,
+      Z(zMasuk),
+      Z(zPulih),
+      `${fmtPlain(s.permanentLoss, 4)} m`,
+      C.signal
+    );
+  }
 
   pen(ctx, W.thin, C.ink);
   ctx.strokeRect(
@@ -227,11 +241,15 @@ export function drawVenturi(
     flowArrow(ctx, X(x), R(0) - 0.5, Math.max(10, V * skalaPanah), C.water);
   }
 
-  // Titik ukur tekanan: satu di pipa, satu di leher.
-  for (const [x, teks] of [
-    [a1 * 0.6, "1"],
-    [(a2 + a3) / 2, "2"],
-  ] as const) {
+  // Titik ukur tekanan: satu di pipa, satu di leher. Tanpa penyempitan
+  // tidak ada yang diukur, dan garisnya cuma akan memotong tulisan di panel
+  // atas.
+  for (const [x, teks] of s.notVenturi
+    ? []
+    : ([
+        [a1 * 0.6, "1"],
+        [(a2 + a3) / 2, "2"],
+      ] as const)) {
     const rw = x < a1 ? s.D1 / 2 : s.D2 / 2;
     pen(ctx, W.thin, C.energy, DASH.axis);
     ctx.beginPath();
@@ -247,7 +265,7 @@ export function drawVenturi(
     X(a1 * 0.25),
     R(s.D1 / 2),
     R(-s.D1 / 2),
-    `D₁ ${(s.D1 * 1000).toFixed(0)} mm`,
+    `D₁ ${fmtPlain((s.D1 * 1000), 0)} mm`,
     C.ink
   );
   dimV(
@@ -255,7 +273,7 @@ export function drawVenturi(
     X((a2 + a3) / 2) + 30,
     R(s.D2 / 2),
     R(-s.D2 / 2),
-    `D₂ ${(s.D2 * 1000).toFixed(0)} mm`,
+    `D₂ ${fmtPlain((s.D2 * 1000), 0)} mm`,
     s.outOfRange ? C.signal : C.ink
   );
 
@@ -263,10 +281,14 @@ export function drawVenturi(
   ctx.font = F.heading;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  stencil(ctx, T.throatSection, X((a2 + a3) / 2), bawahY + tinggiBawah - 12, 2);
+  // Nama "leher" hanya bila memang ada leher: bila lehernya yang terbesar,
+  // dindingnya turun sampai ke tempat tulisan ini.
+  if (!s.notVenturi) stencil(ctx, T.throatSection, X((a2 + a3) / 2), bawahY + tinggiBawah - 12, 2);
 
-  region(ctx, T.upstream, X(a1 * 0.5), bawahY + 12, C.ink3);
-  region(ctx, T.downstream, X(a4 + xKeluar * 0.5), bawahY + 12, C.ink3);
+  // Di sudut bawah, bukan atas: dimensi D₁ yang pendek menaruh teksnya di
+  // atas dimensinya, tepat di baris nama wilayah kalau nama itu di atas.
+  region(ctx, T.upstream, X(a1 * 0.5), bawahY + tinggiBawah - 12, C.ink3);
+  region(ctx, T.downstream, X(a4 + xKeluar * 0.5), bawahY + tinggiBawah - 12, C.ink3);
 
   pen(ctx, W.thin, C.ink);
   ctx.strokeRect(

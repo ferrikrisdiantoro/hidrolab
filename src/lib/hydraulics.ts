@@ -366,11 +366,32 @@ export function fmt(value: number, digits = 2): string {
   });
 }
 
+/**
+ * Angka untuk ditulis DI DALAM gambar.
+ *
+ * Pemisah desimalnya mengikuti bahasa, tetapi pemisah ribuannya dimatikan.
+ * Alasannya konvensi gambar teknik: dimensi 1200 mm ditulis 1200, bukan 1.200,
+ * karena titik pada gambar sudah dipakai sebagai pemisah desimal dan
+ * memunculkannya dua kali dengan arti berbeda membuat angka mudah salah baca.
+ *
+ * Untuk prosa dan tabel dipakai fmt, yang membiarkan pemisah ribuannya, karena
+ * di sana angkanya dibaca sebagai bagian dari kalimat.
+ */
+export function fmtPlain(value: number, digits = 2): string {
+  if (!Number.isFinite(value)) return "—";
+  return value.toLocaleString(numberLocale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: false,
+  });
+}
+
 export function fmtSci(value: number): string {
   if (!Number.isFinite(value) || value === 0) return "0";
   const exp = Math.floor(Math.log10(Math.abs(value)));
   const mant = value / Math.pow(10, exp);
-  return `${mant.toFixed(2)} × 10${toSuperscript(exp)}`;
+  // Mantisanya ikut mengikuti bahasa, sama seperti angka lain di layar.
+  return `${fmtPlain(mant, 2)} × 10${toSuperscript(exp)}`;
 }
 
 function toSuperscript(n: number): string {
@@ -423,14 +444,54 @@ export function gvfSlope(
   return (S0 - frictionSlope(Q, b, y, n)) / denom;
 }
 
-export type GvfPoint = { x: number; y: number; nearCritical: boolean };
+export type GvfPoint = {
+  x: number;
+  y: number;
+  nearCritical: boolean;
+  /** Muka air di titik ini terlalu curam untuk disebut berubah lambat */
+  rapid: boolean;
+};
+
+/**
+ * Kecuraman muka air yang menandai batas aliran berubah lambat.
+ *
+ * Persamaan aliran berubah lambat mengandaikan lengkung permukaan tetap landai,
+ * sehingga tekanannya boleh dianggap hidrostatik. Andaian itu tidak punya batas
+ * yang diterbitkan sebagai angka, jadi nilai di bawah ini adalah pilihan
+ * rekayasa, bukan kutipan: muka air yang berubah lebih dari sepuluh sentimeter
+ * tiap meter sudah tidak masuk akal disebut berubah lambat.
+ *
+ * Nilainya sengaja diberi nama dan ditaruh di sini, bukan disembunyikan di
+ * dalam penggambar, supaya dapat diperdebatkan dan diubah di satu tempat.
+ */
+export const RVF_SURFACE_SLOPE = 0.1;
 
 export type GvfResult = {
   points: GvfPoint[];
+  /**
+   * Ruas tempat persamaannya kehilangan keberlakuan, dalam jarak.
+   *
+   * Ruas ini hampir selalu sangat pendek, sering kurang dari satu meter, karena
+   * di dekat kondisi kritis muka air berubah sangat cepat. Karena itu ia
+   * dilaporkan sebagai rentang jarak dan bukan sebagai kumpulan titik: lembar
+   * yang memakainya perlu tahu bahwa ruas itu terlalu pendek untuk digambar
+   * sebagai garis, dan harus ditandai sebagai satu penampang.
+   */
+  rvf: { from: number; to: number } | null;
   /** Nama profil menurut penggolongan baku, misalnya M1 atau S2 */
   profile: string;
   /** Arah penelusuran: hulu untuk aliran subkritis, hilir untuk superkritis */
   direction: "hulu" | "hilir";
+  /**
+   * Benar bila penelusuran berhenti karena mencapai kedalaman kritis, bukan
+   * karena kehabisan bentang.
+   *
+   * Aliran tidak dapat melintasi kondisi kritis tanpa loncatan air, dan
+   * loncatan bukan aliran berubah lambat. Profil yang sampai di kedalaman
+   * kritis karena itu SELESAI di situ, dan sisa bentangnya memang tidak memuat
+   * profil ini.
+   */
+  endsAtCritical: boolean;
   y0: number;
   yc: number;
   mild: boolean;
@@ -472,22 +533,66 @@ export function gvfProfile(
   const points: GvfPoint[] = [];
   let y = yControl;
 
+  // Sisi kedalaman kritis tempat profil ini berada. Ia tidak boleh berpindah
+  // sisi, karena berpindah sisi berarti melintasi kondisi kritis.
+  const sisi = yControl >= yc ? 1 : -1;
+  let endsAtCritical = false;
+
   for (let i = 0; i <= steps; i++) {
     const xFromControl = i * (length / steps);
     const x = subcritical ? length - xFromControl : xFromControl;
     const Fr2 = (q * q) / (G * y * y * y);
-    points.push({ x, y, nearCritical: Math.abs(1 - Fr2) < 0.06 });
 
     // Runge-Kutta orde empat pada dy/dx.
     const k1 = gvfSlope(Q, b, y, n, S0);
+    points.push({
+      x,
+      y,
+      nearCritical: Math.abs(1 - Fr2) < 0.06,
+      rapid: Math.abs(k1) > RVF_SURFACE_SLOPE,
+    });
+
+    if (i === steps) break;
+
     const k2 = gvfSlope(Q, b, clampDepth(y + (dx * k1) / 2, yc), n, S0);
     const k3 = gvfSlope(Q, b, clampDepth(y + (dx * k2) / 2, yc), n, S0);
     const k4 = gvfSlope(Q, b, clampDepth(y + dx * k3, yc), n, S0);
-    y = clampDepth(y + (dx / 6) * (k1 + 2 * k2 + 2 * k3 + k4), yc);
+    const yBaru = y + (dx / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+
+    /*
+     * Penelusuran berhenti di kedalaman kritis, tidak diteruskan ke seberang.
+     *
+     * Penahan kedalaman hanya mencegah hasil MENDARAT di dalam pita tipis di
+     * sekitar kedalaman kritis; ia tidak mencegah satu langkah MELOMPATINYA.
+     * Tanpa pemeriksaan ini, profil superkritis melompat ke sisi subkritis lalu
+     * berosilasi, dan yang tergambar adalah aliran yang melintasi kondisi
+     * kritis tanpa loncatan air, yang mustahil.
+     */
+    if (Math.sign(yBaru - yc) !== sisi) {
+      const beda = yBaru - y;
+      const f = Math.abs(beda) < 1e-12 ? 1 : (yc - y) / beda;
+      points.push({
+        x: x + dx * Math.min(Math.max(f, 0), 1),
+        y: yc,
+        nearCritical: true,
+        rapid: true,
+      });
+      endsAtCritical = true;
+      break;
+    }
+
+    y = clampDepth(yBaru, yc);
   }
 
   points.sort((a, c) => a.x - c.x);
-  return { points, profile, direction, y0, yc, mild };
+
+  const curam = points.filter((p) => p.rapid);
+  const rvf =
+    curam.length > 0
+      ? { from: curam[0].x, to: curam[curam.length - 1].x }
+      : null;
+
+  return { points, profile, direction, endsAtCritical, y0, yc, mild, rvf };
 }
 
 /** Menahan kedalaman agar tidak melintasi kedalaman kritis atau menjadi negatif. */
@@ -497,6 +602,38 @@ function clampDepth(y: number, yc: number): number {
   if (y > yc && y < floor) return floor;
   if (y < yc && y > ceil) return ceil;
   return Math.max(1e-4, Math.min(y, 60));
+}
+
+/* ------------------------------------------------------------------ *
+ * Kedalaman hulu yang dipaksakan bangunan ambang lebar
+ * ------------------------------------------------------------------ */
+
+/**
+ * Kedalaman air tepat di hulu sebuah bangunan bermercu lebar.
+ *
+ * Di atas mercu aliran melewati kondisi kritis, jadi energi spesifik yang
+ * dibutuhkan, diukur dari dasar saluran, adalah P + 1,5 yc. Kedalaman hulunya
+ * adalah akar subkritis persamaan energi untuk nilai itu. Ini BUKAN P + yc:
+ * yang sama dengan P + yc adalah muka air di atas mercu, bukan di hulunya,
+ * dan selisih keduanya adalah tinggi kecepatan yang tidak boleh dilupakan.
+ *
+ * Yang diabaikan hanya kehilangan setempat di muka bangunan, sehingga
+ * kedalamannya sedikit di bawah yang sesungguhnya. Henderson (1966) Bab 6.
+ */
+export function broadCrestControlDepth(P: number, q: number): number {
+  return depthFromEnergy(P + 1.5 * criticalDepth(q), q, "subkritis");
+}
+
+/**
+ * Tinggi bangunan terendah yang masih membendung.
+ *
+ * Bila energi aliran normal saluran sudah melampaui P + 1,5 yc, air melewati
+ * mercu tanpa harus menjadi kritis di atasnya, dan kedalaman hulu tetap pada
+ * kedalaman normal. Bangunan yang lebih rendah dari nilai ini tidak menahan
+ * apa pun.
+ */
+export function minControllingHeight(y0: number, q: number): number {
+  return specificEnergy(y0, q) - 1.5 * criticalDepth(q);
 }
 
 /* ------------------------------------------------------------------ *
@@ -684,6 +821,8 @@ export function slopeBreak(
         x: a.x + (c.x - a.x) * f,
         y: yc,
         nearCritical: true,
+        // Tepat di kedalaman kritis, kemiringan muka air menuju tak hingga.
+        rapid: true,
       };
     }
     return { ...r, points: potong };
@@ -924,12 +1063,16 @@ export function notchCe(thetaDeg: number): number {
   return 0.6072 - 0.000874 * t + 0.0000061 * t * t;
 }
 
+export type NotchOutOfRange = "tinggi-rendah" | "tinggi-tinggi" | "sudut" | null;
+
 export type NotchResult = {
   Q: number;
   Ce: number;
   he: number;
-  /** Benar bila tinggi muka air di luar rentang keberlakuan rumus */
+  /** Benar bila tinggi muka air atau sudut takik di luar rentang keberlakuan rumus */
   outOfRange: boolean;
+  /** Sebab keluar rentang, atau null bila di dalam rentang */
+  reason: NotchOutOfRange;
 };
 
 /**
@@ -948,11 +1091,28 @@ export function notchDischarge(H: number, thetaDeg: number): NotchResult {
   const theta = (thetaDeg * Math.PI) / 180;
   const Q =
     (8 / 15) * Ce * Math.sqrt(2 * G) * Math.tan(theta / 2) * Math.pow(he, 2.5);
-  return { Q, Ce, he, outOfRange: H < 0.05 };
+  const reason: NotchOutOfRange =
+    H < NOTCH_H_MIN
+      ? "tinggi-rendah"
+      : H > NOTCH_H_MAX
+        ? "tinggi-tinggi"
+        : thetaDeg < NOTCH_THETA_MIN || thetaDeg > NOTCH_THETA_MAX
+          ? "sudut"
+          : null;
+  return { Q, Ce, he, outOfRange: reason !== null, reason };
 }
 
-/** Batas bawah tinggi muka air yang masih di dalam rentang keberlakuan. */
+/**
+ * Batas keberlakuan pada ISO 1438:2017 untuk takik V berkontraksi penuh.
+ *
+ * Di bawah 5 cm tegangan permukaan menguasai. Di atas 38 cm data kalibrasi
+ * Kindsvater-Shen tidak menjangkau. Kurva Ce hanya diterbitkan untuk sudut
+ * 20 sampai 100 derajat; di luar itu nilainya ekstrapolasi.
+ */
 export const NOTCH_H_MIN = 0.05;
+export const NOTCH_H_MAX = 0.38;
+export const NOTCH_THETA_MIN = 20;
+export const NOTCH_THETA_MAX = 100;
 
 /* ------------------------------------------------------------------ *
  * Garis energi sepanjang bentang
@@ -981,10 +1141,21 @@ export type ReachEnergyResult = {
   yc: number;
   profile: string;
   mild: boolean;
-  /** Kehilangan tinggi tekan akibat gesekan, hasil integrasi Sf sepanjang bentang */
+  /** Kehilangan tinggi tekan akibat gesekan, hasil integrasi Sf sepanjang profil */
   hf: number;
-  /** Penurunan dasar sepanjang bentang, yaitu S0 dikali panjang */
+  /**
+   * Penurunan dasar SEPANJANG PROFIL, bukan sepanjang bentang yang diminta.
+   *
+   * Keduanya berbeda bila profil berakhir di kedalaman kritis sebelum mencapai
+   * ujung bentang. Membandingkan kehilangan gesekan sepanjang profil terhadap
+   * penurunan dasar sepanjang bentang penuh akan membandingkan dua jarak yang
+   * berbeda, dan angka yang keluar tidak berarti apa-apa.
+   */
   dz: number;
+  /** Panjang profil yang benar-benar tertelusuri, meter */
+  length: number;
+  /** Benar bila profil berhenti karena mencapai kedalaman kritis */
+  endsAtCritical: boolean;
   /** Selisih tinggi energi total antara ujung hulu dan ujung hilir */
   dE: number;
 };
@@ -1035,6 +1206,8 @@ export function reachEnergy(
     hf += ((points[i].Sf + points[i - 1].Sf) / 2) * dx;
   }
 
+  const panjang = points[points.length - 1].x - points[0].x;
+
   return {
     points,
     y0: r.y0,
@@ -1042,7 +1215,9 @@ export function reachEnergy(
     profile: r.profile,
     mild: r.mild,
     hf,
-    dz: S0 * L,
+    dz: S0 * panjang,
+    length: panjang,
+    endsAtCritical: r.endsAtCritical,
     dE: points[0].egl - points[points.length - 1].egl,
   };
 }
@@ -1130,7 +1305,16 @@ export function svfProfile(
   S0: number,
   L: number,
   yEnd: number,
-  steps = 400
+  steps = 400,
+  /**
+   * Menelusuri TANPA suku percepatan, tetapi tetap dengan debit yang bertambah.
+   *
+   * Ini hitungan yang lazim dilakukan orang: debit diperbarui di tiap penampang,
+   * tetapi biaya mempercepat air yang baru masuk dilupakan. Dipakai sebagai
+   * pembanding pada gambar, supaya selisihnya benar-benar mengukur pengaruh
+   * suku itu dan bukan pengaruh perbedaan debit.
+   */
+  tanpaPercepatan = false
 ): SvfResult {
   const dx = L / steps;
   const Qat = (x: number) => Math.max(1e-6, Q0 + qStar * x);
@@ -1149,7 +1333,14 @@ export function svfProfile(
 
   // Runge-Kutta orde empat, melangkah mundur sebesar dx tiap kali.
   const f = (xx: number, yy: number) =>
-    svfSlope(Qat(xx), qStar, b, Math.max(0.01, yy), n, S0);
+    svfSlope(
+      Qat(xx),
+      tanpaPercepatan ? 0 : qStar,
+      b,
+      Math.max(0.01, yy),
+      n,
+      S0
+    );
 
   // Langkah dibagi lagi secara adaptif bila muka air sedang curam.
   //
@@ -1255,6 +1446,13 @@ export type TroughResult = {
   rise: number;
   /** Benar bila ada penampang yang menjadi superkritis, yang berarti rancangannya perlu diperiksa */
   anySupercritical: boolean;
+  /**
+   * Absis tempat penelusuran berhenti karena aliran di hulunya superkritis,
+   * atau null bila seluruh saluran subkritis. Di hulu titik ini muka airnya
+   * TIDAK dihitung: kendali di ujung keluar tidak lagi menjangkaunya, dan
+   * `points` hanya memuat bagian dari titik ini sampai ujung keluar.
+   */
+  supercriticalFrom: number | null;
 };
 
 /**
@@ -1299,6 +1497,17 @@ export function sideChannelProfile(
 
   simpan(L, y, ws);
 
+  /*
+   * Penelusuran dari kendali di ujung keluar hanya berlaku selama alirannya
+   * subkritis. Begitu sebuah penampang menjadi superkritis, kendali di hilir
+   * tidak lagi menjangkau hulunya; muka air di sana ditentukan dari pangkal,
+   * dan di antara keduanya ada loncatan air. Kalau penelusuran diteruskan
+   * juga, kedalamannya terjepit ke batas bawah dan kemiringan gesekannya
+   * meledak, sehingga muka air "naik" ratusan meter dalam beberapa langkah.
+   * Angka itu pernah keluar, dan bukan angka.
+   */
+  let supercriticalFrom: number | null = null;
+
   for (let i = 1; i <= steps; i++) {
     const x2 = L - (i - 1) * dx;
     const x1 = x2 - dx;
@@ -1331,6 +1540,11 @@ export function sideChannelProfile(
       y1 = y1 + (yBaru - y1) * 0.6;
     }
 
+    if (Q1 > 0 && froude(Q1 / (b * y1), y1) > 1.001) {
+      supercriticalFrom = x2;
+      break;
+    }
+
     ws = zb1 + y1;
     y = y1;
     simpan(x1, y, ws);
@@ -1344,7 +1558,8 @@ export function sideChannelProfile(
     Qout: Qtotal,
     yMax: pts.reduce((m, p) => Math.max(m, p.y), 0),
     rise: pts[0].ws - pts[pts.length - 1].ws,
-    anySupercritical: pts.some((p) => p.Q > 0 && p.Fr > 1.001),
+    anySupercritical: supercriticalFrom !== null,
+    supercriticalFrom,
   };
 }
 
@@ -1507,6 +1722,15 @@ export type OrificeResult = {
   xVena: number;
   /** Tinggi kehilangan energi pada lubang */
   headLoss: number;
+  /**
+   * Benar bila seluruh bukaan berada di bawah muka air. Bila salah, bibir
+   * atas lubang muncul di atas permukaan dan yang terjadi bukan lagi aliran
+   * lubang melainkan luapan di atas ambang: rumus di lembar ini tidak
+   * berlaku, dan tinggi muka air di atas titik berat pun kehilangan artinya.
+   */
+  submerged: boolean;
+  /** Tinggi muka air terkecil yang masih merendam seluruh bukaan, meter */
+  minHead: number;
 };
 
 /**
@@ -1546,6 +1770,8 @@ export function orificeJet(
     // Vena contracta terbentuk kira-kira setengah tinggi bukaan di hilir bibir.
     xVena: 0.5 * a,
     headLoss: (Vth * Vth - V * V) / (2 * G),
+    submerged: H >= a / 2,
+    minHead: a / 2,
   };
 }
 
@@ -1590,7 +1816,7 @@ export type VenturiResult = {
   /** Kehilangan tekanan tetap, ditaksir sebagai bagian dari beda tekanan */
   permanentLoss: number;
   outOfRange: boolean;
-  reason: "" | "beta-kecil" | "beta-besar";
+  reason: "" | "beta-kecil" | "beta-besar" | "bukan-venturi";
 };
 
 /** Batas bawah perbandingan garis tengah yang lazim dipakai pada venturi klasik. */
@@ -1621,7 +1847,30 @@ export function venturiDischarge(
   const beta = D1 > 0 ? D2 / D1 : 0;
   const A1 = (Math.PI / 4) * D1 * D1;
   const A2 = (Math.PI / 4) * D2 * D2;
-  const approachFactor = 1 / Math.sqrt(Math.max(1 - Math.pow(beta, 4), 1e-9));
+
+  /*
+   * Leher yang tidak lebih sempit daripada pipanya bukan venturi. Rumusnya
+   * membagi dengan akar (1 - beta^4), yang nol pada beta satu dan khayal di
+   * atasnya. Kalau dipaksa lewat pembatas kecil, keluarnya debit tiga juta
+   * liter per detik dari pipa 200 mm, dan angka itu pernah keluar. Yang benar
+   * adalah tidak ada debit yang dapat dihitung.
+   */
+  if (beta >= 1) {
+    return {
+      beta,
+      Q: 0,
+      V1: 0,
+      V2: 0,
+      approachFactor: 0,
+      dh,
+      C,
+      permanentLoss: 0,
+      outOfRange: true,
+      reason: "bukan-venturi",
+    };
+  }
+
+  const approachFactor = 1 / Math.sqrt(1 - Math.pow(beta, 4));
   const Q = C * approachFactor * A2 * Math.sqrt(2 * G * Math.max(dh, 0));
 
   const reason: VenturiResult["reason"] =
@@ -1751,14 +2000,23 @@ export type FlumeResult = {
   Fr1: number;
   /** Batas muka air hilir agar flum tetap bekerja bebas */
   tailLimit: number;
+  /**
+   * Benar bila leher benar-benar mengendalikan aliran. Salah bila lehernya
+   * terlalu lebar untuk saluran datangnya, sehingga tidak ada tinggi energi
+   * yang memenuhi persamaan kecepatan datang; pada keadaan itu tidak ada
+   * debit yang dapat dihitung dari h1.
+   */
+  controlled: boolean;
   outOfRange: boolean;
-  reason: "" | "HL-kecil" | "HL-besar";
+  reason: "" | "HL-kecil" | "HL-besar" | "Fr-besar" | "tak-terkendali";
 };
 
 /** Batas bawah perbandingan tinggi energi terhadap panjang leher. */
 export const FLUME_HL_MIN = 0.07;
 /** Batas atas perbandingan tinggi energi terhadap panjang leher. */
 export const FLUME_HL_MAX = 0.7;
+/** Bilangan Froude terbesar di penampang ukur yang masih diizinkan ISO 4359. */
+export const FLUME_FR_MAX = 0.5;
 
 /**
  * Debit yang lewat sebuah flum berleher panjang berpenampang persegi.
@@ -1787,43 +2045,71 @@ export function flumeDischarge(
   Lthroat: number,
   Cd: number
 ): FlumeResult {
-  let H1 = h1;
-  let Q = 0;
+  /*
+   * Tinggi energi dan debit saling bergantung:
+   *
+   *   H1 = h1 + k H1^3,   k = (Cd C b)^2 / (2 g A1^2)
+   *
+   * Fungsi f(H) = H - h1 - k H^3 naik dari negatif di H = h1, memuncak di
+   * H = 1/sqrt(3k), lalu turun. Akar yang berarti adalah yang terkecil, dan
+   * ia ADA hanya bila puncaknya tidak negatif, yaitu k <= 4 / (27 h1^2).
+   * Kalau tidak ada, lehernya terlalu lebar untuk saluran datangnya: aliran
+   * datang tidak sanggup membawa debit yang diminta leher pada kedalaman itu,
+   * dan lehernya bukan penampang kendali. Iterasi titik tetap yang dulu
+   * dipakai tidak tahu itu; ia terus melipatgandakan sampai tak hingga.
+   */
+  const A1 = bApproach * (h1 + p);
+  const k = A1 > 0 ? Math.pow(Cd * FLUME_C * bThroat, 2) / (2 * G * A1 * A1) : 0;
+  const puncak = k > 0 ? 1 / Math.sqrt(3 * k) : Number.POSITIVE_INFINITY;
+  const terkendali = h1 > 0 && (k === 0 || puncak - h1 - k * puncak * puncak * puncak >= 0);
 
-  // Tinggi energi dan debit saling bergantung, jadi dicari bergantian sampai
-  // keduanya berhenti berubah.
-  for (let i = 0; i < 100; i++) {
-    Q = Cd * FLUME_C * bThroat * Math.pow(Math.max(H1, 0), 1.5);
-    const A1 = bApproach * (h1 + p);
-    const V1 = A1 > 0 ? Q / A1 : 0;
-    const baru = h1 + (V1 * V1) / (2 * G);
-    if (Math.abs(baru - H1) < 1e-12) {
-      H1 = baru;
-      break;
-    }
-    H1 = baru;
+  if (!terkendali) {
+    return {
+      Q: 0,
+      H1: h1,
+      yc: 0,
+      Cv: 1,
+      Fr1: 0,
+      tailLimit: p,
+      controlled: false,
+      outOfRange: true,
+      reason: "tak-terkendali",
+    };
   }
 
-  const A1 = bApproach * (h1 + p);
+  let lo = h1;
+  let hi = Math.min(puncak, h1 * 50);
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (mid - h1 - k * mid * mid * mid >= 0) hi = mid;
+    else lo = mid;
+    if (hi - lo < 1e-13) break;
+  }
+  const H1 = (lo + hi) / 2;
+  const Q = Cd * FLUME_C * bThroat * Math.pow(H1, 1.5);
   const V1 = A1 > 0 ? Q / A1 : 0;
+  const Fr1 = froude(V1, h1 + p);
   const rasioHL = Lthroat > 0 ? H1 / Lthroat : 0;
 
   const reason: FlumeResult["reason"] =
-    rasioHL < FLUME_HL_MIN
-      ? "HL-kecil"
-      : rasioHL > FLUME_HL_MAX
-        ? "HL-besar"
-        : "";
+    Fr1 > FLUME_FR_MAX
+      ? "Fr-besar"
+      : rasioHL < FLUME_HL_MIN
+        ? "HL-kecil"
+        : rasioHL > FLUME_HL_MAX
+          ? "HL-besar"
+          : "";
 
   return {
     Q,
     H1,
     yc: (2 / 3) * H1,
-    Cv: h1 > 0 ? Math.pow(H1 / h1, 1.5) : 1,
-    Fr1: froude(V1, h1 + p),
+    Cv: Math.pow(H1 / h1, 1.5),
+    Fr1,
     // Flum berhenti bekerja bebas bila muka air hilir naik melewati kira-kira
     // tiga perempat tinggi energi di atas mercu.
     tailLimit: p + 0.75 * H1,
+    controlled: true,
     outOfRange: reason !== "",
     reason,
   };
@@ -1854,7 +2140,26 @@ export type TracerResult = {
   tTravel: number;
   /** Lama awan tracer lewat, dihitung pada satu persen puncak */
   duration: number;
+  /**
+   * Bilangan Peclet, u L dibagi D. Menyatakan seberapa jauh angkutan arus
+   * menguasai penyebaran. Penyelesaian satu dimensi yang dipakai di sini
+   * hanya berlaku bila angkanya besar.
+   */
+  peclet: number;
+  /** Benar bila penyebaran menguasai dan penyelesaian ini tidak berlaku */
+  dispersionDominated: boolean;
 };
+
+/**
+ * Bilangan Peclet terkecil yang masih membuat penyelesaian satu dimensi ini
+ * sahih. Di bawah nilai ini awan tracer menyebar lebih cepat daripada ia
+ * terbawa, sebagian massanya menjalar ke hulu titik suntik, dan luas kurva
+ * di penampang ukur tidak lagi sama dengan massa dibagi debit. Diperiksa
+ * dengan menghitung debit balik dari luas kurva pada 243 keadaan: di atas
+ * sepuluh selisihnya tidak pernah melebihi 0,15 persen, di bawah satu ia
+ * mencapai ratusan persen.
+ */
+export const TRACER_PECLET_MIN = 10;
 
 /**
  * Awan tracer yang lewat di penampang ukur setelah penyuntikan sesaat.
@@ -1884,10 +2189,17 @@ export function tracerCurve(
   const u = A > 0 ? Q / A : 0;
   const tTravel = u > 0 ? L / u : 0;
 
-  // Rentang waktu dipilih dari lebar awannya sendiri, bukan dipatok, supaya
-  // seluruh kurva selalu masuk berapa pun sebarannya.
+  /*
+   * Rentang waktu dipilih dari lebar awannya sendiri, bukan dipatok, supaya
+   * seluruh kurva selalu masuk berapa pun sebarannya.
+   *
+   * Batas bawahnya diambil sebagai pecahan dari waktu tempuh, bukan angka
+   * tetap sepersepuluh detik. Pada sungai kecil yang cepat, waktu tempuhnya
+   * sendiri sepersepuluh detik, dan batas tetap itu memotong separuh kurva
+   * lalu melaporkan debit yang meleset delapan puluh persen.
+   */
   const sigma = Math.sqrt((2 * D * tTravel) / Math.max(u * u, 1e-9));
-  const t0 = Math.max(0.1, tTravel - 5 * sigma);
+  const t0 = Math.max(tTravel * 1e-6, tTravel - 6 * sigma);
   const t1 = tTravel + 6 * sigma;
   const dt = (t1 - t0) / steps;
 
@@ -1926,6 +2238,8 @@ export function tracerCurve(
     Qgulp: area > 0 ? (M * 1e6) / area / 1000 : 0,
     tTravel,
     duration: mulai && habis ? habis.t - mulai.t : 0,
+    peclet: D > 0 ? (u * L) / D : Number.POSITIVE_INFINITY,
+    dispersionDominated: D > 0 && (u * L) / D < TRACER_PECLET_MIN,
   };
 }
 

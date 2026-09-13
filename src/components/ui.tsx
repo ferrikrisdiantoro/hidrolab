@@ -52,9 +52,9 @@ export function Sheet({
             </span>
           </div>
 
-          {cells.map((c) => (
+          {cells.map((c, i) => (
             <div
-              key={c.label}
+              key={i}
               className="flex min-w-[104px] flex-col justify-center border-r border-rule px-3.5 py-2.5"
             >
               <span className="stencil">{c.label}</span>
@@ -193,8 +193,8 @@ export function ResultTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
-          <tr key={r.label}>
+        {rows.map((r, i) => (
+          <tr key={i}>
             <td
               className="value font-semibold"
               style={{ color: r.tint ?? "var(--color-ink-3)" }}
@@ -312,9 +312,9 @@ export function PresetRow({
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
       <span className="stencil">{label}</span>
-      {presets.map((p) => (
+      {presets.map((p, i) => (
         <button
-          key={p.label}
+          key={i}
           onClick={p.apply}
           className="label border-b border-rule-strong pb-px text-[0.8rem] text-ink-2 transition-colors hover:border-ink hover:text-ink"
         >

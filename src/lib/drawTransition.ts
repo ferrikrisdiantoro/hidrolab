@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -12,7 +12,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { criticalDepth, specificEnergy, type TransitionResult } from "./hydraulics";
+import { criticalDepth, specificEnergy, type TransitionResult, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -111,7 +111,7 @@ function drawLongitudinal(
   for (let v = 0; v <= zTop + 1e-9; v += zStep) hs.push(Z(v));
   ruling(ctx, ox + padL, oy + padT, ox + padL + plotW, baseY, { horizontal: hs });
   for (let v = 0; v <= zTop + 1e-9; v += zStep)
-    axisValue(ctx, v.toFixed(1), ox + padL - 8, Z(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 1), ox + padL - 8, Z(v), "right", "middle");
   axisTitle(ctx, T.elevation, ox + 16, oy + padT + plotH / 2, -Math.PI / 2);
 
   /* badan air */
@@ -146,7 +146,22 @@ function drawLongitudinal(
   curveLabel(ctx, T.energyLine, X(0.02), Z(r.E1) - 9, C.energy);
 
   /* muka air */
-  pen(ctx, W.bold, r.choked ? C.signal : C.water);
+  /*
+   * Saat aliran tersendat, muka airnya digambar titik rapat dan tipis.
+   *
+   * Peralihan tidak sanggup melewatkan debit ini pada kedalaman hulu yang
+   * diminta, sehingga muka air hulu sesungguhnya akan naik sampai ia sanggup.
+   * Kedalaman yang tergambar karena itu bukan kedalaman yang akan terjadi,
+   * melainkan kedalaman yang diminta, dan gambar harus mengaku demikian.
+   * Tabel hasil sudah menolak memberi angka y₂; garis tebal menerus akan
+   * bertentangan dengan penolakan itu.
+   */
+  pen(
+    ctx,
+    r.choked ? W.thin : W.bold,
+    r.choked ? C.signal : C.water,
+    r.choked ? DASH.invalid : DASH.solid
+  );
   ctx.beginPath();
   for (let i = 0; i <= N; i++) {
     const f = i / N;
@@ -154,6 +169,7 @@ function drawLongitudinal(
     i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
   }
   ctx.stroke();
+  ctx.setLineDash([]);
 
   /* kedalaman kritis di penampang hilir */
   pen(ctx, W.thin, C.critical, DASH.axis);
@@ -162,7 +178,7 @@ function drawLongitudinal(
   ctx.lineTo(X(1), Z(dz + r.yc2));
   ctx.stroke();
   ctx.setLineDash([]);
-  curveLabel(ctx, `yc ${r.yc2.toFixed(2)} m`, X(1) - 4, Z(dz + r.yc2) - 10, C.critical, "right");
+  curveLabel(ctx, `yc ${fmtPlain(r.yc2, 2)} m`, X(1) - 4, Z(dz + r.yc2) - 10, C.critical, "right");
 
   /* dasar saluran */
   const bedPts: [number, number][] = [];
@@ -188,16 +204,16 @@ function drawLongitudinal(
 
   /* dimensi kenaikan dasar */
   if (Math.abs(dz) > zTop * 0.02) {
-    dimV(ctx, X(xb) + 14, Z(dz), Z(0), `Δz ${dz.toFixed(3)} m`, C.ink2);
+    dimV(ctx, X(xb) + 14, Z(dz), Z(0), `Δz ${fmtPlain(dz, 3)} m`, C.ink2);
   }
-  dimV(ctx, X(xa * 0.45), Z(y1), Z(0), `y₁ ${y1.toFixed(3)} m`, C.water);
+  dimV(ctx, X(xa * 0.45), Z(y1), Z(0), `y₁ ${fmtPlain(y1, 3)} m`, C.water);
   if (!r.choked) {
     dimV(
       ctx,
       X(0.78),
       Z(dz + r.y2),
       Z(dz),
-      `y₂ ${r.y2.toFixed(3)} m`,
+      `y₂ ${fmtPlain(r.y2, 3)} m`,
       C.water
     );
   }
@@ -294,8 +310,8 @@ function drawPlan(
   ctx.setLineDash([]);
 
   /* dimensi lebar */
-  dimV(ctx, X(xa * 0.45), cy - half(s.b1), cy + half(s.b1), `b₁ ${s.b1.toFixed(2)} m`, C.ink2);
-  dimV(ctx, X(0.78), cy - half(s.b2), cy + half(s.b2), `b₂ ${s.b2.toFixed(2)} m`, C.ink2);
+  dimV(ctx, X(xa * 0.45), cy - half(s.b1), cy + half(s.b1), `b₁ ${fmtPlain(s.b1, 2)} m`, C.ink2);
+  dimV(ctx, X(0.78), cy - half(s.b2), cy + half(s.b2), `b₂ ${fmtPlain(s.b2, 2)} m`, C.ink2);
 }
 
 /* ------------------------------------------------------------------ *
@@ -335,9 +351,9 @@ function drawEnergyCurve(
     horizontal: hs,
   });
   for (let v = 0; v <= eMax + 1e-9; v += es)
-    axisValue(ctx, v.toFixed(1), X(v), baseY + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 1), X(v), baseY + 9, "center", "top");
   for (let v = 0; v <= yMax + 1e-9; v += ys)
-    axisValue(ctx, v.toFixed(1), ox + padL - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 1), ox + padL - 8, Y(v), "right", "middle");
 
   /* asimtot E = y */
   const lim = Math.min(yMax, eMax);
@@ -379,11 +395,27 @@ function drawEnergyCurve(
   }
 
   /* garis energi tersedia */
-  for (const [E, warna, label] of [
+  /*
+   * Kedua label ditulis pada satu baris bila kedua energinya berjauhan, dan
+   * bertingkat bila berdekatan.
+   *
+   * Selisih E₁ dan E₂ adalah kenaikan dasar, yang boleh sekecil apa pun.
+   * Menulis keduanya pada baris yang sama membuatnya bertumpuk dan terbaca
+   * sebagai satu kata yang tidak berarti, tepat pada keadaan yang paling sering
+   * dipakai, yaitu kenaikan dasar kecil.
+   */
+  const garisEnergi: [number, string, string][] = [
     [r.E1, C.energy, "E₁"],
     [r.E2, r.choked ? C.signal : C.energy, "E₂"],
-  ] as [number, string, string][]) {
-    if (E <= 0 || E > eMax) continue;
+  ];
+
+  ctx.font = F.labelSm;
+  const rapat =
+    Math.abs(X(r.E1) - X(r.E2)) <
+    stencilWidth(ctx, "E₁", 0.8) + stencilWidth(ctx, "E₂", 0.8) + 6;
+
+  garisEnergi.forEach(([E, warna, label], i) => {
+    if (E <= 0 || E > eMax) return;
     pen(ctx, W.thin, warna, DASH.axis);
     ctx.beginPath();
     ctx.moveTo(X(E), padT);
@@ -394,8 +426,8 @@ function drawEnergyCurve(
     ctx.font = F.labelSm;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    stencil(ctx, label, X(E), padT + 2);
-  }
+    stencil(ctx, label, X(E), padT + 2 + (rapat && i === 1 ? 11 : 0));
+  });
 
   /* titik operasi */
   const titik = (E: number, y: number, warna: string, isi: boolean) => {

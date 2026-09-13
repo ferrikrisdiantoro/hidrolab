@@ -14,7 +14,7 @@ import {
   ruling,
   type PipeWall,
 } from "./plate";
-import { powerLawVelocity } from "./hydraulics";
+import { powerLawVelocity, fmtPlain} from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -60,7 +60,9 @@ export function drawPitot(
 
   const padT = 26;
   const padB = 52;
-  const padKiri = 40;
+  // Cukup untuk angka sumbu tiga desimal DAN judul sumbu di sebelah kirinya;
+  // pada 40 piksel judulnya menimpa angka.
+  const padKiri = 58;
   const padKanan = 26;
   const sela = 54;
 
@@ -98,9 +100,9 @@ export function drawPitot(
 
   const digits = rStep < 0.1 ? 3 : rStep < 1 ? 2 : 1;
   for (let v = -rMax; v <= rMax + 1e-9; v += rStep)
-    axisValue(ctx, Math.abs(v).toFixed(digits), pipaX0 - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(Math.abs(v), digits), pipaX0 - 8, Y(v), "right", "middle");
   for (let v = 0; v <= uTop + 1e-9; v += uStep)
-    axisValue(ctx, v.toFixed(1), XU(v), padT + plotH + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 1), XU(v), padT + plotH + 9, "center", "top");
 
   axisTitle(ctx, T.axVelocity, kurvaX0 + kurvaW / 2, padT + plotH + 34);
   axisTitle(ctx, T.axRadius, 14, padT + plotH / 2, -Math.PI / 2);
@@ -148,12 +150,15 @@ export function drawPitot(
   ctx.arc(X(xProbe) - 16, Y(s.rProbe), 2.8, 0, Math.PI * 2);
   ctx.fill();
 
+  // Penunjuk mengarah menjauhi dinding terdekat, supaya tulisannya tidak
+  // jatuh di dalam arsiran dinding saat tabung didekatkan ke sana.
+  const arahPenunjuk = s.rProbe > 0.4 * R ? 1 : -1;
   leader(
     ctx,
     X(xProbe) - 16,
     Y(s.rProbe),
     X(xProbe) - 52,
-    Y(s.rProbe) - 22,
+    Y(s.rProbe) + arahPenunjuk * 22,
     T.stagnation,
     C.signal
   );
@@ -167,7 +172,7 @@ export function drawPitot(
     C.ink2
   );
 
-  dimV(ctx, X(Lpipa * 0.1), Y(R), Y(-R), `D ${(s.D * 1000).toFixed(0)} mm`, C.ink);
+  dimV(ctx, X(Lpipa * 0.1), Y(R), Y(-R), `D ${fmtPlain((s.D * 1000), 0)} mm`, C.ink);
 
   pen(ctx, W.thin, C.ink);
   ctx.strokeRect(
@@ -204,7 +209,17 @@ export function drawPitot(
   ctx.lineTo(XU(s.uMean), Y(-R));
   ctx.stroke();
   ctx.setLineDash([]);
-  curveLabel(ctx, `${T.meanVelocity} ${s.uMean.toFixed(3)}`, XU(s.uMean) + 4, Y(R) + 12, C.energy);
+  // Di sisi bawah panel dan rata kanan terhadap garisnya: di sisi atas ia
+  // bertumpuk dengan label jari-jari acuan, dan rata kiri ia keluar bingkai
+  // bila kecepatan rata-ratanya dekat tepi kanan.
+  curveLabel(
+    ctx,
+    `${T.meanVelocity} ${fmtPlain(s.uMean, 3)}`,
+    XU(s.uMean) - 4,
+    Y(-R) - 8,
+    C.energy,
+    "right"
+  );
 
   pen(ctx, W.thin, C.critical, DASH.axis);
   for (const r of [s.rMean, -s.rMean]) {
@@ -216,7 +231,7 @@ export function drawPitot(
   ctx.setLineDash([]);
   curveLabel(
     ctx,
-    `r = ${(s.rMean / R).toFixed(3)} R`,
+    `r = ${fmtPlain((s.rMean / R), 3)} R`,
     kurvaX0 + kurvaW - 4,
     Y(s.rMean) - 9,
     C.critical,
@@ -234,11 +249,14 @@ export function drawPitot(
   ctx.beginPath();
   ctx.arc(XU(s.uProbe), Y(s.rProbe), 3, 0, Math.PI * 2);
   ctx.fill();
+  // Di dekat dinding bawah, label bacaan turun ke bawah titiknya: di atas
+  // titik ia bertumpuk dengan label kecepatan rata-rata yang duduk di sisi
+  // bawah panel.
   curveLabel(
     ctx,
-    `${s.uProbe.toFixed(3)} m/s`,
+    `${fmtPlain(s.uProbe, 3)} m/s`,
     XU(s.uProbe) + 6,
-    Y(s.rProbe) - 10,
+    Y(s.rProbe) + (s.rProbe < -0.6 * R ? 16 : -10),
     C.signal
   );
 

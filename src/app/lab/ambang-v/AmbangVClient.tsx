@@ -15,7 +15,7 @@ import {
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawNotch } from "@/lib/drawNotch";
-import { NOTCH_H_MIN, fmt, notchDischarge } from "@/lib/hydraulics";
+import { NOTCH_H_MAX, NOTCH_H_MIN, fmt, notchDischarge, type NotchOutOfRange } from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -32,14 +32,17 @@ const TXT = {
     p90: "90° (paling umum)",
     p60: "60°",
     p30: "30° (debit kecil)",
-    p120: "120° (debit besar)",
+    p120: "100° (debit besar)",
     rQ: "Debit",
-    rQls: "Debit",
+    rQls: "Debit dalam liter per detik",
     rCe: "Koefisien debit efektif",
     rHe: "Tinggi efektif",
     rRatio: "Kepekaan dQ/Q per 1 mm",
     inRange: "Dalam rentang",
     outRange: "Di luar rentang",
+    outLow: "Tinggi di bawah 5 cm",
+    outHigh: "Tinggi di atas 38 cm",
+    outAngle: "Sudut di luar 20° sampai 100°",
     note: "Rumus ambang V berdinding tipis berlaku untuk kontraksi penuh, yaitu bila jarak takik ke dasar dan ke dinding saluran cukup besar sehingga aliran mendekat tidak terganggu. Tinggi efektif memakai tambahan kh sebesar 0,85 mm yang memperhitungkan tegangan permukaan dan kekentalan; koreksi kecil ini nyaris tidak berpengaruh pada tinggi muka air besar, tetapi menjadi penting pada tinggi kecil. Di bawah sekitar 5 cm, tegangan permukaan mulai menguasai dan rumus pangkat lima per dua berhenti berlaku — daerah itu digambar dengan garis titik rapat, bukan disembunyikan.",
   },
   en: {
@@ -50,14 +53,17 @@ const TXT = {
     p90: "90° (most common)",
     p60: "60°",
     p30: "30° (small flows)",
-    p120: "120° (large flows)",
+    p120: "100° (large flows)",
     rQ: "Discharge",
-    rQls: "Discharge",
+    rQls: "Discharge in litres per second",
     rCe: "Effective discharge coefficient",
     rHe: "Effective head",
     rRatio: "Sensitivity dQ/Q per 1 mm",
     inRange: "Within range",
-    outRange: "Below valid range",
+    outRange: "Outside valid range",
+    outLow: "Head below 5 cm",
+    outHigh: "Head above 38 cm",
+    outAngle: "Angle outside 20° to 100°",
     note: "The thin-plate V-notch formula applies to fully contracted conditions, that is when the notch sits far enough from the channel bed and walls for the approach flow to be undisturbed. The effective head includes a correction kh of 0.85 mm accounting for surface tension and viscosity; this small correction barely matters at large heads but becomes significant at small ones. Below about 5 cm, surface tension begins to dominate and the five-halves power law stops holding — that region is drawn with fine dots rather than hidden.",
   },
 } as const;
@@ -85,14 +91,16 @@ export function AmbangVClient() {
   const [H, setH] = useState(0.2);
   const [theta, setTheta] = useState(90);
 
-  const { Q, Ce, he, outOfRange } = notchDischarge(H, theta);
+  const { Q, Ce, he, outOfRange, reason } = notchDischarge(H, theta);
+  const sebutan =
+    reason === "tinggi-rendah" ? x.outLow : reason === "tinggi-tinggi" ? x.outHigh : reason === "sudut" ? x.outAngle : x.inRange;
 
   // Kepekaan: seberapa besar galat debit akibat salah baca 1 mm.
   const dQ = notchDischarge(H + 0.001, theta).Q - Q;
   const sensitivity = Q > 0 ? (dQ / Q) * 100 : 0;
 
   const ref = useCanvas(
-    (ctx, w, h) => drawNotch(ctx, w, h, { H, theta, Q, outOfRange }, lang),
+    (ctx, w, h) => drawNotch(ctx, w, h, { H, theta, Q, outOfRange, angleOutOfRange: reason === "sudut" }, lang),
     [H, theta, lang]
   );
 
@@ -127,7 +135,7 @@ export function AmbangVClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "θ", value: `${theta.toFixed(0)}°`, tint: C.critical },
+            { label: "θ", value: `${fmt(theta, 0)}°`, tint: C.critical },
             { label: "H", value: `${fmt(H, 3)} m`, tint: outOfRange ? C.signal : C.water },
             { label: "Ce", value: fmt(Ce, 4) },
             { label: "Q", value: `${fmt(Q, 4)} m³/s` },
@@ -151,7 +159,7 @@ export function AmbangVClient() {
                   { label: x.p90, apply: () => setTheta(90) },
                   { label: x.p60, apply: () => setTheta(60) },
                   { label: x.p30, apply: () => setTheta(30) },
-                  { label: x.p120, apply: () => setTheta(120) },
+                  { label: x.p120, apply: () => setTheta(100) },
                 ]}
               />
             </div>
@@ -159,9 +167,7 @@ export function AmbangVClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5">
-              <Flag alert={outOfRange}>
-                {outOfRange ? x.outRange : x.inRange}
-              </Flag>
+              <Flag alert={outOfRange}>{sebutan}</Flag>
             </div>
             <ResultTable
               rows={[
@@ -175,7 +181,7 @@ export function AmbangVClient() {
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(H, theta, sensitivity, outOfRange, lang)}</Note>
+            <Note>{notice(H, theta, sensitivity, reason, lang)}</Note>
           </Block>
         </>
       }
@@ -209,15 +215,20 @@ function notice(
   H: number,
   theta: number,
   sensitivity: number,
-  outOfRange: boolean,
+  reason: NotchOutOfRange,
   lang: Lang
 ): string {
-  const s = sensitivity.toFixed(2);
-  const mm = (H * 1000).toFixed(0);
+  const s = fmt(sensitivity, 2);
+  const mm = fmt((H * 1000), 0);
+  const outOfRange = reason === "tinggi-rendah";
 
   if (lang === "en") {
+    if (reason === "tinggi-tinggi")
+      return `The head is ${mm} mm, above the ${fmt(NOTCH_H_MAX * 1000, 0)} mm limit of the calibration behind the formula. Nothing dramatic happens to the physics up there, but no published measurement backs the number, so the curve is drawn dotted and the value should be checked against a rating obtained on site.`;
+    if (reason === "sudut")
+      return `The notch angle is ${fmt(theta, 0)}°, outside the 20° to 100° range for which the coefficient Ce has been published. The coefficient shown is an extrapolation of the curve, so the whole rating curve is drawn dotted: the discharge is indicative only.`;
     if (outOfRange)
-      return `The head is only ${mm} mm, below the ${(NOTCH_H_MIN * 1000).toFixed(0)} mm limit of the formula. Surface tension now holds the nappe against the plate and the discharge no longer follows the five-halves power law. The rating curve is drawn dotted here for exactly that reason — the number is still shown, but it should not be trusted.`;
+      return `The head is only ${mm} mm, below the ${fmt((NOTCH_H_MIN * 1000), 0)} mm limit of the formula. Surface tension now holds the nappe against the plate and the discharge no longer follows the five-halves power law. The rating curve is drawn dotted here for exactly that reason — the number is still shown, but it should not be trusted.`;
     if (H < 0.1)
       return `A misreading of just 1 mm changes the discharge by ${s} per cent. At low heads a V-notch is very sensitive, which is its strength for measuring small flows and at the same time the reason the gauge must be read carefully and set truly level.`;
     if (theta > 100)
@@ -225,8 +236,12 @@ function notice(
     return `At this head a 1 mm reading error costs ${s} per cent in discharge. Note how steeply the rating curve rises: because discharge follows the five-halves power of head, doubling the head multiplies the flow by about 5.7 times.`;
   }
 
+  if (reason === "tinggi-tinggi")
+    return `Tinggi muka airnya ${mm} mm, di atas batas ${fmt(NOTCH_H_MAX * 1000, 0)} mm dari kalibrasi yang mendasari rumus. Fisikanya tidak berubah drastis di sana, tetapi tidak ada pengukuran terbitan yang mendukung angkanya, jadi kurvanya digambar titik rapat dan nilainya perlu dicocokkan dengan lengkung debit yang diukur di lapangan.`;
+  if (reason === "sudut")
+    return `Sudut takiknya ${fmt(theta, 0)}°, di luar rentang 20° sampai 100° tempat koefisien Ce diterbitkan. Koefisien yang tampil adalah ekstrapolasi kurvanya, jadi seluruh kurva debit digambar titik rapat: debitnya hanya indikatif.`;
   if (outOfRange)
-    return `Tinggi muka airnya hanya ${mm} mm, di bawah batas ${(NOTCH_H_MIN * 1000).toFixed(0)} mm yang menjadi rentang keberlakuan rumus. Pada tinggi sekecil ini tegangan permukaan menahan tirai air menempel pada pelat, dan debitnya tidak lagi mengikuti pangkat lima per dua. Kurva debit di daerah itu digambar titik rapat justru karena itu — angkanya tetap ditampilkan, tetapi tidak boleh dipercaya.`;
+    return `Tinggi muka airnya hanya ${mm} mm, di bawah batas ${fmt((NOTCH_H_MIN * 1000), 0)} mm yang menjadi rentang keberlakuan rumus. Pada tinggi sekecil ini tegangan permukaan menahan tirai air menempel pada pelat, dan debitnya tidak lagi mengikuti pangkat lima per dua. Kurva debit di daerah itu digambar titik rapat justru karena itu — angkanya tetap ditampilkan, tetapi tidak boleh dipercaya.`;
   if (H < 0.1)
     return `Salah baca 1 mm saja sudah mengubah debit sebesar ${s} persen. Pada tinggi muka air rendah ambang V sangat peka, dan itu sekaligus kekuatannya untuk mengukur debit kecil serta alasan mengapa alat ukurnya harus dibaca teliti dan dipasang benar-benar datar.`;
   if (theta > 100)

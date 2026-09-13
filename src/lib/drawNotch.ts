@@ -12,7 +12,7 @@ import {
   region,
   ruling,
 } from "./plate";
-import { NOTCH_H_MIN, notchDischarge } from "./hydraulics";
+import { NOTCH_H_MAX, NOTCH_H_MIN, notchDischarge, fmtPlain } from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
@@ -23,6 +23,8 @@ export type NotchState = {
   theta: number;
   Q: number;
   outOfRange: boolean;
+  /** Benar bila sudut takik di luar rentang kurva Ce; seluruh kurva debit lalu tidak dapat dipercaya */
+  angleOutOfRange: boolean;
 };
 
 /**
@@ -81,7 +83,10 @@ function drawFront(
   // Lebar takik pada tinggi H, dari geometri sudut.
   const half = Math.tan((s.theta * Math.PI) / 360);
   const hMaxDraw = 0.45;
-  const scale = Math.min(plotH / hMaxDraw, (w * 0.36) / (half * hMaxDraw));
+  // Dua belas piksel disisihkan supaya ujung atas pelat, yang digambar 16
+  // piksel di atas takik, tidak naik sampai menimpa judul panel pada takik
+  // sempit, tempat skalanya diatur oleh tinggi dan bukan lebar.
+  const scale = Math.min((plotH - 12) / hMaxDraw, (w * 0.36) / (half * hMaxDraw));
 
   const topH = hMaxDraw;
   const topHalfPx = half * topH * scale;
@@ -156,7 +161,7 @@ function drawFront(
     cx - topHalfPx - 22,
     wl,
     apexY,
-    `H ${s.H.toFixed(3)} m`,
+    `H ${fmtPlain(s.H, 3)} m`,
     s.outOfRange ? C.signal : C.water
   );
 
@@ -172,7 +177,7 @@ function drawFront(
   ctx.font = F.label;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  stencil(ctx, `θ ${s.theta.toFixed(0)}°`, cx, apexY - rArc - 6);
+  stencil(ctx, `θ ${fmtPlain(s.theta, 0)}°`, cx, apexY - rArc - 6);
 
   // Garis sumbu simetri
   pen(ctx, W.hair, C.ink3, DASH.axis);
@@ -220,37 +225,42 @@ function drawRating(
   });
 
   for (let v = 0; v <= hMax + 1e-9; v += hStep)
-    axisValue(ctx, v.toFixed(2), ox + padL - 8, Y(v), "right", "middle");
+    axisValue(ctx, fmtPlain(v, 2), ox + padL - 8, Y(v), "right", "middle");
   for (let v = 0; v <= qMax + 1e-9; v += qStep)
-    axisValue(ctx, v.toFixed(3), X(v), padT + plotH + 9, "center", "top");
+    axisValue(ctx, fmtPlain(v, 3), X(v), padT + plotH + 9, "center", "top");
 
   region(ctx, T.ratingCurve, ox + padL + plotW / 2, padT - 14, C.ink3);
 
-  // Daerah di bawah batas keberlakuan
-  const yLimit = Y(NOTCH_H_MIN);
+  // Daerah di luar batas keberlakuan, di bawah 5 cm dan di atas 38 cm.
+  // Keduanya diarsir dan diberi nama; batasnya digambar sebagai garis.
+  const yBawah = Y(NOTCH_H_MIN);
+  const yAtas = Y(NOTCH_H_MAX);
   ctx.fillStyle = C.paperSunk;
   ctx.globalAlpha = 0.7;
-  ctx.fillRect(ox + padL, yLimit, plotW, padT + plotH - yLimit);
+  ctx.fillRect(ox + padL, yBawah, plotW, padT + plotH - yBawah);
+  ctx.fillRect(ox + padL, padT, plotW, yAtas - padT);
   ctx.globalAlpha = 1;
   pen(ctx, W.hair, C.ruleStrong, DASH.axis);
-  ctx.beginPath();
-  ctx.moveTo(ox + padL, Math.round(yLimit) + 0.5);
-  ctx.lineTo(ox + padL + plotW, Math.round(yLimit) + 0.5);
-  ctx.stroke();
+  for (const yy of [yBawah, yAtas]) {
+    ctx.beginPath();
+    ctx.moveTo(ox + padL, Math.round(yy) + 0.5);
+    ctx.lineTo(ox + padL + plotW, Math.round(yy) + 0.5);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
-  region(
-    ctx,
-    T.belowRange,
-    ox + padL + plotW / 2,
-    (yLimit + padT + plotH) / 2,
-    C.ink3
-  );
+  region(ctx, T.belowRange, ox + padL + plotW / 2, (yBawah + padT + plotH) / 2, C.ink3);
+  region(ctx, T.belowRange, ox + padL + plotW / 2, (yAtas + padT) / 2, C.ink3);
 
-  // Kurva: menerus di dalam rentang, titik rapat di luar rentang
-  for (const seg of [
-    { from: NOTCH_H_MIN, to: hMax, dash: DASH.solid, wgt: W.bold },
-    { from: 0.002, to: NOTCH_H_MIN, dash: DASH.invalid, wgt: W.thin },
-  ]) {
+  // Kurva: menerus di dalam rentang, titik rapat di luar rentang. Bila
+  // sudutnya di luar rentang kurva Ce, seluruh kurvanya titik rapat.
+  const segmen = s.angleOutOfRange
+    ? [{ from: 0.002, to: hMax, dash: DASH.invalid, wgt: W.thin }]
+    : [
+        { from: NOTCH_H_MIN, to: NOTCH_H_MAX, dash: DASH.solid, wgt: W.bold },
+        { from: 0.002, to: NOTCH_H_MIN, dash: DASH.invalid, wgt: W.thin },
+        { from: NOTCH_H_MAX, to: hMax, dash: DASH.invalid, wgt: W.thin },
+      ];
+  for (const seg of segmen) {
     pen(ctx, seg.wgt, C.water, seg.dash);
     ctx.beginPath();
     const n = 120;
@@ -288,7 +298,7 @@ function drawRating(
     ctx.fill();
     ctx.stroke();
 
-    curveLabel(ctx, `Q ${s.Q.toFixed(4)}`, px + 10, py - 10, tint);
+    curveLabel(ctx, `Q ${fmtPlain(s.Q, 4)}`, px + 10, py - 10, tint);
   }
 
   pen(ctx, W.thin, C.ink);
