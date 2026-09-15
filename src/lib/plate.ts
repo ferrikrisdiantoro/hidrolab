@@ -317,6 +317,114 @@ export function hatchConcrete(
   ctx.restore();
 }
 
+/**
+ * Arsiran tanah berbutir: titik-titik yang letaknya ditentukan, bukan acak.
+ *
+ * Konvensi gambar teknik geoteknik memakai titik untuk pasir dan kerikil.
+ * Letaknya diayak dari satu deret bilangan tetap dan bukan dari Math.random,
+ * karena arsiran yang berubah tiap kali digambar ulang membuat mata mengira
+ * ada yang berubah pada keadaannya padahal tidak ada.
+ */
+export function hatchSoil(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  spacing = 9
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  ctx.fillStyle = C.concrete;
+  ctx.globalAlpha = 0.34;
+  let n = 0;
+  for (let yy = y; yy <= y + h; yy += spacing) {
+    for (let xx = x; xx <= x + w; xx += spacing) {
+      /* Geseran berselang-seling supaya titiknya tidak membentuk kisi
+         tegak lurus yang terbaca sebagai garis. */
+      const gx = ((n * 7) % 5) - 2;
+      const gy = ((n * 3) % 5) - 2;
+      ctx.beginPath();
+      ctx.arc(Math.round(xx + gx) + 0.5, Math.round(yy + gy) + 0.5, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      n++;
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/**
+ * Arsiran urugan batu: bulatan bergaris tengah tetap, bukan titik.
+ *
+ * Bedanya dengan arsiran tanah bukan hiasan. Pada lembar urugan batu yang
+ * dipersoalkan justru UKURAN butirannya, jadi butirannya digambar sebagai
+ * benda yang punya ukuran.
+ */
+export function hatchRock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  spacing = 12
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  pen(ctx, W.hair, C.concrete);
+  ctx.globalAlpha = 0.45;
+  let n = 0;
+  for (let yy = y; yy <= y + h; yy += spacing) {
+    for (let xx = x; xx <= x + w; xx += spacing) {
+      const gx = ((n * 5) % 7) - 3;
+      const gy = ((n * 11) % 7) - 3;
+      const r = 2.2 + ((n * 13) % 3) * 0.7;
+      ctx.beginPath();
+      ctx.arc(xx + gx, yy + gy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      n++;
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/**
+ * Lapisan kedap di bawah akuifer: garis tebal beserta arsiran rapat di
+ * bawahnya, tanda baku untuk batas yang tidak dapat ditembus air.
+ */
+export function imperviousBase(
+  ctx: CanvasRenderingContext2D,
+  x0: number,
+  x1: number,
+  y: number,
+  depth = 7
+) {
+  ctx.save();
+  pen(ctx, W.bold, C.ink);
+  ctx.beginPath();
+  ctx.moveTo(x0, Math.round(y) + 0.5);
+  ctx.lineTo(x1, Math.round(y) + 0.5);
+  ctx.stroke();
+
+  pen(ctx, W.hair, C.ink2);
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  for (let x = x0; x <= x1; x += 7) {
+    ctx.moveTo(x, y + 1);
+    ctx.lineTo(x - depth, y + depth);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
 /* ------------------------------------------------------------------ *
  * Label pada kurva
  *
@@ -499,4 +607,109 @@ export function clampLabelX(
   const separuh = stencilWidth(ctx, text, spacing) / 2 + 5;
   if (x1 - x0 < separuh * 2) return (x0 + x1) / 2;
   return Math.min(Math.max(x, x0 + separuh), x1 - separuh);
+}
+
+/* ------------------------------------------------------------------ *
+ * Penempat tulisan bersama
+ * ------------------------------------------------------------------ */
+
+export type Placed = {
+  x: number;
+  y: number;
+  x0: number;
+  x1: number;
+  atas: number;
+  bawah: number;
+};
+
+/**
+ * Membuat penempat tulisan untuk satu bidang gambar.
+ *
+ * Ini bagian yang paling mahal dipelajari pada pekan pertama, dan karena itu
+ * ia ditarik ke sini alih-alih disalin ke tiap penggambar keluarga. Tiga
+ * cacat yang pernah dibayar sekali dan tidak perlu dibayar lagi:
+ *
+ * 1. Satu daftar kotak terpakai untuk SELURUH tulisan di dalam bidang. Label
+ *    kurva, nama penampang, nama wilayah, dan tulisan titik kerja berebut
+ *    ruang yang sama; menahan tumpukan pada salah satunya saja memindahkan
+ *    cacatnya, bukan menghilangkannya.
+ * 2. Daftarnya menyimpan batas atas dan batas bawah, bukan satu ordinat.
+ *    Huruf lima belas piksel bergaris dasar bawah tidak dapat dibandingkan
+ *    dengan huruf sepuluh piksel bergaris dasar tengah memakai satu jarak
+ *    tetap; yang besar akan tetap menindih dari atas walau sudah digeser.
+ * 3. Tiap tulisan diberi alas kertas lewat `alas`, karena garis energi dan
+ *    muka air lewat di baris yang sama dan mencoret hurufnya. Kebiasaan
+ *    gambar teknik: tulisan memotong garis, bukan sebaliknya.
+ */
+export function createLabelPlacer(
+  ctx: CanvasRenderingContext2D,
+  frame: { padL: number; padT: number; plotW: number; plotH: number }
+) {
+  const { padL, padT, plotW, plotH } = frame;
+  const dipakai: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+
+  const place = (
+    teks: string,
+    x: number,
+    y: number,
+    spacing: number,
+    align: CanvasTextAlign = "center",
+    font?: string
+  ): Placed => {
+    ctx.font = font ?? (spacing > 1 ? F.region : F.labelSm);
+    const lebar = stencilWidth(ctx, teks, spacing) + 8;
+    const kiri = align === "left" ? 0 : align === "right" ? lebar : lebar / 2;
+    const xx = Math.min(Math.max(x, padL + kiri), padL + plotW - (lebar - kiri));
+    const x0 = xx - kiri;
+    const x1 = x0 + lebar;
+
+    const besar = (font ?? "").includes("15px");
+    const naik = besar ? 17 : 7;
+    const turun = besar ? 3 : 7;
+
+    let yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
+    let putar = 0;
+    while (
+      putar < 10 &&
+      dipakai.some(
+        (d) => x0 < d.x1 && x1 > d.x0 && yy - naik < d.bawah && yy + turun > d.atas
+      )
+    ) {
+      yy += 12;
+      putar++;
+    }
+    dipakai.push({ x0, x1, atas: yy - naik, bawah: yy + turun });
+    return { x: xx, y: yy, x0, x1, atas: yy - naik, bawah: yy + turun };
+  };
+
+  const alas = (pos: Placed) => {
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(pos.x0 + 3, pos.atas, pos.x1 - pos.x0 - 6, pos.bawah - pos.atas);
+  };
+
+  /** Menaruh tulisan sekaligus alasnya, lalu menggambarnya sebagai wilayah. */
+  const write = (
+    teks: string,
+    x: number,
+    y: number,
+    color: string,
+    opts: { spacing?: number; align?: CanvasTextAlign; big?: boolean } = {}
+  ) => {
+    const pos = opts.big
+      ? place(teks, x, y, 2, opts.align ?? "center", F.heading)
+      : place(teks, x, y, opts.spacing ?? 1.4, opts.align ?? "center");
+    alas(pos);
+    if (opts.big) {
+      ctx.fillStyle = color;
+      ctx.font = F.heading;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      stencil(ctx, teks, pos.x, pos.y, 2);
+    } else {
+      region(ctx, teks, pos.x, pos.y, color);
+    }
+    return pos;
+  };
+
+  return { place, alas, write };
 }
