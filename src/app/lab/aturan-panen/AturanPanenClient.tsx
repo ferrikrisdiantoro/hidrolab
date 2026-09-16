@@ -196,7 +196,7 @@ export function AturanPanenClient() {
           title={x.sheetTitle}
           rev="A"
           cells={[
-            { label: t.tbUnit, value: "SI (ton, th⁻¹)" },
+            { label: t.tbUnit, value: "SI (ton, y⁻¹)" },
             { label: "MSY", value: `${fmt(r.msy, 1)} t`, tint: C.critical },
             { label: "E", value: fmt(E, 1), tint: r.overfished ? C.signal : undefined },
             { label: "Y", value: `${fmt(r.currentYield, 1)} t`, tint: C.water },
@@ -210,7 +210,7 @@ export function AturanPanenClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit="th⁻¹" onChange={setR0} />
+              <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit="y⁻¹" onChange={setR0} />
               <InputRow symbol="K" label={x.dK} value={K} min={50} max={20000} step={50} digits={0} unit="ton" onChange={setK} />
               <InputRow symbol="q" label={x.dQ} value={q * 1000} min={1} max={50} step={0.5} digits={1} unit="×10⁻³" onChange={(v) => setQ(v / 1000)} />
               <InputRow symbol="E" label={x.dE} value={E} min={0} max={150} step={1} digits={0} onChange={setE} tint={C.signal} />
@@ -231,7 +231,7 @@ export function AturanPanenClient() {
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <Flag tint={r.overfished ? undefined : C.water} alert={r.overfished}>
-                {`${fmt(r.currentYield, 1)} t/${lang === "id" ? "th" : "y"}`}
+                {`${fmt(r.currentYield, 1)} t/y`}
               </Flag>
               {r.overfished && <Flag alert>{x.berlebih}</Flag>}
               {r.collapsed && <Flag alert>{x.runtuh}</Flag>}
@@ -248,8 +248,8 @@ export function AturanPanenClient() {
             )}
             <ResultTable
               rows={[
-                { symbol: "Y", label: x.rYield, value: fmt(r.currentYield, 2), unit: "ton/th", tint: C.water, strong: true },
-                { symbol: "MSY", label: x.rMsy, value: fmt(r.msy, 2), unit: "ton/th", tint: C.critical, strong: true },
+                { symbol: "Y", label: x.rYield, value: fmt(r.currentYield, 2), unit: "ton/y", tint: C.water, strong: true },
+                { symbol: "MSY", label: x.rMsy, value: fmt(r.msy, 2), unit: "ton/y", tint: C.critical, strong: true },
                 { symbol: "Emsy", label: x.rEmsy, value: fmt(r.effortAtMsy, 2) },
                 { symbol: "N", label: x.rStock, value: fmt(r.stock, 1), unit: "ton", tint: r.collapsed ? C.signal : undefined },
                 { symbol: "N/K", label: x.rStockPct, value: fmt((r.stock / K) * 100, 1), unit: "%" },

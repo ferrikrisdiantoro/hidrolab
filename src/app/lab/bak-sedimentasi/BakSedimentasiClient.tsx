@@ -225,7 +225,7 @@ export function BakSedimentasiClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "vo", value: `${fmt(voJam, 2)} m/jam`, tint: C.water },
+            { label: "vo", value: `${fmt(voJam, 2)} m/h`, tint: C.water },
             { label: "ws", value: `${fmtSci(r.ws)} m/s`, tint: C.critical },
             { label: "η", value: `${fmt(r.mixedEfficiency * 100, 1)} %`, tint: r.scouring ? C.signal : C.water },
             { label: "A", value: `${fmt(L * B, 0)} m²` },
@@ -275,10 +275,10 @@ export function BakSedimentasiClient() {
               rows={[
                 { symbol: "η", label: x.rEta, value: fmt(r.mixedEfficiency * 100, 2), unit: "%", tint: r.scouring ? C.signal : C.water, strong: true },
                 { symbol: "η₀", label: x.rEtaIdeal, value: fmt(r.idealEfficiency * 100, 2), unit: "%", tint: C.critical, strong: true },
-                { symbol: "vo", label: x.rVo, value: fmt(voJam, 3), unit: "m/jam" },
+                { symbol: "vo", label: x.rVo, value: fmt(voJam, 3), unit: "m/h" },
                 { symbol: "ws", label: x.rWs, value: fmtSci(r.ws), unit: "m/s", tint: C.critical },
                 { symbol: "ws/vo", label: x.rRatio, value: fmt(r.ratio, 4) },
-                { symbol: "tr", label: x.rTinggal, value: fmt(r.residence / 60, 1), unit: "menit", tint: C.energy },
+                { symbol: "tr", label: x.rTinggal, value: fmt(r.residence / 60, 1), unit: "min", tint: C.energy },
                 { symbol: "Lmin", label: x.rLmin, value: Number.isFinite(r.minLength) ? fmt(r.minLength, 2) : "—", unit: Number.isFinite(r.minLength) ? "m" : undefined },
                 { symbol: "Vh", label: x.rVmendatar, value: fmt(Vmendatar, 4), unit: "m/s", tint: r.scouring ? C.signal : undefined },
               ]}

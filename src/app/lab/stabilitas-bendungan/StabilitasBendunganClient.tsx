@@ -380,6 +380,7 @@ export function StabilitasBendunganClient() {
             <div className="mb-3">
               <PresetRow
                 label={x.mode}
+                active={upliftOn ? 0 : 1}
                 presets={[
                   { label: x.mAda, apply: () => setUpliftOn(true) },
                   { label: x.mTanpa, apply: () => setUpliftOn(false) },

@@ -338,7 +338,7 @@ export function RembesanClient() {
               rows={[
                 { symbol: "y₀", label: x.rY0, value: fmt(r.y0, 4), unit: "m", tint: C.critical, strong: true },
                 { symbol: "q", label: x.rQ, value: fmtSci(r.q), unit: "m³/s per m", strong: true },
-                { symbol: "q", label: x.rQday, value: fmt(r.qLitreDay, 0), unit: "l/hari per m" },
+                { symbol: "q", label: x.rQday, value: fmt(r.qLitreDay, 0), unit: "l/d per m" },
                 { symbol: "Ld", label: x.rNeeded, value: fmt(r.drainNeeded, 2), unit: "m", tint: Ld < r.drainNeeded ? C.signal : undefined },
                 { symbol: "d", label: x.rD, value: fmt(r.d, 2), unit: "m" },
                 { symbol: "ī", label: x.rIMean, value: fmt(r.iMean, 4) },

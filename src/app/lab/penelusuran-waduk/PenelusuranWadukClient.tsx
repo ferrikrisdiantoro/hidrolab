@@ -169,10 +169,21 @@ export function PenelusuranWadukClient() {
             x: r.points.reduce((m, p) => (p.outflow > m.outflow ? p : m), r.points[0])
               .t,
             y: r.outflowPeak,
-            label: `${fmtPlain(r.outflowPeak, 1)} m³/s`,
+            /* Dua desimal untuk puncak yang kecil, karena waduk besar dengan
+               pelimpah sempit meredam sampai puluhan liter per detik dan satu
+               desimal menuliskannya sebagai nol. */
+            label: `${fmtPlain(r.outflowPeak, r.outflowPeak < 1 ? 3 : 1)} m³/s`,
             invalid: r.overtops,
           },
-          heading: r.overtops ? T.pointOffChart : undefined,
+          /*
+           * Sebelumnya di sini tertulis T.pointOffChart, yaitu "titik operasi
+           * di luar diagram", padahal titiknya justru tergambar di dalam
+           * bidang. Yang terjadi bukan titik yang keluar bidang melainkan air
+           * yang melampaui puncak bendungan, dan gambar yang mengumumkan
+           * sebab yang salah lebih buruk daripada gambar yang diam.
+           */
+          heading: r.overtops ? x.limpas : undefined,
+          headingColor: C.signal,
         },
         lang
       );
@@ -229,7 +240,7 @@ export function PenelusuranWadukClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="Ip" label={x.dQp} value={Qp} min={5} max={2000} step={5} digits={0} unit="m³/s" onChange={setQp} tint={C.water} />
-              <InputRow symbol="tp" label={x.dTp} value={tPeak} min={0.5} max={36} step={0.5} digits={1} unit="jam" onChange={setTPeak} />
+              <InputRow symbol="tp" label={x.dTp} value={tPeak} min={0.5} max={36} step={0.5} digits={1} unit="h" onChange={setTPeak} />
               <InputRow symbol="As" label={x.dArea} value={areaHa} min={1} max={5000} step={1} digits={0} unit="ha" onChange={setAreaHa} tint={C.energy} />
               <InputRow symbol="b" label={x.dB} value={b} min={2} max={200} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} tint={C.signal} />
@@ -265,9 +276,9 @@ export function PenelusuranWadukClient() {
                 { symbol: "Omax", label: x.rOut, value: fmt(r.outflowPeak, 2), unit: "m³/s", tint: C.energy, strong: true },
                 { symbol: "—", label: x.rAtt, value: fmt(r.attenuation * 100, 2), unit: "%", strong: true },
                 { symbol: "Imax", label: x.rIn, value: fmt(r.inflowPeak, 2), unit: "m³/s", tint: C.water },
-                { symbol: "Δt", label: x.rLag, value: fmt(r.lag, 2), unit: "jam" },
+                { symbol: "Δt", label: x.rLag, value: fmt(r.lag, 2), unit: "h" },
                 { symbol: "hmax", label: x.rHmax, value: fmt(r.maxHead, 3), unit: "m", tint: r.overtops ? C.signal : undefined },
-                { symbol: "Smax", label: x.rSmax, value: fmt(r.maxStorage / 1e6, 3), unit: "juta m³", tint: C.water },
+                { symbol: "Smax", label: x.rSmax, value: fmt(r.maxStorage / 1e6, 3), unit: T.millionCubic, tint: C.water },
                 { symbol: "f′", label: x.rFb, value: fmt(sisaJagaan, 2), unit: "m", tint: r.overtops ? C.signal : undefined },
               ]}
             />

@@ -55,7 +55,6 @@ const TXT = {
     lKental: "Lapisan kental",
     lPenyangga: "Lapisan penyangga",
     lLog: "Lapisan logaritmik",
-    penyangga: "Di daerah penyangga",
     penyanggaNote:
       "Titik amatnya jatuh di antara y⁺ sama dengan lima dan tiga puluh. Di daerah ini hukum kental sudah tidak berlaku dan hukum logaritmik belum berlaku, dan tidak ada rumus sederhana yang menggantikan keduanya. Angka yang ditampilkan di tabel adalah nilai kedua hukum itu seandainya dipaksakan, bukan kecepatan yang sesungguhnya. Yang benar di daerah ini hanya hasil pengukuran atau penyelesaian numerik. Geser titik amatnya lebih dekat ke dinding atau lebih jauh darinya.",
     note:
@@ -80,7 +79,6 @@ const TXT = {
     lKental: "Viscous layer",
     lPenyangga: "Buffer layer",
     lLog: "Logarithmic layer",
-    penyangga: "In the buffer layer",
     penyanggaNote:
       "The observation point falls between y⁺ of five and thirty. Here the viscous law no longer holds and the logarithmic law does not hold yet, and no simple formula replaces either. The numbers in the table are what those two laws would give if forced, not the actual velocity. Only measurement or a numerical solution is correct in this region. Move the point closer to the wall or further from it.",
     note:
@@ -249,8 +247,23 @@ export function HukumDindingClient() {
               value: fmt(yPlus, 2),
               tint: diPenyangga ? C.signal : undefined,
             },
-            { label: "u⁺", value: fmt(uPlus, 2), tint: C.water },
-            { label: "u", value: `${fmt(u, 4)} m/s`, tint: C.water },
+            /*
+             * Di daerah penyangga kedua angka ini TIDAK ditampilkan, sama
+             * dengan tabel hasilnya. Kop yang menyebut kecepatan sementara
+             * tabelnya menolak menyebutnya adalah gambar yang membantah
+             * dirinya sendiri, dan itu cacat yang sudah dibayar tiga kali
+             * pada pekan pertama.
+             */
+            {
+              label: "u⁺",
+              value: diPenyangga ? "—" : fmt(uPlus, 2),
+              tint: diPenyangga ? C.signal : C.water,
+            },
+            {
+              label: "u",
+              value: diPenyangga ? "—" : `${fmt(u, 4)} m/s`,
+              tint: diPenyangga ? C.signal : C.water,
+            },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -282,7 +295,6 @@ export function HukumDindingClient() {
               <Flag tint={diPenyangga ? undefined : C.water} alert={diPenyangga}>
                 {lapisNama}
               </Flag>
-              {diPenyangga && <Flag alert>{x.penyangga}</Flag>}
             </div>
             {diPenyangga && (
               <div className="mb-2.5">

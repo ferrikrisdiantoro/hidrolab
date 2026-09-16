@@ -240,14 +240,25 @@ export function region(
   x: number,
   y: number,
   color: string = C.ink3,
-  rotate = 0
+  rotate = 0,
+  /**
+   * Perataan tulisannya terhadap titik yang diberikan.
+   *
+   * Dulu tetap rata tengah, sedangkan mesin penempat label menghitung kotak
+   * terpakainya menurut perataan yang diminta. Selisih keduanya setengah
+   * lebar tulisan, dan akibatnya tulisan rata kiri tergambar setengah lebar
+   * ke kiri dari kotak yang sudah disediakan untuknya. Pada lembar aturan
+   * panen, nama garis hasil lestari terbesar karena itu terpotong di tepi
+   * kiri bidang dan terbaca "IMUM SUSTAINABLE YIELD".
+   */
+  align: CanvasTextAlign = "center"
 ) {
   ctx.save();
   ctx.translate(x, y);
   if (rotate) ctx.rotate(rotate);
   ctx.fillStyle = color;
   ctx.font = F.region;
-  ctx.textAlign = "center";
+  ctx.textAlign = align;
   ctx.textBaseline = "middle";
   stencil(ctx, text, 0, 0, 1.4);
   ctx.restore();
@@ -699,14 +710,15 @@ export function createLabelPlacer(
       ? place(teks, x, y, 2, opts.align ?? "center", F.heading)
       : place(teks, x, y, opts.spacing ?? 1.4, opts.align ?? "center");
     alas(pos);
+    const rata = opts.align ?? "center";
     if (opts.big) {
       ctx.fillStyle = color;
       ctx.font = F.heading;
-      ctx.textAlign = "center";
+      ctx.textAlign = rata;
       ctx.textBaseline = "bottom";
       stencil(ctx, teks, pos.x, pos.y, 2);
     } else {
-      region(ctx, teks, pos.x, pos.y, color);
+      region(ctx, teks, pos.x, pos.y, color, 0, rata);
     }
     return pos;
   };

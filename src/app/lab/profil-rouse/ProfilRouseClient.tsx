@@ -53,6 +53,7 @@ const TXT = {
     rMode: "Cara angkut",
     rMid: "Kepekatan di setengah kedalaman",
     rBawah: "Bagian muatan di separuh bawah",
+    rA: "Tinggi acuan di atas dasar",
     rNu: "Kekentalan kinematik",
     mFull: "Melayang penuh",
     mPartial: "Melayang sebagian",
@@ -81,6 +82,7 @@ const TXT = {
     rMode: "Transport mode",
     rMid: "Concentration at mid depth",
     rBawah: "Share of the load in the lower half",
+    rA: "Reference height above the bed",
     rNu: "Kinematic viscosity",
     mFull: "Fully suspended",
     mPartial: "Partly suspended",
@@ -283,13 +285,27 @@ export function ProfilRouseClient() {
                 { symbol: "—", label: x.rMode, value: modeNama },
                 { symbol: "c½/ca", label: x.rMid, value: fmt(r.midRatio, 5) },
                 { symbol: "—", label: x.rBawah, value: fmt(r.lowerHalf * 100, 1), unit: "%" },
+                /*
+                 * Satu-satunya besaran di lembar ini yang bergantung pada
+                 * kedalaman. Tanpa baris ini, menggeser kedalaman dari
+                 * sepersepuluh meter ke dua puluh meter tidak mengubah apa
+                 * pun selain angka di kop, dan pembaca berhak menyimpulkan
+                 * lembarnya rusak. Yang sebenarnya terjadi justru pokok
+                 * lembar ini, dan sekarang dikatakan di catatan bawah.
+                 */
+                {
+                  symbol: "a",
+                  label: x.rA,
+                  value: a >= 1 ? fmt(a, 3) : fmt(a * 1000, 1),
+                  unit: a >= 1 ? "m" : "mm",
+                },
                 { symbol: "ν", label: x.rNu, value: fmtSci(nu), unit: "m²/s" },
               ]}
             />
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(r.Z, r.lowerHalf, r.midRatio, tak, lang)}</Note>
+            <Note>{notice(r.Z, r.lowerHalf, r.midRatio, h, a, tak, lang)}</Note>
           </Block>
         </>
       }
@@ -334,16 +350,28 @@ function notice(
   Z: number,
   lowerHalf: number,
   mid: number,
+  h: number,
+  a: number,
   tak: boolean,
   lang: Lang
 ): string {
+  /*
+   * Kalimat yang menjelaskan mengapa menggeser kedalaman tidak menggerakkan
+   * kurvanya. Bukan penambal melainkan pokok lembarnya: pada sumbu nisbi,
+   * kedalaman benar-benar lenyap dari persamaannya.
+   */
+  const kedalaman =
+    lang === "id"
+      ? ` Geser kedalamannya dari sepersepuluh meter ke dua puluh meter dan kurvanya tidak bergerak sedikit pun. Itu bukan kerusakan melainkan pokok lembar ini: pada sumbu nisbi, bilangan Rouse tidak mengandung kedalaman sama sekali, jadi flum sedalam sepuluh sentimeter dan sungai sedalam dua puluh meter yang kecepatan geseknya sama membawa sebaran nisbi yang sama persis. Yang diubah kedalaman hanya letak sebenarnya tinggi acuan itu, sekarang ${a >= 1 ? `${fmt(a, 2)} meter` : `${fmt(a * 1000, 0)} milimeter`} di atas dasar, dan itulah satu-satunya baris di tabel yang ikut bergerak.`
+      : ` Drag the depth from a tenth of a metre to twenty metres and the curve does not move at all. That is not a fault but the point of this sheet: in relative coordinates the Rouse number contains no depth whatever, so a ten centimetre flume and a twenty metre river at the same friction velocity carry exactly the same relative distribution. All the depth changes is where that reference height actually sits, now ${a >= 1 ? `${fmt(a, 2)} metres` : `${fmt(a * 1000, 0)} millimetres`} above the bed, and that is the only row in the table that moves with it.`;
+
   if (tak) {
     return lang === "id"
-      ? `Bilangan Rouse ${fmt(Z, 2)} sudah melewati ${fmtPlain(ROUSE_BEDLOAD, 1)}, dan di atas itu sebaran melayang tidak lagi menggambarkan apa yang sebenarnya terjadi. Perkecil butirnya atau perbesar kecepatan geseknya sampai bilangan Rouse turun di bawah ${fmtPlain(ROUSE_PARTIAL, 1)}.`
-      : `The Rouse number ${fmt(Z, 2)} has passed ${fmtPlain(ROUSE_BEDLOAD, 1)}, and above that the suspended distribution no longer describes what actually happens. Reduce the grain size or raise the friction velocity until the Rouse number falls below ${fmtPlain(ROUSE_PARTIAL, 1)}.`;
+      ? `Bilangan Rouse ${fmt(Z, 2)} sudah melewati ${fmtPlain(ROUSE_BEDLOAD, 1)}, dan di atas itu sebaran melayang tidak lagi menggambarkan apa yang sebenarnya terjadi. Perkecil butirnya atau perbesar kecepatan geseknya sampai bilangan Rouse turun di bawah ${fmtPlain(ROUSE_PARTIAL, 1)}.${kedalaman}`
+      : `The Rouse number ${fmt(Z, 2)} has passed ${fmtPlain(ROUSE_BEDLOAD, 1)}, and above that the suspended distribution no longer describes what actually happens. Reduce the grain size or raise the friction velocity until the Rouse number falls below ${fmtPlain(ROUSE_PARTIAL, 1)}.${kedalaman}`;
   }
 
   if (lang === "en")
-    return `At a Rouse number of ${fmt(Z, 2)}, ${fmt(lowerHalf * 100, 0)} per cent of the suspended load sits in the lower half of the depth, and the concentration at mid depth has fallen to ${fmt(mid, 3)} of the reference value. Below ${fmtPlain(ROUSE_FULL, 1)} the load is essentially uniform and a single depth-averaged sample represents the whole column; above it a sample taken near the surface will understate the load by whatever factor this curve says. That is why sediment sampling protocols specify the sampling height rather than leaving it to the field crew.`;
-  return `Pada bilangan Rouse ${fmt(Z, 2)}, sebanyak ${fmt(lowerHalf * 100, 0)} persen muatan melayangnya berada di separuh bawah kedalaman, dan kepekatan di setengah kedalaman sudah turun ke ${fmt(mid, 3)} dari nilai acuannya. Di bawah ${fmtPlain(ROUSE_FULL, 1)} muatannya praktis merata dan satu contoh rata-rata kedalaman mewakili seluruh kolom; di atasnya, contoh yang diambil dekat permukaan akan mengecilkan muatannya sebesar apa pun yang dikatakan kurva ini. Itulah sebabnya tata cara pengambilan contoh sedimen menetapkan ketinggian pengambilannya, bukan menyerahkannya kepada petugas lapangan.`;
+    return `At a Rouse number of ${fmt(Z, 2)}, ${fmt(lowerHalf * 100, 0)} per cent of the suspended load sits in the lower half of the depth, and the concentration at mid depth has fallen to ${fmt(mid, 3)} of the reference value. Below ${fmtPlain(ROUSE_FULL, 1)} the load is essentially uniform and a single depth-averaged sample represents the whole column; above it a sample taken near the surface will understate the load by whatever factor this curve says. That is why sediment sampling protocols specify the sampling height rather than leaving it to the field crew.${kedalaman}`;
+  return `Pada bilangan Rouse ${fmt(Z, 2)}, sebanyak ${fmt(lowerHalf * 100, 0)} persen muatan melayangnya berada di separuh bawah kedalaman, dan kepekatan di setengah kedalaman sudah turun ke ${fmt(mid, 3)} dari nilai acuannya. Di bawah ${fmtPlain(ROUSE_FULL, 1)} muatannya praktis merata dan satu contoh rata-rata kedalaman mewakili seluruh kolom; di atasnya, contoh yang diambil dekat permukaan akan mengecilkan muatannya sebesar apa pun yang dikatakan kurva ini. Itulah sebabnya tata cara pengambilan contoh sedimen menetapkan ketinggian pengambilannya, bukan menyerahkannya kepada petugas lapangan.${kedalaman}`;
 }

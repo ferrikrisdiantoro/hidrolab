@@ -95,6 +95,8 @@ const REFS = {
 /** Keluarga garis tengah yang digambar sebagai kurva latar, meter. */
 const KELUARGA_D = [0.075, 0.1, 0.15, 0.225, 0.3, 0.45, 0.6, 0.9, 1.2, 1.8];
 
+const V_MIN = 0.05;
+const V_MAX = 8;
 const S_MIN = 1e-4;
 const S_MAX = 1e-1;
 
@@ -115,26 +117,73 @@ export function DiagramWallingfordClient() {
 
   const ref = useCanvas(
     (ctx, w, h) => {
-      // Keluarga garis tengah pada kekasaran yang sedang dipakai. Setiap
-      // kurva satu pipa; yang sedang dipilih digambar tebal.
-      const deret: ChartSeries[] = KELUARGA_D.map((Dk) => {
+      const kurvaUntuk = (Dk: number) => {
         const pts: { x: number; y: number }[] = [];
         for (let lg = Math.log10(S_MIN); lg <= Math.log10(S_MAX) + 1e-9; lg += 0.04) {
-          const Sk = Math.pow(10, lg);
+          // Dijepit ke batas bidangnya, karena penjumlahan langkah logaritma
+          // melewatkan titik terakhirnya beberapa angka pecahan di luar batas.
+          const Sk = Math.min(Math.pow(10, lg), S_MAX);
           const v = wallingfordVelocity(Dk, Sk, ks, nu);
           if (v.V > 0) pts.push({ x: Sk, y: v.V });
         }
-        const dipilih = Math.abs(Dk - D) < 1e-9;
+        return pts;
+      };
+
+      /*
+       * Label ditaruh di tempat kurvanya MENINGGALKAN bidang, bukan pada
+       * pecahan panjang yang tetap.
+       *
+       * Kurva pipa besar keluar lewat tepi atas jauh sebelum sampai tepi
+       * kanan. Label pada pecahan tetap karena itu jatuh di luar bidang lalu
+       * dibuang seluruhnya, dan pembaca melihat garis kelabu tanpa nama.
+       * Diletakkan di titik keluarnya, tiap kurva mendapat namanya di tempat
+       * ia masih terlihat, dan karena tiap kurva keluar pada kemiringan yang
+       * berbeda, labelnya tersebar mendatar alih-alih bertumpuk.
+       */
+      const tandai = (
+        pts: { x: number; y: number }[]
+      ): Pick<ChartSeries, "labelAt" | "labelDy" | "labelAlign"> => {
+        let i = pts.length - 1;
+        while (i > 0 && pts[i].y > V_MAX * 0.99) i--;
+        const lewatAtas = i < pts.length - 1;
+        return {
+          labelAt: pts.length > 1 ? i / (pts.length - 1) : 1,
+          labelDy: lewatAtas ? 14 : -8,
+          labelAlign: (lewatAtas ? "center" : "right") as CanvasTextAlign,
+        };
+      };
+
+      // Keluarga garis tengah baku, latar belakang untuk membaca pipa lain.
+      const deret: ChartSeries[] = KELUARGA_D.map((Dk) => {
+        const pts = kurvaUntuk(Dk);
         return {
           pts,
-          color: dipilih ? C.water : C.ink3,
-          weight: dipilih ? W.bold : W.hair,
+          color: C.ink3,
+          weight: W.hair,
           dash: DASH.solid,
-          label: dipilih ? undefined : `${fmtPlain(Dk * 1000, 0)}`,
-          labelAt: 0.97,
-          labelDy: -8,
-          labelAlign: "right" as CanvasTextAlign,
+          label:
+            Math.abs(Dk - D) < 1e-9 ? undefined : `${fmtPlain(Dk * 1000, 0)}`,
+          ...tandai(pts),
         };
+      });
+
+      /*
+       * Pipa yang sedang dipilih, SELALU digambar sebagai kurvanya sendiri.
+       *
+       * Sebelumnya kurva tebal hanya muncul bila garis tengahnya kebetulan
+       * salah satu dari sepuluh ukuran baku, padahal penggesernya melangkah
+       * lima milimeter. Hampir seluruh posisi penggeser karena itu tidak
+       * punya kurva tebal sama sekali, dan titik kerjanya melayang di antara
+       * garis kelabu tanpa kurva yang menjelaskannya.
+       */
+      const terpilih = kurvaUntuk(D);
+      deret.push({
+        pts: terpilih,
+        color: C.water,
+        weight: W.bold,
+        dash: DASH.solid,
+        label: `${fmtPlain(D * 1000, 0)}`,
+        ...tandai(terpilih),
       });
 
       // Ruas yang belum turbulen pada pipa terpilih, digambar titik rapat.
@@ -144,6 +193,7 @@ export function DiagramWallingfordClient() {
         const v = wallingfordVelocity(D, Sk, ks, nu);
         if (v.Re < RE_TURBULENT_MIN && v.V > 0) takBerlaku.push({ x: Sk, y: v.V });
       }
+      // Didorong paling akhir supaya tergambar di atas kurva pipanya.
       if (takBerlaku.length > 1)
         deret.push({
           pts: takBerlaku,
@@ -159,8 +209,8 @@ export function DiagramWallingfordClient() {
         {
           xMin: S_MIN,
           xMax: S_MAX,
-          yMin: 0.05,
-          yMax: 8,
+          yMin: V_MIN,
+          yMax: V_MAX,
           xLog: true,
           yLog: true,
           axisX: T.axGradient,
@@ -176,7 +226,7 @@ export function DiagramWallingfordClient() {
             {
               x: 1.6e-4,
               y: 5.2,
-              text: `${T.axRoughness.split(",")[0]} ${fmtPlain(ksMm, 3)} mm`,
+              text: `${T.wallRoughness} ${fmtPlain(ksMm, 3)} mm`,
               color: C.ink3,
             },
           ],

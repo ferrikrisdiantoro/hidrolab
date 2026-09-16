@@ -138,8 +138,23 @@ export function drawChart(
     return padT + plotH - t * plotH;
   };
 
+  /*
+   * Uji "di dalam bidang", dengan toleransi sepermiliar rentangnya.
+   *
+   * Toleransinya bukan kemewahan. Kurva keluarga dicuplik dengan menjumlah
+   * langkah logaritma berulang kali, dan tujuh puluh lima penjumlahan sudah
+   * cukup menggeser titik terakhirnya beberapa satuan terakhir angka pecahan
+   * ke luar batas: 0,1 menjadi 0,10000000000000062. Tanpa toleransi ini,
+   * setiap label yang ditaruh di ujung kanan kurvanya dibuang diam-diam, dan
+   * yang terlihat di layar hanya garis kelabu tanpa nama.
+   */
+  const tolX = Math.abs(s.xMax - s.xMin) * 1e-9;
+  const tolY = Math.abs(s.yMax - s.yMin) * 1e-9;
   const didalam = (x: number, y: number) =>
-    x >= s.xMin && x <= s.xMax && y >= s.yMin && y <= s.yMax;
+    x >= s.xMin - tolX &&
+    x <= s.xMax + tolX &&
+    y >= s.yMin - tolY &&
+    y <= s.yMax + tolY;
 
   /* ---------------- kisi dan angka sumbu ----------------
      Sumbu logaritmik diberi garis pada tiap dasawarsa; sumbu biasa pada
@@ -371,32 +386,77 @@ export function drawChart(
             )
           : tempatkan(r.label, X(r.at), padT + 12, 1.4, "center");
       alas(pos);
-      region(ctx, r.label, pos.x, pos.y, r.color ?? C.ink2);
+      region(ctx, r.label, pos.x, pos.y, r.color ?? C.ink2, 0, align);
     }
+  }
+
+  /* ---------------- jalur baca titik kerja ----------------
+     Digambar di sini, yaitu sesudah seluruh garis dan SEBELUM seluruh
+     tulisan.
+
+     Aturannya sudah tertulis di kepala berkas ini: tulisan memotong garis,
+     bukan sebaliknya. Jalur baca titik kerja dulu digambar paling akhir,
+     jadi ia melintas di atas nama wilayah yang sudah diberi alas kertas.
+     Pada lembar Hjulstrom, nama wilayah "tererosi" duduk tepat pada
+     kecepatan delapan meter per detik, yaitu ujung atas penggesernya, jadi
+     menarik penggeser ke mentok menggoreskan garis melalui tulisan itu.
+     Namanya sendiri tetap ditulis belakangan bersama tulisan yang lain. */
+
+  const titikDidalam = s.point ? didalam(s.point.x, s.point.y) : false;
+  const warnaTitik = s.point
+    ? (s.point.color ?? (s.point.invalid ? C.signal : C.ink))
+    : C.ink;
+
+  if (s.point && titikDidalam) {
+    const px = X(s.point.x);
+    const py = Y(s.point.y);
+
+    pen(ctx, W.thin, warnaTitik, DASH.axis);
+    ctx.beginPath();
+    ctx.moveTo(px, padT + plotH);
+    ctx.lineTo(px, py);
+    ctx.lineTo(padL, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   /* ---------------- label kurva ----------------
      Ditempatkan sesudah seluruh kurva digambar, supaya tidak ada kurva yang
-     melintas di atas tulisan yang sudah diberi alas. */
+     melintas di atas tulisan yang sudah diberi alas.
 
-  for (const d of s.series) {
-    if (!d.label || d.pts.length < 2) continue;
-    const f = Math.min(Math.max(d.labelAt ?? 0.5, 0), 1);
-    const i = Math.min(
-      d.pts.length - 1,
-      Math.max(0, Math.round(f * (d.pts.length - 1)))
-    );
-    const p = d.pts[i];
-    if (!didalam(p.x, p.y)) continue;
+     URUTANNYA DARI YANG PALING ATAS KE BAWAH, dan itu bukan kerapian
+     melainkan kebenaran. Mesin penempatnya menyelesaikan tabrakan dengan
+     mendorong tulisan KE BAWAH. Kalau label ditulis dari kurva terbawah
+     naik ke atas, dua kurva yang berdekatan akan bertukar tempat: label
+     kurva yang lebih tinggi didorong turun sampai berada di bawah label
+     kurva yang lebih rendah. Pada keluarga kurva, akibatnya pembaca
+     menelusuri kurva dan membaca angka milik kurva lain. Menulisnya dari
+     atas ke bawah membuat dorongan ke bawah tidak pernah dapat melewati
+     label yang sudah terpasang, jadi urutannya terjaga apa pun jaraknya. */
+
+  const berlabel = s.series
+    .filter((d) => d.label && d.pts.length >= 2)
+    .map((d) => {
+      const f = Math.min(Math.max(d.labelAt ?? 0.5, 0), 1);
+      const i = Math.min(
+        d.pts.length - 1,
+        Math.max(0, Math.round(f * (d.pts.length - 1)))
+      );
+      return { d, p: d.pts[i] };
+    })
+    .filter(({ p }) => didalam(p.x, p.y))
+    .sort((a, b) => Y(a.p.y) - Y(b.p.y));
+
+  for (const { d, p } of berlabel) {
     const pos = tempatkan(
-      d.label,
+      d.label as string,
       X(p.x),
       Y(p.y) + (d.labelDy ?? -10),
       1.4,
       d.labelAlign ?? "center"
     );
     alas(pos);
-    region(ctx, d.label, pos.x, pos.y, d.color ?? C.ink);
+    region(ctx, d.label as string, pos.x, pos.y, d.color ?? C.ink, 0, d.labelAlign ?? "center");
   }
 
   /* ---------------- nama wilayah ---------------- */
@@ -421,21 +481,23 @@ export function drawChart(
 
   if (s.point) {
     const p = s.point;
-    const warna = p.color ?? (p.invalid ? C.signal : C.signal);
+    const warna = warnaTitik;
 
-    if (didalam(p.x, p.y)) {
+    if (titikDidalam) {
       const px = X(p.x);
       const py = Y(p.y);
 
-      pen(ctx, W.thin, warna, DASH.axis);
-      ctx.beginPath();
-      ctx.moveTo(px, padT + plotH);
-      ctx.lineTo(px, py);
-      ctx.lineTo(padL, py);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Belah ketupat, bentuk titik ukur pada gambar teknik.
+      /*
+       * Belah ketupat digambar PALING ATAS, di atas alas kertas nama wilayah
+       * sekalipun.
+       *
+       * Ia satu-satunya tanda di bidang ini yang menyatakan "di sinilah
+       * keadaan yang sedang dihitung", dan menyembunyikannya lebih buruk
+       * daripada menutupi sepotong tulisan. Keadaan itu bukan khayalan: pada
+       * lembar Hjulstrom, nama wilayah "tererosi" duduk tepat di pojok
+       * rentang penggesernya, jadi menarik kedua penggeser ke mentok
+       * menempatkan titik kerjanya persis di bawah tulisan itu.
+       */
       pen(ctx, W.thin, warna);
       ctx.fillStyle = C.sheet;
       ctx.beginPath();
@@ -459,7 +521,7 @@ export function drawChart(
           align
         );
         alas(pos);
-        region(ctx, p.label, pos.x, pos.y, warna);
+        region(ctx, p.label, pos.x, pos.y, warna, 0, align);
       }
     } else {
       // Titik di luar bidang tidak boleh sekadar hilang: pembaca akan

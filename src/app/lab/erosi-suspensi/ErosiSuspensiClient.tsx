@@ -145,8 +145,16 @@ export function ErosiSuspensiClient() {
       const kohesifX = COHESIVE_LIMIT * 1000;
       const deret: ChartSeries[] = [
         {
+          /*
+           * Merah bata, bukan merah sinyal. Ruas kurva erosi yang ini
+           * berlaku penuh; yang tidak berlaku hanya perpanjangannya ke
+           * butiran kohesif di sebelah kiri, dan ruas itulah yang merah
+           * sinyal dan bertitik rapat. Dengan dua warna yang berbeda,
+           * batas keberlakuannya terbaca dari warnanya sendiri dan tidak
+           * bergantung pada pembaca memperhatikan jenis garisnya.
+           */
           pts: ero.filter((p) => p.x >= kohesifX),
-          color: C.signal,
+          color: C.energy,
           weight: W.bold,
           label: T.erosionCurve,
           labelAt: 0.75,
@@ -195,7 +203,7 @@ export function ErosiSuspensiClient() {
             ? [{ axis: "x", from: D_MIN, to: kohesifX }]
             : undefined,
           regions: [
-            { x: 0.02, y: 8, text: T.erosionZone, color: C.signal },
+            { x: 0.02, y: 8, text: T.erosionZone, color: C.energy },
             { x: 2.2, y: 0.09, text: T.depositionZone, color: C.ink3 },
           ],
           point: {
@@ -277,9 +285,18 @@ export function ErosiSuspensiClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
+              {/* Tererosi, terangkut, dan mengendap ketiganya keadaan yang
+                  sah. Merah sinyal disimpan untuk satu penanda saja di lembar
+                  ini, yaitu butiran kohesif yang membuat kurva erosinya tidak
+                  berlaku. */}
               <Flag
-                tint={r.state === "mengendap" ? C.water : undefined}
-                alert={r.state === "tererosi"}
+                tint={
+                  r.state === "mengendap"
+                    ? C.water
+                    : r.state === "tererosi"
+                      ? C.energy
+                      : undefined
+                }
               >
                 {keadaanNama}
               </Flag>

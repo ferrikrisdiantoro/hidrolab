@@ -100,6 +100,10 @@ export function TingkatTrofikClient() {
   const r = trophicPyramid(P, eff, n);
   const atas = r.levels[r.levels.length - 1];
 
+  /* Dipakai pada gambar dan kop: yang kecil ditulis berpangkat sepuluh. */
+  const fmtEnergi = (v: number) =>
+    v > 0 && v < 1e-2 ? fmtSci(v) : fmtPlain(v, 2);
+
   const ref = useCanvas(
     (ctx, w, h) => {
       const energi: { x: number; y: number }[] = r.levels.map((l) => ({
@@ -150,17 +154,29 @@ export function TingkatTrofikClient() {
               at: TROPHIC_MIN_ENERGY,
               color: C.signal,
               dash: DASH.axis,
-              label: `${fmtPlain(TROPHIC_MIN_ENERGY, 0)} kJ/m²·${lang === "id" ? "th" : "y"}`,
+              label: `${fmtPlain(TROPHIC_MIN_ENERGY, 0)} kJ/m²·y`,
               labelAlign: "left",
             },
           ],
           point: {
             x: atas.level,
             y: Math.max(atas.energy, 1e-6),
-            label: `${fmtPlain(atas.energy, 2)}`,
+            /* Aliran tenaga di tingkat puncak membentang dari ribuan sampai
+               sepersejuta kilojoule, jadi dua desimal tetap menuliskan ujung
+               bawahnya sebagai nol. */
+            label: fmtEnergi(atas.energy),
             invalid: r.overreach,
           },
-          heading: r.overreach ? T.noLawHere : undefined,
+          /*
+           * Sebelumnya di sini tertulis "tidak ada hukum sederhana di sini",
+           * kalimat milik lembar hukum dinding, padahal di sini hukumnya
+           * berlaku sempurna. Yang tidak berlaku bukan hukumnya melainkan
+           * tingkat yang diminta: aliran tenaganya jatuh di bawah ambang
+           * tempat populasi masih dapat bertahan. Gambar yang mengumumkan
+           * sebab yang salah menuntun pembaca mencari kesalahan di tempat
+           * yang salah pula.
+           */
+          heading: r.overreach ? x.melampaui : undefined,
           headingColor: C.signal,
         },
         lang
@@ -197,11 +213,11 @@ export function TingkatTrofikClient() {
           title={x.sheetTitle}
           rev="A"
           cells={[
-            { label: t.tbUnit, value: "SI (kJ/m²·th)" },
+            { label: t.tbUnit, value: "SI (kJ/m²·y)" },
             { label: "P", value: `${fmt(P, 0)}` },
             { label: "ε", value: fmt(eff, 3) },
             { label: "n", value: fmt(n, 0), tint: r.overreach ? C.signal : undefined },
-            { label: "En", value: fmt(atas.energy, 2), tint: C.energy },
+            { label: "En", value: fmtEnergi(atas.energy), tint: r.overreach ? C.signal : C.energy },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -211,7 +227,7 @@ export function TingkatTrofikClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="P" label={x.dP} value={P} min={20} max={20000} step={20} digits={0} unit="kJ/m²·th" onChange={setP} tint={C.water} />
+              <InputRow symbol="P" label={x.dP} value={P} min={20} max={20000} step={20} digits={0} unit="kJ/m²·y" onChange={setP} tint={C.water} />
               <InputRow symbol="ε" label={x.dE} value={eff} min={0.01} max={0.35} step={0.005} digits={3} onChange={setEff} tint={C.energy} />
               <InputRow symbol="n" label={x.dN} value={n} min={2} max={7} step={1} digits={0} onChange={setN} />
             </InputTable>
@@ -243,9 +259,9 @@ export function TingkatTrofikClient() {
             <ResultTable
               rows={[
                 { symbol: "—", label: x.rSupported, value: fmt(r.supported, 0), strong: true },
-                { symbol: "En", label: x.rTop, value: fmt(atas.energy, 3), unit: "kJ/m²·th", tint: C.energy, strong: true },
+                { symbol: "En", label: x.rTop, value: atas.energy > 0 && atas.energy < 1e-2 ? fmtSci(atas.energy) : fmt(atas.energy, 3), unit: "kJ/m²·y", tint: C.energy, strong: true },
                 { symbol: "En/P", label: x.rFrac, value: fmtSci(r.topFraction), tint: C.critical },
-                { symbol: "Bn", label: x.rBio, value: fmt(atas.biomass, 3), unit: "g/m²", tint: C.water },
+                { symbol: "Bn", label: x.rBio, value: atas.biomass > 0 && atas.biomass < 1e-2 ? fmtSci(atas.biomass) : fmt(atas.biomass, 3), unit: "g/m²", tint: C.water },
                 { symbol: "—", label: x.rLoss, value: fmt((1 - eff) * 100, 1), unit: "%" },
               ]}
             />

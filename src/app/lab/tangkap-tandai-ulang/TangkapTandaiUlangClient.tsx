@@ -40,6 +40,9 @@ const TXT = {
     rFrac: "Bagian populasi yang tertandai",
     rBias: "Selisih Petersen terhadap Chapman",
     sedikit: "Tangkapan ulang terlalu sedikit",
+    mustahil: "Tangkapan bertanda melebihi tangkapan keduanya",
+    mustahilNote:
+      "Banyaknya bertanda di dalam tangkapan kedua disetel melebihi banyaknya yang tertangkap pada penangkapan kedua itu sendiri. Keadaan itu tidak mungkin: yang bertanda adalah sebagian dari yang tertangkap, bukan tambahan atasnya. Tidak ada taksiran yang dapat dihitung dari keadaan yang tidak dapat terjadi, jadi lembar ini tidak menghitungnya. Turunkan banyaknya yang bertanda, atau naikkan tangkapan keduanya.",
     sedikitNote:
       "Bertanda yang tertangkap ulang kurang dari tujuh ekor. Di bawah itu selang kepercayaannya melebar sampai taksirannya kehilangan arti praktis: batas atas dan batas bawah dapat terpaut berkali lipat. Angkanya tetap keluar, dan di situlah bahayanya, karena satu angka tunggal tampak lebih pasti daripada yang sebenarnya. Tambah usaha penangkapan kedua, atau tandai lebih banyak pada penangkapan pertama, sampai tangkapan ulangnya mencapai belasan.",
     note:
@@ -61,6 +64,9 @@ const TXT = {
     rFrac: "Fraction of the population marked",
     rBias: "Petersen minus Chapman",
     sedikit: "Too few recaptures",
+    mustahil: "Marked recaptures exceed the second catch",
+    mustahilNote:
+      "The number of marked individuals within the second catch is set above the size of that second catch itself. This cannot happen: the marked ones are a part of what was caught, not an addition to it. No estimate can be computed from a state that cannot occur, so this sheet does not compute one. Lower the number marked, or raise the second catch.",
     sedikitNote:
       "Fewer than seven marked individuals were recaptured. Below that the confidence interval widens until the estimate loses practical meaning: upper and lower bounds can differ several times over. A number still appears, and that is the danger, because a single figure looks more certain than it is. Increase the second capture effort, or mark more in the first, until the recaptures reach the teens.",
     note:
@@ -93,7 +99,17 @@ export function TangkapTandaiUlangClient() {
   const [n, setN] = useState(150);
   const [m, setM2] = useState(30);
 
-  // Tangkapan bertanda tidak mungkin melebihi tangkapan keduanya sendiri.
+  /*
+   * Tangkapan bertanda tidak mungkin melebihi tangkapan keduanya sendiri.
+   *
+   * Sebelumnya angkanya diam-diam dipotong ke n, dan akibatnya penggeser
+   * menunjukkan dua ratus sementara kop menunjukkan lima, tanpa satu pun
+   * tulisan yang menerangkan selisihnya. Pemotongan diam-diam pada masukan
+   * yang mustahil selalu lebih buruk daripada penolakan yang bersuara:
+   * pembaca yang tidak melihat keterangannya akan menyimpulkan lembarnya
+   * salah hitung.
+   */
+  const mustahil = m > n;
   const mAman = Math.min(m, n);
   const r = markRecapture(M, n, mAman);
   const lebar = r.chapman > 0 ? (r.ciHigh - r.ciLow) / r.chapman : 0;
@@ -163,6 +179,8 @@ export function TangkapTandaiUlangClient() {
           axisY: T.axPopulation,
           series: deret,
           bands: [{ axis: "x", from: 1, to: RECAPTURE_MIN }],
+          heading: mustahil ? x.mustahil : undefined,
+          headingColor: C.signal,
           point: {
             x: mAman,
             y: r.chapman,
@@ -207,8 +225,8 @@ export function TangkapTandaiUlangClient() {
             { label: t.tbUnit, value: lang === "id" ? "ekor" : "individuals" },
             { label: "M", value: fmt(M, 0) },
             { label: "n", value: fmt(n, 0) },
-            { label: "m", value: fmt(mAman, 0), tint: r.tooFewRecaptures ? C.signal : undefined },
-            { label: "N̂", value: fmt(r.chapman, 0), tint: C.water },
+            { label: "m", value: mustahil ? "—" : fmt(mAman, 0), tint: mustahil || r.tooFewRecaptures ? C.signal : undefined },
+            { label: "N̂", value: mustahil ? "—" : fmt(r.chapman, 0), tint: mustahil ? C.signal : C.water },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -237,24 +255,35 @@ export function TangkapTandaiUlangClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.tooFewRecaptures ? undefined : C.water} alert={r.tooFewRecaptures}>
-                {`${fmt(r.chapman, 0)} ${lang === "id" ? "ekor" : "individuals"}`}
+              <Flag tint={mustahil || r.tooFewRecaptures ? undefined : C.water} alert={mustahil || r.tooFewRecaptures}>
+                {mustahil
+                  ? x.mustahil
+                  : `${fmt(r.chapman, 0)} ${lang === "id" ? "ekor" : "individuals"}`}
               </Flag>
-              {r.tooFewRecaptures && <Flag alert>{x.sedikit}</Flag>}
+              {!mustahil && r.tooFewRecaptures && <Flag alert>{x.sedikit}</Flag>}
             </div>
-            {r.tooFewRecaptures && (
+            {mustahil && (
+              <div className="mb-2.5">
+                <Note>{x.mustahilNote}</Note>
+              </div>
+            )}
+            {!mustahil && r.tooFewRecaptures && (
               <div className="mb-2.5">
                 <Note>{x.sedikitNote}</Note>
               </div>
             )}
             <ResultTable
               rows={[
-                { symbol: "N̂", label: x.rChap, value: fmt(r.chapman, 1), tint: C.water, strong: true },
-                { symbol: "—", label: x.rCi, value: `${fmt(r.ciLow, 0)} – ${fmt(r.ciHigh, 0)}`, tint: r.tooFewRecaptures ? C.signal : undefined, strong: true },
-                { symbol: "N̂p", label: x.rPet, value: Number.isFinite(r.petersen) ? fmt(r.petersen, 1) : "∞", tint: C.critical },
-                { symbol: "—", label: x.rBias, value: Number.isFinite(r.petersen) ? fmt(r.petersen - r.chapman, 1) : "∞" },
-                { symbol: "—", label: x.rLebar, value: fmt(lebar * 100, 1), unit: "%" },
-                { symbol: "M/N̂", label: x.rFrac, value: fmt(r.markedFraction * 100, 2), unit: "%" },
+                /* Pada keadaan mustahil tidak satu pun taksiran ditampilkan.
+                   Taksiran yang dihitung dari keadaan yang tidak dapat
+                   terjadi bukan taksiran yang longgar melainkan taksiran
+                   yang tidak punya arti. */
+                { symbol: "N̂", label: x.rChap, value: mustahil ? "—" : fmt(r.chapman, 1), tint: mustahil ? C.signal : C.water, strong: true },
+                { symbol: "—", label: x.rCi, value: mustahil ? "—" : `${fmt(r.ciLow, 0)} – ${fmt(r.ciHigh, 0)}`, tint: mustahil || r.tooFewRecaptures ? C.signal : undefined, strong: true },
+                { symbol: "N̂p", label: x.rPet, value: mustahil ? "—" : Number.isFinite(r.petersen) ? fmt(r.petersen, 1) : "∞", tint: mustahil ? C.signal : C.critical },
+                { symbol: "—", label: x.rBias, value: mustahil ? "—" : Number.isFinite(r.petersen) ? fmt(r.petersen - r.chapman, 1) : "∞" },
+                { symbol: "—", label: x.rLebar, value: mustahil ? "—" : fmt(lebar * 100, 1), unit: mustahil ? undefined : "%" },
+                { symbol: "M/N̂", label: x.rFrac, value: mustahil ? "—" : fmt(r.markedFraction * 100, 2), unit: mustahil ? undefined : "%" },
               ]}
             />
           </Block>

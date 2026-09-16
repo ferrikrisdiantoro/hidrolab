@@ -250,8 +250,19 @@ export function drawStructure(
       a.surface.forEach((p, i) =>
         i ? ctx.lineTo(X(p.x), Z(p.z)) : ctx.moveTo(X(p.x), Z(p.z))
       );
-      for (let i = dasar.length - 1; i >= 0; i--)
-        ctx.lineTo(X(dasar[i].x), Z(dasar[i].z));
+      /*
+       * Dasar ditelusuri MAJU, bukan mundur.
+       *
+       * Dasar genangan ditulis sebagai JALUR PULANG, yaitu dari ujung tempat
+       * muka airnya berakhir kembali ke ujung tempat muka airnya bermula.
+       * Begitulah seluruh lembar menuliskannya, dan begitu pula dasar
+       * bawaannya. Menelusurinya mundur membalik jalur pulang itu menjadi
+       * jalur pergi kedua, sehingga poligonnya menyilang dirinya sendiri dan
+       * genangan tergambar sebagai jam pasir. Cacatnya mengenai SELURUH
+       * genangan di seluruh lembar keluarga D dan G sekaligus, dan tidak
+       * terlihat pada genangan yang kebetulan setangkup kiri kanan.
+       */
+      for (const d of dasar) ctx.lineTo(X(d.x), Z(d.z));
       ctx.closePath();
     };
 

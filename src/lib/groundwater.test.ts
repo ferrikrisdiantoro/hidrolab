@@ -28,6 +28,7 @@ import {
   sleepTimeTo,
   wakeTimeTo,
   wellDrawdownAt,
+  fishPassage,
 } from "./hydraulics.ts";
 
 /* ================================================================== *
@@ -727,5 +728,78 @@ describe("Model dua proses", () => {
     assert.equal(sleepRegulation(0.1).valid, true);
     assert.equal(sleepRegulation(0.25).valid, false);
     assert.equal(sleepRegulation(0.1, 0.6, 0.7).valid, false);
+  });
+});
+
+/* ================================================================== *
+ * EK-04  Lintasan ikan dan populasi
+ * ================================================================== */
+
+describe("Populasi ikan ruaya di hulu bendung", () => {
+  it("populasi yang dimulai jauh di atas daya dukungnya menurun ke keadaan mantapnya, bukan ke nol", () => {
+    /*
+     * Langkah Euler selebar satu tahun melompati nol pada keadaan ini,
+     * lalu menjepitnya ke nol, sehingga populasi yang justru pulih
+     * dinyatakan punah. Penyelesaian sebenarnya tidak pernah mencapai nol.
+     */
+    const r = fishPassage(20000, 500, 0.6, 0.3, 0.9);
+    assert.ok(r.equilibrium > 0);
+    assert.ok(
+      Math.abs(r.path[60].population - r.equilibrium) / r.equilibrium < 0.01,
+      `tahun 60 memberi ${r.path[60].population}, mantapnya ${r.equilibrium}`
+    );
+    assert.equal(r.extinct, false);
+  });
+
+  it("dan tidak pernah melompati nol berapa pun jarak awalnya dari daya dukungnya", () => {
+    for (const N0 of [100, 5000, 20000])
+      for (const K of [500, 10000, 50000])
+        for (const passage of [0.6, 0.9, 1]) {
+          const r = fishPassage(N0, K, 0.6, 0.3, passage);
+          for (const p of r.path)
+            assert.ok(
+              p.population >= 0 && Number.isFinite(p.population),
+              `N0 ${N0} K ${K} p ${passage} tahun ${p.year} memberi ${p.population}`
+            );
+          /*
+           * Yang diperiksa ARAHNYA, bukan kedatangannya. Pertumbuhan bersih
+           * yang lambat memang belum sampai ke keadaan mantapnya dalam enam
+           * puluh tahun, dan menuntutnya sampai akan menuntut sifat yang
+           * memang bukan milik penyelesaiannya. Yang harus berlaku: lintasan
+           * logistik menghampiri keadaan mantapnya dari satu sisi saja dan
+           * tidak pernah melewatinya.
+           */
+          if (r.equilibrium > 0) {
+            const naik = N0 < r.equilibrium;
+            for (const p of r.path)
+              assert.ok(
+                naik
+                  ? p.population <= r.equilibrium * 1.001
+                  : p.population >= r.equilibrium * 0.999,
+                `N0 ${N0} K ${K} p ${passage} melewati keadaan mantapnya pada tahun ${p.year}: ${p.population}`
+              );
+            /* Populasi yang dimulai TEPAT pada keadaan mantapnya memang
+               tidak bergerak ke mana pun, dan itu bukan arah yang salah
+               melainkan tidak adanya arah sama sekali. */
+            const akhir = r.path[60].population;
+            const diam = Math.abs(N0 - r.equilibrium) / r.equilibrium < 1e-9;
+            if (!diam)
+              assert.ok(
+                naik ? akhir > N0 : akhir < N0,
+                `N0 ${N0} K ${K} p ${passage} bergerak ke arah yang salah`
+              );
+            else
+              assert.ok(
+                Math.abs(akhir - N0) / N0 < 1e-6,
+                `N0 ${N0} K ${K} p ${passage} bergeser dari keadaan mantapnya`
+              );
+          }
+        }
+  });
+
+  it("populasi punah hanya ketika pertumbuhan efektifnya memang kalah oleh kematiannya", () => {
+    assert.equal(fishPassage(5000, 10000, 0.05, 1, 0.9).extinct, true);
+    assert.equal(fishPassage(5000, 10000, 0.6, 0.3, 0.9).extinct, false);
+    assert.ok(fishPassage(5000, 10000, 0.05, 1, 0.9).path[60].population < 1);
   });
 });

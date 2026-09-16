@@ -248,11 +248,11 @@ export function ResponsAirTanahClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="R" label={x.dMean} value={rata} min={0.1} max={8} step={0.1} digits={1} unit="mm/hari" onChange={setRata} tint={C.water} />
-              <InputRow symbol="A" label={x.dSwing} value={ayun} min={0.2} max={6} step={0.1} digits={1} unit="mm/hari" onChange={setAyun} />
-              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit="mm/hari" onChange={setPompa} tint={C.signal} />
+              <InputRow symbol="R" label={x.dMean} value={rata} min={0.1} max={8} step={0.1} digits={1} unit="mm/d" onChange={setRata} tint={C.water} />
+              <InputRow symbol="A" label={x.dSwing} value={ayun} min={0.2} max={6} step={0.1} digits={1} unit="mm/d" onChange={setAyun} />
+              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit="mm/d" onChange={setPompa} tint={C.signal} />
               <InputRow symbol="Sy" label={x.dSy} value={Sy} min={0.02} max={0.4} step={0.01} digits={2} onChange={setSy} />
-              <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit="10⁻³/hari" onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
+              <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit="10⁻³/d" onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -280,15 +280,15 @@ export function ResponsAirTanahClient() {
             )}
             <ResultTable
               rows={[
-                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: "hari", tint: C.critical, strong: true },
+                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: "d", tint: C.critical, strong: true },
                 { symbol: "h̄", label: x.rMean, value: fmt(r.meanHead, 3), unit: "m", tint: C.water, strong: true },
                 { symbol: "Δh", label: x.rAmp, value: fmt(r.amplitude, 4), unit: "m" },
                 { symbol: "Δh₀", label: x.rAmpUn, value: fmt(r.amplitudeUndamped, 4), unit: "m" },
                 { symbol: "D", label: x.rDamp, value: fmt(r.damping, 4) },
-                { symbol: "t", label: x.rLag, value: fmt(r.lag, 1), unit: "hari", strong: true },
+                { symbol: "t", label: x.rLag, value: fmt(r.lag, 1), unit: "d", strong: true },
                 { symbol: "t/P", label: x.rLagF, value: fmt(r.lagFraction, 4) },
                 { symbol: "hmin", label: x.rMin, value: fmt(r.minHead, 3), unit: "m", tint: r.runsDry ? C.signal : undefined },
-                { symbol: "q", label: x.rBase, value: fmt(r.baseflow, 3), unit: "mm/hari" },
+                { symbol: "q", label: x.rBase, value: fmt(r.baseflow, 3), unit: "mm/d" },
               ]}
             />
           </Block>

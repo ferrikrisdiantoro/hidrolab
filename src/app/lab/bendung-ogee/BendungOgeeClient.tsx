@@ -135,11 +135,23 @@ export function BendungOgeeClient() {
       const xHulu = -Math.max(3 * Hd, 4);
       const xHilir = Math.max(3.2 * Hd, 5);
 
+      /*
+       * Muka hilir WES dihentikan di kaki bendungnya, yaitu ketika turun
+       * sedalam tinggi mercunya sendiri.
+       *
+       * Tanpa penghentian itu, mercu rancangan tiga puluh sentimeter yang
+       * digambar selebar lima meter menjulur dua puluh tujuh meter ke bawah,
+       * jauh melewati dasar sungainya, dan bendung setinggi delapan meter
+       * tergambar sebagai taji setinggi dua puluh tujuh meter.
+       */
       const mukaHilir: { x: number; z: number }[] = [];
       for (let i = 0; i <= 60; i++) {
         const xx = (xHilir * i) / 60;
-        mukaHilir.push({ x: xx, z: wesCrest(xx, Hd) });
+        const zz = wesCrest(xx, Hd);
+        mukaHilir.push({ x: xx, z: Math.max(zz, -P) });
+        if (zz <= -P) break;
       }
+      const xKaki = mukaHilir[mukaHilir.length - 1].x;
       const zKaki = mukaHilir[mukaHilir.length - 1].z;
       const zDasar = zKaki - 1.2;
 
@@ -149,7 +161,7 @@ export function BendungOgeeClient() {
         { x: -0.35 * Math.max(Hd, 0.5), z: -0.28 * Math.max(Hd, 0.5) },
         { x: -0.18 * Math.max(Hd, 0.5), z: 0 },
         ...mukaHilir,
-        { x: xHilir, z: zDasar },
+        { x: xKaki, z: zDasar },
         { x: -0.35 * Math.max(Hd, 0.5), z: zDasar },
       ];
 
@@ -174,8 +186,11 @@ export function BendungOgeeClient() {
         // muka mercu: pada tinggi rancangan keduanya berimpit.
         const tirai: { x: number; z: number }[] = [];
         for (let i = 0; i <= 60; i++) {
-          const xx = (xHilir * i) / 60;
-          tirai.push({ x: xx, z: wesCrest(xx, Hd) + Math.max(r.He - Hd, 0) * 0.55 });
+          const xx = (xKaki * i) / 60;
+          tirai.push({
+            x: xx,
+            z: Math.max(wesCrest(xx, Hd), -P) + Math.max(r.He - Hd, 0) * 0.55,
+          });
         }
         garis.push({
           pts: tirai,
@@ -190,7 +205,7 @@ export function BendungOgeeClient() {
 
       const spec: StructureSpec = {
         xMin: xHulu,
-        xMax: xHilir,
+        xMax: xKaki,
         zMin: zDasar,
         zMax: Math.max(r.He, h) + 0.6 * Math.max(Hd, 0.5),
         bodies: [{ pts: badan }],
@@ -199,7 +214,7 @@ export function BendungOgeeClient() {
               {
                 surface: [
                   { x: xHulu, z: h },
-                  { x: xHilir, z: h },
+                  { x: xKaki, z: h },
                 ],
                 invalid: true,
               },
@@ -216,7 +231,7 @@ export function BendungOgeeClient() {
                   })),
                 ],
                 bed: [
-                  { x: xHilir, z: zDasar },
+                  { x: xKaki, z: zDasar },
                   { x: -0.35 * Math.max(Hd, 0.5), z: zDasar },
                   { x: -0.35 * Math.max(Hd, 0.5), z: -P },
                   { x: xHulu, z: -P },
@@ -246,8 +261,8 @@ export function BendungOgeeClient() {
         ],
         callouts: [
           {
-            x: xHilir * 0.42,
-            z: wesCrest(xHilir * 0.42, Hd),
+            x: xKaki * 0.42,
+            z: Math.max(wesCrest(xKaki * 0.42, Hd), -P),
             dx: 34,
             dy: 26,
             text: T.crestProfile,

@@ -252,10 +252,10 @@ export function RegulasiTidurClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: lang === "id" ? "jam" : "hours" },
-            { label: "D", value: `${fmt(r.meanDuration, 2)} j`, tint: C.water },
-            { label: "P", value: `${fmt(r.cyclePeriod, 2)} j`, tint: C.critical },
-            { label: "τr", value: `${fmtPlain(SLEEP_TAU_RISE, 1)} j` },
-            { label: "τd", value: `${fmtPlain(SLEEP_TAU_FALL, 1)} j` },
+            { label: "D", value: `${fmt(r.meanDuration, 2)} h`, tint: C.water },
+            { label: "P", value: `${fmt(r.cyclePeriod, 2)} h`, tint: C.critical },
+            { label: "τr", value: `${fmtPlain(SLEEP_TAU_RISE, 1)} h` },
+            { label: "τd", value: `${fmtPlain(SLEEP_TAU_FALL, 1)} h` },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -267,6 +267,7 @@ export function RegulasiTidurClient() {
             <div className="mb-3">
               <PresetRow
                 label={x.mode}
+                active={paksa ? 1 : 0}
                 presets={[
                   { label: x.mBebas, apply: () => setPaksa(false) },
                   { label: x.mPaksa, apply: () => setPaksa(true) },
@@ -275,8 +276,8 @@ export function RegulasiTidurClient() {
             </div>
             <InputTable>
               <InputRow symbol="a" label={x.dAmp} value={amp} min={0} max={0.18} step={0.005} digits={3} onChange={setAmp} tint={C.critical} />
-              <InputRow symbol="tb" label={x.dBed} value={bed} min={18} max={26} step={0.25} digits={2} unit="j" onChange={setBed} tint={paksa ? C.water : C.ink3} />
-              <InputRow symbol="tw" label={x.dWake} value={wake} min={3} max={11} step={0.25} digits={2} unit="j" onChange={setWake} tint={paksa ? C.water : C.ink3} />
+              <InputRow symbol="tb" label={x.dBed} value={bed} min={18} max={26} step={0.25} digits={2} unit="h" onChange={setBed} tint={paksa ? C.water : C.ink3} />
+              <InputRow symbol="tw" label={x.dWake} value={wake} min={3} max={11} step={0.25} digits={2} unit="h" onChange={setWake} tint={paksa ? C.water : C.ink3} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -313,14 +314,14 @@ export function RegulasiTidurClient() {
               rows={[
                 { symbol: "t1", label: x.rOnset, value: jam(r.onsetClock), tint: C.water },
                 { symbol: "t2", label: x.rWake, value: jam(r.wakeClock), tint: C.water },
-                { symbol: "D", label: x.rDur, value: fmt(r.meanDuration, 2), unit: lang === "id" ? "jam" : "h", strong: true },
-                { symbol: "tl", label: x.rLat, value: fmt(r.latency, 2), unit: lang === "id" ? "jam" : "h", tint: r.cannotSleepYet ? C.signal : undefined },
-                { symbol: "P", label: x.rPeriod, value: fmt(r.cyclePeriod, 2), unit: lang === "id" ? "jam" : "h", tint: C.critical, strong: true },
-                { symbol: "P0", label: x.rFree, value: fmt(r.freePeriod, 2), unit: lang === "id" ? "jam" : "h" },
+                { symbol: "D", label: x.rDur, value: fmt(r.meanDuration, 2), unit: "h", strong: true },
+                { symbol: "tl", label: x.rLat, value: fmt(r.latency, 2), unit: "h", tint: r.cannotSleepYet ? C.signal : undefined },
+                { symbol: "P", label: x.rPeriod, value: fmt(r.cyclePeriod, 2), unit: "h", tint: C.critical, strong: true },
+                { symbol: "P0", label: x.rFree, value: fmt(r.freePeriod, 2), unit: "h" },
                 { symbol: "Sb", label: x.rSwake, value: fmt(r.Swake, 4) },
                 { symbol: "St", label: x.rSonset, value: fmt(r.Sonset, 4) },
                 { symbol: "Sb*", label: x.rSteady, value: fmt(r.SwakeSteady, 4), tint: r.steady ? undefined : C.ink3 },
-                { symbol: "Δ", label: x.rDebt, value: fmt(r.debtHours, 2), unit: lang === "id" ? "jam" : "h", tint: r.restricted ? C.signal : undefined },
+                { symbol: "Δ", label: x.rDebt, value: fmt(r.debtHours, 2), unit: "h", tint: r.restricted ? C.signal : undefined },
               ]}
             />
           </Block>
@@ -338,12 +339,12 @@ export function RegulasiTidurClient() {
               <Eq>
                 <Frac num="dS" den="dt" />
                 <span>=</span>
-                <Frac num="1 − S" den={`τr ${fmtPlain(SLEEP_TAU_RISE, 1)} j`} />
+                <Frac num="1 − S" den={`τr ${fmtPlain(SLEEP_TAU_RISE, 1)} h`} />
                 <span className="ml-5 text-ink-3">
                   {lang === "id" ? "terjaga" : "awake"}
                 </span>
                 <span className="ml-5">−</span>
-                <Frac num="S" den={`τd ${fmtPlain(SLEEP_TAU_FALL, 1)} j`} />
+                <Frac num="S" den={`τd ${fmtPlain(SLEEP_TAU_FALL, 1)} h`} />
                 <span className="ml-5 text-ink-3">
                   {lang === "id" ? "tidur" : "asleep"}
                 </span>

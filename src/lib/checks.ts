@@ -3258,7 +3258,7 @@ export function checksTrophic(
       expected: primaryProduction,
       actual: r.levels[0].energy,
       tol: 1e-12,
-      unit: "kJ/m²·th",
+      unit: "kJ/m²·y",
       digits: 4,
     },
     {
@@ -3360,7 +3360,7 @@ export function checksHarvest(
       expected: (r0 * K) / 4,
       actual: r.msy,
       tol: 1e-12,
-      unit: "ton/th",
+      unit: "ton/y",
       digits: 6,
     },
     {
@@ -3373,7 +3373,7 @@ export function checksHarvest(
       expected: r.msy,
       actual: diPuncak.currentYield,
       tol: 1e-9,
-      unit: "ton/th",
+      unit: "ton/y",
       digits: 6,
     },
     {
@@ -3427,7 +3427,7 @@ export function checksHarvest(
       expected: schaeferHarvest(r0, K, q, r.effortAtMsy * 0.5).currentYield,
       actual: schaeferHarvest(r0, K, q, r.effortAtMsy * 1.5).currentYield,
       tol: 1e-9,
-      unit: "ton/th",
+      unit: "ton/y",
       digits: 6,
     },
   ];
@@ -5102,7 +5102,7 @@ export function checksAquifer(
         id: "Puncaknya dicari pada deret berlangkah seperempat hari",
         en: "The peak is located on a series stepped a quarter of a day",
       },
-      unit: "hari",
+      unit: "d",
       digits: 2,
     },
     {
@@ -5138,7 +5138,7 @@ export function checksAquifer(
       expected: r.tau,
       actual: Math.tan(omega * r.lag) / omega,
       tol: 1e-9,
-      unit: "hari",
+      unit: "d",
       digits: 4,
     },
     {
@@ -5165,7 +5165,7 @@ export function checksAquifer(
       actual: r.baseflow,
       tol: 1e-9,
       absTol: 1e-9,
-      unit: "mm/hari",
+      unit: "mm/d",
       digits: 4,
     },
     {
@@ -5684,7 +5684,7 @@ export function checksSleep(
         id: "Daurnya terbaca dari hitungan berlangkah lima menit, jadi ujungnya membulat ke langkah terdekat",
         en: "The cycle is read from a five minute stepped run, so its ends round to the nearest step",
       },
-      unit: "jam",
+      unit: "h",
       digits: 3,
     },
     {
@@ -5760,7 +5760,7 @@ export function checksSleep(
         : r.meanDuration,
       actual: r.meanDuration + r.latency,
       tol: 0.03,
-      unit: "jam",
+      unit: "h",
       digits: 3,
     },
     {

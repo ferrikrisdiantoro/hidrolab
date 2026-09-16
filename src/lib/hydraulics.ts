@@ -3179,6 +3179,19 @@ export type SwimResult = {
    */
   distance: number;
   mode: "jelajah" | "berkelanjutan" | "sentak" | "tidak-mampu";
+  /**
+   * Benar bila kecepatan jelajahnya disetel melampaui kecepatan sentaknya.
+   *
+   * Keadaan itu tidak ada pada ikan mana pun: kecepatan sentak menurut
+   * batasannya adalah kecepatan yang hanya sanggup dipertahankan dua puluh
+   * detik, jadi ia tidak mungkin lebih rendah daripada kecepatan yang
+   * sanggup dipertahankan selamanya. Kurva ketahanannya diturunkan dari dua
+   * titik itu, dan bila keduanya bertukar tempat kurvanya berbalik arah
+   * sehingga ketahanannya NAIK bersama kecepatan. Ditandai di sini supaya
+   * lembarnya dapat menolak menggambar, bukan menggambar sesuatu yang
+   * bertentangan dengan dirinya sendiri.
+   */
+  impossible: boolean;
 };
 
 /**
@@ -3266,6 +3279,7 @@ export function fishSwim(
           : U <= (sustainedBL + burstBL) / 2
             ? "berkelanjutan"
             : "sentak",
+    impossible: burstBL <= sustainedBL,
   };
 }
 
@@ -3542,12 +3556,36 @@ export function fishPassage(
   passage: number,
   years = 60
 ): PassageResult {
+  /*
+   * Diselesaikan dengan Runge-Kutta orde empat berlangkah seperlima ratus
+   * dua belas tahun, bukan dengan Euler berlangkah satu tahun.
+   *
+   * Bedanya bukan ketelitian melainkan benar atau salah. Populasi yang
+   * dimulai jauh DI ATAS daya dukungnya memberi laju yang sangat besar dan
+   * negatif pada saat pertama: dua puluh ribu ekor pada daya dukung lima
+   * ratus memberi minus empat ratus dua puluh tujuh ribu ekor setahun. Satu
+   * langkah Euler selebar satu tahun melompati nol, dijepit ke nol, dan
+   * populasinya dinyatakan punah. Penyelesaian sebenarnya tidak pernah
+   * mencapai nol: ia menurun dengan mulus ke keadaan mantapnya, yang pada
+   * contoh itu dua ratus dua puluh dua ekor. Lembar yang memakai langkah
+   * satu tahun karena itu menjawab "punah" pada keadaan yang justru pulih.
+   */
+  const laju = (n: number) => r * passage * n * (1 - n / K) - d * n;
+  const perTahun = 512;
+  const dt = 1 / perTahun;
+
   const path: { year: number; population: number }[] = [];
   let N = N0;
   for (let y = 0; y <= years; y++) {
     path.push({ year: y, population: N });
-    const tumbuh = r * passage * N * (1 - N / K);
-    N = Math.max(N + tumbuh - d * N, 0);
+    if (y === years) break;
+    for (let i = 0; i < perTahun; i++) {
+      const k1 = laju(N);
+      const k2 = laju(Math.max(N + (dt * k1) / 2, 0));
+      const k3 = laju(Math.max(N + (dt * k2) / 2, 0));
+      const k4 = laju(Math.max(N + dt * k3, 0));
+      N = Math.max(N + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4), 0);
+    }
   }
 
   const kritis = r > 0 ? d / r : 1;
@@ -3772,6 +3810,10 @@ export type LabyrinthResult = {
   headRatio: number;
   /** Sudut dinding sisi terhadap arah aliran, derajat */
   sidewallAngle: number;
+  /** Benar bila sudut dinding sisinya di bawah rentang yang pernah diuji */
+  sidewallTooSharp: boolean;
+  /** Benar bila siklusnya terlalu sempit terhadap tinggi mercunya */
+  cycleTooNarrow: boolean;
   /** Benar bila tirai dari kedua sisi bertemu dan saling mengganggu */
   interference: boolean;
   outOfRange: boolean;
@@ -3784,6 +3826,20 @@ export type LabyrinthResult = {
  * berhenti memberi tambahan debit.
  */
 export const LABYRINTH_HP_MAX = 0.9;
+
+/**
+ * Sudut dinding sisi terkecil yang pernah diuji, derajat.
+ *
+ * Di bawah sekitar enam derajat, siklusnya menjadi begitu sempit sehingga
+ * tidak ada percobaan terbitan yang menjangkaunya. Rumus perlipatan panjang
+ * mercunya sendiri tetap memberi angka, dan angka itu tumbuh tanpa batas:
+ * enam belas siklus di dalam saluran selebar lima meter memberi perlipatan
+ * dua puluh sembilan kali, yang tidak pernah dicapai labirin mana pun.
+ * Batas nyatanya sekitar empat sampai lima kali.
+ */
+export const LABYRINTH_ALPHA_MIN = 6;
+/** Lebar siklus terkecil terhadap tinggi mercunya. */
+export const LABYRINTH_WP_MIN = 2;
 
 /**
  * Bendung labirin berdenah trapesium.
@@ -3846,6 +3902,8 @@ export function labyrinthWeir(
     magnification,
     headRatio,
     sidewallAngle,
+    sidewallTooSharp: sidewallAngle < LABYRINTH_ALPHA_MIN,
+    cycleTooNarrow: w / Math.max(P, 1e-9) < LABYRINTH_WP_MIN,
     interference: headRatio > LABYRINTH_HP_MAX,
     outOfRange: headRatio > LABYRINTH_HP_MAX,
   };

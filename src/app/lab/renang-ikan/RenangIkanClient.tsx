@@ -49,6 +49,9 @@ const TXT = {
     rMode: "Cara berenang pada arus ini",
     mJelajah: "Jelajah, tanpa batas waktu",
     mLanjut: "Berkelanjutan",
+    mustahil: "Kecepatan jelajah disetel melampaui kecepatan sentak",
+    mustahilNote:
+      "Kecepatan sentak menurut batasannya adalah kecepatan yang hanya sanggup dipertahankan dua puluh detik, jadi ia tidak mungkin lebih rendah daripada kecepatan yang sanggup dipertahankan selamanya. Tidak ada ikan yang begini. Kurva ketahanan di lembar ini diturunkan dari dua titik itu, dan ketika keduanya bertukar tempat kurvanya berbalik arah sehingga ketahanan justru NAIK bersama kecepatan. Angka yang keluar dari keadaan itu tidak menggambarkan apa pun, dan itu sebabnya lembar ini menolak menggambarnya. Turunkan kecepatan jelajahnya di bawah kecepatan sentaknya.",
     mSentak: "Sentak",
     mTidak: "Tidak mampu melawan arus",
     tidak: "Tidak mampu melawan arus",
@@ -75,6 +78,9 @@ const TXT = {
     rMode: "Swimming mode in this current",
     mJelajah: "Cruising, no time limit",
     mLanjut: "Prolonged",
+    mustahil: "Sustained speed is set above burst speed",
+    mustahilNote:
+      "Burst speed is by definition the speed a fish can hold for only twenty seconds, so it cannot be lower than the speed it can hold indefinitely. No fish is like this. The endurance curve on this sheet is drawn through those two points, and when they swap places the curve reverses so that endurance RISES with speed. Numbers coming out of that state describe nothing at all, which is why this sheet refuses to draw it. Lower the sustained speed below the burst speed.",
     mSentak: "Burst",
     mTidak: "Cannot make headway",
     tidak: "Cannot make headway",
@@ -178,7 +184,11 @@ export function RenangIkanClient() {
                 invalid: tidak,
               }
             : undefined,
-          heading: tidak ? T.unableZone : undefined,
+          /* Keadaan mustahil didahulukan: selama kecepatan jelajah disetel
+             melampaui kecepatan sentak, seluruh angka lain di lembar ini
+             tidak menggambarkan apa pun, jadi itulah yang perlu dibaca lebih
+             dulu. */
+          heading: r.impossible ? x.mustahil : tidak ? T.unableZone : undefined,
           headingColor: C.signal,
         },
         lang
@@ -220,10 +230,14 @@ export function RenangIkanClient() {
             { label: "V", value: `${fmt(V, 2)} m/s`, tint: C.water },
             {
               label: "t",
-              value: Number.isFinite(r.endurance) ? `${fmt(r.endurance, 0)} s` : "∞",
-              tint: tidak ? C.signal : C.energy,
+              value: r.impossible
+                ? "—"
+                : Number.isFinite(r.endurance)
+                  ? `${fmt(r.endurance, 0)} s`
+                  : "∞",
+              tint: r.impossible || tidak ? C.signal : C.energy,
             },
-            { label: "—", value: modeNama },
+            { label: "—", value: r.impossible ? "—" : modeNama },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -253,23 +267,32 @@ export function RenangIkanClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={tidak ? undefined : C.water} alert={tidak}>
-                {modeNama}
+              <Flag tint={r.impossible || tidak ? undefined : C.water} alert={r.impossible || tidak}>
+                {r.impossible ? x.mustahil : modeNama}
               </Flag>
             </div>
-            {tidak && (
+            {r.impossible && (
+              <div className="mb-2.5">
+                <Note>{x.mustahilNote}</Note>
+              </div>
+            )}
+            {!r.impossible && tidak && (
               <div className="mb-2.5">
                 <Note>{x.tidakNote}</Note>
               </div>
             )}
             <ResultTable
               rows={[
-                { symbol: "t", label: x.rTahan, value: Number.isFinite(r.endurance) ? fmt(r.endurance, 1) : "∞", unit: Number.isFinite(r.endurance) ? "s" : undefined, tint: C.energy, strong: true },
-                { symbol: "Ls", label: x.rJarak, value: fmt(r.distance, 2), unit: "m", tint: tidak ? C.signal : C.water, strong: true },
+                /* Pada keadaan mustahil, ketahanan dan jarak tidak
+                   ditampilkan sama sekali. Menuliskan "tak terbatas" di
+                   sebelah "tidak bisa maju" adalah tabel yang membantah
+                   dirinya sendiri, dan itu lebih buruk daripada diam. */
+                { symbol: "t", label: x.rTahan, value: r.impossible ? "—" : Number.isFinite(r.endurance) ? fmt(r.endurance, 1) : "∞", unit: !r.impossible && Number.isFinite(r.endurance) ? "s" : undefined, tint: r.impossible ? C.signal : C.energy, strong: true },
+                { symbol: "Ls", label: x.rJarak, value: r.impossible ? "—" : fmt(r.distance, 2), unit: r.impossible ? undefined : "m", tint: r.impossible || tidak ? C.signal : C.water, strong: true },
                 { symbol: "Us", label: x.rSus, value: fmt(r.sustained, 3), unit: "m/s" },
                 { symbol: "Ub", label: x.rBurst, value: fmt(r.burst, 3), unit: "m/s", tint: C.critical },
                 { symbol: "Vg", label: x.rMaju, value: fmt(r.groundSpeed, 3), unit: "m/s", tint: r.groundSpeed <= 0 ? C.signal : undefined },
-                { symbol: "—", label: x.rMode, value: modeNama },
+                { symbol: "—", label: x.rMode, value: r.impossible ? "—" : modeNama },
               ]}
             />
           </Block>

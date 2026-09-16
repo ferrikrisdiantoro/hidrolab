@@ -52,6 +52,9 @@ const TXT = {
     rHp: "Perbandingan h terhadap P",
     rAngle: "Sudut dinding sisi",
     bertemu: "Tirai dari kedua sisi bertemu",
+    tajam: "Siklusnya lebih sempit daripada yang pernah diuji",
+    tajamNote:
+      "Sudut dinding sisinya turun di bawah enam derajat, atau lebar siklusnya kurang dari dua kali tinggi mercunya. Tidak ada percobaan terbitan yang menjangkau bentuk seperti itu. Rumus perlipatan panjang mercu tetap memberi angka, dan angka itu tumbuh tanpa batas begitu siklusnya dirapatkan: enam belas siklus di dalam saluran selebar lima meter memberi perlipatan hampir tiga puluh kali. Labirin yang sebenarnya berhenti di sekitar empat sampai lima kali, karena tirai dari dinding yang berhadapan saling menekan jauh sebelum itu. Angka di lembar ini tidak lagi menggambarkan apa pun. Kurangi siklusnya, perlebar salurannya, atau rendahkan mercunya.",
     bertemuNote:
       "Perbandingan tinggi muka air terhadap tinggi mercu melewati 0,9. Pada keadaan itu tirai yang jatuh dari kedua dinding sisi bertemu di tengah siklus dan saling menekan, sehingga tambahan panjang mercu berhenti memberi tambahan debit. Yang membuat hal ini penting untuk perancangan: labirin dibangun justru untuk melewatkan banjir, dan pada keadaan banjir itulah keunggulannya paling kecil. Angka keuntungan yang dihitung di sini sudah memperhitungkan penurunan koefisiennya, tetapi di atas batas ini penurunannya sendiri tidak lagi dapat dipercaya. Tinggikan mercunya, atau perlebar siklusnya sehingga tirainya punya ruang.",
     note:
@@ -76,6 +79,9 @@ const TXT = {
     rHp: "Ratio of h to P",
     rAngle: "Sidewall angle",
     bertemu: "Nappes from both sides meet",
+    tajam: "The cycle is narrower than anything tested",
+    tajamNote:
+      "The sidewall angle has fallen below six degrees, or the cycle width is under twice the crest height. No published experiment reaches a shape like that. The crest length magnification formula still returns a number, and that number grows without limit as the cycles are packed tighter: sixteen cycles in a five metre channel give nearly thirtyfold magnification. Real labyrinths stop at around four or five, because nappes from facing walls press against each other long before that. The figures on this sheet no longer describe anything. Use fewer cycles, widen the channel, or lower the crest.",
     bertemuNote:
       "The ratio of water level to crest height has passed 0.9. At that point the nappes falling from the two sidewalls meet mid-cycle and press against one another, so added crest length stops adding discharge. What makes this matter for design: a labyrinth is built precisely to pass floods, and it is at flood that its advantage is smallest. The gain computed here already accounts for the falling coefficient, but above this limit that fall itself can no longer be trusted. Raise the crest, or widen the cycles so the nappes have room.",
     note:
@@ -111,6 +117,10 @@ export function BendungLabirinClient() {
   const [B, setB] = useState(6);
 
   const r = labyrinthWeir(h, P, Wch, cycles, B);
+
+  /* Bentuk yang di luar segala percobaan terbitan: siklus terlalu rapat,
+     atau terlalu sempit terhadap tinggi mercunya sendiri. */
+  const sempit = r.sidewallTooSharp || r.cycleTooNarrow;
 
   const ref = useCanvas(
     (ctx, cw, chh) => {
@@ -191,8 +201,8 @@ export function BendungLabirinClient() {
           { x: Wch * 0.5, z: -B * 0.32, length: 0 },
           { x: Wch * 0.84, z: -B * 0.32, length: 0 },
         ],
-        heading: r.interference ? T.nappeMeet : T.planView2,
-        headingColor: r.interference ? C.signal : C.ink3,
+        heading: sempit ? x.tajam : r.interference ? T.nappeMeet : T.planView2,
+        headingColor: sempit || r.interference ? C.signal : C.ink3,
         axisX: T.axHoriz,
         axisZ: T.axHoriz,
       };
@@ -269,11 +279,17 @@ export function BendungLabirinClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.interference ? undefined : C.water} alert={r.interference}>
+              <Flag tint={sempit || r.interference ? undefined : C.water} alert={sempit || r.interference}>
                 {`${fmt(r.gain, 2)} ×`}
               </Flag>
+              {sempit && <Flag alert>{x.tajam}</Flag>}
               {r.interference && <Flag alert>{x.bertemu}</Flag>}
             </div>
+            {sempit && (
+              <div className="mb-2.5">
+                <Note>{x.tajamNote}</Note>
+              </div>
+            )}
             {r.interference && (
               <div className="mb-2.5">
                 <Note>{x.bertemuNote}</Note>
@@ -282,7 +298,7 @@ export function BendungLabirinClient() {
             <ResultTable
               rows={[
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q, 2), unit: "m³/s", tint: C.water, strong: true },
-                { symbol: "—", label: x.rGain, value: fmt(r.gain, 3), unit: "×", tint: r.interference ? C.signal : C.energy, strong: true },
+                { symbol: "—", label: x.rGain, value: fmt(r.gain, 3), unit: "×", tint: sempit || r.interference ? C.signal : C.energy, strong: true },
                 { symbol: "Ql", label: x.rQl, value: fmt(r.QLinear, 2), unit: "m³/s", tint: C.ink3 },
                 { symbol: "L", label: x.rL, value: fmt(r.crestLength, 2), unit: "m", tint: C.critical },
                 { symbol: "L/W", label: x.rMag, value: fmt(r.magnification, 3) },

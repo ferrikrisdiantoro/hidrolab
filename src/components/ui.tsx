@@ -1,6 +1,13 @@
 "use client";
 
-import { ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { getNumberLocale } from "@/lib/hydraulics";
@@ -8,6 +15,27 @@ import { getNumberLocale } from "@/lib/hydraulics";
 /* ------------------------------------------------------------------ *
  * Lembar gambar
  * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ * Penanda kondisi contoh yang sedang dipakai
+ * ------------------------------------------------------------------ *
+ * Menekan tombol kondisi contoh mengubah seluruh masukan sekaligus, dan
+ * sesudah itu tidak ada apa pun di layar yang menyatakan kondisi mana yang
+ * sedang berlaku. Pembaca yang menggeser satu penggeser lalu kembali
+ * beberapa menit kemudian tidak dapat mengetahui apakah yang dilihatnya
+ * masih kondisi contoh atau sudah keadaan buatannya sendiri.
+ *
+ * Yang dipakai di sini satu pencacah bersama di dalam satu blok. Menekan
+ * kondisi contoh mencatat nomor pencacah saat itu; menggeser masukan apa
+ * pun menaikkan pencacahnya. Penandanya menyala selama kedua angka itu
+ * masih sama, jadi ia padam tepat pada geseran pertama sesudahnya. Dengan
+ * begitu penandanya tidak pernah berbohong: ia tidak menyatakan lebih dari
+ * "kondisi ini yang dipasang, dan belum ada yang diubah sejak itu".
+ */
+
+type PresetScope = { gen: number; touch: () => void };
+
+const PresetContext = createContext<PresetScope | null>(null);
 
 export type TitleBlockCell = { label: string; value: string; tint?: string };
 
@@ -126,6 +154,7 @@ export function InputRow({
   onChange: (v: number) => void;
   tint?: string;
 }) {
+  const lingkup = useContext(PresetContext);
   return (
     <tr>
       <td
@@ -142,7 +171,10 @@ export function InputRow({
           max={max}
           step={step}
           value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
+          onChange={(e) => {
+            lingkup?.touch();
+            onChange(parseFloat(e.target.value));
+          }}
           aria-label={label}
           style={
             { "--slider-tint": tint ?? "var(--color-ink)" } as React.CSSProperties
@@ -233,16 +265,22 @@ export function Block({
   children: ReactNode;
   tint?: string;
 }) {
+  const [gen, setGen] = useState(0);
+  const touch = useCallback(() => setGen((g) => g + 1), []);
+  const lingkup = useMemo(() => ({ gen, touch }), [gen, touch]);
+
   return (
-    <section className="border-t border-ink pt-2.5">
-      <h2
-        className="stencil mb-2"
-        style={tint ? { color: tint } : undefined}
-      >
-        {heading}
-      </h2>
-      {children}
-    </section>
+    <PresetContext.Provider value={lingkup}>
+      <section className="border-t border-ink pt-2.5">
+        <h2
+          className="stencil mb-2"
+          style={tint ? { color: tint } : undefined}
+        >
+          {heading}
+        </h2>
+        {children}
+      </section>
+    </PresetContext.Provider>
   );
 }
 
@@ -305,22 +343,66 @@ export function Flag({
 export function PresetRow({
   label,
   presets,
+  /**
+   * Nomor tombol yang menyala, ditentukan lembarnya sendiri.
+   *
+   * Dipakai untuk deret yang menyatakan PILIHAN, misalnya jenis akuifer
+   * atau ada tidaknya tekanan angkat, bukan yang menyatakan satu keadaan
+   * contoh. Pilihan seperti itu tetap berlaku sesudah penggesernya diubah
+   * dan sudah punya nilainya sejak lembar dibuka, jadi lembarnya yang tahu
+   * mana yang menyala, bukan riwayat penekanan tombolnya.
+   */
+  active,
 }: {
   label: string;
   presets: { label: string; apply: () => void }[];
+  active?: number;
 }) {
+  const lingkup = useContext(PresetContext);
+  const [dipakai, setDipakai] = useState<{ i: number; gen: number } | null>(
+    null
+  );
+
+  const menyala = (i: number) =>
+    active !== undefined
+      ? active === i
+      : dipakai !== null &&
+        dipakai.i === i &&
+        dipakai.gen === (lingkup?.gen ?? 0);
+
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
       <span className="stencil">{label}</span>
-      {presets.map((p, i) => (
-        <button
-          key={i}
-          onClick={p.apply}
-          className="label border-b border-rule-strong pb-px text-[0.8rem] text-ink-2 transition-colors hover:border-ink hover:text-ink"
-        >
-          {p.label}
-        </button>
-      ))}
+      {presets.map((p, i) => {
+        const nyala = menyala(i);
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-pressed={nyala}
+            onClick={() => {
+              p.apply();
+              setDipakai({ i, gen: lingkup?.gen ?? 0 });
+            }}
+            className={`label inline-flex items-center gap-1.5 pb-px text-[0.8rem] transition-colors ${
+              nyala
+                ? "border-b-2 border-ink font-semibold text-ink"
+                : "border-b border-rule-strong text-ink-2 hover:border-ink hover:text-ink"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 transition-opacity"
+              style={{
+                background: "var(--color-ink)",
+                transform: "rotate(45deg)",
+                opacity: nyala ? 1 : 0,
+              }}
+            />
+            {p.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

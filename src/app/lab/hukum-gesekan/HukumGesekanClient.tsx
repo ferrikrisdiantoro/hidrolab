@@ -256,7 +256,21 @@ export function HukumGesekanClient() {
                 { symbol: "C", label: x.rC, value: fmt(C_, 3), unit: "m^0,5/s", tint: C.water, strong: true },
                 { symbol: "f", label: x.rF, value: fmt(f, 5), tint: C.energy, strong: true },
                 { symbol: "V", label: x.rV, value: fmt(V, 4), unit: "m/s", tint: C.water },
-                { symbol: "ks", label: x.rKs, value: fmt(ks * 1000, 1), unit: "mm", tint: C.critical },
+                /*
+                 * Satuannya ikut besarnya, karena kekasaran setara Strickler
+                 * berbanding dengan PANGKAT ENAM angka Manning. Angka Manning
+                 * 0,15 memberi butiran setara seribu meter, dan menuliskannya
+                 * sebagai 1.005.176,4 mm membuat angka yang memang sudah tidak
+                 * masuk akal menjadi tidak terbaca pula. Keadaan itu sendiri
+                 * sudah ditandai merah di sebelahnya.
+                 */
+                {
+                  symbol: "ks",
+                  label: x.rKs,
+                  value: ks >= 1 ? fmt(ks, 2) : fmt(ks * 1000, 1),
+                  unit: ks >= 1 ? "m" : "mm",
+                  tint: C.critical,
+                },
                 { symbol: "n′", label: x.rNStrickler, value: fmt(stricklerN(ks), 4) },
                 { symbol: "—", label: x.rRasio, value: fmt(rasio, 4) },
               ]}

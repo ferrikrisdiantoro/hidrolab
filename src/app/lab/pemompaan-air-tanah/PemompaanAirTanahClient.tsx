@@ -342,6 +342,7 @@ export function PemompaanAirTanahClient() {
             <div className="mb-3">
               <PresetRow
                 label={x.mode}
+                active={confined ? 0 : 1}
                 presets={[
                   { label: x.mTertekan, apply: () => setConfined(true) },
                   { label: x.mBebas, apply: () => setConfined(false) },

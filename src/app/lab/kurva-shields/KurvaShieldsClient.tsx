@@ -125,6 +125,15 @@ export function KurvaShieldsClient() {
   const kohesif = d < D_KOHESIF;
   const cadangan = r.thetaCritical > 0 ? r.theta / r.thetaCritical : 0;
 
+  /*
+   * Tegangan geser tak berdimensi membentang dari sepersejuta sampai ratusan
+   * di dalam rentang penggeser lembar ini. Jumlah desimal yang tetap
+   * menuliskan ujung bawahnya sebagai "0,0000", yaitu angka nol untuk besaran
+   * yang bukan nol, dan pengumuman titik di luar diagram menjadi tidak
+   * berguna karena ia mengumumkan angka nol. Yang kecil ditulis berpangkat.
+   */
+  const fTheta = (v: number) => (v > 0 && v < 1e-3 ? fmtSci(v) : fmt(v, 4));
+
   const ref = useCanvas(
     (ctx, w, h) => {
       const ambang: { x: number; y: number }[] = [];
@@ -169,13 +178,16 @@ export function KurvaShieldsClient() {
             },
           ],
           regions: [
-            { x: 3, y: 1.5, text: T.grainMoves, color: C.signal },
+            /* Ungu, warna keadaan kritis, sama dengan kurva ambangnya.
+               Bukan merah sinyal: butir yang bergerak adalah keadaan yang
+               sah, bukan keadaan di luar rentang berlakunya rumus. */
+            { x: 3, y: 1.5, text: T.grainMoves, color: C.critical },
             { x: 400, y: 0.014, text: T.grainRests, color: C.ink3 },
           ],
           point: {
             x: r.dStar,
             y: r.theta,
-            label: `θ ${fmtPlain(r.theta, 4)}`,
+            label: `θ ${fTheta(r.theta)}`,
             invalid: kohesif,
           },
           heading: kohesif ? T.noLawHere : undefined,
@@ -220,7 +232,7 @@ export function KurvaShieldsClient() {
             { label: t.tbUnit, value: "SI (m, Pa)" },
             { label: "d", value: `${fmt(dMm, 2)} mm`, tint: kohesif ? C.signal : undefined },
             { label: "D*", value: fmt(r.dStar, 1) },
-            { label: "θ", value: fmt(r.theta, 4), tint: C.signal },
+            { label: "θ", value: fTheta(r.theta), tint: kohesif ? C.signal : C.critical },
             { label: "θcr", value: fmt(r.thetaCritical, 4), tint: C.critical },
           ]}
         >
@@ -252,7 +264,11 @@ export function KurvaShieldsClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.moving ? undefined : C.water} alert={r.moving}>
+              {/* Merah sinyal disimpan untuk satu penanda saja di lembar ini,
+                  yaitu butir kohesif yang membuat kurva Shields tidak berlaku.
+                  Butir yang bergerak adalah keadaan yang sah dan diberi warna
+                  ungu, sama dengan kurva ambangnya. */}
+              <Flag tint={r.moving ? C.critical : C.water}>
                 {r.moving ? x.bergerak : x.diam}
               </Flag>
               {kohesif && <Flag alert>{x.halus}</Flag>}
@@ -266,11 +282,16 @@ export function KurvaShieldsClient() {
               rows={[
                 { symbol: "τ", label: x.rTau, value: fmt(r.tau, 3), unit: "Pa", tint: C.signal, strong: true },
                 { symbol: "τcr", label: x.rTauCr, value: fmt(r.tauCritical, 3), unit: "Pa", tint: C.critical, strong: true },
-                { symbol: "θ", label: x.rTheta, value: fmt(r.theta, 5), tint: C.signal },
+                { symbol: "θ", label: x.rTheta, value: fTheta(r.theta), tint: kohesif ? C.signal : C.critical },
                 { symbol: "θcr", label: x.rThetaCr, value: fmt(r.thetaCritical, 5), tint: C.critical },
                 { symbol: "D*", label: x.rDstar, value: fmt(r.dStar, 2) },
                 { symbol: "Rcr", label: x.rRcr, value: Number.isFinite(r.RCritical) ? fmt(r.RCritical, 3) : "—", unit: Number.isFinite(r.RCritical) ? "m" : undefined, tint: C.water },
-                { symbol: "τ/τcr", label: x.rCadangan, value: fmt(cadangan, 3), tint: r.moving ? C.signal : undefined },
+                {
+                  symbol: "τ/τcr",
+                  label: x.rCadangan,
+                  value: cadangan > 0 && cadangan < 1e-3 ? fmtSci(cadangan) : fmt(cadangan, 3),
+                  tint: r.moving ? C.critical : undefined,
+                },
               ]}
             />
           </Block>

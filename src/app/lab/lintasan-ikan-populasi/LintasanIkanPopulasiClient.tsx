@@ -138,7 +138,11 @@ export function LintasanIkanPopulasiClient() {
           xMin: 0,
           xMax: r.path[r.path.length - 1].year,
           yMin: 0,
-          yMax: K * 1.08,
+          /* Bidangnya harus memuat populasi awalnya juga. Populasi yang
+             dimulai jauh di atas daya dukungnya dulu tergambar sebagai
+             garis tegak di tepi kiri, karena batas atas bidangnya hanya
+             mengikuti daya dukung. */
+          yMax: Math.max(K, N0) * 1.08,
           axisX: T.axYear,
           axisY: T.axFish,
           series: deret,
@@ -215,8 +219,8 @@ export function LintasanIkanPopulasiClient() {
             <InputTable>
               <InputRow symbol="N₀" label={x.dN0} value={N0} min={100} max={20000} step={100} digits={0} onChange={setN0} />
               <InputRow symbol="K" label={x.dK} value={K} min={500} max={50000} step={500} digits={0} onChange={setK} />
-              <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit="th⁻¹" onChange={setR0} />
-              <InputRow symbol="d" label={x.dD} value={d} min={0.02} max={1} step={0.02} digits={2} unit="th⁻¹" onChange={setD} tint={C.energy} />
+              <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit="y⁻¹" onChange={setR0} />
+              <InputRow symbol="d" label={x.dD} value={d} min={0.02} max={1} step={0.02} digits={2} unit="y⁻¹" onChange={setD} tint={C.energy} />
               <InputRow symbol="p" label={x.dP} value={p * 100} min={0} max={100} step={1} digits={0} unit="%" onChange={(v) => setP(v / 100)} tint={C.water} />
             </InputTable>
 
@@ -256,7 +260,7 @@ export function LintasanIkanPopulasiClient() {
                 { symbol: "p*", label: x.rCrit, value: fmt(r.criticalPassage * 100, 2), unit: "%", tint: C.critical, strong: true },
                 { symbol: "—", label: x.rMargin, value: fmt((p - r.criticalPassage) * 100, 2), unit: "%", tint: r.extinct ? C.signal : undefined },
                 { symbol: "N", label: x.rAkhir, value: fmt(tahunAkhir.population, 1) },
-                { symbol: "t₁₀", label: x.rTenth, value: Number.isFinite(r.yearsToTenth) ? fmt(r.yearsToTenth, 0) : "—", unit: Number.isFinite(r.yearsToTenth) ? (lang === "id" ? "th" : "y") : undefined, tint: Number.isFinite(r.yearsToTenth) ? C.signal : undefined },
+                { symbol: "t₁₀", label: x.rTenth, value: Number.isFinite(r.yearsToTenth) ? fmt(r.yearsToTenth, 0) : "—", unit: Number.isFinite(r.yearsToTenth) ? "y" : undefined, tint: Number.isFinite(r.yearsToTenth) ? C.signal : undefined },
               ]}
             />
           </Block>

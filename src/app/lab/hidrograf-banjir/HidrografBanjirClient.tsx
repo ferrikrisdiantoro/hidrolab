@@ -156,7 +156,17 @@ export function HidrografBanjirClient() {
           xMin: 0,
           xMax: tMax,
           yMin: 0,
-          yMax: qMax,
+          /*
+           * Hujan yang seluruhnya terserap memberi hidrograf nol rata, dan
+           * bidang setinggi nol membuat angka sumbunya menjadi lima baris
+           * "0,000" berturut-turut. Angka nol yang diulang lima kali bukan
+           * keterangan, melainkan kerusakan yang menyamar sebagai keterangan.
+           * Batas atasnya karena itu diberi lantai, dan keadaannya dinyatakan
+           * dengan tulisan alih-alih dibiarkan ditebak dari bidang kosong.
+           */
+          yMax: qMax > 1e-6 ? qMax : 1,
+          heading: r.peak <= 1e-9 ? T.noRunoff : undefined,
+          headingColor: C.signal,
           axisX: T.axTimeHour,
           axisY: T.axFlowRate,
           series: deret,
@@ -208,7 +218,7 @@ export function HidrografBanjirClient() {
             { label: "P", value: `${fmt(P, 0)} mm` },
             { label: "Pe", value: `${fmt(r.effectiveRain, 1)} mm`, tint: C.water },
             { label: "Qp", value: `${fmt(r.peak, 1)} m³/s`, tint: C.water },
-            { label: "tp", value: `${fmt(r.peakTime, 2)} jam`, tint: C.energy },
+            { label: "tp", value: `${fmt(r.peakTime, 2)} h`, tint: C.energy },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -219,10 +229,10 @@ export function HidrografBanjirClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="P" label={x.dP} value={P} min={5} max={400} step={5} digits={0} unit="mm" onChange={setP} tint={C.water} />
-              <InputRow symbol="D" label={x.dDur} value={dur} min={1} max={36} step={1} digits={0} unit="jam" onChange={setDur} />
+              <InputRow symbol="D" label={x.dDur} value={dur} min={1} max={36} step={1} digits={0} unit="h" onChange={setDur} />
               <InputRow symbol="CN" label={x.dCN} value={CN} min={30} max={100} step={1} digits={0} onChange={setCN} tint={C.critical} />
               <InputRow symbol="A" label={x.dA} value={A} min={1} max={1000} step={1} digits={0} unit="km²" onChange={setA} />
-              <InputRow symbol="tc" label={x.dTc} value={tc} min={0.3} max={24} step={0.1} digits={1} unit="jam" onChange={setTc} tint={C.energy} />
+              <InputRow symbol="tc" label={x.dTc} value={tc} min={0.3} max={24} step={0.1} digits={1} unit="h" onChange={setTc} tint={C.energy} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -252,13 +262,13 @@ export function HidrografBanjirClient() {
             <ResultTable
               rows={[
                 { symbol: "Qp", label: x.rPeak, value: fmt(r.peak, 2), unit: "m³/s", tint: C.water, strong: true },
-                { symbol: "tp", label: x.rPeakTime, value: fmt(r.peakTime, 2), unit: "jam", tint: C.energy, strong: true },
+                { symbol: "tp", label: x.rPeakTime, value: fmt(r.peakTime, 2), unit: "h", tint: C.energy, strong: true },
                 { symbol: "Pe", label: x.rPe, value: fmt(r.effectiveRain, 2), unit: "mm", tint: C.water },
                 { symbol: "—", label: x.rLoss, value: fmt(hilang, 2), unit: "mm", tint: C.ink3 },
                 { symbol: "S", label: x.rS, value: fmt(scsStorage(CN), 1), unit: "mm", tint: C.critical },
-                { symbol: "Tp", label: x.rTp, value: fmt(r.tp, 2), unit: "jam" },
+                { symbol: "Tp", label: x.rTp, value: fmt(r.tp, 2), unit: "h" },
                 { symbol: "qp", label: x.rQp, value: fmt(r.qp, 3), unit: "m³/s·mm" },
-                { symbol: "V", label: x.rVol, value: fmt(r.volume / 1e6, 3), unit: "juta m³" },
+                { symbol: "V", label: x.rVol, value: fmt(r.volume / 1e6, 3), unit: T.millionCubic },
                 { symbol: "Dr", label: x.rDepth, value: fmt(r.runoffDepth, 2), unit: "mm" },
               ]}
             />
