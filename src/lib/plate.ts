@@ -670,9 +670,34 @@ export function createLabelPlacer(
     ctx.font = font ?? (spacing > 1 ? F.region : F.labelSm);
     const lebar = stencilWidth(ctx, teks, spacing) + 8;
     const kiri = align === "left" ? 0 : align === "right" ? lebar : lebar / 2;
-    const xx = Math.min(Math.max(x, padL + kiri), padL + plotW - (lebar - kiri));
+    /*
+     * Disisipkan tiga piksel ke dalam bidangnya, bukan ditempelkan tepat di
+     * garis bingkainya. Tulisan yang dijepit tepat di padL berimpit dengan
+     * garis bingkai setebal dua piksel, dan huruf sempit seperti I atau l
+     * hilang seluruhnya tertutup garis itu.
+     */
+    const sisip = 3;
+    const xx = Math.min(
+      Math.max(x, padL + kiri + sisip),
+      padL + plotW - (lebar - kiri) - sisip
+    );
     const x0 = xx - kiri;
     const x1 = x0 + lebar;
+
+    /*
+     * Titik tumpu HURUFNYA, yang tidak sama dengan titik tumpu kotaknya.
+     *
+     * Lebar kotaknya sudah dilebihkan delapan piksel sebagai ruang napas,
+     * dan pada tulisan rata tengah kelebihan itu terbagi rata ke kiri dan
+     * ke kanan dengan sendirinya. Pada tulisan rata kiri tidak: hurufnya
+     * duduk tepat di tepi kotaknya sementara seluruh kelebihan itu jatuh di
+     * sebelah kanan. Akibatnya huruf pertama berada di luar alas putihnya
+     * sendiri, dan huruf sempit seperti I hilang tertelan apa pun yang ada
+     * di belakangnya, biasanya garis bingkai bidangnya.
+     */
+    const napas = 4;
+    const tx =
+      align === "left" ? xx + napas : align === "right" ? xx - napas : xx;
 
     const besar = (font ?? "").includes("15px");
     const naik = besar ? 17 : 7;
@@ -690,7 +715,7 @@ export function createLabelPlacer(
       putar++;
     }
     dipakai.push({ x0, x1, atas: yy - naik, bawah: yy + turun });
-    return { x: xx, y: yy, x0, x1, atas: yy - naik, bawah: yy + turun };
+    return { x: tx, y: yy, x0, x1, atas: yy - naik, bawah: yy + turun };
   };
 
   const alas = (pos: Placed) => {

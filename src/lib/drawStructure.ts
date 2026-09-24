@@ -203,8 +203,21 @@ export function drawStructure(
 
   /* ---------------- kisi dan angka sumbu ---------------- */
 
-  const xStep = niceStep(spanX, 6);
-  const zStep = niceStep(spanZ, 5);
+  /*
+   * Banyaknya angka pada sumbu dihitung dari PIKSEL yang benar-benar
+   * tersedia, bukan dari rentang nilainya.
+   *
+   * Pada skala yang sama di kedua sumbu, bidang yang lebar dan tipis
+   * menyisakan tinggi hanya beberapa puluh piksel, dan lima angka yang
+   * dipaksa masuk ke sana bertindihan menjadi satu gumpalan yang tidak
+   * dapat dibaca. Angka sumbu yang tidak terbaca lebih buruk daripada
+   * angka sumbu yang jarang, karena yang pertama menyamar sebagai
+   * keterangan sedangkan yang kedua jujur mengakui ruangnya sempit.
+   */
+  const sasaranX = Math.max(2, Math.min(6, Math.round(lebarPakai / 92)));
+  const sasaranZ = Math.max(2, Math.min(5, Math.round(tinggiPakai / 46)));
+  const xStep = niceStep(spanX, sasaranX);
+  const zStep = niceStep(spanZ, sasaranZ);
   const xs: number[] = [];
   const zs: number[] = [];
   for (let v = Math.ceil(s.xMin / xStep) * xStep; v <= s.xMax + 1e-9; v += xStep)
@@ -494,3 +507,5 @@ function panah(
   );
   ctx.stroke();
 }
+
+export { bendGeometry, bendPlan } from "./bendPlan";

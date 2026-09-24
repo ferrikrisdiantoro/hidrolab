@@ -46,6 +46,12 @@ const TXT = {
     tenggelamNote:
       "Muka air hilir melampaui kedalaman lawan loncatan dari vena contracta. Loncatan air yang seharusnya terbentuk di hilir pintu terdorong balik dan menenggelamkan bukaannya. Sejak titik itu debitnya tidak lagi ditentukan oleh kedalaman hulu sendirian melainkan oleh selisih muka air hulu dan hilir, dan kepekaan pintu sebagai alat ukur menjadi jauh lebih buruk: selisih dua meter pada muka air hilir mengubah debit lebih banyak daripada selisih dua meter pada muka air hulu. Pintu yang dipakai untuk mengukur debit karena itu harus dipastikan bekerja bebas.",
     diAtasAir: "Bukaan melebihi kedalaman hulu",
+    terbalik: "Muka air hilir melampaui muka air hulu",
+    terdorong: "Loncatan terdorong ke hilir",
+    terdorongNote:
+      "Muka air hilir masih di bawah kedalaman lawan loncatan, jadi loncatannya tidak dapat berdiri tepat di hilir pintu. Ia terdorong ke hilir sampai gesekan dasar menaikkan kedalaman alirannya cukup untuk mengimbangi, dan jaraknya bergantung pada kemiringan serta kekasaran saluran di hilir, yang tidak dihitung lembar ini. Letak loncatan pada gambar karena itu hanya menyatakan bahwa ia ada di suatu tempat di hilir, bukan bahwa ia ada di titik itu. Yang penting bagi rancangan: lantai olakan harus cukup panjang untuk memuat loncatan di tempat terjauhnya, bukan di tempat terdekatnya.",
+    terbalikNote:
+      "Muka air hilir sudah mencapai atau melewati muka air hulu, jadi tidak ada lagi beda tinggi yang mendorong air melewati pintunya. Debitnya nol, dan bila muka air hilir dinaikkan lagi airnya justru mengalir ke arah sebaliknya. Seluruh lembar ini menganggap alirannya dari hulu ke hilir, jadi angka-angkanya tidak berlaku di sini. Gaya pada daun pintunya memang berbalik tanda, karena sekarang air hilir yang menekan pintu ke arah hulu, dan itu keadaan yang justru perlu diperiksa sendiri saat merancang batang pengangkatnya: pintu yang hanya dihitung untuk tekanan dari satu arah dapat tertekuk saat banjir hilir naik lebih cepat daripada hulunya.",
     diAtasAirNote:
       "Bukaan pintu lebih besar daripada kedalaman air di hulunya, jadi daun pintunya berada seluruhnya di atas muka air dan tidak menyentuh aliran sama sekali. Yang ada di sana saluran terbuka biasa, bukan pintu, dan tidak ada debit pintu untuk dihitung. Turunkan bukaannya di bawah kedalaman hulu.",
     note:
@@ -73,6 +79,12 @@ const TXT = {
     tenggelamNote:
       "The tailwater exceeds the conjugate depth of the jump from the vena contracta. The hydraulic jump that should form downstream of the gate is pushed back and drowns the opening. From that point the discharge is no longer set by the upstream depth alone but by the difference between upstream and downstream levels, and the gate becomes far worse as a measuring device: two metres of change downstream now alters the discharge more than two metres of change upstream. A gate used to measure discharge must therefore be kept in free flow.",
     diAtasAir: "Opening exceeds the upstream depth",
+    terbalik: "The tailwater has risen above the headwater",
+    terdorong: "The jump is swept downstream",
+    terdorongNote:
+      "The tailwater is still below the conjugate depth, so the jump cannot stand just downstream of the gate. It is swept downstream until bed friction has raised the depth enough to balance it, and how far depends on the slope and roughness of the channel below, which this sheet does not compute. The position of the jump in the drawing therefore says only that it exists somewhere downstream, not that it stands at that point. What matters for design: the stilling basin must be long enough to hold the jump at its farthest position, not its nearest.",
+    terbalikNote:
+      "The downstream level has reached or passed the upstream level, so no head difference is left to drive water through the gate. The discharge is zero, and raising the tailwater further would drive the flow the other way. This whole sheet assumes flow from upstream to downstream, so its numbers do not apply here. The force on the leaf does reverse sign, because the tailwater now pushes the gate upstream, and that is a case worth checking on its own when sizing the hoist stem: a gate computed for pressure from one side only can buckle when a downstream flood rises faster than the upstream one.",
     diAtasAirNote:
       "The gate opening is larger than the depth of water upstream, so the gate leaf stands entirely above the surface and does not touch the flow at all. What is there is an ordinary open channel, not a gate, and there is no gate discharge to compute. Lower the opening below the upstream depth.",
     note:
@@ -109,12 +121,44 @@ export function PintuSorongClient() {
 
   const r = sluiceGate(y1, a, b, y3, Cc);
   const takAda = "—";
+  /*
+   * Dua keadaan yang sama-sama membuat seluruh angka lembar ini tidak
+   * berlaku: pintu yang terangkat seluruhnya di atas air, dan muka air hilir
+   * yang sudah melampaui muka air hulu. Keduanya diperlakukan sama di
+   * tampilannya, dan hanya nama serta keterangannya yang berbeda.
+   */
+  const mati = r.gateAboveWater || r.reversed;
+  /*
+   * Loncatan hanya dapat berdiri tepat di hilir pintu bila muka air hilir
+   * sudah mencapai kedalaman lawannya. Di bawah itu ia terdorong ke hilir
+   * sejauh yang ditentukan gesekan dasar saluran, yaitu sesuatu yang tidak
+   * dihitung lembar ini. Gambarnya boleh tetap memperlihatkan loncatan, asal
+   * lembarnya berterus terang bahwa letaknya belum tentu di situ.
+   */
+  const terdorong = !mati && !r.submerged && y3 < r.yConjugate;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
       const xKiri = -Math.max(y1 * 2.2, 3);
       const xKanan = Math.max(y1 * 2.6, 4);
       const tebalPintu = Math.max(y1 * 0.035, 0.06);
+
+      /*
+       * Letak mendatar keempat tanda hilir DIPATOK PADA BIDANGNYA, bukan pada
+       * kelipatan bukaan pintunya.
+       *
+       * Sebelumnya vena contracta berada di 2,2a dan loncatannya membentang
+       * dari 5a sampai 8,5a. Itu berjalan selama bukaannya kecil, yaitu satu
+       * satunya bukaan yang pernah dicoba saat lembarnya ditulis. Pada bukaan
+       * dua setengah meter keempatnya sudah jauh di luar bidang gambar, jadi
+       * loncatannya tidak pernah tergambar sama sekali dan muka airnya
+       * tinggal melandai lurus tanpa arti. Sekarang jaraknya tetap mengikuti
+       * bukaannya selama masih masuk, lalu ditahan di batas bidangnya.
+       */
+      const xVena = Math.min(Math.max(a * 2.2, tebalPintu * 6), xKanan * 0.22);
+      const xVenaAkhir = Math.min(Math.max(a * 5, xVena * 1.6), xKanan * 0.38);
+      const xLoncatAwal = terdorong ? xKanan * 0.72 : xKanan * 0.5;
+      const xLoncatAkhir = terdorong ? xKanan * 0.88 : xKanan * 0.68;
 
       // Daun pintu: bidang tegak dari bukaan ke atas muka air.
       const daun: { x: number; z: number }[] = [
@@ -131,7 +175,17 @@ export function PintuSorongClient() {
             { x: xKiri, z: y1 },
             { x: xKanan, z: y1 },
           ]
-        : r.submerged
+        : r.reversed
+          ? /* Sengaja digambar apa adanya: muka air hilir yang duduk lebih
+               tinggi daripada muka air hulu adalah seluruh sebab keadaan ini
+               tidak berlaku, jadi justru itulah yang harus terlihat. */
+            [
+              { x: xKiri, z: y1 },
+              { x: -tebalPintu, z: y1 },
+              { x: tebalPintu * 3, z: y3 },
+              { x: xKanan, z: y3 },
+            ]
+          : r.submerged
           ? [
               { x: xKiri, z: y1 },
               { x: -tebalPintu, z: y1 * 0.99 },
@@ -142,10 +196,10 @@ export function PintuSorongClient() {
               { x: xKiri, z: y1 },
               { x: -tebalPintu, z: y1 * 0.98 },
               { x: tebalPintu, z: r.y2 * 1.35 },
-              { x: a * 2.2, z: r.y2 },
-              { x: a * 5, z: r.y2 },
-              { x: a * 6.5, z: r.yConjugate * 0.75 },
-              { x: a * 8.5, z: r.yConjugate },
+              { x: xVena, z: r.y2 },
+              { x: xVenaAkhir, z: r.y2 },
+              { x: xLoncatAwal, z: r.yConjugate * 0.75 },
+              { x: xLoncatAkhir, z: r.yConjugate },
               { x: xKanan, z: Math.max(r.yConjugate, y3) },
             ];
 
@@ -153,7 +207,7 @@ export function PintuSorongClient() {
         xMin: xKiri,
         xMax: xKanan,
         zMin: -y1 * 0.12,
-        zMax: y1 * 1.35,
+        zMax: Math.max(y1, r.reversed ? y3 : 0) * 1.35,
         bodies: [
           { pts: daun, color: C.ink },
           {
@@ -172,26 +226,34 @@ export function PintuSorongClient() {
               { x: xKanan, z: 0 },
               { x: xKiri, z: 0 },
             ],
-            invalid: r.gateAboveWater,
+            invalid: mati,
           },
         ],
-        lines: r.gateAboveWater
+        lines: mati
           ? []
           : [
               {
                 pts: [
-                  { x: a * 2.2, z: r.yConjugate },
+                  { x: xLoncatAwal, z: r.yConjugate },
                   { x: xKanan, z: r.yConjugate },
                 ],
                 color: C.critical,
                 weight: W.thin,
                 dash: DASH.phantom,
+                /*
+                 * Labelnya di UJUNG KANAN garisnya, bukan di pangkalnya.
+                 * Di pangkalnya ia berebut ruang dengan nama vena contracta
+                 * pada bukaan kecil, yang loncatannya dangkal sehingga
+                 * keduanya jatuh pada ketinggian yang hampir sama dan
+                 * terbaca sebagai satu baris tulisan.
+                 */
                 label: `y₂′ ${fmtPlain(r.yConjugate, 2)} m`,
-                labelAt: 0.15,
+                labelAt: 0.88,
                 labelDy: -10,
+                labelAlign: "right",
               },
             ],
-        dims: r.gateAboveWater
+        dims: mati
           ? []
           : [
               {
@@ -203,24 +265,41 @@ export function PintuSorongClient() {
                 color: C.water,
               },
               {
+                /*
+                 * Ukuran bukaannya ditaruh di sisi HULU pintunya. Di sisi
+                 * hilir ia berebut ruang dengan nama vena contracta, dan
+                 * pada bukaan besar keduanya benar-benar bertindihan.
+                 */
                 axis: "v",
-                at: tebalPintu * 4,
+                at: -tebalPintu * 4,
                 from: 0,
                 to: a,
                 text: `a ${fmtPlain(a, 2)} m`,
                 color: C.ink,
               },
             ],
-        callouts: r.gateAboveWater
+        callouts: mati
           ? []
           : [
               {
-                x: a * 2.2,
+                /*
+                 * Namanya menunjuk KE ATAS, ke ruang kosong di antara muka
+                 * air dan garis kedalaman lawan loncatannya. Menunjuk ke
+                 * bawah menaruhnya di bawah garis dasar, yaitu di dalam
+                 * tanah, karena vena contracta memang dangkal.
+                 *
+                 * Warnanya tinta biasa: vena contracta keadaan yang sehat,
+                 * dan merah sinyal hanya untuk yang di luar rentang berlaku.
+                 * Menjulurnya KE KANAN, ke arah hilir. Menjulur ke kiri
+                 * membawanya kembali melintasi ukuran bukaan pintunya,
+                 * karena namanya panjang sedangkan vena contracta duduk
+                 * dekat sekali dengan pintunya.
+                 */
+                x: xVena,
                 z: r.y2,
-                dx: -8,
-                dy: -34,
+                dx: 16,
+                dy: -30,
                 text: T.venaSection,
-                color: C.signal,
               },
               {
                 x: 0,
@@ -230,13 +309,23 @@ export function PintuSorongClient() {
                 text: T.gateLeaf,
               },
             ],
-        arrows: r.gateAboveWater ? [] : [{ x: xKiri * 0.7, z: y1 * 0.45, length: 26 }],
+        arrows: mati ? [] : [{ x: xKiri * 0.7, z: y1 * 0.45, length: 26 }],
         heading: r.gateAboveWater
           ? x.diAtasAir
-          : r.submerged
-            ? T.submergedGate
-            : undefined,
-        headingColor: C.signal,
+          : r.reversed
+            ? x.terbalik
+            : r.submerged
+              ? T.submergedGate
+              : terdorong
+                ? x.terdorong
+                : undefined,
+        /*
+         * Merah sinyal hanya untuk kedua keadaan yang di luar rentang
+         * berlaku. Pintu tenggelam keadaan kerja yang sah, cuma buruk
+         * sebagai alat ukur, jadi warnanya ungu kritis seperti perubahan
+         * rezim di lembar-lembar lain.
+         */
+        headingColor: mati ? C.signal : C.critical,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
       };
@@ -255,16 +344,16 @@ export function PintuSorongClient() {
         lang === "id" ? (
           <p>
             Koefisien debitnya tidak perlu dicari di tabel: ia turun seluruhnya
-            dari <Term tint={C.signal}>satu koefisien kontraksi</Term>. Dan gaya
+            dari <Term tint={C.water}>satu koefisien kontraksi</Term>. Dan gaya
             pada daun pintunya bukan tekanan hidrostatis, melainkan{" "}
-            <Term tint={C.energy}>selisih momentum</Term>.
+            <Term tint={C.critical}>selisih momentum</Term>.
           </p>
         ) : (
           <p>
             The discharge coefficient need not be looked up: it follows entirely
-            from <Term tint={C.signal}>one contraction coefficient</Term>. And
+            from <Term tint={C.water}>one contraction coefficient</Term>. And
             the force on the gate leaf is not hydrostatic pressure but a{" "}
-            <Term tint={C.energy}>difference of momentum</Term>.
+            <Term tint={C.critical}>difference of momentum</Term>.
           </p>
         )
       }
@@ -276,11 +365,11 @@ export function PintuSorongClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "a/y₁", value: fmt(a / y1, 3), tint: r.gateAboveWater ? C.signal : undefined },
-            { label: "Cd", value: r.gateAboveWater ? takAda : fmt(r.Cd, 3) },
-            { label: "Q", value: r.gateAboveWater ? takAda : `${fmt(r.Q, 2)} m³/s`, tint: C.water },
+            { label: "Cd", value: mati ? takAda : fmt(r.Cd, 3) },
+            { label: "Q", value: mati ? takAda : `${fmt(r.Q, 2)} m³/s`, tint: C.water },
             {
               label: "F",
-              value: r.gateAboveWater ? takAda : `${fmt(r.gateForce / 1000, 1)} kN/m`,
+              value: mati ? takAda : `${fmt(r.gateForce / 1000, 1)} kN/m`,
               tint: C.energy,
             },
           ]}
@@ -295,7 +384,7 @@ export function PintuSorongClient() {
               <InputRow symbol="y₁" label={x.dY1} value={y1} min={0.2} max={12} step={0.1} digits={1} unit="m" onChange={setY1} tint={C.water} />
               <InputRow symbol="a" label={x.dA} value={a} min={0.02} max={6} step={0.02} digits={2} unit="m" onChange={setA} />
               <InputRow symbol="b" label={x.dB} value={b} min={0.5} max={30} step={0.5} digits={1} unit="m" onChange={setB} />
-              <InputRow symbol="y₃" label={x.dY3} value={y3} min={0.02} max={12} step={0.02} digits={2} unit="m" onChange={setY3} tint={C.signal} />
+              <InputRow symbol="y₃" label={x.dY3} value={y3} min={0.02} max={12} step={0.02} digits={2} unit="m" onChange={setY3} tint={C.water} />
               <InputRow symbol="Cc" label={x.dCc} value={Cc} min={0.55} max={0.75} step={0.005} digits={3} onChange={setCc} />
             </InputTable>
 
@@ -313,39 +402,53 @@ export function PintuSorongClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              {!r.gateAboveWater && (
-                <Flag tint={r.submerged ? undefined : C.water} alert={r.submerged}>
+              {!mati && (
+                <Flag tint={r.submerged ? C.critical : C.water}>
                   {`${fmt(r.Q, 2)} m³/s`}
                 </Flag>
               )}
-              {r.submerged && <Flag alert>{x.tenggelam}</Flag>}
+              {!mati && r.submerged && (
+                <Flag tint={C.critical}>{x.tenggelam}</Flag>
+              )}
+              {terdorong && <Flag tint={C.critical}>{x.terdorong}</Flag>}
               {r.gateAboveWater && <Flag alert>{x.diAtasAir}</Flag>}
+              {r.reversed && <Flag alert>{x.terbalik}</Flag>}
             </div>
             {r.gateAboveWater && (
               <div className="mb-2.5">
                 <Note>{x.diAtasAirNote}</Note>
               </div>
             )}
-            {r.submerged && (
+            {r.reversed && (
+              <div className="mb-2.5">
+                <Note>{x.terbalikNote}</Note>
+              </div>
+            )}
+            {terdorong && (
+              <div className="mb-2.5">
+                <Note>{x.terdorongNote}</Note>
+              </div>
+            )}
+            {!mati && r.submerged && (
               <div className="mb-2.5">
                 <Note>{x.tenggelamNote}</Note>
               </div>
             )}
             <ResultTable
               rows={[
-                { symbol: "Q", label: x.rQ, value: r.gateAboveWater ? takAda : fmt(r.Q, 3), unit: r.gateAboveWater ? undefined : "m³/s", tint: C.water, strong: true },
-                { symbol: "Cd", label: x.rCd, value: r.gateAboveWater ? takAda : fmt(r.Cd, 4), strong: true },
-                { symbol: "y₂", label: x.rY2, value: r.gateAboveWater ? takAda : fmt(r.y2, 4), unit: r.gateAboveWater ? undefined : "m", tint: C.signal },
-                { symbol: "y₂′", label: x.rYc, value: r.gateAboveWater ? takAda : fmt(r.yConjugate, 4), unit: r.gateAboveWater ? undefined : "m", tint: C.critical },
-                { symbol: "Fr₂", label: x.rFr2, value: r.gateAboveWater ? takAda : fmt(r.Fr2, 3) },
-                { symbol: "F", label: x.rGaya, value: r.gateAboveWater ? takAda : fmt(r.gateForce / 1000, 3), unit: r.gateAboveWater ? undefined : "kN/m", tint: C.energy },
-                { symbol: "Ftot", label: x.rGayaTotal, value: r.gateAboveWater ? takAda : fmt((r.gateForce * b) / 1000, 2), unit: r.gateAboveWater ? undefined : "kN", tint: C.energy },
+                { symbol: "Q", label: x.rQ, value: mati ? takAda : fmt(r.Q, 3), unit: mati ? undefined : "m³/s", tint: C.water, strong: true },
+                { symbol: "Cd", label: x.rCd, value: mati ? takAda : fmt(r.Cd, 4), strong: true },
+                { symbol: "y₂", label: x.rY2, value: mati ? takAda : fmt(r.y2, 4), unit: mati ? undefined : "m", tint: C.water },
+                { symbol: "y₂′", label: x.rYc, value: mati ? takAda : fmt(r.yConjugate, 4), unit: mati ? undefined : "m", tint: C.critical },
+                { symbol: "Fr₂", label: x.rFr2, value: mati ? takAda : fmt(r.Fr2, 3) },
+                { symbol: "F", label: x.rGaya, value: mati ? takAda : fmt(r.gateForce / 1000, 3), unit: mati ? undefined : "kN/m", tint: C.energy },
+                { symbol: "Ftot", label: x.rGayaTotal, value: mati ? takAda : fmt((r.gateForce * b) / 1000, 2), unit: mati ? undefined : "kN", tint: C.energy },
               ]}
             />
           </Block>
 
           <Block heading={t.blkNotice}>
-            <Note>{notice(y1, a, b, y3, Cc, r.gateForce, r.gateAboveWater, r.submerged, lang)}</Note>
+            <Note>{notice(y1, a, b, y3, Cc, r.gateForce, mati, r.submerged, lang)}</Note>
           </Block>
         </>
       }

@@ -119,6 +119,27 @@ import {
   wakeTimeTo,
   waterViscosity,
   wellDrawdownAt,
+  ATM_HEAD,
+  FALKNER_SKAN_SEPARATION,
+  HYDROSTATIC_TOLERANCE,
+  MEANDER_PEAK_RATIO,
+  acceleration,
+  advectionDiffusion,
+  curvaturePressure,
+  deformation,
+  ductEnergy,
+  falknerSkan,
+  flowLines,
+  fmtPlain,
+  linearWave,
+  meanderPath,
+  momentumForce,
+  reynoldsExperiment,
+  riverHabitat,
+  shoal,
+  vortexPair,
+  vortexStreet,
+  type DuctStation,
 } from "./hydraulics.ts";
 
 /**
@@ -5774,6 +5795,1615 @@ export function checksSleep(
       actual: !r.restricted
         ? 1
         : r.Swake > bebas.Swake && r.Swake < 1
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+/* ================================================================== *
+ * Pekan keempat: dasar fluida, aliran bertekanan, fisika fluida
+ * ================================================================== */
+
+export function checksDuct(
+  Q: number,
+  stations: DuctStation[],
+  totalHead: number,
+  f: number
+): Check[] {
+  const r = ductEnergy(Q, stations, totalHead, f);
+  const akhir = r.points[r.points.length - 1];
+  const naik = ductEnergy(
+    Q,
+    stations.map((s) => ({ ...s, z: s.z + 5 })),
+    totalHead,
+    f
+  );
+  /*
+   * Batas Bernoulli yang SEBENARNYA: bukan hanya gesekannya yang dimatikan,
+   * melainkan juga kehilangan setempat dan pompanya. Mematikan gesekannya
+   * saja menyisakan anak tangga di setiap katup, dan tinggi energi di
+   * hilirnya memang tidak akan sama dengan di hulunya. Pemeriksaan yang
+   * menuntutnya sama di situ akan gagal di layar klien pada setiap pipa yang
+   * punya perlengkapan, padahal pipanya benar.
+   */
+  const halus = ductEnergy(
+    Q,
+    stations.map((s) => ({ ...s, K: 0, pump: 0 })),
+    totalHead,
+    0
+  );
+
+  return [
+    {
+      label: {
+        id: "Ketiga tinggi tekannya berjumlah tinggi energi di setiap penampang",
+        en: "The three heads sum to the total head at every station",
+      },
+      source: "Persamaan Bernoulli, z + p/γ + V²/2g = H",
+      kind: "sifat",
+      expected: akhir.egl,
+      actual: akhir.z + akhir.pressureHead + akhir.velocityHead,
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Tinggi energi di hulu dikurangi seluruh kehilangan sama dengan tinggi energi di hilir",
+        en: "Upstream head less all losses equals the downstream head",
+      },
+      source: "Kekekalan tenaga sepanjang salurannya",
+      kind: "pulang-pergi",
+      expected: akhir.egl,
+      actual: totalHead - r.frictionLoss - r.minorLoss + r.pumpHead,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Menaikkan seluruh pipanya lima meter menurunkan tinggi tekannya lima meter, tepat",
+        en: "Raising the whole pipe five metres lowers the pressure head by exactly five",
+      },
+      /*
+       * Elevasi ditukar tinggi tekan satu meter lawan satu meter, dan tinggi
+       * energinya tidak bergeser sedikit pun. Itu sebabnya pipa yang naik
+       * terlalu tinggi kehabisan tekanan, bukan kehabisan tenaga.
+       */
+      source: "Pertukaran suku elevasi dan suku tekanan",
+      kind: "sifat",
+      expected: 5,
+      actual: akhir.pressureHead - naik.points[naik.points.length - 1].pressureHead,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Garis energi tidak pernah naik tanpa pompa",
+        en: "The energy line never rises without a pump",
+      },
+      source: "Hukum kedua termodinamika pada aliran tanpa kerja luar",
+      kind: "sifat",
+      expected: 1,
+      actual: r.pumpHead > 0 || !r.energyRises ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Tanpa gesekan dan tanpa perlengkapan, tinggi energinya tetap di sepanjang salurannya",
+        en: "Without friction and without fittings the total head stays constant along the duct",
+      },
+      source: "Bernoulli tanpa kehilangan sama sekali",
+      kind: "silang",
+      expected: totalHead,
+      actual: halus.points[halus.points.length - 1].egl,
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kehilangan gesekan berbanding lurus dengan panjang salurannya",
+        en: "Friction loss is proportional to the length of the duct",
+      },
+      source: "Darcy-Weisbach, hf = f L V²/(2 g D)",
+      kind: "perilaku",
+      expected: 1,
+      actual: (() => {
+        if (f <= 0 || stations.length < 2) return 1;
+        const panjang = stations.map((s, i) => ({
+          ...s,
+          x: stations[0].x + (s.x - stations[0].x) * 2,
+        }));
+        const dua = ductEnergy(Q, panjang, totalHead, f);
+        return Math.abs(dua.frictionLoss / r.frictionLoss - 2) < 1e-9 ? 1 : 0;
+      })(),
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Tinggi tekan atmosfer baku sepuluh koma tiga meter kolom air",
+        en: "Standard atmospheric head is 10.3 metres of water",
+      },
+      source: "101,325 kPa dibagi berat jenis air",
+      kind: "terbitan",
+      expected: 10.33,
+      actual: ATM_HEAD,
+      tol: 0.005,
+      unit: "m",
+      digits: 3,
+    },
+  ];
+}
+
+export function checksMomentum(
+  Q: number,
+  D1: number,
+  D2: number,
+  head1: number,
+  angleDeg: number
+): Check[] {
+  const r = momentumForce(Q, D1, D2, head1, angleDeg);
+  const siku = momentumForce(Q, D1, D2, head1, 90);
+  const balik = momentumForce(Q, D1, D2, head1, 180);
+  const lurus = momentumForce(Q, D1, D2, head1, 0);
+
+  return [
+    {
+      label: {
+        id: "Membalik arah sepenuhnya menuntut akar dua kali gaya belokan siku",
+        en: "Reversing the flow demands the square root of two times the elbow force",
+      },
+      /*
+       * Bukan sudutnya yang menentukan melainkan perubahan vektornya.
+       * Belokan siku memberi dua komponen yang sama besar dan tegak lurus;
+       * pembalikan penuh memberi satu komponen yang dua kali lipat.
+       */
+      /*
+       * Hanya berlaku pada penampang yang TIDAK berubah. Begitu penampang
+       * keluarnya berbeda, laju aliran momentum dan gaya tekanan di kedua
+       * ujungnya tidak lagi sama besar, dan nisbahnya bergeser. Menuntut
+       * akar dua di situ akan menuntut sifat yang memang bukan miliknya.
+       */
+      source: "Selisih vektor laju aliran momentum pada penampang yang sama",
+      kind: "sifat",
+      expected: Math.SQRT2,
+      actual:
+        Math.abs(D1 - D2) > 1e-12
+          ? Math.SQRT2
+          : siku.resultant > 0
+            ? balik.resultant / siku.resultant
+            : Math.SQRT2,
+      tol: 1e-9,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Gaya tekanan dan laju aliran momentum berjumlah resultannya",
+        en: "The pressure force and the momentum flux sum to the resultant",
+      },
+      source: "Kekekalan momentum pada volume kendalinya",
+      kind: "pulang-pergi",
+      expected: r.resultant,
+      actual: Math.hypot(r.Fx, r.Fy),
+      tol: 1e-12,
+      unit: "N",
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Kehilangan pembesaran mendadak memakai kuadrat selisih kecepatannya",
+        en: "The sudden expansion loss uses the square of the velocity difference",
+      },
+      /*
+       * Bukan selisih kuadratnya. Keduanya sering tertukar dan selisihnya
+       * besar: pada pembesaran dua kali garis tengah, yang satu memberi
+       * empat kali yang lain.
+       */
+      source: "Borda (1766) dan Carnot (1783), hL = (V1 − V2)²/2g",
+      kind: "terbitan",
+      expected: D2 > D1 ? ((r.velocity1 - r.velocity2) ** 2) / (2 * G) : 0,
+      actual: r.expansionLoss,
+      tol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Pembesaran penampang menaikkan tekanan meskipun energinya hilang",
+        en: "An expansion raises the pressure even though energy is lost",
+      },
+      source: "Perilaku yang harus berlaku: kecepatan yang lepas melebihi tekanan yang didapat",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        D2 > D1
+          ? r.pressureRises && r.expansionLoss > 0
+            ? 1
+            : 0
+          : D2 < D1
+            ? !r.pressureRises
+              ? 1
+              : 0
+            : 1,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Belokan lurus tidak membelokkan apa pun, jadi gayanya sejajar pipanya",
+        en: "A straight run turns nothing, so its force is along the pipe",
+      },
+      source: "Sifat yang harus berlaku pada sudut nol",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.abs(lurus.Fy),
+      tol: 0,
+      absTol: 1e-9,
+      unit: "N",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Suku tekanan menguasai suku momentum pada pipa air bertekanan",
+        en: "The pressure term dominates the momentum term in a pressurised water pipe",
+      },
+      /*
+       * Pipa garis tengah setengah meter bertekanan sepuluh bar
+       * mengalirkan air pada tiga meter per detik: gaya tekanannya seratus
+       * sembilan puluh enam kilonewton, gaya momentumnya lima koma tiga
+       * kilonewton. Angkur belokan pipa karena itu ditentukan tekanannya,
+       * dan pipa yang diuji bertekanan sementara airnya diam tetap menuntut
+       * angkur yang sama besarnya.
+       *
+       * Nisbah bagian tekanannya sendiri tidak dibatasi satu, dan memang
+       * boleh melampauinya: pada belokan tanpa tekanan yang penampangnya
+       * mengecil, suku tekanan dan suku momentum sebagian saling menghapus,
+       * sehingga gaya tekanan sendirian lebih besar daripada gabungannya.
+       */
+      source: "Perbandingan besar kedua suku pada pipa rancangan yang lazim",
+      kind: "perilaku",
+      expected: 1,
+      actual: (() => {
+        /*
+         * Diperiksa pada pipa rancangan yang tetap, bukan pada letak
+         * penggeser yang sedang dipakai. Penggeser lembar ini dapat
+         * memberi kecepatan enam belas meter per detik di dalam pipa dua
+         * ratus milimeter, dan di situ suku momentumnya memang sudah
+         * sebanding dengan suku tekanannya. Pipa air sungguhan tidak
+         * pernah dirancang secepat itu.
+         */
+        const lazim = momentumForce(
+          0.59, 0.5, 0.5, 100, 90
+        );
+        const cukup = lazim.pressureForce1 > 20 * lazim.momentumIn;
+        return cukup && Number.isFinite(r.pressureShare) && r.pressureShare >= 0
+          ? 1
+          : 0;
+      })(),
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksCurvature(
+  V: number,
+  depth: number,
+  radius: number
+): Check[] {
+  const r = curvaturePressure(V, depth, radius);
+  const lain = curvaturePressure(V, depth * 3, radius);
+  const lurus = curvaturePressure(V, depth, 1e9);
+
+  return [
+    {
+      label: {
+        id: "Simpangan nisbinya hanya kecepatan kuadrat dibagi g kali jari-jari",
+        en: "The relative departure is just the velocity squared over g times the radius",
+      },
+      /*
+       * Kedalamannya lenyap dari perbandingannya, dan itu yang membuat satu
+       * angka saja cukup untuk menilai apakah anggapan hidrostatis masih
+       * boleh dipakai, pada sungai sedalam apa pun.
+       */
+      source: "Percepatan menuju pusat lengkung, Δp = ρ V² d / R",
+      kind: "sifat",
+      expected: (V * V) / (G * Math.abs(radius)),
+      actual: r.ratio,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Simpangan nisbinya tidak berubah ketika kedalamannya dilipattigakan",
+        en: "The relative departure does not change when the depth is trebled",
+      },
+      source: "Akibat langsung lenyapnya kedalaman dari perbandingannya",
+      kind: "silang",
+      expected: r.ratio,
+      actual: lain.ratio,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Garis arus lurus memulangkan sebaran hidrostatis",
+        en: "Straight streamlines return the hydrostatic distribution",
+      },
+      source: "Batas jari-jari lengkung menuju tak hingga",
+      kind: "silang",
+      expected: lurus.hydrostatic,
+      actual: lurus.actual,
+      tol: 1e-6,
+      unit: "kPa",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Garis arus cembung ke atas menurunkan tekanan di dasar",
+        en: "Streamlines convex upward lower the pressure at the bed",
+      },
+      source: "Arah percepatan menuju pusat lengkungnya",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.convex ? (r.deviation < 0 ? 1 : 0) : r.deviation > 0 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Tekanan sebenarnya adalah hidrostatis ditambah simpangannya",
+        en: "The actual pressure is the hydrostatic one plus the departure",
+      },
+      source: "Penguraian yang dipakai lembar ini",
+      kind: "pulang-pergi",
+      expected: r.actual,
+      actual: r.hydrostatic + r.deviation,
+      tol: 1e-12,
+      unit: "kPa",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Anggapan hidrostatis dinyatakan tidak berlaku tepat pada ambangnya",
+        en: "The hydrostatic assumption is declared invalid exactly at its threshold",
+      },
+      source: `Ambang simpangan ${fmtPlain(HYDROSTATIC_TOLERANCE * 100, 0)} persen`,
+      kind: "perilaku",
+      expected: 1,
+      actual: r.hydrostaticValid === r.ratio <= HYDROSTATIC_TOLERANCE ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksFlowLines(
+  U: number,
+  V: number,
+  omega: number,
+  t: number
+): Check[] {
+  const r = flowLines(U, V, omega, t);
+  const tunak = flowLines(U, V, 0, t);
+
+  return [
+    {
+      label: {
+        id: "Ketiga garisnya berimpit tepat ketika alirannya tunak",
+        en: "The three lines coincide exactly when the flow is steady",
+      },
+      /*
+       * Satu-satunya keadaan tempat foto zat warna boleh dibaca sebagai
+       * garis arus. Seluruh foto aliran tak tunak yang pernah diambil
+       * adalah garis jejak, bukan garis arus.
+       */
+      source: "Batas kekerapan ayunan menuju nol",
+      kind: "silang",
+      expected: 0,
+      actual: tunak.separation,
+      tol: 0,
+      absTol: 1e-9,
+      unit: "m",
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Lintasan partikelnya memenuhi penyelesaian bentuk tertutupnya",
+        en: "The pathline satisfies its closed form solution",
+      },
+      source: "Memadu u = U dan v = V cos(ωt) terhadap waktu",
+      kind: "pulang-pergi",
+      expected: omega !== 0 ? (V / omega) * Math.sin(omega * t) : V * t,
+      actual: r.pathline[r.pathline.length - 1].y,
+      tol: 1e-9,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Garis arusnya lurus, karena medannya seragam di seluruh ruang",
+        en: "The streamline is straight, because the field is uniform everywhere",
+      },
+      source: "Sifat medan yang tidak bergantung pada tempat",
+      kind: "sifat",
+      expected: 1,
+      actual: (() => {
+        const g = r.streamline;
+        if (g.length < 3 || U === 0) return 1;
+        const k = (g[g.length - 1].y - g[0].y) / (g[g.length - 1].x - g[0].x);
+        for (const p of g)
+          if (Math.abs(p.x) > 1e-9 && Math.abs(p.y / p.x - k) > 1e-9) return 0;
+        return 1;
+      })(),
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Garis jejak dan lintasan partikel berpisah begitu alirannya tak tunak",
+        en: "Streakline and pathline part company as soon as the flow is unsteady",
+      },
+      source: "Perilaku yang harus berlaku pada medan yang berayun",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.steady ? 1 : r.separation > 1e-6 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Ketiganya berangkat dari titik yang sama",
+        en: "All three begin at the same point",
+      },
+      source: "Sifat yang harus berlaku pada titik lepasnya",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.hypot(
+        r.pathline[0].x - r.streamline[0].x,
+        r.pathline[0].y - r.streamline[0].y
+      ),
+      tol: 0,
+      absTol: 1e-12,
+      unit: "m",
+      digits: 9,
+    },
+  ];
+}
+
+export function checksDeformation(
+  dudx: number,
+  dudy: number,
+  dvdx: number,
+  dvdy: number
+): Check[] {
+  const r = deformation(dudx, dudy, dvdx, dvdy);
+  const geser = deformation(0, 1, 0, 0);
+
+  return [
+    {
+      label: {
+        id: "Geser sederhana tepat separuh regangan dan separuh putaran",
+        en: "Simple shear is exactly half strain and half rotation",
+      },
+      /*
+       * Hasil yang paling berguna diingat dari lembar ini. Aliran di dekat
+       * dinding yang kelihatan hanya menggeser sesungguhnya memutar tiap
+       * elemennya secepat ia meregangkannya, dan vortisitas itulah asal
+       * seluruh pusaran yang kemudian terlepas ke dalam aliran.
+       */
+      source: "Penguraian tensor kemiringan kecepatan menjadi bagian setangkup dan tak setangkup",
+      kind: "terbitan",
+      expected: 0.5,
+      actual: geser.rotationShare,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Vortisitasnya dua kali laju putar elemennya",
+        en: "The vorticity is twice the rotation rate of the element",
+      },
+      source: "Batasan vortisitas sebagai rotasi medan kecepatannya",
+      kind: "sifat",
+      expected: r.vorticity,
+      actual: 2 * r.rotationRate,
+      tol: 1e-12,
+      absTol: 1e-12,
+      unit: "1/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Jumlah kedua regangan utamanya sama dengan laju pemuaiannya",
+        en: "The two principal strain rates sum to the dilatation",
+      },
+      /* Jejak tensor tidak berubah oleh perputaran sumbu, dan itu yang
+         membuat laju pemuaian sebuah besaran yang nyata dan bukan pilihan
+         sumbu yang kebetulan. */
+      source: "Kekekalan jejak tensor terhadap perputaran sumbunya",
+      kind: "silang",
+      expected: r.dilatation,
+      actual: r.principal[0] + r.principal[1],
+      tol: 1e-12,
+      absTol: 1e-12,
+      unit: "1/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Regangan murni tidak memberi vortisitas sedikit pun",
+        en: "Pure strain gives no vorticity at all",
+      },
+      source: "Bagian setangkup tensornya tidak memuat rotasi",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.abs(deformation(2, 0, 0, -2).vorticity),
+      tol: 0,
+      absTol: 1e-12,
+      unit: "1/s",
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Putaran murni tidak mengubah bentuk sedikit pun",
+        en: "Pure rotation changes no shape at all",
+      },
+      source: "Bagian tak setangkup tensornya tidak memuat regangan",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.abs(deformation(0, -3, 3, 0).principal[0]),
+      tol: 0,
+      absTol: 1e-12,
+      unit: "1/s",
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Penanda tak mampat menyala tepat ketika pemuaiannya nol",
+        en: "The incompressible flag lights exactly when the dilatation is zero",
+      },
+      source: "Sifat yang harus berlaku pada penanda di lembar ini",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.incompressible === Math.abs(r.dilatation) < 1e-12 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksAcceleration(
+  Q0: number,
+  swing: number,
+  omega: number,
+  D1: number,
+  D2: number,
+  L: number,
+  x: number,
+  t: number
+): Check[] {
+  const r = acceleration(Q0, swing, omega, D1, D2, L, x, t);
+  const tunak = acceleration(Q0, 0, 0, D1, D2, L, x, 0);
+  const lurus = acceleration(Q0, swing, omega, D1, D1, L, x, t);
+  const dua = acceleration(Q0 * 2, 0, 0, D1, D2, L, x, 0);
+
+  return [
+    {
+      label: {
+        id: "Percepatan seluruhnya adalah jumlah suku lokal dan suku konvektifnya",
+        en: "The total acceleration is the sum of the local and convective terms",
+      },
+      source: "Turunan bahan, a = ∂u/∂t + u ∂u/∂x",
+      kind: "pulang-pergi",
+      expected: r.total,
+      actual: r.local + r.convective,
+      tol: 1e-9,
+      absTol: 1e-9,
+      unit: "m/s²",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Aliran tunak tidak punya suku lokal sama sekali",
+        en: "Steady flow has no local term at all",
+      },
+      source: "Batasan aliran tunak: tidak berubah terhadap waktu",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.abs(tunak.local),
+      tol: 0,
+      absTol: 1e-9,
+      unit: "m/s²",
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Aliran tunak pun tetap berpercepatan, dan besar sekali",
+        en: "Steady flow still accelerates, and strongly",
+      },
+      /*
+       * Tunak tidak pernah berarti tanpa percepatan. Nosel yang debitnya
+       * tetap tetap memberi percepatan puluhan kali percepatan gravitasi,
+       * dan seluruh percepatannya berasal dari suku konvektif.
+       */
+      source: "Perilaku yang harus berlaku pada saluran yang mengerucut",
+      kind: "perilaku",
+      expected: 1,
+      actual: D2 < D1 ? (Math.abs(tunak.convective) > 1e-6 ? 1 : 0) : 1,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Saluran berpenampang tetap tidak punya suku konvektif",
+        en: "A duct of constant section has no convective term",
+      },
+      source: "Batasan suku konvektif: berpindah ke tempat yang kecepatannya lain",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.abs(lurus.convective),
+      tol: 0,
+      absTol: 1e-5,
+      unit: "m/s²",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Percepatan konvektif berbanding kuadrat debitnya",
+        en: "The convective acceleration scales with the square of the discharge",
+      },
+      source: "u dan ∂u/∂x keduanya berbanding lurus dengan debit",
+      kind: "sifat",
+      expected: 4,
+      actual:
+        Math.abs(tunak.convective) > 1e-12
+          ? dua.convective / tunak.convective
+          : 4,
+      tol: 1e-6,
+      digits: 6,
+    },
+  ];
+}
+
+export function checksReynoldsExp(
+  Q: number,
+  D: number,
+  TCelsius: number,
+  quietness: number
+): Check[] {
+  const r = reynoldsExperiment(Q, D, TCelsius, quietness);
+  const nu = waterViscosity(TCelsius);
+  const A = (Math.PI * D * D) / 4;
+  const kritis = reynoldsExperiment(r.criticalVelocity * A, D, TCelsius, quietness);
+  const kasar = reynoldsExperiment(Q, D, TCelsius, 0);
+
+  return [
+    {
+      label: {
+        id: "Bilangan Reynoldsnya pulang pergi lewat kecepatan dan kekentalannya",
+        en: "The Reynolds number round trips through the velocity and viscosity",
+      },
+      source: "Batasan bilangan Reynolds, V D dibagi kekentalan kinematik",
+      kind: "pulang-pergi",
+      expected: r.reynolds,
+      actual: (r.velocity * D) / nu,
+      tol: 1e-12,
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Kecepatan kritisnya tepat memberi bilangan Reynolds kritisnya",
+        en: "The critical velocity gives exactly the critical Reynolds number",
+      },
+      source: "Membalik batasannya pada kecepatan kritis yang dihitung",
+      kind: "pulang-pergi",
+      expected: r.criticalReynolds,
+      actual: kritis.reynolds,
+      tol: 1e-9,
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Batas bawah laminar pada pipa lapangan dua ribu",
+        en: "The lower laminar limit in a field pipe is two thousand",
+      },
+      /*
+       * Satu-satunya angka pada lembar ini yang benar-benar sifat aliran,
+       * dan itu sebabnya ia yang dipakai merancang. Batas atasnya milik
+       * percobaannya, bukan milik alirannya.
+       */
+      source: "Reynolds (1883); Avila dkk. (2011), Science 333",
+      kind: "terbitan",
+      expected: 2000,
+      actual: kasar.criticalReynolds,
+      tol: 1e-12,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Percobaan yang lebih tenang menahan laminar sampai Reynolds jauh lebih tinggi",
+        en: "A quieter experiment holds laminar flow to a far higher Reynolds number",
+      },
+      source: "Ketergantungan batas atas pada besarnya gangguan",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        quietness > 0
+          ? r.criticalReynolds > kasar.criticalReynolds
+            ? 1
+            : 0
+          : 1,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Faktor gesekan laminar tepat enam puluh empat dibagi Reynolds",
+        en: "The laminar friction factor is exactly sixty four over Reynolds",
+      },
+      source: "Penyelesaian Hagen-Poiseuille",
+      kind: "terbitan",
+      expected: r.regime === "laminar" ? 64 / r.reynolds : r.friction,
+      actual: r.friction,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Panjang masuk laminar berbanding lurus dengan bilangan Reynoldsnya",
+        en: "The laminar entry length is proportional to the Reynolds number",
+      },
+      source: "Le/D = 0,06 Re untuk aliran laminar",
+      kind: "sifat",
+      expected: r.regime === "laminar" ? 0.06 * r.reynolds : r.entryDiameters,
+      actual: r.entryDiameters,
+      tol: 1e-12,
+      digits: 3,
+    },
+  ];
+}
+
+export function checksMeander(
+  width: number,
+  wavelength: number,
+  maxAngleDeg: number
+): Check[] {
+  const r = meanderPath(width, wavelength, maxAngleDeg);
+  const lurus = meanderPath(width, wavelength, 0);
+  const lain = meanderPath(width, wavelength * 3, maxAngleDeg);
+
+  return [
+    {
+      label: {
+        id: "Sungai tanpa ayunan sudut adalah sungai lurus",
+        en: "A river with no angle swing is a straight river",
+      },
+      source: "Batas sudut ayun menuju nol pada kurva berarah sinus",
+      kind: "silang",
+      expected: 1,
+      actual: lurus.sinuosity,
+      tol: 1e-9,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Sinusitasnya hanya bergantung pada sudut ayunnya, bukan pada panjang gelombangnya",
+        en: "Sinuosity depends only on the angle swing, not on the wavelength",
+      },
+      /*
+       * Akibat langsung bentuk kurvanya: memperpanjang gelombangnya
+       * memperbesar seluruh bentuknya tanpa mengubah kelokannya. Itu
+       * sebabnya satu angka saja cukup menerangkan berapa berkelok sebuah
+       * sungai.
+       */
+      source: "Langbein & Leopold (1966), kurva berarah sinus",
+      kind: "silang",
+      expected: r.sinuosity,
+      actual: lain.sinuosity,
+      tol: 0.01,
+      tolReason: {
+        id: "Lintasannya dipadu berlangkah, jadi kedua panjang gelombang itu tidak dibagi persis sama halusnya",
+        en: "The path is integrated in steps, so the two wavelengths are not divided into exactly equally fine pieces",
+      },
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Panjang gelombang meander kira-kira sebelas kali lebar sungainya",
+        en: "The meander wavelength is about eleven times the river width",
+      },
+      source: "Leopold & Wolman (1960), GSA Bulletin 71, atas lima tingkat besaran",
+      kind: "terbitan",
+      expected: 10.9 * Math.pow(width, 1.01),
+      actual: r.wavelengthLeopold,
+      tol: 1e-12,
+      unit: "m",
+      digits: 2,
+    },
+    {
+      label: {
+        id: "Laju pindah tebing memuncak pada belokan menengah, bukan pada yang paling tajam",
+        en: "Bank migration peaks at a middling bend, not at the sharpest",
+      },
+      /*
+       * Hasil Hickin dan Nanson. Belokan yang terlalu tajam memisahkan
+       * alirannya dari tebing luar sehingga tenaganya tidak lagi sampai ke
+       * sana, dan meandernya melambat sendiri.
+       */
+      source: "Hickin & Nanson (1984), J. Hydraul. Eng. 110(11)",
+      kind: "perilaku",
+      expected: 1,
+      actual: (() => {
+        const laju = (rr: number) =>
+          0.04 * (rr / MEANDER_PEAK_RATIO) * Math.exp(1 - rr / MEANDER_PEAK_RATIO);
+        return laju(MEANDER_PEAK_RATIO) > laju(MEANDER_PEAK_RATIO / 3) &&
+          laju(MEANDER_PEAK_RATIO) > laju(MEANDER_PEAK_RATIO * 3)
+          ? 1
+          : 0;
+      })(),
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Sinusitas tidak pernah kurang dari satu",
+        en: "Sinuosity is never less than one",
+      },
+      source: "Panjang lintasan tidak dapat kurang dari jarak lurusnya",
+      kind: "sifat",
+      expected: 1,
+      actual: r.sinuosity >= 1 - 1e-9 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksShoal(
+  count: number,
+  alignment: number,
+  separation: number,
+  cohesion: number
+): Check[] {
+  const r = shoal(count, alignment, separation, cohesion);
+  const ulang = shoal(count, alignment, separation, cohesion);
+  const sepi = shoal(count, 0, separation, cohesion);
+  const ramai = shoal(count, 2.5, separation, cohesion);
+
+  return [
+    {
+      label: {
+        id: "Gambarnya sama persis tiap kali dijalankan",
+        en: "The drawing is identical every time it is run",
+      },
+      /*
+       * Angka acaknya dibangkitkan dari satu benih tetap. Gambar yang
+       * berubah sendiri membuat mata mengira ada yang berubah pada
+       * keadaannya, dan pada lembar yang seluruhnya tentang perilaku itu
+       * kesalahan yang mahal.
+       */
+      source: "Pembangkit acak berbenih tetap",
+      kind: "pulang-pergi",
+      expected: 0,
+      actual: r.agents.reduce(
+        (a, g, i) => a + Math.hypot(g.x - ulang.agents[i].x, g.y - ulang.agents[i].y),
+        0
+      ),
+      tol: 0,
+      absTol: 1e-12,
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Keteraturan arahnya naik bersama bobot penyamaan arah",
+        en: "Polarisation rises with the alignment weight",
+      },
+      source: "Vicsek dkk. (1995), Phys. Rev. Lett. 75",
+      kind: "perilaku",
+      expected: 1,
+      actual: ramai.polarisation > sepi.polarisation + 0.2 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Keteraturan arahnya tidak pernah melampaui satu",
+        en: "Polarisation never exceeds one",
+      },
+      source: "Batasannya: panjang jumlah vektor satuan dibagi banyaknya",
+      kind: "sifat",
+      expected: 1,
+      actual:
+        r.polarisation >= 0 && r.polarisation <= 1 + 1e-9 &&
+        r.milling >= 0 && r.milling <= 1 + 1e-9
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Tidak ada seekor pun yang melaju lebih cepat daripada yang lain",
+        en: "No individual moves faster than any other",
+      },
+      /* Seluruh aturannya hanya mengubah ARAH, tidak pernah laju. Itu
+         sederhananya model ini, dan sekaligus batas keberlakuannya. */
+      source: "Sifat yang harus berlaku pada aturan yang hanya memutar arah",
+      kind: "sifat",
+      expected: 1,
+      actual: r.agents.every(
+        (g) => Math.abs(Math.hypot(g.vx, g.vy) - 1) < 1e-9
+      )
+        ? 1
+        : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Bobot menjauh yang besar merenggangkan jarak tetangga terdekatnya",
+        en: "A larger separation weight widens the nearest neighbour distance",
+      },
+      /*
+       * Dibandingkan pada keadaan acuan yang tetap, bukan pada letak
+       * penggeser yang sedang dipakai. Tanpa bobot mendekat sama sekali,
+       * gerombolannya berpencar apa pun bobot menjauhnya, dan di situ
+       * perbandingan jarak tetangga terdekat tidak menyatakan apa-apa
+       * tentang aturan yang sedang diperiksa.
+       */
+      source: "Perilaku yang harus berlaku pada aturan menjauhnya",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        shoal(36, 1, 3, 1).nearestNeighbour >
+        shoal(36, 1, 0.2, 1).nearestNeighbour
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksHabitat(
+  Q: number,
+  width: number,
+  slope: number,
+  n: number
+): Check[] {
+  const r = riverHabitat(Q, width, slope, n);
+  /*
+   * Puncak LENGKUNGNYA sendiri, bukan pencocokan sama persis terhadap
+   * puncak yang dicari pada kisi debit yang berbeda. Dua kisi yang berbeda
+   * hampir tidak pernah memuat angka yang sama persis, dan pencocokan
+   * seperti itu menjawab "tidak ditemukan" lalu menyeret pemeriksaannya
+   * gagal pada keadaan yang justru benar.
+   */
+  let puncak = 0;
+  r.curve.forEach((p, i) => {
+    if (p.usable > r.curve[puncak].usable) puncak = i;
+  });
+
+  return [
+    {
+      label: {
+        id: "Luas habitat layak memuncak pada debit menengah, lalu menurun",
+        en: "Usable habitat peaks at a middling discharge, then falls",
+      },
+      /*
+       * Air yang lebih banyak bukan habitat yang lebih banyak. Pada debit
+       * kecil sungainya terlalu dangkal di hampir seluruh lebarnya; pada
+       * debit besar bagian tengahnya terlalu deras dan yang tersisa hanya
+       * jalur sempit di tepi.
+       */
+      source: "Bovee (1982), IFIM; Stalnaker dkk. (1995), USGS Biological Report 29",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        puncak > 0 &&
+        puncak < r.curve.length - 1 &&
+        r.curve[r.curve.length - 1].usable < r.bestUsableArea
+          ? 1
+          : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Kelayakan tiap pias adalah hasil kali kelayakan kedalaman dan kecepatannya",
+        en: "Each cell suitability is the product of its depth and velocity indices",
+      },
+      source: "Cara gabung hasil kali yang dipakai IFIM",
+      kind: "pulang-pergi",
+      expected: 0,
+      actual: r.cells.reduce(
+        (a, c) => a + Math.abs(c.combined - c.depthIndex * c.velocityIndex),
+        0
+      ),
+      tol: 0,
+      absTol: 1e-12,
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Luas layak tidak pernah melampaui lebar basahnya",
+        en: "The usable area never exceeds the wetted width",
+      },
+      source: "Kelayakan tiap pias tidak pernah melampaui satu",
+      kind: "sifat",
+      expected: 1,
+      actual: r.usableArea <= r.wettedWidth + 1e-9 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Debit yang lebih besar memberi kedalaman yang lebih besar",
+        en: "A larger discharge gives a greater depth",
+      },
+      source: "Manning pada penampang yang sama",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        riverHabitat(Q * 2, width, slope, n).maxDepth > r.maxDepth ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Penanda lewat puncak menyala tepat ketika debitnya melampaui debit terbaiknya",
+        en: "The past peak flag lights exactly when the discharge exceeds the best one",
+      },
+      source: "Sifat yang harus berlaku pada penanda di lembar ini",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.pastPeak === Q > r.bestDischarge ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksVortexStreet(
+  U: number,
+  d: number,
+  nu: number,
+  naturalHz: number
+): Check[] {
+  const r = vortexStreet(U, d, nu, naturalHz);
+  const cepat = vortexStreet(U * 2, d, nu);
+  const besar = vortexStreet(U, d * 2, nu);
+
+  return [
+    {
+      label: {
+        id: "Nisbah jarak kedua baris pusarannya selalu nol koma dua delapan satu",
+        en: "The spacing ratio of the two vortex rows is always 0.281",
+      },
+      /*
+       * Karman memperlihatkan bahwa hanya pada satu nisbah itulah deretnya
+       * mantap; pada nisbah lain deretnya sendiri yang membubarkan dirinya.
+       * Bentuk di belakang tiang jembatan, cerobong, dan pulau di dalam awan
+       * semuanya nisbah yang sama.
+       */
+      source: "von Karman (1911), syarat kemantapan deret pusarannya",
+      kind: "terbitan",
+      expected: 0.281,
+      actual: r.spacing > 0 ? r.rowGap / r.spacing : 0.281,
+      tol: 1e-9,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Bilangan Strouhal bertahan di sekitar nol koma dua puluh satu",
+        en: "The Strouhal number holds near 0.21",
+      },
+      source: "Roshko (1954), NACA TR 1191, St = 0,212 − 2,7/Re",
+      kind: "terbitan",
+      expected: r.reynolds >= 180 && r.reynolds < 2e5 ? 0.212 - 2.7 / r.reynolds : r.strouhal,
+      actual: r.strouhal,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kekerapan lepasnya berbanding lurus dengan kecepatan datangnya",
+        en: "The shedding frequency is proportional to the approach velocity",
+      },
+      /*
+       * Kesebandingan ini milik pita Reynolds yang bilangan Strouhalnya
+       * sudah mendatar. Di bawah Reynolds dua ratus, Strouhal masih naik
+       * tajam bersama Reynolds, dan melipatduakan kecepatannya menaikkan
+       * kekerapannya lebih daripada dua kali. Menuntutnya di situ akan
+       * menuntut sifat yang memang belum dimilikinya.
+       */
+      source: "Batasan bilangan Strouhal, f = St U / d, pada pita Strouhal yang mendatar",
+      kind: "sifat",
+      expected: 2,
+      actual:
+        r.reynolds < 200 || cepat.reynolds < 200 || r.frequency <= 0
+          ? 2
+          : cepat.frequency / r.frequency,
+      tol: 0.04,
+      tolReason: {
+        id: "Bukan tepat dua kali, karena bilangan Strouhal masih merayap sedikit bersama bilangan Reynolds",
+        en: "Not exactly twofold, because the Strouhal number still creeps a little with Reynolds",
+      },
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Dan berbanding kebalikan dengan garis tengah silindernya",
+        en: "And inversely proportional to the cylinder diameter",
+      },
+      source: "Batasan bilangan Strouhal, f = St U / d, pada pita Strouhal yang mendatar",
+      kind: "sifat",
+      expected: 0.5,
+      actual:
+        r.reynolds < 200 || besar.reynolds < 200 || r.frequency <= 0
+          ? 0.5
+          : besar.frequency / r.frequency,
+      tol: 0.04,
+      tolReason: {
+        id: "Alasan yang sama: bilangan Strouhal ikut berubah sedikit ketika Reynoldsnya berubah",
+        en: "For the same reason: the Strouhal number shifts a little when Reynolds does",
+      },
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Tidak ada pusaran yang terlepas di bawah Reynolds empat puluh tujuh",
+        en: "No vortex sheds below Reynolds forty seven",
+      },
+      source: "Batas kemantapan pertama pada silinder bundar",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.shedding === r.reynolds >= 47 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Penguncian ditandai tepat ketika kekerapannya mendekati getar alaminya",
+        en: "Lock in is flagged exactly when the frequency nears the natural one",
+      },
+      source: "Jendela penguncian dua puluh persen di sekitar kekerapan alaminya",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        naturalHz <= 0 || r.frequency <= 0
+          ? 1
+          : r.lockIn === Math.abs(r.frequency - naturalHz) / naturalHz < 0.2
+            ? 1
+            : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksVortexPair(
+  gammaA: number,
+  gammaB: number,
+  separation: number
+): Check[] {
+  const r = vortexPair(gammaA, gammaB, separation);
+  const sendiri = vortexPair(gammaA, 0, separation);
+
+  return [
+    {
+      label: {
+        id: "Satu pusaran sendirian tidak pernah memindahkan dirinya",
+        en: "A single vortex never moves itself",
+      },
+      /*
+       * Medan kecepatan yang dibuatnya memutar seluruh fluida di
+       * sekitarnya, tetapi di titik pusatnya sendiri ia tidak memindahkan
+       * apa pun. Pusaran hanya bergerak karena dibawa pusaran lain.
+       */
+      source: "Kecepatan yang dikenakannya pada dirinya sendiri lenyap",
+      kind: "sifat",
+      expected: 0,
+      actual: Math.hypot(
+        sendiri.pathA[sendiri.pathA.length - 1].x - sendiri.pathA[0].x,
+        sendiri.pathA[sendiri.pathA.length - 1].y - sendiri.pathA[0].y
+      ),
+      tol: 0,
+      absTol: 1e-12,
+      unit: "m",
+      digits: 9,
+    },
+    {
+      label: {
+        id: "Pasangan berlawanan arah melaju dengan sirkulasi dibagi dua pi kali jaraknya",
+        en: "A counter rotating pair travels at the circulation over two pi times the separation",
+      },
+      source: "Lamb (1932), Hydrodynamics, edisi ke-6, bab 7",
+      kind: "terbitan",
+      expected: r.counterRotating
+        ? Math.abs(gammaA) / (2 * Math.PI * separation)
+        : 0,
+      actual: r.translation,
+      tol: 1e-12,
+      unit: "m/s",
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Pasangan searah mengelilingi dengan perioda bentuk tertutupnya",
+        en: "A co rotating pair orbits with its closed form period",
+      },
+      /*
+       * Pasangan yang berlawanan arah tidak mengelilingi apa pun, jadi
+       * periodanya tak hingga dan tidak ada yang dapat dibandingkan.
+       * Membandingkan tak hingga dengan tak hingga memberi selisih yang
+       * bukan bilangan, dan pemeriksaan yang hasilnya bukan bilangan selalu
+       * gagal. Cacat berjenis sama sudah terjadi sekali pada lembar
+       * tangkap-tandai-ulang pekan lalu.
+       */
+      source: "Lamb (1932), T = 4π²d²/(Γ1 + Γ2)",
+      kind: "terbitan",
+      expected:
+        !r.counterRotating && Math.abs(gammaA + gammaB) > 1e-12
+          ? (4 * Math.PI * Math.PI * separation * separation) /
+            Math.abs(gammaA + gammaB)
+          : 0,
+      actual:
+        !r.counterRotating && Math.abs(gammaA + gammaB) > 1e-12 ? r.period : 0,
+      tol: 1e-9,
+      absTol: 1e-9,
+      unit: "s",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Jarak antar keduanya tidak berubah selama pengamatan",
+        en: "The separation between them does not change during the run",
+      },
+      /*
+       * Kecepatan yang dikenakan masing-masing tegak lurus garis yang
+       * menghubungkannya, jadi keduanya tidak pernah mendekat dan tidak
+       * pernah menjauh. Kalau hitungannya menggeser jaraknya, yang salah
+       * pemaduan waktunya, bukan pusarannya.
+       */
+      source: "Kecepatan yang saling dikenakan tegak lurus garis penghubungnya",
+      kind: "sifat",
+      expected: 0,
+      actual: r.separationDrift,
+      tol: 0,
+      absTol: 5e-3,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Penanda arah putar menyala tepat ketika tandanya berlawanan",
+        en: "The counter rotating flag lights exactly when the signs oppose",
+      },
+      source: "Sifat yang harus berlaku pada penanda di lembar ini",
+      kind: "perilaku",
+      expected: 1,
+      actual: r.counterRotating === gammaA * gammaB < 0 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksWave(
+  period: number,
+  depth: number,
+  height: number
+): Check[] {
+  const r = linearWave(period, depth, height);
+  const sigma = (2 * Math.PI) / period;
+  const dangkal = linearWave(1000, 3000, height);
+  const dalam = linearWave(6, 2000, height);
+
+  return [
+    {
+      label: {
+        id: "Memenuhi hubungan sebarannya",
+        en: "It satisfies its dispersion relation",
+      },
+      source: "Airy (1845), σ² = g k tanh(k h)",
+      kind: "pulang-pergi",
+      expected: sigma * sigma,
+      actual: G * r.k * Math.tanh(r.k * depth),
+      tol: 1e-6,
+      digits: 8,
+    },
+    {
+      label: {
+        id: "Air dangkal tidak menyebar: kecepatannya akar g h saja",
+        en: "Shallow water does not disperse: its celerity is just the root of g h",
+      },
+      /*
+       * Seluruh panjang gelombang merambat sama cepat, jadi bentuk
+       * gelombangnya bertahan. Itu sebabnya tsunami dapat menyeberangi
+       * samudra tanpa berubah bentuk.
+       */
+      source: "Batas kh menuju nol pada hubungan sebarannya",
+      kind: "silang",
+      expected: dangkal.shallowCelerity,
+      actual: dangkal.celerity,
+      tol: 0.01,
+      tolReason: {
+        id: "Kedalaman berhingga tetap menyisakan selisih kecil terhadap batas air dangkal yang sempurna",
+        en: "A finite depth still leaves a small difference from the perfect shallow water limit",
+      },
+      unit: "m/s",
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Air dalam menyebar: kecepatannya hanya bergantung pada periodanya",
+        en: "Deep water disperses: its celerity depends only on the period",
+      },
+      source: "Batas kh menuju tak hingga, c = gT/2π",
+      kind: "silang",
+      expected: dalam.deepCelerity,
+      actual: dalam.celerity,
+      tol: 0.001,
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Tenaganya merambat setengah kecepatan puncaknya di air dalam",
+        en: "Energy travels at half the crest speed in deep water",
+      },
+      /*
+       * Puncak gelombang yang diamati akan tampak muncul di belakang
+       * deretnya, berjalan ke depan melaluinya, lalu lenyap di depannya.
+       * Tidak ada air maupun tenaga yang ikut berjalan secepat itu.
+       */
+      source: "cg = c/2 (1 + 2kh/sinh 2kh), batas air dalam",
+      kind: "terbitan",
+      expected: 0.5,
+      actual: dalam.groupRatio,
+      tol: 0.001,
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Tenaga tidak pernah merambat lebih cepat daripada puncaknya",
+        en: "Energy never travels faster than the crest",
+      },
+      source: "Sifat yang harus berlaku pada seluruh kedalaman",
+      kind: "sifat",
+      expected: 1,
+      actual: r.groupRatio >= 0.5 - 1e-9 && r.groupRatio <= 1 + 1e-9 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Gelombang yang cukup pendek tidak merasakan dasar sama sekali",
+        en: "A short enough wave does not feel the bottom at all",
+      },
+      source: "Lintasan partikel di dasar mengecil menurut sinh kh",
+      kind: "perilaku",
+      expected: 1,
+      actual: linearWave(3, 100, 1).bottomOrbit < 1e-3 ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksAdvection(
+  mass: number,
+  area: number,
+  U: number,
+  D: number,
+  station: number
+): Check[] {
+  const r = advectionDiffusion(mass, area, U, D, station, [600]);
+  const p = r.snapshots[0].profile;
+  let luas = 0;
+  for (let i = 1; i < p.length; i++)
+    luas += ((p[i - 1].c + p[i].c) / 2) * (p[i].x - p[i - 1].x);
+
+  const t1 = advectionDiffusion(mass, area, U, D, station, [400]);
+  const t4 = advectionDiffusion(mass, area, U, D, station, [1600]);
+
+  return [
+    {
+      label: {
+        id: "Massanya kekal di seluruh sebarannya",
+        en: "The mass is conserved across the whole distribution",
+      },
+      source: "Memadu kepekatan sepanjang sungainya dikali luas penampang",
+      kind: "pulang-pergi",
+      expected: mass,
+      actual: luas * area,
+      tol: 0.02,
+      tolReason: {
+        id: "Pemaduannya memakai kaidah trapesium pada dua ratus titik, dan ekor loncengnya dipotong di tepi bidangnya",
+        en: "The integration uses the trapezium rule on two hundred points, and the tails are cut at the edge of the field",
+      },
+      unit: "kg",
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Pusatnya bergerak menurut waktu, lebarnya hanya menurut akar waktu",
+        en: "The centre moves with time, the width only with the square root of time",
+      },
+      /*
+       * Perbedaan pangkat itulah pokok seluruh lembar ini. Melipatempatkan
+       * waktunya memindahkan pusatnya empat kali tetapi hanya melebarkan
+       * awannya dua kali.
+       */
+      source: "Penyelesaian Gauss untuk lepasan seketika",
+      kind: "sifat",
+      expected: 2,
+      actual: t1.sigma > 0 ? t4.sigma / t1.sigma : 2,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Dan pusatnya berpindah tepat empat kali pada waktu yang sama",
+        en: "And the centre moves exactly fourfold over the same time",
+      },
+      source: "Adveksi lurus terhadap waktu",
+      kind: "sifat",
+      expected: 4,
+      actual: t1.centre > 0 ? t4.centre / t1.centre : 4,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Kepekatan puncaknya turun menurut akar waktu, bukan menurut waktu",
+        en: "The peak concentration falls with the square root of time, not with time",
+      },
+      /* Awan pencemar yang hanyut sepuluh kali lebih jauh hanya tiga koma
+         dua kali lebih encer. */
+      source: "Akibat langsung lebar yang tumbuh menurut akar waktu",
+      kind: "silang",
+      expected: 2,
+      actual: t4.peak > 0 ? t1.peak / t4.peak : 2,
+      tol: 1e-12,
+      digits: 6,
+    },
+    {
+      label: {
+        id: "Awan yang hanyut makin jauh makin sempit terhadap jarak tempuhnya",
+        en: "A cloud carried further becomes narrower relative to the distance travelled",
+      },
+      source: "Perilaku yang harus berlaku pada perbedaan pangkatnya",
+      kind: "perilaku",
+      expected: 1,
+      actual: t4.spreadRatio < t1.spreadRatio ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+  ];
+}
+
+export function checksFalknerSkan(beta: number): Check[] {
+  const r = falknerSkan(beta);
+  const blasius = falknerSkan(0);
+  const stagnasi = falknerSkan(1);
+  const lepas = falknerSkan(FALKNER_SKAN_SEPARATION);
+
+  return [
+    {
+      label: {
+        id: "Kemiringan dinding pada gradien datar sesuai tabel Schlichting",
+        en: "The wall slope at zero pressure gradient matches the Schlichting table",
+      },
+      /*
+       * Angka yang sama sekali tidak melewati kode ini. Kalau penembakannya
+       * salah arah, angka ini yang pertama memberi tahu.
+       */
+      source: "Schlichting (1979), Boundary-Layer Theory, edisi ke-7, tabel 9.1",
+      kind: "terbitan",
+      expected: 0.4696,
+      actual: blasius.wallSlope,
+      tol: 0.002,
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Kemiringan dinding pada aliran titik henti juga sesuai tabelnya",
+        en: "The wall slope at stagnation flow also matches the table",
+      },
+      source: "Schlichting (1979), tabel 9.1, beta satu",
+      kind: "terbitan",
+      expected: 1.2326,
+      actual: stagnasi.wallSlope,
+      tol: 0.002,
+      digits: 4,
+    },
+    {
+      label: {
+        id: "Faktor bentuk Blasius dua koma lima sembilan",
+        en: "The Blasius shape factor is 2.59",
+      },
+      source: "Schlichting (1979), H = δ*/θ untuk lapisan batas datar",
+      kind: "terbitan",
+      expected: 2.59,
+      actual: blasius.shapeFactor,
+      tol: 0.01,
+      tolReason: {
+        id: "Kedua tebalnya dipadu dengan kaidah trapesium sampai batas luar berhingga, jadi ekor profilnya terpotong sedikit",
+        en: "Both thicknesses are integrated by the trapezium rule to a finite outer limit, so the tail of the profile is slightly cut",
+      },
+      digits: 3,
+    },
+    {
+      label: {
+        id: "Pemisahan terjadi tepat pada beta terbitan, dan tidak bergantung pada apa pun lain",
+        en: "Separation occurs exactly at the published beta, and depends on nothing else",
+      },
+      /*
+       * Lapisan batas laminar yang menghadapi perlambatan sebesar itu akan
+       * terlepas pada benda sebesar apa pun, di dalam fluida apa pun, pada
+       * kecepatan berapa pun. Bilangan Reynolds tidak muncul sama sekali.
+       */
+      source: "Hartree (1937), beta pemisahan minus 0,19884",
+      kind: "terbitan",
+      expected: 0,
+      actual: lepas.wallSlope,
+      tol: 0,
+      absTol: 0.005,
+      digits: 5,
+    },
+    {
+      label: {
+        id: "Gradien yang membantu tidak pernah memisahkan lapisan batasnya",
+        en: "A favourable gradient never separates the boundary layer",
+      },
+      source: "Perilaku yang harus berlaku pada seluruh beta positif",
+      kind: "perilaku",
+      expected: 1,
+      actual: [0.05, 0.3, 1, 1.6].every((b) => !falknerSkan(b).separated) ? 1 : 0,
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Kemiringan dinding naik monoton bersama beta",
+        en: "The wall slope rises monotonically with beta",
+      },
+      source: "Perilaku yang harus berlaku pada seluruh rentangnya",
+      kind: "perilaku",
+      expected: 1,
+      actual: (() => {
+        let sebelum = -1;
+        for (const b of [-0.19, -0.1, 0, 0.5, 1, 1.5]) {
+          const s = falknerSkan(b).wallSlope;
+          if (s <= sebelum) return 0;
+          sebelum = s;
+        }
+        return 1;
+      })(),
+      tol: 0,
+      digits: 0,
+    },
+    {
+      label: {
+        id: "Faktor bentuknya naik ketika gradiennya makin melawan",
+        en: "The shape factor rises as the gradient becomes more adverse",
+      },
+      /* Faktor bentuk itulah penanda pemisahan yang dipakai di lapangan:
+         ia menjauh dari dua koma enam menuju empat menjelang lepasnya. */
+      source: "Perilaku yang harus berlaku menjelang pemisahan",
+      kind: "perilaku",
+      expected: 1,
+      actual:
+        stagnasi.shapeFactor < blasius.shapeFactor &&
+        blasius.shapeFactor < falknerSkan(-0.18).shapeFactor
           ? 1
           : 0,
       tol: 0,

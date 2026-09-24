@@ -14,7 +14,11 @@ import {
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
-import { drawStructure, type StructureSpec } from "@/lib/drawStructure";
+import {
+  drawStructure,
+  type StructureLine,
+  type StructureSpec,
+} from "@/lib/drawStructure";
 import {
   CULVERT_FISH_VELOCITY,
   CULVERT_HW_D_MAX,
@@ -53,6 +57,9 @@ const TXT = {
     cMasuk: "Kendali sisi masuk",
     cKeluar: "Kendali sisi keluar",
     limpas: "Air melampaui permukaan jalan",
+    takMuat: "Gorong-gorong tidak muat di bawah jalannya",
+    takMuatNote:
+      "Garis tengah gorong-gorongnya menyisakan kurang dari tiga ratus milimeter timbunan antara punggungnya dan permukaan jalan, jadi ia tidak dapat ditanam di situ sama sekali. Pipa yang timbunannya terlalu tipis hancur oleh beban roda, bukan oleh tanah di atasnya, karena timbunan itulah yang menyebarkan beban roda sebelum sampai ke punggung pipa; di bawah kira-kira sepertiga meter, bebannya sampai hampir utuh. Artinya pada perancangan: gorong-gorong tidak dapat begitu saja diperbesar sampai muka air hulunya cukup rendah. Melewati titik ini pilihannya menaikkan jalan, memakai beberapa pipa kecil berdampingan, atau berpindah ke gorong-gorong kotak yang atapnya datar sehingga bebannya ditahan sebagai lenturan dan bukan sebagai tekan cincin.",
     limpasNote:
       "Tinggi muka air hulu yang dibutuhkan melampaui tinggi timbunan jalan, artinya air melimpah di atas jalan dan sebagian debit lewat di sana alih-alih lewat gorong-gorong. Hitungan di lembar ini tidak berlaku sejak titik itu karena seluruhnya mengandaikan seluruh debit lewat pipanya. Yang lebih penting untuk perancangan: jalan yang dilimpasi tidak sekadar terputus, badan jalannya tergerus dari sisi hilir dan dapat runtuh dalam hitungan jam. Perbesar gorong-gorongnya, tambah jumlahnya, atau tinggikan jalannya.",
     penghalang: "Penghalang bagi ikan",
@@ -87,6 +94,9 @@ const TXT = {
     cMasuk: "Inlet control",
     cKeluar: "Outlet control",
     limpas: "Water overtops the road",
+    takMuat: "The culvert does not fit under the road",
+    takMuatNote:
+      "The culvert diameter leaves less than 300 millimetres of cover between its crown and the road surface, so it cannot be buried there at all. A pipe with too little cover is crushed by wheel loads rather than by the earth above it, because the fill is what spreads a wheel load before it reaches the crown; below about a third of a metre the load arrives almost undiminished. What this means in practice is that a culvert cannot simply be enlarged until the headwater is acceptable. Past this point the choice is between raising the road, using several smaller barrels side by side, or changing to a box culvert whose flat top carries the load in bending rather than in ring compression.",
     limpasNote:
       "The required headwater exceeds the embankment height, meaning water spills over the road and part of the discharge passes there rather than through the culvert. The calculation on this sheet stops holding at that point, because all of it assumes the whole discharge passes through the barrel. More important for design: an overtopped road is not merely cut, its body is scoured from the downstream side and can fail within hours. Enlarge the culvert, add barrels, or raise the road.",
     penghalang: "Barrier to fish",
@@ -131,6 +141,15 @@ export function GorongGorongClient() {
 
   const r = culvert(Q, D, L, S, n, tw, road);
   const controlName = r.control === "masuk" ? x.cMasuk : x.cKeluar;
+  /*
+   * Dua penggeser yang terikat satu sama lain: garis tengah pipanya dan
+   * tinggi timbunan jalannya. Gorong-gorong yang lebih tinggi daripada
+   * timbunan di atasnya tidak dapat ditanam, dan gambarnya memang
+   * memperlihatkan pipa yang menonjol di atas jalan. Yang kurang sebelumnya
+   * hanya keterangan bahwa itu memang tidak boleh.
+   */
+  const timbunanMinimum = 0.3;
+  const takMuat = D + timbunanMinimum > road;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -139,6 +158,25 @@ export function GorongGorongClient() {
       const xKiri = -L * 0.35;
       const xKanan = L * 1.35;
       const tebal = Math.max(D * 0.08, 0.05);
+
+      /*
+       * Batas atas bidang DITAHAN, tidak mengikuti muka air hulu.
+       *
+       * Muka air hulu yang dibutuhkan tumbuh sangat cepat pada gorong-gorong
+       * yang terlalu kecil: pada garis tengah tiga puluh sentimeter dengan
+       * debit dua meter kubik tiap detik ia mencapai seratus empat puluh
+       * tujuh meter. Membiarkan bidangnya memanjang sampai ke sana membuat
+       * jalan setinggi dua setengah meter tinggal segaris dan seluruh
+       * gambarnya tidak dapat dibaca, padahal justru keadaan itulah yang
+       * ingin diperlihatkan.
+       *
+       * Aturannya sama dengan yang sudah dipakai pada lembar loncatan air:
+       * skalanya dihitung dari bangunannya, dan angka yang keluar bidang
+       * dinyatakan sebagai tulisan, bukan dipaksa masuk gambar.
+       */
+      const zPuncak = road + Math.max(D, 0.5) * 1.6;
+      const hwGambar = Math.min(r.headwater, zPuncak);
+      const hwDiLuar = r.headwater > zPuncak + 1e-9;
 
       // Timbunan jalan sebagai trapesium di atas gorong-gorong.
       const timbunan: { x: number; z: number }[] = [
@@ -170,7 +208,18 @@ export function GorongGorongClient() {
         xMin: xKiri,
         xMax: xKanan,
         zMin: Math.min(zKeluar - D * 0.8, -D),
-        zMax: Math.max(road, r.headwater) * 1.12,
+        zMax: Math.max(road, hwGambar) * 1.12,
+        /*
+         * Skala kedua sumbunya dibedakan, seperti lazimnya potongan
+         * memanjang. Gorong-gorong boleh sepanjang dua ratus meter
+         * sedangkan bangunannya setinggi beberapa meter saja, dan skala
+         * yang sama di kedua sumbu meratakan seluruh gambar menjadi sepita
+         * setebal beberapa puluh piksel. Bentuk timbunan bukan pokok lembar
+         * ini; yang pokok letak muka air terhadap punggung pipa dan
+         * permukaan jalan, dan itu justru terbaca lebih baik dengan sumbu
+         * tegak yang dilebihkan.
+         */
+        equalScale: false,
         bodies: [
           { pts: timbunan },
           { pts: bawah, color: C.ink },
@@ -179,8 +228,8 @@ export function GorongGorongClient() {
         waters: [
           {
             surface: [
-              { x: xKiri, z: r.headwater },
-              { x: 0, z: r.headwater * 0.98 },
+              { x: xKiri, z: hwGambar },
+              { x: 0, z: hwGambar * 0.98 },
             ],
             bed: [
               { x: 0, z: zMasuk - D * 0.6 },
@@ -200,30 +249,61 @@ export function GorongGorongClient() {
           },
         ],
         lines: [
+          /*
+           * Kedua garis kendali hanya digambar bila masih masuk bidangnya.
+           * Di luar bidang, garisnya sendiri tidak terlihat sedangkan
+           * namanya tetap tertulis, dan namanya lalu menumpuk di pojok kiri
+           * atas bersama kepala gambar, menyatakan sesuatu yang tidak ada
+           * di mana-mana.
+           */
+          ...(r.inletHeadwater <= zPuncak
+            ? ([
           {
             pts: [
               { x: xKiri, z: r.inletHeadwater },
               { x: L * 0.2, z: r.inletHeadwater },
             ],
-            color: r.control === "masuk" ? C.signal : C.ink3,
+            color: r.control === "masuk" ? C.critical : C.ink3,
             weight: r.control === "masuk" ? W.bold : W.hair,
             dash: DASH.hidden,
+            /*
+             * Kedua nama kendali dipisahkan MENDATAR, bukan hanya tegak.
+             * Pada debit kecil kedua tinggi muka airnya hampir sama, jadi
+             * kedua garisnya berimpit dan pemisahan tegak sepuluh piksel
+             * tidak cukup: keduanya terbaca bertindihan.
+             */
             label: T.inletControl,
             labelAt: 0.1,
             labelDy: -10,
+            labelAlign: "left",
           },
+            ] as StructureLine[])
+            : []),
+          ...(r.outletHeadwater <= zPuncak
+            ? ([
           {
             pts: [
               { x: xKiri, z: r.outletHeadwater },
               { x: L * 0.2, z: r.outletHeadwater },
             ],
-            color: r.control === "keluar" ? C.signal : C.ink3,
+            color: r.control === "keluar" ? C.critical : C.ink3,
             weight: r.control === "keluar" ? W.bold : W.hair,
             dash: DASH.phantom,
             label: T.outletControl,
+            /*
+             * Ditumpuk di pangkal yang sama dengan nama kendali sisi masuk,
+             * berjarak dua puluh empat piksel di bawahnya. Memisahkannya ke
+             * ujung kanan garis memang berhasil pada gorong-gorong panjang,
+             * tetapi pada gorong-gorong empat meter garisnya sendiri hanya
+             * beberapa ratus piksel dan kedua nama itu justru bertemu di
+             * tengah.
+             */
             labelAt: 0.1,
             labelDy: 14,
+            labelAlign: "left",
           },
+            ] as StructureLine[])
+            : []),
           {
             pts: [
               { x: L * 0.18, z: road },
@@ -237,16 +317,18 @@ export function GorongGorongClient() {
             labelDy: -10,
           },
         ],
-        dims: [
-          {
-            axis: "v",
-            at: xKiri * 0.5,
-            from: zMasuk,
-            to: r.headwater,
-            text: `HW ${fmtPlain(r.headwater, 2)} m`,
-            color: C.water,
-          },
-        ],
+        dims: hwDiLuar
+          ? []
+          : [
+              {
+                axis: "v",
+                at: xKiri * 0.22,
+                from: zMasuk,
+                to: r.headwater,
+                text: `HW ${fmtPlain(r.headwater, 2)} m`,
+                color: C.water,
+              },
+            ],
         callouts: [
           {
             x: L * 0.5,
@@ -261,10 +343,22 @@ export function GorongGorongClient() {
             x: L * 0.3,
             z: (dasarMasuk + dasarKeluar) / 2 + D * 0.45,
             length: 30,
-            color: r.fishBarrier ? C.signal : C.water,
+            color: r.fishBarrier ? C.critical : C.water,
           },
         ],
-        heading: r.overtops ? T.pointOffChart : undefined,
+        /*
+         * Kepalanya menyebut yang benar-benar terjadi di sini. Sebelumnya
+         * terpasang "titik operasi di luar diagram", yang milik lembar
+         * berdiagram dan bukan milik gorong-gorong. Cacat berjenis sama
+         * sudah terjadi sekali pada lembar bendung ogee pekan kedua.
+         */
+        heading: takMuat
+          ? x.takMuat
+          : r.overtops
+            ? hwDiLuar
+              ? `${x.limpas} · HW ${fmtPlain(r.headwater, 1)} m`
+              : x.limpas
+            : undefined,
         headingColor: C.signal,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
@@ -340,13 +434,17 @@ export function GorongGorongClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.overtops ? undefined : C.water} alert={r.overtops}>
-                {controlName}
-              </Flag>
+              <Flag tint={C.critical}>{controlName}</Flag>
+              {takMuat && <Flag alert>{x.takMuat}</Flag>}
               {r.overtops && <Flag alert>{x.limpas}</Flag>}
-              {r.fishBarrier && <Flag alert>{x.penghalang}</Flag>}
-              {!r.flowsFull && <Flag alert>{x.tidakPenuh}</Flag>}
+              {r.fishBarrier && <Flag tint={C.critical}>{x.penghalang}</Flag>}
+              {!r.flowsFull && <Flag tint={C.critical}>{x.tidakPenuh}</Flag>}
             </div>
+            {takMuat && (
+              <div className="mb-2.5">
+                <Note>{x.takMuatNote}</Note>
+              </div>
+            )}
             {r.overtops && (
               <div className="mb-2.5">
                 <Note>{x.limpasNote}</Note>
@@ -366,10 +464,10 @@ export function GorongGorongClient() {
               rows={[
                 { symbol: "HW", label: x.rHw, value: fmt(r.headwater, 3), unit: "m", tint: r.overtops ? C.signal : C.water, strong: true },
                 { symbol: "—", label: x.rControl, value: controlName, strong: true },
-                { symbol: "HWi", label: x.rHwMasuk, value: fmt(r.inletHeadwater, 3), unit: "m", tint: r.control === "masuk" ? C.signal : C.ink3 },
-                { symbol: "HWo", label: x.rHwKeluar, value: fmt(r.outletHeadwater, 3), unit: "m", tint: r.control === "keluar" ? C.signal : C.ink3 },
+                { symbol: "HWi", label: x.rHwMasuk, value: fmt(r.inletHeadwater, 3), unit: "m", tint: r.control === "masuk" ? C.critical : C.ink3 },
+                { symbol: "HWo", label: x.rHwKeluar, value: fmt(r.outletHeadwater, 3), unit: "m", tint: r.control === "keluar" ? C.critical : C.ink3 },
                 { symbol: "HW/D", label: x.rHwD, value: fmt(r.hwRatio, 3), tint: r.hwRatio > CULVERT_HW_D_MAX ? C.signal : undefined },
-                { symbol: "V", label: x.rV, value: fmt(r.velocity, 3), unit: "m/s", tint: r.fishBarrier ? C.signal : undefined },
+                { symbol: "V", label: x.rV, value: fmt(r.velocity, 3), unit: "m/s", tint: r.fishBarrier ? C.critical : undefined },
                 { symbol: "f", label: x.rJagaan, value: fmt(road - r.headwater, 3), unit: "m", tint: r.overtops ? C.signal : undefined },
               ]}
             />

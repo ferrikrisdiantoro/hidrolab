@@ -51,6 +51,9 @@ const TXT = {
     sempitNote:
       "Pilar menutup lebih dari seperempat lebar sungai. Rumus Yarnell diturunkan pada pita percobaan yang tidak menjangkau penyempitan sebesar itu, dan yang lebih penting: pada penyempitan seberat ini aliran dapat menjadi tersendat, yaitu terpaksa melewati kondisi kritis di antara pilar. Pembendungan pada keadaan tersendat jauh lebih besar daripada yang diramalkan rumus ini dan dihitung dengan cara yang sama sekali berbeda. Kurangi jumlah pilarnya, tipiskan, atau perlebar bentang jembatannya.",
     superkritis: "Aliran superkritis",
+    tertutup: "Pilar menutup seluruh lebar sungai",
+    tertutupNote:
+      "Banyaknya pilar dikalikan lebar satu pilar sudah mencapai lebar sungainya sendiri, jadi tidak ada celah tersisa untuk air lewat. Luas antar pilarnya nol, kecepatan di antaranya tak hingga, dan yang tergambar bukan jembatan melainkan bendung pejal. Ini bukan penyempitan yang berat melainkan keadaan yang bukan aliran sama sekali, dan tidak ada rumus jembatan mana pun yang berlaku di sini. Kurangi banyaknya pilar, tipiskan pilarnya, atau lebarkan sungainya.",
     superkritisNote:
       "Bilangan Froude di hilir jembatan mencapai satu atau lebih. Rumus Yarnell diturunkan untuk aliran subkritis, tempat gangguan dapat menjalar ke hulu dan menaikkan muka air di sana. Pada aliran superkritis gangguan tidak dapat menjalar ke hulu sama sekali, sehingga tidak ada pembendungan dalam arti yang dimaksud rumus ini; yang terjadi gelombang kejut miring dari tiap hidung pilar. Perdalam alirannya atau perkecil debitnya.",
     note:
@@ -78,6 +81,9 @@ const TXT = {
     sempitNote:
       "The piers block more than a quarter of the river width. The Yarnell formula was derived on an experimental band that does not reach contractions that heavy, and more importantly: at this degree of contraction the flow can choke, that is, be forced through critical conditions between the piers. Backwater in the choked state is far larger than this formula predicts and is computed in an entirely different way. Reduce the number of piers, make them thinner, or widen the bridge span.",
     superkritis: "Supercritical flow",
+    tertutup: "The piers close the whole river width",
+    tertutupNote:
+      "The number of piers times the width of one has reached the width of the river itself, so no gap is left for water to pass. The area between the piers is zero, the velocity between them is infinite, and what is drawn is not a bridge but a solid weir. This is not heavy contraction but a state that is not a flow at all, and no bridge formula whatever applies here. Reduce the number of piers, make them thinner, or widen the river.",
     superkritisNote:
       "The Froude number downstream of the bridge has reached one or more. The Yarnell formula was derived for subcritical flow, where a disturbance can travel upstream and raise the level there. In supercritical flow a disturbance cannot travel upstream at all, so there is no backwater in the sense this formula means; what happens instead is an oblique shock wave from each pier nose. Deepen the flow or reduce the discharge.",
     note:
@@ -114,11 +120,40 @@ export function JembatanClient() {
   const [K, setK] = useState(0.9);
 
   const r = bridgePiers(Q, B, y3, piers, wp, K);
+  /*
+   * Dua sebab berbeda yang sama-sama membuat rumus Yarnell tidak berlaku,
+   * dan keduanya perlu disebut dengan namanya masing-masing.
+   *
+   * Model menggabungkan keduanya ke dalam satu bendera di luar rentang,
+   * yang memang benar untuk memutuskan apakah kenaikan muka airnya boleh
+   * ditulis. Tetapi lembarnya sempat memakai bendera gabungan itu untuk
+   * memilih KALIMATNYA juga, sehingga jembatan berpilar dua belas selebar
+   * enam meter pada bilangan Froude nol koma dua diberi tulisan "aliran
+   * superkritis". Yang benar di situ bukan alirannya yang terlalu cepat
+   * melainkan sungainya yang tertutup habis.
+   */
+  const superkritis = r.Fr >= 1;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
       // Tampak atas: aliran dari kiri ke kanan, pilar sebagai persegi panjang.
-      const panjangPilar = Math.max(wp * 4, B * 0.12);
+      /*
+       * Panjang pilar searah aliran hanya ada di gambarnya, bukan di
+       * hitungannya, jadi ia harus DIBATASI DI KEDUA UJUNG.
+       *
+       * Batas bawahnya sudah ada sejak semula supaya pilar tetap terlihat
+       * pada sungai yang lebar. Batas atasnya belum: pilar selebar satu
+       * setengah meter digambar sepanjang enam meter, dan pada sungai
+       * selebar lima meter keduanya menembus keluar bidang gambar sampai
+       * hampir satu meter di tiap sisi. Sekarang panjangnya tidak pernah
+       * melebihi separuh lebar sungainya, sehingga pilar yang memang
+       * kelewat besar tergambar kelewat besar, bukan tergambar di luar
+       * kertas.
+       */
+      const panjangPilar = Math.min(
+        Math.max(wp * 4, B * 0.12),
+        B * 0.55
+      );
       const badan: StructureBody[] = [];
       for (let i = 0; i < piers; i++) {
         const yTengah = (B * (i + 1)) / (piers + 1);
@@ -189,10 +224,21 @@ export function JembatanClient() {
           piers > 0
             ? [
                 {
-                  x: 0,
-                  z: B / (piers + 1),
-                  dx: -46,
-                  dy: -30,
+                  /*
+                   * Namanya menunjuk pilar TERATAS, sedangkan ukuran
+                   * panjangnya tetap di pilar terbawah. Keduanya di pilar
+                   * yang sama akan berebut ruang yang itu-itu juga, dan
+                   * pada dua belas pilar jaraknya tinggal beberapa piksel.
+                   *
+                   * Menjulurnya MENDATAR ke kiri, dari muka hulu pilarnya ke
+                   * air terbuka. Menjulur ke atas membawanya ke kepala
+                   * gambar pada dua belas pilar, dan ke badan pilarnya
+                   * sendiri pada pilar selebar enam meter.
+                   */
+                  x: -panjangPilar / 2,
+                  z: (B * piers) / (piers + 1),
+                  dx: -54,
+                  dy: -12,
                   text: T.pierLabel,
                 },
               ]
@@ -202,14 +248,16 @@ export function JembatanClient() {
           { x: -B * 0.34, z: B * 0.5, length: 26 },
           { x: -B * 0.34, z: B * 0.8, length: 26 },
         ],
-        heading: r.outOfRange
-          ? x.superkritis
+        heading: r.fullyBlocked
+          ? x.tertutup
+          : superkritis
+            ? x.superkritis
           : r.heavyBlockage
             ? x.sempit
             : T.planView2,
         headingColor: r.outOfRange || r.heavyBlockage ? C.signal : C.ink3,
         axisX: T.axHoriz,
-        axisZ: T.axHoriz,
+        axisZ: T.axAcrossRiver,
       };
 
       drawStructure(ctx, w, ch, spec, lang);
@@ -226,13 +274,13 @@ export function JembatanClient() {
         lang === "id" ? (
           <p>
             Pilar menaikkan muka air di hulunya, dan kenaikan itu tumbuh menurut{" "}
-            <Term tint={C.signal}>pangkat empat</Term> dari bagian lebar yang
+            <Term tint={C.critical}>pangkat empat</Term> dari bagian lebar yang
             ditutupnya. Menggandakan pilar jauh lebih mahal daripada dua kali.
           </p>
         ) : (
           <p>
             Piers raise the water level upstream, and that rise grows as the{" "}
-            <Term tint={C.signal}>fourth power</Term> of the fraction of width
+            <Term tint={C.critical}>fourth power</Term> of the fraction of width
             they block. Doubling the piers costs far more than double.
           </p>
         )
@@ -245,9 +293,9 @@ export function JembatanClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "α", value: fmt(r.blockage, 3), tint: r.heavyBlockage ? C.signal : undefined },
-            { label: "Fr", value: fmt(r.Fr, 3), tint: r.outOfRange ? C.signal : undefined },
+            { label: "Fr", value: fmt(r.Fr, 3), tint: superkritis ? C.signal : undefined },
             { label: "Δh", value: r.outOfRange ? "—" : `${fmt(r.backwater, 3)} m`, tint: C.water },
-            { label: "ys", value: `${fmt(r.scourDepth, 2)} m`, tint: C.signal },
+            { label: "ys", value: r.fullyBlocked ? "—" : `${fmt(r.scourDepth, 2)} m`, tint: C.critical },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -260,7 +308,7 @@ export function JembatanClient() {
               <InputRow symbol="Q" label={x.dQ} value={Q} min={5} max={3000} step={5} digits={0} unit="m³/s" onChange={setQ} tint={C.water} />
               <InputRow symbol="B" label={x.dB} value={B} min={5} max={300} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="y₃" label={x.dY3} value={y3} min={0.3} max={15} step={0.1} digits={1} unit="m" onChange={setY3} />
-              <InputRow symbol="N" label={x.dN} value={piers} min={0} max={12} step={1} digits={0} onChange={setPiers} tint={C.signal} />
+              <InputRow symbol="N" label={x.dN} value={piers} min={0} max={12} step={1} digits={0} onChange={setPiers} />
               <InputRow symbol="ap" label={x.dWp} value={wp} min={0.2} max={6} step={0.1} digits={1} unit="m" onChange={setWp} />
               <InputRow symbol="K" label={x.dK} value={K} min={0.9} max={1.25} step={0.05} digits={2} onChange={setK} />
             </InputTable>
@@ -280,13 +328,22 @@ export function JembatanClient() {
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <Flag tint={r.outOfRange ? undefined : C.water} alert={r.outOfRange}>
-                {r.outOfRange ? x.superkritis : `${fmt(r.backwater * 1000, 0)} mm`}
+                {superkritis
+                  ? x.superkritis
+                  : r.fullyBlocked
+                    ? x.tertutup
+                    : `${fmt(r.backwater * 1000, 0)} mm`}
               </Flag>
               {r.heavyBlockage && <Flag alert>{x.sempit}</Flag>}
             </div>
-            {r.outOfRange && (
+            {superkritis && (
               <div className="mb-2.5">
                 <Note>{x.superkritisNote}</Note>
+              </div>
+            )}
+            {r.fullyBlocked && (
+              <div className="mb-2.5">
+                <Note>{x.tertutupNote}</Note>
               </div>
             )}
             {r.heavyBlockage && (
@@ -297,11 +354,13 @@ export function JembatanClient() {
             <ResultTable
               rows={[
                 { symbol: "Δh", label: x.rDh, value: r.outOfRange ? "—" : fmt(r.backwater, 4), unit: r.outOfRange ? undefined : "m", tint: C.water, strong: true },
-                { symbol: "ys", label: x.rScour, value: fmt(r.scourDepth, 3), unit: "m", tint: C.signal, strong: true },
+                /* Sungai yang tertutup habis bukan aliran, jadi tidak ada gerusan
+                   maupun pondasi yang dapat dihitung dari alirannya. */
+                { symbol: "ys", label: x.rScour, value: r.fullyBlocked ? "—" : fmt(r.scourDepth, 3), unit: r.fullyBlocked ? undefined : "m", tint: C.critical, strong: true },
                 { symbol: "α", label: x.rAlpha, value: fmt(r.blockage, 4), tint: r.heavyBlockage ? C.signal : undefined },
-                { symbol: "Fr", label: x.rFr, value: fmt(r.Fr, 4), tint: r.outOfRange ? C.signal : undefined },
-                { symbol: "V", label: x.rV, value: fmt(r.velocityBetween, 3), unit: "m/s" },
-                { symbol: "zf", label: x.rDasar, value: fmt(y3 + r.scourDepth, 2), unit: "m", tint: C.critical },
+                { symbol: "Fr", label: x.rFr, value: fmt(r.Fr, 4), tint: superkritis ? C.signal : undefined },
+                { symbol: "V", label: x.rV, value: r.fullyBlocked ? "—" : fmt(r.velocityBetween, 3), unit: r.fullyBlocked ? undefined : "m/s" },
+                { symbol: "zf", label: x.rDasar, value: r.fullyBlocked ? "—" : fmt(y3 + r.scourDepth, 2), unit: r.fullyBlocked ? undefined : "m", tint: C.critical },
               ]}
             />
           </Block>

@@ -3928,6 +3928,17 @@ export type SluiceResult = {
   submerged: boolean;
   /** Benar bila bukaan melebihi kedalaman hulu; tidak ada pintu lagi */
   gateAboveWater: boolean;
+  /**
+   * Benar bila muka air hilir sudah mencapai atau melewati muka air hulu.
+   *
+   * Di situ tidak ada lagi beda tinggi yang mendorong air ke hilir, jadi
+   * debitnya nol dan air justru akan mengalir ke arah sebaliknya. Gaya yang
+   * dihitung menjadi negatif, yang secara tanda memang benar karena air
+   * hilir menekan balik daun pintunya, tetapi seluruh lembar ini menganggap
+   * alirannya dari hulu ke hilir. Menyajikan gaya negatif sebagai jawaban
+   * biasa akan membuat orang membaca keadaan yang tidak sedang dihitung.
+   */
+  reversed: boolean;
 };
 
 /**
@@ -3972,6 +3983,7 @@ export function sluiceGate(
       gateForce: 0,
       submerged: false,
       gateAboveWater: true,
+      reversed: false,
     };
   }
 
@@ -4044,6 +4056,7 @@ export function sluiceGate(
     gateForce: M1 - M2,
     submerged,
     gateAboveWater: false,
+    reversed: y3 >= y1,
   };
 }
 
@@ -4183,6 +4196,17 @@ export type BridgeResult = {
   outOfRange: boolean;
   /** Benar bila penyempitannya melampaui batas yang biasa diterima */
   heavyBlockage: boolean;
+  /**
+   * Benar bila pilarnya menutup seluruh lebar sungai, yaitu N kali lebar
+   * pilar sudah mencapai lebar sungainya.
+   *
+   * Dipisahkan dari penyempitan yang berat, karena keduanya bukan soal
+   * derajat melainkan soal jenis. Penyempitan berat masih aliran sungguhan
+   * yang rumusnya saja tidak berlaku; penutupan penuh bukan aliran sama
+   * sekali, karena luas antar pilarnya nol atau negatif dan kecepatan di
+   * antaranya menjadi tak hingga.
+   */
+  fullyBlocked: boolean;
 };
 
 /** Bagian lebar tertutup pilar yang lazim dipakai sebagai batas rancangan. */
@@ -4245,8 +4269,17 @@ export function bridgePiers(
    * dengan a lebar pilar. K1 dan K2 diambil satu untuk pilar bulat sejajar
    * arus. Rumus ini sengaja konservatif dan lazim dianggap batas atas.
    */
+  /*
+   * Tanpa pilar tidak ada gerusan di hidung pilar.
+   *
+   * Rumusnya hanya memuat lebar SATU pilar, jadi ia tetap menjawab angka
+   * yang masuk akal meskipun pilarnya tidak ada satu pun. Angka itu jawaban
+   * atas pertanyaan "seandainya ada pilar selebar itu", bukan atas keadaan
+   * yang sedang dihitung, dan menyajikannya sebagai hasil membuat jembatan
+   * tanpa pilar tampak tetap menuntut pondasi dalam.
+   */
   const scourDepth =
-    pierWidth > 0 && y3 > 0
+    piers > 0 && pierWidth > 0 && y3 > 0
       ? 2.0 *
         Math.pow(pierWidth, 0.65) *
         Math.pow(y3, 0.35) *
@@ -4261,6 +4294,7 @@ export function bridgePiers(
     scourDepth,
     outOfRange: Fr >= 1 || alpha >= 1,
     heavyBlockage: alpha > BRIDGE_BLOCKAGE_MAX,
+    fullyBlocked: alpha >= 1,
   };
 }
 
@@ -6169,5 +6203,2113 @@ export function sleepRegulation(
     forbiddenZone: forbiddenHours > 0.5,
     forbiddenHours,
     valid: H0 > L0 && H0 + amplitude < 1 && L0 - amplitude > 0,
+  };
+}
+
+/* ==================================================================== *
+ *                                                                      *
+ *  DASAR FLUIDA — keluarga FF, dan yang dipakai bersamanya              *
+ *                                                                      *
+ *  Sembilan belas lembar terakhir. Yang berbeda dari keluarga          *
+ *  sebelumnya: di sini yang dipersoalkan bukan sebuah bangunan air      *
+ *  melainkan persamaan dasarnya sendiri, dan pembacanya datang untuk    *
+ *  melihat mengapa persamaan itu berbentuk begitu.                      *
+ *                                                                      *
+ * ==================================================================== */
+
+/** Tinggi tekan atmosfer baku dalam meter kolom air. */
+export const ATM_HEAD = 10.33;
+
+/**
+ * Tinggi tekan uap air jenuh, meter kolom air.
+ *
+ * Batas bawah mutlak tekanan di dalam aliran air. Di bawahnya air mendidih
+ * pada suhu ruang, dan gelembung yang terbentuk lalu pecah kembali di
+ * tempat tekanannya pulih adalah kavitasi.
+ */
+export function vapourHead(TCelsius: number): number {
+  /* Antoine untuk air, lalu diubah ke meter kolom air. */
+  const pkPa =
+    Math.pow(10, 8.07131 - 1730.63 / (233.426 + TCelsius)) * 0.133322;
+  return pkPa / 9.81;
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-01, FF-02, PI-07  Garis energi di sepanjang saluran tertutup
+ * ------------------------------------------------------------------ */
+
+/** Satu penampang di sepanjang salurannya. */
+export type DuctStation = {
+  /** Jarak dari hulu, meter */
+  x: number;
+  /** Elevasi sumbu saluran, meter */
+  z: number;
+  /** Garis tengah dalam, meter */
+  D: number;
+  /** Koefisien kehilangan setempat yang bekerja DI penampang ini */
+  K?: number;
+  /** Tinggi tekan yang ditambahkan pompa di penampang ini, meter */
+  pump?: number;
+};
+
+export type DuctPoint = {
+  x: number;
+  z: number;
+  D: number;
+  area: number;
+  velocity: number;
+  /** Tinggi kecepatan, meter */
+  velocityHead: number;
+  /** Tinggi tekan, meter kolom air. Negatif berarti di bawah atmosfer */
+  pressureHead: number;
+  /** Garis tekanan, yaitu elevasi ditambah tinggi tekan */
+  hgl: number;
+  /** Garis energi, yaitu garis tekanan ditambah tinggi kecepatan */
+  egl: number;
+  /** Kehilangan seluruhnya dari hulu sampai penampang ini, meter */
+  lossSoFar: number;
+  /** Tekanan mutlak, meter kolom air */
+  absoluteHead: number;
+};
+
+export type DuctEnergy = {
+  points: DuctPoint[];
+  /** Kehilangan gesekan seluruhnya, meter */
+  frictionLoss: number;
+  /** Kehilangan setempat seluruhnya, meter */
+  minorLoss: number;
+  /** Tinggi tekan pompa seluruhnya, meter */
+  pumpHead: number;
+  /** Tinggi tekan terendah di sepanjang saluran, meter */
+  minPressureHead: number;
+  /** Absis tempat tekanan terendah itu berada */
+  minPressureAt: number;
+  /** Benar bila ada tempat yang tekanannya di bawah atmosfer */
+  subAtmospheric: boolean;
+  /** Benar bila ada tempat yang tekanan mutlaknya di bawah tekanan uap */
+  cavitates: boolean;
+  /** Benar bila garis energinya pernah naik tanpa pompa */
+  energyRises: boolean;
+  /** Benar bila garis tekanannya pernah naik, yang memang boleh terjadi */
+  gradeRises: boolean;
+};
+
+/**
+ * Garis energi dan garis tekanan di sepanjang saluran tertutup.
+ *
+ * Satu model untuk tiga lembar, karena ketiganya memang satu persamaan:
+ *
+ *     z + p/γ + V²/2g = tetap − kehilangan + tinggi pompa.
+ *
+ * FF-01 memakainya tanpa kehilangan sama sekali, supaya yang terlihat hanya
+ * pertukaran ketiga sukunya. FF-02 menyalakan kehilangannya, supaya terlihat
+ * ke mana energinya pergi. PI-07 memakainya pada pipa bertekanan sungguhan
+ * beserta pompanya.
+ *
+ * Dua hal yang paling pantas diperhatikan, dan keduanya paling mudah
+ * dilihat pada gambarnya.
+ *
+ * Pertama, GARIS ENERGI HANYA DAPAT TURUN. Tidak ada susunan pipa yang
+ * membuatnya naik, kecuali ada pompa yang memasukkan tenaga dari luar.
+ * Garis tekanan sebaliknya BOLEH NAIK, dan memang naik di setiap
+ * pembesaran penampang, karena di situ tinggi kecepatan berubah menjadi
+ * tinggi tekan. Dua garis yang kelihatan serupa, dengan dua aturan yang
+ * sama sekali berbeda.
+ *
+ * Kedua, menaikkan pipanya tidak mengubah tinggi energi seluruhnya sedikit
+ * pun. Yang berubah hanya pembagiannya: elevasi yang bertambah dibayar oleh
+ * tinggi tekan yang berkurang, satu meter ditukar satu meter. Itu sebabnya
+ * pipa yang naik terlalu tinggi kehabisan tekanan dan mulai menghisap.
+ *
+ * Rujukan: Bernoulli, D. (1738). Hydrodynamica; Streeter, V.L. & Wylie,
+ * E.B. (1985). Fluid Mechanics, edisi ke-8; Idelchik, I.E. (1996).
+ * Handbook of Hydraulic Resistance, edisi ke-3.
+ */
+export function ductEnergy(
+  /** Debit, meter kubik tiap detik */
+  Q: number,
+  /** Penampang-penampang di sepanjang salurannya, urut dari hulu */
+  stations: DuctStation[],
+  /** Tinggi energi di penampang pertama, meter */
+  totalHead: number,
+  /** Faktor gesekan Darcy. Nol berarti tanpa gesekan sama sekali */
+  f = 0,
+  TCelsius = 15
+): DuctEnergy {
+  const points: DuctPoint[] = [];
+  let egl = totalHead;
+  let frictionLoss = 0;
+  let minorLoss = 0;
+  let pumpHead = 0;
+  let energyRises = false;
+  let gradeRises = false;
+
+  const uap = vapourHead(TCelsius);
+
+  for (let i = 0; i < stations.length; i++) {
+    const s = stations[i];
+    const area = (Math.PI * s.D * s.D) / 4;
+    const V = area > 0 ? Q / area : 0;
+    const hv = (V * V) / (2 * G);
+
+    if (i > 0) {
+      const a = stations[i - 1];
+      const dx = s.x - a.x;
+      const Drata = (a.D + s.D) / 2;
+      const Arata = (Math.PI * Drata * Drata) / 4;
+      const Vrata = Arata > 0 ? Q / Arata : 0;
+      /* Gesekan dihitung pada garis tengah rata-rata ruasnya, bukan pada
+         salah satu ujungnya, supaya ruas yang mengerucut tidak dihitung
+         seluruhnya pada penampang tersempit atau terlebar. */
+      const hf =
+        Drata > 0 ? (f * dx * Vrata * Vrata) / (Drata * 2 * G) : 0;
+      frictionLoss += hf;
+      egl -= hf;
+    }
+
+    const hk = (s.K ?? 0) * hv;
+    minorLoss += hk;
+    egl -= hk;
+
+    const hp = s.pump ?? 0;
+    pumpHead += hp;
+    egl += hp;
+
+    const hgl = egl - hv;
+    const p = hgl - s.z;
+
+    if (i > 0) {
+      if (egl > points[i - 1].egl + 1e-9 && hp <= 0) energyRises = true;
+      if (hgl > points[i - 1].hgl + 1e-9) gradeRises = true;
+    }
+
+    points.push({
+      x: s.x,
+      z: s.z,
+      D: s.D,
+      area,
+      velocity: V,
+      velocityHead: hv,
+      pressureHead: p,
+      hgl,
+      egl,
+      lossSoFar: frictionLoss + minorLoss,
+      absoluteHead: p + ATM_HEAD,
+    });
+  }
+
+  let minPressureHead = Infinity;
+  let minPressureAt = 0;
+  for (const p of points)
+    if (p.pressureHead < minPressureHead) {
+      minPressureHead = p.pressureHead;
+      minPressureAt = p.x;
+    }
+
+  return {
+    points,
+    frictionLoss,
+    minorLoss,
+    pumpHead,
+    minPressureHead: Number.isFinite(minPressureHead) ? minPressureHead : 0,
+    minPressureAt,
+    subAtmospheric: minPressureHead < 0,
+    cavitates: minPressureHead + ATM_HEAD <= uap,
+    energyRises,
+    gradeRises,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-03, PI-05, PI-06  Gaya momentum pada volume kendali
+ * ------------------------------------------------------------------ */
+
+export type MomentumForce = {
+  /** Luas kedua penampang, meter persegi */
+  area1: number;
+  area2: number;
+  velocity1: number;
+  velocity2: number;
+  /** Gaya tekanan pada kedua penampang, newton */
+  pressureForce1: number;
+  pressureForce2: number;
+  /** Laju aliran momentum masuk dan keluar, newton */
+  momentumIn: number;
+  momentumOut: number;
+  /** Gaya yang harus ditahan tumpuan, dua komponen, newton */
+  Fx: number;
+  Fy: number;
+  resultant: number;
+  /** Arah resultannya terhadap sumbu datang, derajat */
+  direction: number;
+  /** Bagian resultan yang berasal dari tekanan saja */
+  pressureShare: number;
+  /** Tekanan di penampang kedua, meter kolom air */
+  head2: number;
+  /** Kehilangan Borda-Carnot pada pembesaran mendadak, meter */
+  expansionLoss: number;
+  /** Benar bila penampangnya membesar sehingga tekanannya NAIK */
+  pressureRises: boolean;
+};
+
+/**
+ * Gaya pada belokan atau perubahan penampang, dari kekekalan momentum.
+ *
+ * Satu model untuk tiga lembar. Belokan bersudut nol dengan penampang yang
+ * berubah adalah PI-06; belokan bersudut dengan penampang tetap adalah
+ * PI-05; dan FF-03 memakai keduanya untuk memperlihatkan bahwa kekekalan
+ * momentum tidak pernah menanyakan apa yang terjadi di dalam volume
+ * kendalinya.
+ *
+ * Tiga hal yang pantas diperhatikan.
+ *
+ * Pertama, SUKU TEKANAN BIASANYA JAUH MENGUASAI SUKU MOMENTUM. Pipa air
+ * garis tengah setengah meter bertekanan sepuluh bar mengalirkan air pada
+ * tiga meter per detik: gaya tekanannya seratus sembilan puluh enam
+ * kilonewton, gaya momentumnya lima koma tiga kilonewton. Angkur belokan
+ * pipa karena itu ditentukan tekanannya, bukan kecepatannya, dan pipa yang
+ * diuji bertekanan sementara airnya diam tetap menuntut angkur yang sama
+ * besarnya.
+ *
+ * Kedua, belokan seratus delapan puluh derajat menuntut DUA KALI gaya
+ * belokan sembilan puluh derajat, bukan sama besar. Yang menentukan bukan
+ * besar sudutnya melainkan perubahan arah vektornya.
+ *
+ * Ketiga, pada pembesaran penampang yang mendadak TEKANANNYA NAIK meskipun
+ * energinya hilang. Dua hal yang sering dikira bertentangan padahal
+ * keduanya benar: tinggi kecepatan yang lepas lebih besar daripada tinggi
+ * tekan yang didapat, dan selisihnya itulah yang hilang.
+ *
+ * Rujukan: Borda, J.-C. (1766); Carnot, L. (1783); Streeter & Wylie (1985),
+ * bab 3; Idelchik (1996), diagram 4-1.
+ */
+export function momentumForce(
+  /** Debit, meter kubik tiap detik */
+  Q: number,
+  /** Garis tengah penampang masuk, meter */
+  D1: number,
+  /** Garis tengah penampang keluar, meter */
+  D2: number,
+  /** Tinggi tekan di penampang masuk, meter kolom air */
+  head1: number,
+  /** Sudut belokan, derajat. Nol berarti lurus */
+  angleDeg: number,
+  rho = 1000
+): MomentumForce {
+  const area1 = (Math.PI * D1 * D1) / 4;
+  const area2 = (Math.PI * D2 * D2) / 4;
+  const V1 = area1 > 0 ? Q / area1 : 0;
+  const V2 = area2 > 0 ? Q / area2 : 0;
+  const theta = (angleDeg * Math.PI) / 180;
+
+  /*
+   * Tekanan di penampang kedua.
+   *
+   * Pada belokan berpenampang tetap, tekanannya dianggap tidak berubah.
+   * Pada perubahan penampang yang mendadak, dipakai Borda-Carnot: tinggi
+   * kecepatan yang hilang adalah kuadrat SELISIH kecepatannya, bukan
+   * selisih kuadratnya, dan itu pembeda yang menentukan.
+   */
+  const expansionLoss =
+    D2 > D1 ? ((V1 - V2) * (V1 - V2)) / (2 * G) : 0;
+  const head2 =
+    head1 + (V1 * V1 - V2 * V2) / (2 * G) - expansionLoss;
+
+  const p1 = head1 * rho * G;
+  const p2 = head2 * rho * G;
+  const pressureForce1 = p1 * area1;
+  const pressureForce2 = p2 * area2;
+  const momentumIn = rho * Q * V1;
+  const momentumOut = rho * Q * V2;
+
+  /*
+   * Gaya yang harus ditahan tumpuannya, yaitu lawan dari gaya yang
+   * dikerjakan air pada dinding. Sumbu x searah aliran masuk.
+   */
+  const Fx =
+    pressureForce1 +
+    momentumIn -
+    (pressureForce2 + momentumOut) * Math.cos(theta);
+  const Fy = -(pressureForce2 + momentumOut) * Math.sin(theta);
+
+  const resultant = Math.hypot(Fx, Fy);
+
+  /* Berapa besar resultannya kalau airnya diam dan hanya tekanannya yang
+     bekerja. Perbandingan inilah yang menentukan ukuran angkurnya. */
+  const FxP = pressureForce1 - pressureForce2 * Math.cos(theta);
+  const FyP = -pressureForce2 * Math.sin(theta);
+  const hanyaTekanan = Math.hypot(FxP, FyP);
+
+  return {
+    area1,
+    area2,
+    velocity1: V1,
+    velocity2: V2,
+    pressureForce1,
+    pressureForce2,
+    momentumIn,
+    momentumOut,
+    Fx,
+    Fy,
+    resultant,
+    direction: (Math.atan2(Fy, Fx) * 180) / Math.PI,
+    pressureShare: resultant > 0 ? hanyaTekanan / resultant : 1,
+    head2,
+    expansionLoss,
+    pressureRises: head2 > head1,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-04  Kapan sebaran tekanan berhenti hidrostatis
+ * ------------------------------------------------------------------ */
+
+export type CurvaturePressure = {
+  /** Tekanan di dasar bila sebarannya hidrostatis, kPa */
+  hydrostatic: number;
+  /** Simpangan akibat kelengkungan garis arus, kPa */
+  deviation: number;
+  /** Tekanan di dasar yang sebenarnya, kPa */
+  actual: number;
+  /** Perbandingan simpangan terhadap hidrostatisnya */
+  ratio: number;
+  /** Bilangan Froude kelengkungan, V² dibagi g R */
+  curvatureNumber: number;
+  /** Benar bila garis arusnya cembung ke atas, misalnya di atas mercu */
+  convex: boolean;
+  /** Benar bila simpangannya masih di bawah ambang yang diabaikan */
+  hydrostaticValid: boolean;
+  /** Tekanan di dasar tidak boleh negatif; benar bila airnya terangkat */
+  liftsOff: boolean;
+};
+
+/** Batas simpangan yang masih lazim diabaikan, sebagai bagian hidrostatisnya. */
+export const HYDROSTATIC_TOLERANCE = 0.05;
+
+/**
+ * Sebaran tekanan pada garis arus yang melengkung.
+ *
+ * Anggapan hidrostatis menuntut garis arusnya lurus dan sejajar. Begitu ia
+ * melengkung, percepatan menuju pusat lengkungnya harus disediakan oleh
+ * selisih tekanan, dan tekanan di dasar menyimpang dari hidrostatis
+ * sebesar
+ *
+ *     Δp = ρ V² d / R,
+ *
+ * dengan R jari-jari lengkung garis arusnya. Dibagi dengan tekanan
+ * hidrostatisnya sendiri, ρ g d, simpangan nisbinya menjadi V² dibagi g R
+ * saja: kedalamannya lenyap dari perbandingannya.
+ *
+ * Yang pantas diperhatikan: di atas mercu pelimpah garis arusnya CEMBUNG
+ * KE ATAS, jadi tekanan di dasar lebih KECIL daripada hidrostatis, dan pada
+ * mercu yang tajam ia dapat turun sampai nol sehingga airnya terangkat
+ * lepas dari mercunya. Di dasar lengkung cekung, misalnya di kaki
+ * pelimpah, sebaliknya: tekanannya lebih besar, dan itulah yang menuntut
+ * lantai olakan setebal itu.
+ *
+ * Rujukan: Rouse, H. (1946). Elementary Mechanics of Fluids; Chow, V.T.
+ * (1959). Open-Channel Hydraulics, bab 1; Montes, J.S. (1998). Hydraulics
+ * of Open Channel Flow, bab 6.
+ */
+export function curvaturePressure(
+  /** Kecepatan rata-rata, m/s */
+  V: number,
+  /** Kedalaman aliran, meter */
+  depth: number,
+  /** Jari-jari lengkung garis arus, meter. Positif berarti cembung ke atas */
+  radius: number,
+  rho = 1000
+): CurvaturePressure {
+  const hydrostatic = (rho * G * depth) / 1000;
+  const R = Math.abs(radius);
+  const curvatureNumber = R > 0 ? (V * V) / (G * R) : Infinity;
+  const besar = R > 0 ? (rho * V * V * depth) / R / 1000 : Infinity;
+  const convex = radius > 0;
+  const deviation = convex ? -besar : besar;
+  const actual = hydrostatic + deviation;
+
+  return {
+    hydrostatic,
+    deviation,
+    actual,
+    ratio: hydrostatic > 0 ? Math.abs(deviation) / hydrostatic : Infinity,
+    curvatureNumber,
+    convex,
+    hydrostaticValid:
+      hydrostatic > 0 &&
+      Math.abs(deviation) / hydrostatic <= HYDROSTATIC_TOLERANCE,
+    liftsOff: actual <= 0,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-05  Garis arus, garis jejak, dan lintasan partikel
+ * ------------------------------------------------------------------ */
+
+export type FlowLines = {
+  /** Garis arus pada saat yang diminta */
+  streamline: { x: number; y: number }[];
+  /** Lintasan satu partikel yang dilepas pada t = 0 */
+  pathline: { x: number; y: number }[];
+  /** Garis jejak zat warna yang dilepas terus-menerus dari titik asal */
+  streakline: { x: number; y: number }[];
+  /** Benar bila ketiganya berimpit, yaitu bila alirannya tunak */
+  steady: boolean;
+  /** Jarak terjauh antara garis arus dan lintasan partikel, meter */
+  separation: number;
+};
+
+/**
+ * Tiga garis yang sering dikira sama.
+ *
+ * Medan yang dipakai sesederhana mungkin dan seragam di seluruh ruang,
+ * hanya arahnya yang berayun terhadap waktu:
+ *
+ *     u = U,    v = V cos(ω t).
+ *
+ * Dari medan sesederhana itu ketiga garisnya sudah berbeda sama sekali.
+ *
+ * - GARIS ARUS adalah garis yang di setiap titiknya searah kecepatan PADA
+ *   SATU SAAT. Karena medan ini seragam, garis arusnya garis lurus, dan
+ *   kemiringannya berayun mengikuti waktu.
+ * - LINTASAN PARTIKEL adalah jejak satu partikel sepanjang waktu. Ia
+ *   sinus, karena partikelnya terbawa mendatar sambil naik turun.
+ * - GARIS JEJAK adalah tempat kedudukan seluruh partikel yang pernah
+ *   melewati satu titik. Ia juga sinus, tetapi BERGESER FASE terhadap
+ *   lintasan partikel, karena tiap partikelnya berangkat pada saat yang
+ *   berbeda.
+ *
+ * Ketiganya berimpit hanya bila alirannya tunak, dan itu satu-satunya
+ * keadaan tempat foto zat warna boleh dibaca sebagai garis arus. Seluruh
+ * foto aliran yang pernah diambil pada aliran tak tunak adalah garis
+ * jejak, bukan garis arus, dan keduanya berbeda persis sebanyak yang
+ * digambar lembar ini.
+ *
+ * Rujukan: Prandtl, L. & Tietjens, O.G. (1934). Fundamentals of Hydro- and
+ * Aeromechanics; Van Dyke, M. (1982). An Album of Fluid Motion; Panton,
+ * R.L. (2013). Incompressible Flow, edisi ke-4, bab 3.
+ */
+export function flowLines(
+  /** Kecepatan mendatar tetap, m/s */
+  U: number,
+  /** Simpangan kecepatan tegak, m/s */
+  V: number,
+  /** Kekerapan ayunan, radian tiap detik */
+  omega: number,
+  /** Saat yang digambar, detik */
+  t: number,
+  /** Panjang yang digambar, meter */
+  span = 10,
+  n = 160
+): FlowLines {
+  const steady = Math.abs(V) < 1e-12 || Math.abs(omega) < 1e-12;
+
+  /* Garis arus pada saat t: lurus, berkemiringan v/u pada saat itu. */
+  const vSaat = V * Math.cos(omega * t);
+  const streamline: { x: number; y: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = (span * i) / n;
+    streamline.push({ x, y: U !== 0 ? (vSaat / U) * x : 0 });
+  }
+
+  /*
+   * Lintasan partikel yang dilepas di titik asal pada saat nol, digambar
+   * sampai saat t. Penyelesaiannya bentuk tertutup:
+   *     x = U τ,   y = (V/ω)(sin ωτ − sin 0) = (V/ω) sin ωτ.
+   */
+  const pathline: { x: number; y: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const tau = (t * i) / n;
+    pathline.push({
+      x: U * tau,
+      y: omega !== 0 ? (V / omega) * Math.sin(omega * tau) : V * tau,
+    });
+  }
+
+  /*
+   * Garis jejak pada saat t: tempat kedudukan partikel yang dilepas pada
+   * setiap saat t0 antara nol dan t.
+   *     x = U (t − t0),   y = (V/ω)(sin ωt − sin ωt0).
+   */
+  const streakline: { x: number; y: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t0 = (t * i) / n;
+    streakline.push({
+      x: U * (t - t0),
+      y:
+        omega !== 0
+          ? (V / omega) * (Math.sin(omega * t) - Math.sin(omega * t0))
+          : V * (t - t0),
+    });
+  }
+
+  /* Jarak terjauh garis arus dari lintasan partikel, diukur tegak pada
+     absis yang sama. Nol tepat ketika alirannya tunak. */
+  let separation = 0;
+  for (let i = 0; i <= n; i++) {
+    const x = pathline[i].x;
+    const yGaris = U !== 0 ? (vSaat / U) * x : 0;
+    separation = Math.max(separation, Math.abs(pathline[i].y - yGaris));
+  }
+
+  return { streamline, pathline, streakline, steady, separation };
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-06  Peregangan, pemutaran, dan perubahan bentuk elemen fluida
+ * ------------------------------------------------------------------ */
+
+export type Deformation = {
+  /** Laju regangan utama, dua nilai, tiap detik */
+  principal: [number, number];
+  /** Arah regangan utama terbesar, derajat terhadap sumbu x */
+  principalAngle: number;
+  /** Vortisitas, tiap detik. Dua kali laju putarnya */
+  vorticity: number;
+  /** Laju putar elemen, tiap detik */
+  rotationRate: number;
+  /** Laju pemuaian, tiap detik. Nol berarti tak mampat */
+  dilatation: number;
+  /** Laju regangan geser murni, tiap detik */
+  shearRate: number;
+  /** Bagian gerak yang berupa putaran, nol sampai satu */
+  rotationShare: number;
+  /** Sudut elemen persegi sesudah waktu tertentu */
+  deformed: { x: number; y: number }[];
+  /** Benar bila alirannya tak mampat */
+  incompressible: boolean;
+  /** Benar bila gerakannya putaran murni tanpa perubahan bentuk */
+  pureRotation: boolean;
+  /** Benar bila gerakannya regangan murni tanpa putaran */
+  pureStrain: boolean;
+};
+
+/**
+ * Menguraikan gerak elemen fluida menjadi regangan dan putaran.
+ *
+ * Tensor kemiringan kecepatan diuraikan menjadi bagian setangkup, yang
+ * meregangkan, dan bagian tak setangkup, yang memutar. Keduanya berdiri
+ * sendiri: satu mengubah bentuk tanpa memutar, satu memutar tanpa mengubah
+ * bentuk.
+ *
+ * Yang paling berguna diingat dari lembar ini: GESER SEDERHANA ADALAH
+ * SETENGAH REGANGAN DAN SETENGAH PUTARAN, tepat separuh masing-masing.
+ * Aliran di dekat dinding yang kelihatan hanya menggeser sesungguhnya
+ * memutar tiap elemennya secepat ia meregangkannya, dan vortisitas yang
+ * muncul di situ adalah asal seluruh pusaran yang kemudian terlepas ke
+ * dalam aliran. Regangan murni sebaliknya mengubah bentuk sekuat apa pun
+ * tanpa memberi vortisitas sedikit pun.
+ *
+ * Rujukan: Helmholtz, H. (1858). Über Integrale der hydrodynamischen
+ * Gleichungen; Batchelor, G.K. (1967). An Introduction to Fluid Dynamics,
+ * bab 2; Panton (2013), bab 4.
+ */
+export function deformation(
+  /** Kemiringan kecepatan, tiap detik */
+  dudx: number,
+  dudy: number,
+  dvdx: number,
+  dvdy: number,
+  /** Lama pengamatan, detik */
+  t = 1
+): Deformation {
+  const dilatation = dudx + dvdy;
+  const vorticity = dvdx - dudy;
+  const rotationRate = vorticity / 2;
+
+  /* Bagian setangkup tensornya */
+  const exx = dudx;
+  const eyy = dvdy;
+  const exy = (dudy + dvdx) / 2;
+
+  const tengah = (exx + eyy) / 2;
+  const jari = Math.hypot((exx - eyy) / 2, exy);
+  const principal: [number, number] = [tengah + jari, tengah - jari];
+  const principalAngle =
+    (0.5 * Math.atan2(2 * exy, exx - eyy) * 180) / Math.PI;
+
+  const besarRegang = Math.hypot((exx - eyy) / 2, exy);
+  const besarPutar = Math.abs(rotationRate);
+  const jumlah = besarRegang + besarPutar;
+
+  /* Elemen persegi satuan sesudah waktu t, dengan hampiran linear:
+     x' = x + t (dudx x + dudy y), y' = y + t (dvdx x + dvdy y). */
+  const pojok = [
+    { x: -0.5, y: -0.5 },
+    { x: 0.5, y: -0.5 },
+    { x: 0.5, y: 0.5 },
+    { x: -0.5, y: 0.5 },
+  ];
+  const deformed = pojok.map((p) => ({
+    x: p.x + t * (dudx * p.x + dudy * p.y),
+    y: p.y + t * (dvdx * p.x + dvdy * p.y),
+  }));
+
+  return {
+    principal,
+    principalAngle,
+    vorticity,
+    rotationRate,
+    dilatation,
+    shearRate: 2 * exy,
+    rotationShare: jumlah > 0 ? besarPutar / jumlah : 0,
+    deformed,
+    incompressible: Math.abs(dilatation) < 1e-12,
+    pureRotation: besarRegang < 1e-12 && besarPutar > 1e-12,
+    pureStrain: besarPutar < 1e-12 && besarRegang > 1e-12,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FF-07  Percepatan lokal dan percepatan konvektif
+ * ------------------------------------------------------------------ */
+
+export type Acceleration = {
+  /** Kecepatan di penampang yang diminta, m/s */
+  velocity: number;
+  /** Percepatan lokal, m/s² */
+  local: number;
+  /** Percepatan konvektif, m/s² */
+  convective: number;
+  /** Percepatan seluruhnya, m/s² */
+  total: number;
+  /** Percepatan seluruhnya dalam kelipatan percepatan gravitasi */
+  inGravities: number;
+  /** Bagian percepatan yang berasal dari suku konvektif */
+  convectiveShare: number;
+  /** Benar bila alirannya tunak, sehingga suku lokalnya nol */
+  steady: boolean;
+  /** Kecepatan di sepanjang salurannya, untuk digambar */
+  profile: { x: number; velocity: number; local: number; convective: number }[];
+};
+
+/**
+ * Dua suku percepatan pada saluran mengerucut yang debitnya berayun.
+ *
+ * Percepatan sebuah partikel fluida punya dua sumber yang sama sekali
+ * berbeda:
+ *
+ *     a = ∂u/∂t + u ∂u/∂x.
+ *
+ * Suku pertama muncul karena kecepatan DI SATU TEMPAT berubah terhadap
+ * waktu. Suku kedua muncul karena partikelnya BERPINDAH ke tempat yang
+ * kecepatannya lain, dan ia ada bahkan ketika seluruh medannya diam
+ * terhadap waktu.
+ *
+ * Yang paling pantas diperhatikan: ALIRAN TUNAK PUN DAPAT BERPERCEPATAN
+ * BESAR SEKALI. Air yang mengalir tetap melalui nosel yang mengerucut dari
+ * dua ratus milimeter ke lima puluh milimeter sepanjang setengah meter
+ * mengalami percepatan konvektif ratusan meter per detik kuadrat, yaitu
+ * puluhan kali percepatan gravitasi, sementara di setiap titiknya
+ * kecepatannya tidak berubah sedikit pun terhadap waktu. Itu sebabnya
+ * "tunak" tidak pernah berarti "tanpa percepatan", dan itu pula sebabnya
+ * gaya pada nosel tidak dapat dihitung dari perubahan terhadap waktu.
+ *
+ * Rujukan: Euler, L. (1757). Principes généraux du mouvement des fluides;
+ * Streeter & Wylie (1985), bab 4; Panton (2013), bab 3.
+ */
+export function acceleration(
+  /** Debit rata-rata, meter kubik tiap detik */
+  Q0: number,
+  /** Simpangan debit terhadap rata-ratanya, bagian dari Q0 */
+  swing: number,
+  /** Kekerapan ayunan debit, radian tiap detik */
+  omega: number,
+  /** Garis tengah di pangkal, meter */
+  D1: number,
+  /** Garis tengah di ujung, meter */
+  D2: number,
+  /** Panjang saluran mengerucutnya, meter */
+  L: number,
+  /** Absis yang ditinjau, meter dari pangkal */
+  x: number,
+  /** Saat yang ditinjau, detik */
+  t = 0
+): Acceleration {
+  const steady = Math.abs(swing) < 1e-12 || Math.abs(omega) < 1e-12;
+
+  const Dx = (xx: number) => {
+    const s = Math.min(Math.max(xx / Math.max(L, 1e-9), 0), 1);
+    return D1 + (D2 - D1) * s;
+  };
+  const Ax = (xx: number) => (Math.PI * Dx(xx) * Dx(xx)) / 4;
+  const Qt = (tt: number) => Q0 * (1 + swing * Math.sin(omega * tt));
+  const u = (xx: number, tt: number) => Qt(tt) / Math.max(Ax(xx), 1e-12);
+
+  const hitung = (xx: number) => {
+    const A = Ax(xx);
+    const V = Qt(t) / Math.max(A, 1e-12);
+    /* ∂u/∂t = (dQ/dt)/A, bentuk tertutup */
+    const local = (Q0 * swing * omega * Math.cos(omega * t)) / Math.max(A, 1e-12);
+    /* u ∂u/∂x, beda tengah supaya berlaku juga pada kerucut apa pun */
+    const h = Math.max(L, 1e-6) * 1e-5;
+    const dudx = (u(xx + h, t) - u(xx - h, t)) / (2 * h);
+    return { V, local, convective: V * dudx };
+  };
+
+  const di = hitung(x);
+  const total = di.local + di.convective;
+
+  const profile: Acceleration["profile"] = [];
+  const n = 80;
+  for (let i = 0; i <= n; i++) {
+    const xx = (L * i) / n;
+    const p = hitung(xx);
+    profile.push({ x: xx, velocity: p.V, local: p.local, convective: p.convective });
+  }
+
+  return {
+    velocity: di.V,
+    local: di.local,
+    convective: di.convective,
+    total,
+    inGravities: total / G,
+    convectiveShare:
+      Math.abs(di.local) + Math.abs(di.convective) > 0
+        ? Math.abs(di.convective) /
+          (Math.abs(di.local) + Math.abs(di.convective))
+        : 1,
+    steady,
+    profile,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * PI-04  Percobaan Reynolds
+ * ------------------------------------------------------------------ */
+
+export type ReynoldsExperiment = {
+  reynolds: number;
+  velocity: number;
+  regime: "laminar" | "peralihan" | "turbulen";
+  /** Panjang masuk sampai profil kecepatannya berkembang penuh, meter */
+  entryLength: number;
+  /** Panjang masuk itu dalam kelipatan garis tengah pipanya */
+  entryDiameters: number;
+  /** Kecepatan tempat alirannya mulai meninggalkan laminar, m/s */
+  criticalVelocity: number;
+  /** Bilangan Reynolds kritis yang dipakai, bergantung pada gangguannya */
+  criticalReynolds: number;
+  /** Faktor gesekan pada keadaan itu */
+  friction: number;
+  /** Tebal lapisan kental di dinding, milimeter */
+  viscousThickness: number;
+  /** Benar bila alirannya masih laminar pada bilangan Reynolds tinggi */
+  quietLaminar: boolean;
+};
+
+/**
+ * Batas laminar yang tidak dimiliki fluidanya maupun pipanya.
+ *
+ * Yang dipercobakan Reynolds pada 1883 bukan bilangan dua ribu melainkan
+ * kenyataan bahwa BATASNYA BERGANTUNG PADA GANGGUANNYA. Pada percobaan
+ * yang dijaga sangat tenang, alirannya tetap laminar sampai bilangan
+ * Reynolds puluhan ribu, dan percobaan modern mempertahankannya melampaui
+ * seratus ribu. Pada pipa lapangan yang bergetar dan bersambungan kasar,
+ * ia sudah turbulen di bawah dua ribu.
+ *
+ * Yang tetap adalah batas BAWAHNYA: di bawah kira-kira dua ribu, gangguan
+ * sebesar apa pun meredam sendiri dan alirannya kembali laminar. Itulah
+ * satu-satunya angka pada lembar ini yang benar-benar sifat aliran, dan
+ * itu sebabnya ia yang dipakai merancang, bukan batas atasnya.
+ *
+ * Rujukan: Reynolds, O. (1883). An experimental investigation of the
+ * circumstances which determine whether the motion of water shall be direct
+ * or sinuous. Phil. Trans. R. Soc. 174; Avila, K. dkk. (2011). The onset of
+ * turbulence in pipe flow. Science 333; Hof, B. dkk. (2003). Nature 443.
+ */
+export function reynoldsExperiment(
+  /** Debit, meter kubik tiap detik */
+  Q: number,
+  /** Garis tengah pipa, meter */
+  D: number,
+  /** Suhu air, derajat Celsius */
+  TCelsius: number,
+  /**
+   * Ketenangan percobaannya, nol sampai satu.
+   *
+   * Nol berarti pipa lapangan yang bergetar; satu berarti tabung kaca
+   * yang dijaga sediam mungkin seperti percobaan aslinya.
+   */
+  quietness = 0
+): ReynoldsExperiment {
+  const nu = waterViscosity(TCelsius);
+  const A = (Math.PI * D * D) / 4;
+  const V = A > 0 ? Q / A : 0;
+  const Re = (V * D) / Math.max(nu, 1e-30);
+
+  /*
+   * Batas kritisnya naik bersama ketenangan percobaannya. Dua ribu pada
+   * pipa lapangan, seratus ribu pada percobaan yang paling tenang, dan
+   * naiknya dibuat menurut pangkat supaya pertengahannya tidak melompat.
+   */
+  const criticalReynolds =
+    RE_LAMINAR_MAX * Math.pow(50, Math.min(Math.max(quietness, 0), 1));
+  const criticalVelocity = (criticalReynolds * nu) / Math.max(D, 1e-9);
+
+  const regime: ReynoldsExperiment["regime"] =
+    Re <= criticalReynolds
+      ? "laminar"
+      : Re < RE_TURBULENT_MIN && Re > RE_LAMINAR_MAX
+        ? "peralihan"
+        : Re < criticalReynolds * 2
+          ? "peralihan"
+          : "turbulen";
+
+  const laminar = Re <= criticalReynolds;
+
+  /*
+   * Panjang masuk. Pada aliran laminar ia sebanding LURUS dengan bilangan
+   * Reynolds, jadi pipa laminar yang cepat menuntut panjang masuk ratusan
+   * kali garis tengahnya. Pada aliran turbulen ia hampir tidak bergantung
+   * pada Reynolds sama sekali, dan berhenti di sekitar empat puluh kali
+   * garis tengah.
+   */
+  const entryDiameters = laminar
+    ? 0.06 * Re
+    : 4.4 * Math.pow(Math.max(Re, 1), 1 / 6);
+  const entryLength = entryDiameters * D;
+
+  const friction = laminar
+    ? 64 / Math.max(Re, 1e-9)
+    : 0.316 / Math.pow(Math.max(Re, 1), 0.25);
+
+  /* Tebal lapisan kental, dari kecepatan gesek pada faktor gesekan itu */
+  const uStar = V * Math.sqrt(Math.max(friction, 0) / 8);
+  const viscousThickness =
+    uStar > 0 ? (WALL_VISCOUS_MAX * nu) / uStar * 1000 : Infinity;
+
+  return {
+    reynolds: Re,
+    velocity: V,
+    regime,
+    entryLength,
+    entryDiameters,
+    criticalVelocity,
+    criticalReynolds,
+    friction,
+    viscousThickness,
+    quietLaminar: laminar && Re > RE_TURBULENT_MIN,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * OC-11  Perkembangan meander
+ * ------------------------------------------------------------------ */
+
+export type Meander = {
+  /** Lintasan sungainya pada bidang datar */
+  path: { x: number; y: number }[];
+  /** Panjang lintasan dibagi jarak lurusnya */
+  sinuosity: number;
+  /** Panjang gelombang meander, meter */
+  wavelength: number;
+  /** Jari-jari lengkung terkecil, meter */
+  minRadius: number;
+  /** Jari-jari lengkung terkecil itu dibagi lebar sungainya */
+  radiusRatio: number;
+  /** Laju pindah tebing pada nisbah jari-jari itu, lebar tiap tahun */
+  migrationRate: number;
+  /** Panjang gelombang menurut hubungan terbitan Leopold dan Wolman */
+  wavelengthLeopold: number;
+  /** Benar bila nisbah jari-jarinya berada di sekitar laju pindah tercepat */
+  fastestMigration: boolean;
+  /** Benar bila lehernya sudah cukup sempit untuk terpotong */
+  cutoff: boolean;
+};
+
+/** Nisbah jari-jari lengkung terhadap lebar yang laju pindahnya tercepat. */
+export const MEANDER_PEAK_RATIO = 2.5;
+/** Sinusitas tempat leher meander mulai terpotong. */
+export const MEANDER_CUTOFF = 2.8;
+
+/**
+ * Sungai lurus yang berubah menjadi berkelok.
+ *
+ * Lintasannya diambil kurva berarah sinus, yaitu kurva yang arahnya sendiri
+ * berayun menurut sinus terhadap jarak sepanjang lintasannya:
+ *
+ *     θ(s) = ω sin(2π s / M).
+ *
+ * Langbein dan Leopold memperlihatkan bahwa kurva inilah yang paling
+ * mungkin muncul, karena ia yang membagi perubahan arah paling merata
+ * sepanjang lintasannya, dan aliran yang bebas memilih selalu menuju
+ * pembagian yang paling merata itu. Sinusitasnya sepenuhnya ditentukan
+ * satu angka, yaitu sudut ayun terbesarnya.
+ *
+ * Yang paling berlawanan dengan naluri: LAJU PINDAH TEBING PALING CEPAT
+ * BUKAN PADA BELOKAN YANG PALING TAJAM. Ia memuncak pada jari-jari
+ * lengkung sekitar dua setengah kali lebar sungainya, lalu MENURUN lagi
+ * pada belokan yang lebih tajam. Belokan yang terlalu tajam memisahkan
+ * alirannya dari tebing luar sehingga tenaganya tidak lagi sampai ke sana.
+ * Akibatnya meander tumbuh cepat sampai suatu ketajaman lalu melambat
+ * sendiri, dan itu sebabnya kelokan sungai di mana pun di dunia berhenti
+ * pada bentuk yang mirip.
+ *
+ * Rujukan: Langbein, W.B. & Leopold, L.B. (1966). River meanders, theory of
+ * minimum variance. USGS PP 422-H; Leopold, L.B. & Wolman, M.G. (1960).
+ * River meanders. GSA Bulletin 71; Hickin, E.J. & Nanson, G.C. (1984).
+ * Lateral migration rates of river bends. J. Hydraul. Eng. 110(11).
+ */
+export function meanderPath(
+  /** Lebar sungai, meter */
+  width: number,
+  /** Panjang gelombang meander, meter */
+  wavelength: number,
+  /** Sudut ayun terbesar, derajat */
+  maxAngleDeg: number,
+  /** Banyaknya gelombang yang digambar */
+  cycles = 2,
+  n = 400
+): Meander {
+  const omega = (maxAngleDeg * Math.PI) / 180;
+  const M = Math.max(wavelength, 1e-6);
+  const total = M * cycles;
+
+  /*
+   * Lintasannya dihitung dengan memadu arahnya sepanjang jarak lintasan.
+   * Panjang gelombangnya di sini panjang SEPANJANG LINTASAN, jadi jarak
+   * lurusnya keluar lebih pendek, dan perbandingan keduanya sinusitasnya.
+   */
+  const path: { x: number; y: number }[] = [];
+  const ds = total / n;
+  let x = 0;
+  let y = 0;
+  path.push({ x, y });
+  const kurva: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = (i + 0.5) * ds;
+    const theta = omega * Math.sin((2 * Math.PI * s) / M);
+    x += Math.cos(theta) * ds;
+    y += Math.sin(theta) * ds;
+    path.push({ x, y });
+    /* Kelengkungan dθ/ds, dan jari-jarinya kebalikannya */
+    kurva.push(
+      Math.abs(((omega * 2 * Math.PI) / M) * Math.cos((2 * Math.PI * s) / M))
+    );
+  }
+
+  const lurus = Math.hypot(path[path.length - 1].x - path[0].x, path[path.length - 1].y - path[0].y);
+  const sinuosity = lurus > 0 ? total / lurus : 1;
+
+  const kurvaMaks = Math.max(...kurva);
+  const minRadius = kurvaMaks > 0 ? 1 / kurvaMaks : Infinity;
+  const radiusRatio = width > 0 ? minRadius / width : Infinity;
+
+  /*
+   * Laju pindah tebing menurut Hickin dan Nanson: naik sampai nisbah
+   * jari-jari sekitar dua setengah, lalu turun kembali. Dibentuk sebagai
+   * lengkung yang memuncak di situ dan menuju nol di kedua ujungnya.
+   */
+  const rr = Math.min(Math.max(radiusRatio, 0.2), 30);
+  const migrationRate =
+    0.04 * (rr / MEANDER_PEAK_RATIO) * Math.exp(1 - rr / MEANDER_PEAK_RATIO);
+
+  return {
+    path,
+    sinuosity,
+    wavelength: M,
+    minRadius,
+    radiusRatio,
+    migrationRate,
+    /* Leopold dan Wolman: panjang gelombang kira-kira sebelas kali lebar,
+       berlaku dari parit selokan sampai sungai besar. */
+    wavelengthLeopold: 10.9 * Math.pow(Math.max(width, 1e-9), 1.01),
+    fastestMigration: Math.abs(radiusRatio - MEANDER_PEAK_RATIO) < 0.8,
+    cutoff: sinuosity >= MEANDER_CUTOFF,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * EH-05  Gerombolan ikan
+ * ------------------------------------------------------------------ */
+
+export type ShoalAgent = { x: number; y: number; vx: number; vy: number };
+
+export type Shoal = {
+  agents: ShoalAgent[];
+  /** Jejak beberapa ekor, supaya arah geraknya terbaca */
+  trails: { x: number; y: number }[][];
+  /** Keteraturan arah, nol sampai satu. Satu berarti seluruhnya searah */
+  polarisation: number;
+  /** Keteraturan putar terhadap pusat gerombolan, nol sampai satu */
+  milling: number;
+  /** Jarak rata-rata ke tetangga terdekat, meter */
+  nearestNeighbour: number;
+  /** Jari-jari gerombolan, meter */
+  spread: number;
+  /** Bentuk yang muncul */
+  state: "berpencar" | "bergerombol" | "berputar" | "searah";
+};
+
+/**
+ * Gerombolan dari tiga aturan yang tidak menyebut gerombolan.
+ *
+ * Tiap ekor hanya melihat tetangga terdekatnya dan mematuhi tiga aturan:
+ * menjauh bila terlalu rapat, menyamakan arah dengan tetangganya, dan
+ * mendekat bila terlalu renggang. Tidak ada pemimpin, tidak ada rencana,
+ * dan tidak satu ekor pun tahu bentuk gerombolannya.
+ *
+ * Yang muncul dari ketiganya tiga bentuk yang berbeda sama sekali, dan
+ * perpindahan antar bentuknya mendadak, bukan berangsur. Naikkan bobot
+ * penyamaan arah sedikit demi sedikit dan gerombolannya berpindah dari
+ * kerumunan tak berarah menjadi cincin berputar lalu menjadi barisan
+ * searah, masing-masing dalam rentang bobot yang sempit. Sifat seperti itu
+ * tidak dapat dibaca dari aturannya satu per satu: ia hanya muncul dari
+ * ketiganya bekerja bersama, dan itulah arti "perilaku yang muncul".
+ *
+ * Seluruh angka acaknya dibangkitkan dari satu benih tetap, jadi gambarnya
+ * tidak berubah tiap kali digambar ulang. Gambar yang berubah sendiri
+ * membuat mata mengira ada yang berubah pada keadaannya.
+ *
+ * Rujukan: Reynolds, C.W. (1987). Flocks, herds and schools. SIGGRAPH 87;
+ * Vicsek, T. dkk. (1995). Novel type of phase transition in a system of
+ * self-driven particles. Phys. Rev. Lett. 75; Couzin, I.D. dkk. (2002).
+ * Collective memory and spatial sorting in animal groups. J. Theor. Biol.
+ * 218.
+ */
+export function shoal(
+  /** Banyaknya ikan */
+  count: number,
+  /** Bobot penyamaan arah */
+  alignment: number,
+  /** Bobot menjauh bila terlalu rapat */
+  separation: number,
+  /** Bobot mendekat bila terlalu renggang */
+  cohesion: number,
+  /** Kegaduhan arah tiap langkah, radian */
+  noise = 0.1,
+  /** Banyaknya langkah yang dijalankan */
+  steps = 240
+): Shoal {
+  /* Pembangkit acak berbenih tetap, supaya gambarnya tidak berubah sendiri */
+  let benih = 20260919;
+  const acak = () => {
+    benih = (benih * 1664525 + 1013904223) % 4294967296;
+    return benih / 4294967296;
+  };
+
+  const n = Math.max(2, Math.round(count));
+  const laju = 1;
+  const rJauh = 1.2;
+  const rDekat = 6;
+
+  const agents: ShoalAgent[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = acak() * Math.PI * 2;
+    agents.push({
+      x: (acak() - 0.5) * 20,
+      y: (acak() - 0.5) * 20,
+      vx: Math.cos(a) * laju,
+      vy: Math.sin(a) * laju,
+    });
+  }
+
+  const trails: { x: number; y: number }[][] = [[], [], [], [], []];
+
+  for (let langkah = 0; langkah < steps; langkah++) {
+    const baru = agents.map((a) => ({ ...a }));
+    for (let i = 0; i < n; i++) {
+      let sx = 0;
+      let sy = 0;
+      let ax = 0;
+      let ay = 0;
+      let cx = 0;
+      let cy = 0;
+      let nDekat = 0;
+      let nJauh = 0;
+
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const dx = agents[j].x - agents[i].x;
+        const dy = agents[j].y - agents[i].y;
+        const d = Math.hypot(dx, dy);
+        if (d < 1e-9) continue;
+        if (d < rJauh) {
+          sx -= dx / d;
+          sy -= dy / d;
+          nJauh++;
+        } else if (d < rDekat) {
+          ax += agents[j].vx;
+          ay += agents[j].vy;
+          cx += dx;
+          cy += dy;
+          nDekat++;
+        }
+      }
+
+      let vx = agents[i].vx;
+      let vy = agents[i].vy;
+      if (nJauh > 0) {
+        vx += separation * (sx / nJauh);
+        vy += separation * (sy / nJauh);
+      }
+      if (nDekat > 0) {
+        const an = Math.hypot(ax, ay);
+        if (an > 1e-9) {
+          vx += alignment * (ax / an);
+          vy += alignment * (ay / an);
+        }
+        vx += cohesion * (cx / nDekat) * 0.05;
+        vy += cohesion * (cy / nDekat) * 0.05;
+      }
+
+      const sudut = (acak() - 0.5) * noise;
+      const c = Math.cos(sudut);
+      const s2 = Math.sin(sudut);
+      const rx = vx * c - vy * s2;
+      const ry = vx * s2 + vy * c;
+
+      const v = Math.hypot(rx, ry);
+      baru[i].vx = v > 1e-9 ? (rx / v) * laju : laju;
+      baru[i].vy = v > 1e-9 ? (ry / v) * laju : 0;
+      baru[i].x = agents[i].x + baru[i].vx * 0.1;
+      baru[i].y = agents[i].y + baru[i].vy * 0.1;
+    }
+    for (let i = 0; i < n; i++) agents[i] = baru[i];
+
+    if (langkah > steps - 60)
+      for (let k = 0; k < Math.min(5, n); k++)
+        trails[k].push({ x: agents[k].x, y: agents[k].y });
+  }
+
+  /* Keteraturan arah: panjang jumlah vektor arah dibagi banyaknya */
+  let px = 0;
+  let py = 0;
+  for (const a of agents) {
+    px += a.vx;
+    py += a.vy;
+  }
+  const polarisation = Math.hypot(px, py) / (n * laju);
+
+  /* Keteraturan putar: momentum sudut terhadap pusat gerombolannya */
+  const mx = agents.reduce((s2, a) => s2 + a.x, 0) / n;
+  const my = agents.reduce((s2, a) => s2 + a.y, 0) / n;
+  let putar = 0;
+  let spread = 0;
+  for (const a of agents) {
+    const rx = a.x - mx;
+    const ry = a.y - my;
+    const r = Math.hypot(rx, ry);
+    spread += r;
+    if (r > 1e-9) putar += (rx * a.vy - ry * a.vx) / (r * laju);
+  }
+  const milling = Math.abs(putar) / n;
+  spread /= n;
+
+  let nn = 0;
+  for (let i = 0; i < n; i++) {
+    let d = Infinity;
+    for (let j = 0; j < n; j++)
+      if (i !== j)
+        d = Math.min(d, Math.hypot(agents[j].x - agents[i].x, agents[j].y - agents[i].y));
+    nn += Number.isFinite(d) ? d : 0;
+  }
+  nn /= n;
+
+  const state: Shoal["state"] =
+    polarisation > 0.75
+      ? "searah"
+      : milling > 0.45
+        ? "berputar"
+        : spread < rDekat * 1.6
+          ? "bergerombol"
+          : "berpencar";
+
+  return {
+    agents,
+    trails,
+    polarisation,
+    milling,
+    nearestNeighbour: nn,
+    spread,
+    state,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * EH-06  Habitat sungai
+ * ------------------------------------------------------------------ */
+
+export type HabitatCell = {
+  /** Jarak dari tepi kiri, meter */
+  y: number;
+  depth: number;
+  velocity: number;
+  /** Kelayakan kedalaman, kecepatan, dan gabungannya, nol sampai satu */
+  depthIndex: number;
+  velocityIndex: number;
+  combined: number;
+};
+
+export type Habitat = {
+  cells: HabitatCell[];
+  /** Kedalaman terbesar di tengah, meter */
+  maxDepth: number;
+  /** Lebar basah, meter */
+  wettedWidth: number;
+  /** Kecepatan rata-rata penampang, m/s */
+  meanVelocity: number;
+  /** Luas layak terbobot tiap meter panjang sungai, meter persegi */
+  usableArea: number;
+  /** Bagian lebar basah yang layak */
+  usableFraction: number;
+  /** Debit yang memberi luas layak terbesar, meter kubik tiap detik */
+  bestDischarge: number;
+  /** Luas layak terbesar itu */
+  bestUsableArea: number;
+  /** Lengkung luas layak terhadap debit, untuk digambar */
+  curve: { Q: number; usable: number }[];
+  /** Benar bila menambah debit justru mengurangi luas layaknya */
+  pastPeak: boolean;
+};
+
+/** Kedalaman dan kecepatan yang paling disukai ikan rancangan. */
+export const HABITAT_BEST_DEPTH = 0.45;
+export const HABITAT_BEST_VELOCITY = 0.4;
+
+/**
+ * Luas habitat layak terhadap debit.
+ *
+ * Tiap pias penampang dinilai dua kali, sekali menurut kedalamannya dan
+ * sekali menurut kecepatannya, memakai lengkung kelayakan berbentuk
+ * lonceng di sekitar nilai yang paling disukai jenis ikannya. Kedua nilai
+ * itu dikalikan, lalu dijumlahkan sepanjang lebar basahnya.
+ *
+ * Hasil yang paling penting dan paling sering mengejutkan: LUAS HABITAT
+ * LAYAK MEMUNCAK PADA DEBIT MENENGAH, LALU MENURUN. Air yang lebih banyak
+ * bukan habitat yang lebih banyak. Pada debit kecil, sungainya terlalu
+ * dangkal dan terlalu lambat di hampir seluruh lebarnya. Pada debit besar,
+ * bagian tengahnya menjadi terlalu dalam dan terlalu deras, dan yang
+ * tersisa hanya jalur sempit di dekat tepinya. Di antara keduanya ada satu
+ * debit yang seluruh penampangnya hampir pas, dan debit itulah yang
+ * diperjuangkan dalam penetapan aliran pemeliharaan sungai.
+ *
+ * Akibat praktisnya langsung: menuntut "debit sebesar mungkin" untuk
+ * lingkungan adalah tuntutan yang dapat merugikan yang dituntutnya sendiri,
+ * dan lengkung inilah yang dipakai menjawabnya dengan angka.
+ *
+ * Rujukan: Bovee, K.D. (1982). A guide to stream habitat analysis using the
+ * IFIM. USFWS FWS/OBS-82/26; Stalnaker, C. dkk. (1995). The Instream Flow
+ * Incremental Methodology, USGS Biological Report 29; Payne, T.R. (2003).
+ * The concept of weighted usable area as relative suitability index.
+ */
+export function riverHabitat(
+  /** Debit, meter kubik tiap detik */
+  Q: number,
+  /** Lebar sungai pada muka air penuh, meter */
+  width: number,
+  /** Kemiringan dasar */
+  slope: number,
+  /** Angka kekasaran Manning */
+  n: number,
+  /** Kedalaman yang paling disukai, meter */
+  bestDepth = HABITAT_BEST_DEPTH,
+  /** Kecepatan yang paling disukai, m/s */
+  bestVelocity = HABITAT_BEST_VELOCITY,
+  pias = 60
+): Habitat {
+  /*
+   * Penampangnya diambil berbentuk parabola, yaitu bentuk yang paling
+   * mendekati penampang sungai alami: dangkal di tepi, dalam di tengah.
+   * Kedalaman puncaknya dicari dengan bagi dua sehingga debit Manning yang
+   * dipadukan sepanjang lebarnya sama dengan debit yang diminta.
+   */
+  const bentuk = (yy: number, H: number) => {
+    const s = (2 * yy) / Math.max(width, 1e-9) - 1;
+    return H * (1 - s * s);
+  };
+
+  const debitPada = (H: number) => {
+    let q = 0;
+    const dy = width / pias;
+    for (let i = 0; i < pias; i++) {
+      const d = bentuk((i + 0.5) * dy, H);
+      if (d <= 0) continue;
+      /* Manning setempat pada tiap pias, jari-jari hidraulik diambil
+         kedalamannya sendiri karena piasnya lebar dan dangkal. */
+      q += (Math.pow(d, 5 / 3) * Math.sqrt(slope)) / n * dy;
+    }
+    return q;
+  };
+
+  let lo = 0;
+  let hi = 20;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (debitPada(mid) < Q) lo = mid;
+    else hi = mid;
+  }
+  const maxDepth = (lo + hi) / 2;
+
+  /* Lengkung kelayakan berbentuk lonceng, lebarnya sebanding nilai
+     terbaiknya sendiri supaya bentuknya sama untuk ikan besar dan kecil. */
+  const layak = (nilai: number, terbaik: number) => {
+    if (nilai <= 0) return 0;
+    const lebar = terbaik * 0.8;
+    const z = (nilai - terbaik) / Math.max(lebar, 1e-9);
+    return Math.exp(-z * z);
+  };
+
+  const cells: HabitatCell[] = [];
+  const dy = width / pias;
+  let usable = 0;
+  let basah = 0;
+  let luas = 0;
+  let debit = 0;
+  for (let i = 0; i < pias; i++) {
+    const y = (i + 0.5) * dy;
+    const d = bentuk(y, maxDepth);
+    if (d <= 0) {
+      cells.push({ y, depth: 0, velocity: 0, depthIndex: 0, velocityIndex: 0, combined: 0 });
+      continue;
+    }
+    const v = (Math.pow(d, 2 / 3) * Math.sqrt(slope)) / n;
+    const di = layak(d, bestDepth);
+    const vi = layak(v, bestVelocity);
+    const c = di * vi;
+    cells.push({ y, depth: d, velocity: v, depthIndex: di, velocityIndex: vi, combined: c });
+    usable += c * dy;
+    basah += dy;
+    luas += d * dy;
+    debit += v * d * dy;
+  }
+
+  /** Luas layak pada satu debit, dipakai lengkungnya maupun pencarian puncaknya. */
+  const layakPada = (Qi: number) => {
+    let lo2 = 0;
+    let hi2 = 40;
+    for (let k = 0; k < 50; k++) {
+      const mid = (lo2 + hi2) / 2;
+      if (debitPada(mid) < Qi) lo2 = mid;
+      else hi2 = mid;
+    }
+    const Hi = (lo2 + hi2) / 2;
+    let u = 0;
+    for (let j = 0; j < pias; j++) {
+      const d = bentuk((j + 0.5) * dy, Hi);
+      if (d <= 0) continue;
+      const v = (Math.pow(d, 2 / 3) * Math.sqrt(slope)) / n;
+      u += layak(d, bestDepth) * layak(v, bestVelocity) * dy;
+    }
+    return u;
+  };
+
+  /*
+   * Puncaknya dicari pada rentang debit yang LEBAR, bukan pada kelipatan
+   * debit yang kebetulan sedang dipilih penggesernya.
+   *
+   * Sungai yang lebar dan landai memuncak pada debit puluhan kali lipat
+   * debit bawaannya, dan mencari puncak hanya sampai tiga kali debit
+   * penggesernya akan menjawab "puncaknya di ujung kanan" pada sungai
+   * seperti itu, yaitu jawaban yang selalu salah.
+   */
+  let bestDischarge = Q;
+  let bestUsableArea = 0;
+  const cari = 160;
+  for (let i = 0; i <= cari; i++) {
+    const Qi = Math.pow(10, -3 + (7 * i) / cari);
+    const u = layakPada(Qi);
+    if (u > bestUsableArea) {
+      bestUsableArea = u;
+      bestDischarge = Qi;
+    }
+  }
+
+  /*
+   * Lengkung yang digambar dibagi menurut LOGARITMA debitnya.
+   *
+   * Sungai sempit yang curam memuncak pada debit puluhan kali lebih kecil
+   * daripada debit yang mungkin dipilih penggesernya, dan kisi yang dibagi
+   * rata akan menempatkan seluruh puncaknya di dalam satu pias pertama.
+   * Kisi berlogaritma memuat puncaknya dan debit yang dipilih sekaligus,
+   * berapa pun jaraknya.
+   */
+  const curve: { Q: number; usable: number }[] = [];
+  const Qlo = bestDischarge / 20;
+  const Qhi = Math.max(bestDischarge * 5, Q * 1.3);
+  const langkah = 70;
+  for (let i = 0; i <= langkah; i++) {
+    const Qi = Qlo * Math.pow(Qhi / Qlo, i / langkah);
+    curve.push({ Q: Qi, usable: layakPada(Qi) });
+  }
+
+  return {
+    cells,
+    maxDepth,
+    wettedWidth: basah,
+    meanVelocity: luas > 0 ? debit / luas : 0,
+    usableArea: usable,
+    usableFraction: basah > 0 ? usable / basah : 0,
+    bestDischarge,
+    bestUsableArea,
+    curve,
+    pastPeak: Q > bestDischarge,
+  };
+}
+
+/* ==================================================================== *
+ *  FISIKA FLUIDA — keluarga FP                                          *
+ * ==================================================================== */
+
+/* ------------------------------------------------------------------ *
+ * FP-01  Deret vorteks Karman
+ * ------------------------------------------------------------------ */
+
+/** Nisbah jarak antar baris terhadap jarak antar pusaran sebaris. */
+export const KARMAN_SPACING = 0.281;
+
+export type VortexStreet = {
+  reynolds: number;
+  /** Bilangan Strouhal */
+  strouhal: number;
+  /** Kekerapan lepasnya pusaran, hertz */
+  frequency: number;
+  /** Jarak antar pusaran sebaris, meter */
+  spacing: number;
+  /** Jarak antar kedua baris, meter */
+  rowGap: number;
+  /** Nada yang terdengar bila silinder itu bergetar, hertz */
+  toneHz: number;
+  /** Kekerapan getar alami batangnya, hertz */
+  naturalHz: number;
+  /** Benar bila keduanya berdekatan sehingga getarannya mengunci */
+  lockIn: boolean;
+  regime:
+    | "merayap"
+    | "sepasang-tetap"
+    | "deret-karman"
+    | "lapis-geser-turbulen"
+    | "kritis";
+  /** Benar bila pusarannya memang terlepas bergantian */
+  shedding: boolean;
+  /** Titik-titik pusat pusaran di kedua baris */
+  street: { x: number; y: number; sign: number }[];
+};
+
+/**
+ * Mengapa pusaran terlepas bergantian, dan mengapa nadanya tetap.
+ *
+ * Bilangan Strouhal, yaitu kekerapan lepas dikali garis tengah dibagi
+ * kecepatan datang, hampir tidak berubah di sepanjang empat tingkat
+ * besaran bilangan Reynolds: ia bertahan di sekitar nol koma dua dari
+ * Reynolds tiga ratus sampai dua ratus ribu.
+ *
+ * Akibatnya satu kalimat yang dapat diperiksa siapa saja: kawat yang
+ * bersiul di dalam angin bernada yang ditentukan garis tengahnya dan
+ * kecepatan anginnya SAJA, tidak oleh bahannya, tidak oleh panjangnya, dan
+ * hampir tidak oleh kekentalan udaranya. Kawat satu milimeter di dalam
+ * angin sepuluh meter per detik bersiul pada dua kilohertz.
+ *
+ * Yang kedua: jarak kedua baris pusarannya terhadap jarak antar pusaran
+ * sebaris selalu nol koma dua delapan satu. Karman memperlihatkan bahwa
+ * hanya pada satu nisbah itulah deretnya mantap; pada nisbah lain deretnya
+ * sendiri yang membubarkan dirinya. Bentuk yang terlihat di belakang tiang
+ * jembatan, cerobong, dan pulau di dalam awan semuanya nisbah yang sama.
+ *
+ * Rujukan: von Karman, T. (1911). Über den Mechanismus des Widerstandes;
+ * Roshko, A. (1954). On the development of turbulent wakes from vortex
+ * streets. NACA TR 1191; Williamson, C.H.K. (1996). Vortex dynamics in the
+ * cylinder wake. Annu. Rev. Fluid Mech. 28.
+ */
+export function vortexStreet(
+  /** Kecepatan datang, m/s */
+  U: number,
+  /** Garis tengah silinder, meter */
+  d: number,
+  /** Kekentalan kinematik fluida, m2/s */
+  nu: number,
+  /** Kekerapan getar alami batangnya, hertz. Nol berarti tidak ditinjau */
+  naturalHz = 0,
+  /** Banyaknya pusaran tiap baris yang digambar */
+  count = 8
+): VortexStreet {
+  const Re = (U * d) / Math.max(nu, 1e-30);
+
+  /*
+   * Bilangan Strouhal menurut Roshko. Di bawah Reynolds seratus lima
+   * puluh ia masih naik tajam bersama Reynolds; di atasnya ia mendatar.
+   */
+  const strouhal =
+    Re < 47
+      ? 0
+      : Re < 180
+        ? 0.212 - 4.5 / Re
+        : Re < 2e5
+          ? 0.212 - 2.7 / Re
+          : 0.27;
+
+  const frequency = strouhal > 0 ? (strouhal * U) / Math.max(d, 1e-9) : 0;
+
+  /*
+   * Jarak antar pusaran sebaris: kecepatan datang dibagi kekerapannya,
+   * dikurangi sedikit karena pusarannya hanyut lebih lambat daripada
+   * aliran bebasnya. Nisbah antar barisnya tetap, nol koma dua delapan
+   * satu, dan itulah satu-satunya nisbah yang mantap.
+   */
+  const spacing = frequency > 0 ? (U * 0.87) / frequency : 0;
+  const rowGap = KARMAN_SPACING * spacing;
+
+  const regime: VortexStreet["regime"] =
+    Re < 5
+      ? "merayap"
+      : Re < 47
+        ? "sepasang-tetap"
+        : Re < 200
+          ? "deret-karman"
+          : Re < 2e5
+            ? "lapis-geser-turbulen"
+            : "kritis";
+
+  const street: { x: number; y: number; sign: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    street.push({ x: d + spacing * (i + 0.5), y: rowGap / 2, sign: 1 });
+    street.push({ x: d + spacing * (i + 1), y: -rowGap / 2, sign: -1 });
+  }
+
+  return {
+    reynolds: Re,
+    strouhal,
+    frequency,
+    spacing,
+    rowGap,
+    regime,
+    toneHz: frequency,
+    naturalHz,
+    /* Terkunci bila kekerapan lepasnya jatuh di dalam kira-kira dua puluh
+       persen kekerapan getar alaminya; di dalam jendela itu getaran
+       batangnya mengatur lepasnya pusaran, bukan sebaliknya. */
+    lockIn:
+      naturalHz > 0 &&
+      frequency > 0 &&
+      Math.abs(frequency - naturalHz) / naturalHz < 0.2,
+    shedding: Re >= 47,
+    street,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FP-02  Kinematika vorteks
+ * ------------------------------------------------------------------ */
+
+export type VortexPair = {
+  /** Lintasan kedua pusaran */
+  pathA: { x: number; y: number }[];
+  pathB: { x: number; y: number }[];
+  /** Kecepatan pindah pasangan berlawanan arah, m/s */
+  translation: number;
+  /** Kecepatan sudut pasangan searah, radian tiap detik */
+  angular: number;
+  /** Waktu satu putaran penuh pasangan searah, detik */
+  period: number;
+  /** Benar bila keduanya berlawanan arah putar */
+  counterRotating: boolean;
+  /** Jarak antar keduanya di akhir pengamatan, meter */
+  finalSeparation: number;
+  /** Berapa jauh jarak keduanya berubah selama pengamatan */
+  separationDrift: number;
+};
+
+/**
+ * Pusaran tidak pernah menggerakkan dirinya sendiri.
+ *
+ * Satu pusaran titik yang sendirian di dalam fluida tak terbatas DIAM di
+ * tempatnya selamanya, betapa pun kuat sirkulasinya. Medan kecepatan yang
+ * dibuatnya memutar seluruh fluida di sekitarnya, tetapi di titik
+ * pusatnya sendiri kecepatan itu tidak terdefinisi dan tidak memindahkan
+ * apa pun. Pusaran hanya bergerak karena DIBAWA pusaran lain.
+ *
+ * Dua akibatnya, dan keduanya dapat dilihat di air:
+ *
+ * Sepasang pusaran yang BERLAWANAN arah dan sama kuat membawa satu sama
+ * lain ke arah yang sama, sehingga pasangannya melaju lurus selamanya
+ * dengan kecepatan sirkulasi dibagi dua pi kali jaraknya, sambil menjaga
+ * jaraknya tetap. Itulah cincin asap, dan itu pula sebabnya cincin asap
+ * melaju sedangkan asap di sekitarnya diam.
+ *
+ * Sepasang pusaran yang SEARAH sebaliknya saling mengelilingi pada
+ * titik berat sirkulasinya, dengan jarak yang juga tetap. Keduanya tidak
+ * pernah mendekat dan tidak pernah menjauh, karena kecepatan yang
+ * dikenakan masing-masing tegak lurus garis yang menghubungkannya.
+ *
+ * Rujukan: Helmholtz, H. (1858); Lamb, H. (1932). Hydrodynamics, edisi
+ * ke-6, bab 7; Saffman, P.G. (1992). Vortex Dynamics, bab 2.
+ */
+export function vortexPair(
+  /** Sirkulasi pusaran pertama, meter persegi tiap detik */
+  gammaA: number,
+  /** Sirkulasi pusaran kedua */
+  gammaB: number,
+  /** Jarak awal antar keduanya, meter */
+  separation: number,
+  /** Lama pengamatan, detik */
+  span = 20,
+  steps = 400
+): VortexPair {
+  const d0 = Math.max(separation, 1e-6);
+  let ax = -d0 / 2;
+  let ay = 0;
+  let bx = d0 / 2;
+  let by = 0;
+
+  const pathA: { x: number; y: number }[] = [{ x: ax, y: ay }];
+  const pathB: { x: number; y: number }[] = [{ x: bx, y: by }];
+
+  const dt = span / steps;
+  /* Kecepatan yang dikenakan pusaran bersirkulasi G di jarak r: G/(2 pi r),
+     tegak lurus garis penghubungnya. Tiap pusaran hanya dibawa yang lain. */
+  const bawa = (
+    xs: number, ys: number, xo: number, yo: number, G: number
+  ) => {
+    const dx = xs - xo;
+    const dy = ys - yo;
+    const r2 = dx * dx + dy * dy;
+    if (r2 < 1e-18) return { u: 0, v: 0 };
+    return { u: (-G * dy) / (2 * Math.PI * r2), v: (G * dx) / (2 * Math.PI * r2) };
+  };
+
+  for (let i = 0; i < steps; i++) {
+    const va = bawa(ax, ay, bx, by, gammaB);
+    const vb = bawa(bx, by, ax, ay, gammaA);
+    /* Runge-Kutta orde dua, cukup karena lintasannya mulus */
+    const ax2 = ax + va.u * dt * 0.5;
+    const ay2 = ay + va.v * dt * 0.5;
+    const bx2 = bx + vb.u * dt * 0.5;
+    const by2 = by + vb.v * dt * 0.5;
+    const va2 = bawa(ax2, ay2, bx2, by2, gammaB);
+    const vb2 = bawa(bx2, by2, ax2, ay2, gammaA);
+    ax += va2.u * dt;
+    ay += va2.v * dt;
+    bx += vb2.u * dt;
+    by += vb2.v * dt;
+    pathA.push({ x: ax, y: ay });
+    pathB.push({ x: bx, y: by });
+  }
+
+  const counterRotating = gammaA * gammaB < 0;
+  const jumlah = gammaA + gammaB;
+  const finalSeparation = Math.hypot(bx - ax, by - ay);
+
+  return {
+    pathA,
+    pathB,
+    translation: counterRotating
+      ? Math.abs(gammaA) / (2 * Math.PI * d0)
+      : 0,
+    angular: !counterRotating ? jumlah / (2 * Math.PI * d0 * d0) : 0,
+    period:
+      !counterRotating && Math.abs(jumlah) > 1e-12
+        ? (4 * Math.PI * Math.PI * d0 * d0) / Math.abs(jumlah)
+        : Infinity,
+    counterRotating,
+    finalSeparation,
+    separationDrift: Math.abs(finalSeparation - d0) / d0,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FP-03  Gelombang linear
+ * ------------------------------------------------------------------ */
+
+export type LinearWave = {
+  /** Panjang gelombang, meter */
+  length: number;
+  /** Bilangan gelombang, radian tiap meter */
+  k: number;
+  /** Kecepatan rambat puncak gelombang, m/s */
+  celerity: number;
+  /** Kecepatan rambat tenaga, m/s */
+  groupVelocity: number;
+  /** Perbandingan kecepatan tenaga terhadap kecepatan puncak */
+  groupRatio: number;
+  /** Kedalaman dibagi panjang gelombang */
+  relativeDepth: number;
+  regime: "dangkal" | "menengah" | "dalam";
+  /** Kecepatan rambat menurut hampiran air dangkal, m/s */
+  shallowCelerity: number;
+  /** Kecepatan rambat menurut hampiran air dalam, m/s */
+  deepCelerity: number;
+  /** Panjang gelombang di air dalam pada perioda yang sama, meter */
+  deepLength: number;
+  /** Setengah tinggi lintasan partikel di dasar, meter */
+  bottomOrbit: number;
+  /** Benar bila gerak airnya masih terasa sampai dasar */
+  feelsBottom: boolean;
+};
+
+export const WAVE_SHALLOW = 0.05;
+export const WAVE_DEEP = 0.5;
+
+/**
+ * Kecepatan rambat gelombang dan kedalaman yang dirasakannya.
+ *
+ * Hubungan sebarannya
+ *
+ *     c² = (g / k) tanh(k h)
+ *
+ * memuat dua keadaan batas yang berbeda sama sekali. Di air DANGKAL,
+ * tanh(kh) mendekati kh sendiri, dan kecepatan rambatnya menjadi akar g h
+ * saja: seluruh panjang gelombang merambat SAMA CEPAT, sehingga bentuk
+ * gelombangnya bertahan dan tsunami dapat menyeberangi samudra tanpa
+ * berubah bentuk. Di air DALAM, tanh(kh) mendekati satu, dan kecepatan
+ * rambatnya hanya bergantung pada panjang gelombangnya: gelombang panjang
+ * mendahului gelombang pendek, dan itulah sebabnya alun dari badai yang
+ * jauh tiba di pantai sebagai deretan yang makin lama makin pendek.
+ *
+ * Yang kedua dan lebih sering dilupakan: TENAGANYA MERAMBAT LEBIH LAMBAT
+ * DARIPADA PUNCAKNYA. Di air dalam tepat setengahnya. Puncak gelombang
+ * yang diamati akan tampak muncul di belakang deretnya, berjalan ke depan
+ * melalui deretnya, lalu lenyap di depannya, dan tidak ada air maupun
+ * tenaga yang ikut berjalan secepat itu.
+ *
+ * Rujukan: Airy, G.B. (1845). Tides and waves; Dean, R.G. & Dalrymple,
+ * R.A. (1991). Water Wave Mechanics for Engineers and Scientists; Holthuijsen,
+ * L.H. (2007). Waves in Oceanic and Coastal Waters, bab 5.
+ */
+export function linearWave(
+  /** Perioda gelombang, detik */
+  period: number,
+  /** Kedalaman air, meter */
+  depth: number,
+  /** Tinggi gelombang, meter */
+  height = 1
+): LinearWave {
+  const T = Math.max(period, 1e-6);
+  const h = Math.max(depth, 1e-6);
+  const sigma = (2 * Math.PI) / T;
+
+  /*
+   * Hubungan sebarannya tidak dapat dibalik secara langsung terhadap
+   * panjang gelombang, jadi dicari dengan bagi dua. Panjang gelombang air
+   * dalam dipakai sebagai batas atas, karena kedalaman yang berkurang
+   * hanya dapat memperpendeknya.
+   */
+  const deepLength = (G * T * T) / (2 * Math.PI);
+  let lo = 1e-6;
+  let hi = deepLength * 1.2;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    const k = (2 * Math.PI) / mid;
+    /* sigma kuadrat harus sama dengan g k tanh(k h) */
+    if (G * k * Math.tanh(k * h) > sigma * sigma) lo = mid;
+    else hi = mid;
+  }
+  const length = (lo + hi) / 2;
+  const k = (2 * Math.PI) / length;
+  const kh = k * h;
+
+  const celerity = length / T;
+  const n = 0.5 * (1 + (2 * kh) / Math.sinh(Math.max(2 * kh, 1e-12)));
+  const groupVelocity = n * celerity;
+
+  const relativeDepth = h / length;
+  const regime: LinearWave["regime"] =
+    relativeDepth < WAVE_SHALLOW
+      ? "dangkal"
+      : relativeDepth > WAVE_DEEP
+        ? "dalam"
+        : "menengah";
+
+  return {
+    length,
+    k,
+    celerity,
+    groupVelocity,
+    groupRatio: celerity > 0 ? groupVelocity / celerity : 0.5,
+    relativeDepth,
+    regime,
+    shallowCelerity: Math.sqrt(G * h),
+    deepCelerity: (G * T) / (2 * Math.PI),
+    deepLength,
+    /* Setengah sumbu tegak lintasan partikel di dasar; di air dalam ia
+       lenyap, dan di air dangkal ia sama dengan setengah tinggi gelombang */
+    bottomOrbit: height / (2 * Math.sinh(Math.max(kh, 1e-12))),
+    feelsBottom: relativeDepth < WAVE_DEEP,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FP-04  Adveksi dan difusi
+ * ------------------------------------------------------------------ */
+
+export type AdvectionDiffusion = {
+  /** Sebaran kepekatan pada beberapa saat */
+  snapshots: { t: number; profile: { x: number; c: number }[] }[];
+  /** Letak pusat awan pada saat terakhir, meter */
+  centre: number;
+  /** Simpangan baku awan pada saat terakhir, meter */
+  sigma: number;
+  /** Kepekatan puncak pada saat terakhir, kilogram tiap meter kubik */
+  peak: number;
+  /** Bilangan Peclet pada jarak pusat awan */
+  peclet: number;
+  /** Perbandingan lebar awan terhadap jarak yang sudah ditempuhnya */
+  spreadRatio: number;
+  /** Panjang awan yang memuat sembilan puluh lima persen massanya, meter */
+  cloudLength: number;
+  /** Waktu tempuh sampai titik amat, detik */
+  travelTime: number;
+  /** Selisih waktu datang antara tepi depan dan tepi belakang awan, detik */
+  passageTime: number;
+  advectionDominated: boolean;
+};
+
+/**
+ * Awan zat terlarut yang menyebar sambil terbawa arus.
+ *
+ * Satu lepasan seketika sebanyak M di dalam penampang A memberi sebaran
+ * berbentuk lonceng yang pusatnya bergerak menurut U t dan lebarnya
+ * tumbuh menurut akar 2 D t.
+ *
+ * Perbedaan pangkat itulah pokok seluruh lembar: PUSATNYA BERGERAK
+ * MENURUT WAKTU, LEBARNYA HANYA MENURUT AKAR WAKTU. Akibatnya awan yang
+ * dilepas di sungai mula-mula tampak menyebar cepat, lalu tampak makin
+ * padat terhadap jarak yang ditempuhnya, dan pada jarak yang cukup jauh
+ * ia melintasi titik pengamatan sebagai denyut yang tajam. Itu sebabnya
+ * pengukuran debit dengan pelacak menuntut jarak yang cukup untuk
+ * tercampur rata, tetapi tidak menuntut jarak yang sangat jauh untuk
+ * mendapatkan denyut yang terbaca.
+ *
+ * Akibat kedua yang pantas diingat: kepekatan puncaknya turun menurut akar
+ * waktu saja, bukan menurut waktu. Awan pencemar yang hanyut sepuluh kali
+ * lebih jauh hanya tiga koma dua kali lebih encer.
+ *
+ * Rujukan: Taylor, G.I. (1954). The dispersion of matter in turbulent flow
+ * through a pipe. Proc. R. Soc. A 223; Fischer, H.B. dkk. (1979). Mixing in
+ * Inland and Coastal Waters; Rutherford, J.C. (1994). River Mixing.
+ */
+export function advectionDiffusion(
+  /** Massa yang dilepas, kilogram */
+  mass: number,
+  /** Luas penampang sungai, meter persegi */
+  area: number,
+  /** Kecepatan rata-rata, m/s */
+  U: number,
+  /** Koefisien penyebaran memanjang, meter persegi tiap detik */
+  D: number,
+  /** Jarak titik amat dari tempat lepasnya, meter */
+  station: number,
+  /** Saat-saat yang digambar, detik */
+  times: number[] = [60, 300, 900, 1800]
+): AdvectionDiffusion {
+  const Dd = Math.max(D, 1e-9);
+  const A = Math.max(area, 1e-9);
+
+  const kepekatan = (x: number, t: number) => {
+    if (t <= 0) return 0;
+    const s = Math.sqrt(2 * Dd * t);
+    const z = (x - U * t) / s;
+    return (mass / (A * s * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
+  };
+
+  const tAkhir = times[times.length - 1];
+  const sigma = Math.sqrt(2 * Dd * tAkhir);
+  const centre = U * tAkhir;
+
+  /*
+   * Bidangnya dibentangkan sampai HULU titik lepasnya bila perlu.
+   *
+   * Penyelesaian Gauss menyebar ke kedua arah, dan pada arus yang lemah
+   * sebagian awannya memang berada di hulu tempatnya dilepas. Memotong
+   * bidangnya di titik lepas membuang massa itu, dan massa yang hilang
+   * bukan hanya cacat gambar melainkan cacat neraca: kepekatan yang
+   * tergambar tidak lagi memulangkan massa yang dimasukkan.
+   */
+  const xMax = Math.max(centre + 4 * sigma, station * 1.3, 1);
+  const xMin = Math.min(0, centre - 4 * sigma);
+  const snapshots = times.map((t) => {
+    const profile: { x: number; c: number }[] = [];
+    const n = 240;
+    for (let i = 0; i <= n; i++) {
+      const x = xMin + ((xMax - xMin) * i) / n;
+      profile.push({ x, c: kepekatan(x, t) });
+    }
+    return { t, profile };
+  });
+
+  const travelTime = U > 0 ? station / U : Infinity;
+  const sigmaDi = Math.sqrt(2 * Dd * Math.max(travelTime, 0));
+
+  return {
+    snapshots,
+    centre,
+    sigma,
+    peak: mass / (A * sigma * Math.sqrt(2 * Math.PI)),
+    peclet: Dd > 0 ? (U * station) / Dd : Infinity,
+    spreadRatio: centre > 0 ? (2 * sigma) / centre : Infinity,
+    cloudLength: 4 * sigma,
+    travelTime,
+    /* Lama awan melintasi satu titik: panjang awan dibagi kecepatannya */
+    passageTime: U > 0 ? (4 * sigmaDi) / U : Infinity,
+    advectionDominated: Dd > 0 && (U * station) / Dd > 10,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * FP-05  Lapisan batas Falkner-Skan
+ * ------------------------------------------------------------------ */
+
+export type FalknerSkan = {
+  /** Parameter gradien tekanan */
+  beta: number;
+  /** Kemiringan profil di dinding, tanpa dimensi */
+  wallSlope: number;
+  /** Profil kecepatan, eta terhadap u per U */
+  profile: { eta: number; u: number }[];
+  /** Tebal lapisan batas, yaitu eta tempat u mencapai 0,99 U */
+  edge: number;
+  /** Tebal desakan, tanpa dimensi */
+  displacement: number;
+  /** Tebal momentum, tanpa dimensi */
+  momentum: number;
+  /** Faktor bentuk, yaitu tebal desakan dibagi tebal momentum */
+  shapeFactor: number;
+  /** Benar bila gradien tekanannya membantu aliran */
+  favourable: boolean;
+  /** Benar bila lapisan batasnya sudah terlepas */
+  separated: boolean;
+  /** Sudut baji setara dalam derajat */
+  wedgeAngle: number;
+};
+
+/** Parameter gradien tekanan tempat lapisan batas tepat terlepas. */
+export const FALKNER_SKAN_SEPARATION = -0.19884;
+
+/**
+ * Lapisan batas pada gradien tekanan, dan di mana ia terlepas.
+ *
+ * Persamaan Falkner-Skan
+ *
+ *     f''' + f f'' + beta (1 - f'²) = 0
+ *
+ * diselesaikan dengan menembak: kemiringan di dinding f''(0) dicari dengan
+ * bagi dua sampai kecepatan di tepi luarnya tepat mencapai satu.
+ *
+ * Yang paling pantas diperhatikan dan paling berguna dirancang:
+ * PEMISAHAN TERJADI PADA SATU NILAI BETA YANG TETAP, yaitu minus nol koma
+ * seratus sembilan puluh sembilan, dan nilai itu TIDAK BERGANTUNG PADA
+ * BILANGAN REYNOLDS sama sekali. Lapisan batas laminar yang menghadapi
+ * perlambatan sebesar itu akan terlepas pada benda sebesar apa pun, di
+ * dalam fluida apa pun, pada kecepatan berapa pun.
+ *
+ * Sisi lainnya sama tegasnya: pada gradien yang MEMBANTU, yaitu beta
+ * positif, lapisan batas TIDAK PERNAH terlepas, betapa pun panjang
+ * permukaannya. Itulah sebabnya bagian depan sayap dan hulu pilar yang
+ * membulat tidak pernah bermasalah, dan seluruh persoalan pemisahan selalu
+ * berada di bagian belakang, tempat alirannya harus melambat kembali.
+ *
+ * Rujukan: Falkner, V.M. & Skan, S.W. (1931). Some approximate solutions of
+ * the boundary layer equations. ARC R&M 1314; Hartree, D.R. (1937). On an
+ * equation occurring in Falkner and Skan's approximate treatment. Proc.
+ * Camb. Phil. Soc. 33; Schlichting, H. (1979). Boundary-Layer Theory,
+ * edisi ke-7, bab 9.
+ */
+export function falknerSkan(
+  /** Parameter gradien tekanan */
+  beta: number,
+  /** Batas luar yang dipakai menembak */
+  etaMax = 10,
+  steps = 2000
+): FalknerSkan {
+  const h = etaMax / steps;
+
+  /**
+   * Menjalankan persamaannya dari dinding dengan kemiringan yang dicoba.
+   *
+   * Yang dikembalikan bukan kecepatan di ujungnya melainkan ARAH
+   * kegagalannya. Penyelesaian yang kemiringan dindingnya terlalu besar
+   * melampaui satu lalu naik terus; yang terlalu kecil jatuh di bawah nol
+   * lalu lari ke minus tak hingga. Keduanya menjadi tak hingga, dan
+   * memperlakukan "tak hingga" sebagai satu keadaan saja membuat pencarian
+   * bagi duanya berjalan ke arah yang salah pada setiap beta positif.
+   */
+  const tembak = (fpp0: number) => {
+    let f = 0;
+    let fp = 0;
+    let fpp = fpp0;
+    const profile: { eta: number; u: number }[] = [{ eta: 0, u: 0 }];
+
+    const turunan = (F: number, Fp: number, Fpp: number) => [
+      Fp,
+      Fpp,
+      -F * Fpp - beta * (1 - Fp * Fp),
+    ];
+
+    let arah = 0;
+    for (let i = 0; i < steps; i++) {
+      const k1 = turunan(f, fp, fpp);
+      const k2 = turunan(
+        f + (h * k1[0]) / 2, fp + (h * k1[1]) / 2, fpp + (h * k1[2]) / 2
+      );
+      const k3 = turunan(
+        f + (h * k2[0]) / 2, fp + (h * k2[1]) / 2, fpp + (h * k2[2]) / 2
+      );
+      const k4 = turunan(f + h * k3[0], fp + h * k3[1], fpp + h * k3[2]);
+      f += (h / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+      fp += (h / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+      fpp += (h / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
+      if (!Number.isFinite(fp)) {
+        arah = fpp > 0 ? 1 : -1;
+        break;
+      }
+      if (fp > 1.0001) {
+        arah = 1;
+        break;
+      }
+      if (fp < -1e-6) {
+        arah = -1;
+        break;
+      }
+      profile.push({ eta: (i + 1) * h, u: fp });
+    }
+    if (arah === 0) arah = fp >= 1 ? 1 : -1;
+    return { arah, profile };
+  };
+
+  /*
+   * Kemiringan dinding dicari dengan bagi dua. Kecepatan di tepi luar naik
+   * bersama kemiringan dindingnya, jadi arah kegagalannya berganti tanda
+   * tepat sekali dan bagi dua selalu menemukan batasnya.
+   */
+  let lo = 0;
+  let hi = 3;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (tembak(mid).arah > 0) hi = mid;
+    else lo = mid;
+  }
+  const wallSlope = (lo + hi) / 2;
+  const { profile } = tembak(wallSlope);
+
+  /* Tebal lapisan batas, tebal desakan, dan tebal momentum */
+  let edge = etaMax;
+  for (const p of profile)
+    if (p.u >= 0.99) {
+      edge = p.eta;
+      break;
+    }
+
+  let displacement = 0;
+  let momentum = 0;
+  for (let i = 1; i < profile.length; i++) {
+    const a = profile[i - 1];
+    const b = profile[i];
+    const de = b.eta - a.eta;
+    displacement += ((1 - a.u + (1 - b.u)) / 2) * de;
+    momentum += ((a.u * (1 - a.u) + b.u * (1 - b.u)) / 2) * de;
+  }
+
+  return {
+    beta,
+    wallSlope,
+    profile,
+    edge,
+    displacement,
+    momentum,
+    shapeFactor: momentum > 0 ? displacement / momentum : Infinity,
+    favourable: beta > 0,
+    separated: wallSlope < 1e-3,
+    /* beta = 2m/(m+1) dan sudut bajinya pi kali beta */
+    wedgeAngle: beta * 180,
   };
 }
