@@ -70,6 +70,9 @@ const TXT = {
     rFsS: "Faktor keamanan geser",
     rBase: "Lebar dasar terkecil yang bebas tarik",
     aman: "Memenuhi ketiganya",
+    dipotong: "Muka air melampaui tinggi bendungan",
+    dipotongNote:
+      "Kedalaman air yang dipilih melewati tinggi bendungannya, atau muka air hilirnya melewati muka air hulunya. Keduanya keadaan yang tidak dihitung lembar ini, jadi angkanya dipotong pada batas yang masuk akal sebelum dipakai: air hulu setinggi mercu, dan air hilir setinggi air hulu. Yang tertulis di tabel karena itu bukan keadaan yang sedang dipilih penggesernya. Bendungan beton gravitasi memang boleh dilimpasi pada bagian pelimpahnya, tetapi tekanan air pada bagian yang tidak melimpas tetap berhenti di mercu, dan lembar ini menghitung bagian yang tidak melimpas.",
     tarik: "Tumit tertarik, resultan keluar dari sepertiga tengah",
     geser: "Faktor geser di bawah syarat",
     guling: "Faktor guling di bawah syarat",
@@ -109,6 +112,9 @@ const TXT = {
     rFsS: "Factor of safety against sliding",
     rBase: "Smallest tension free base width",
     aman: "All three are satisfied",
+    dipotong: "The water level exceeds the dam height",
+    dipotongNote:
+      "The chosen water depth passes the height of the dam, or the tailwater passes the headwater. Neither state is computed on this sheet, so the figures are clipped to sensible limits before use: headwater at crest level, tailwater at headwater level. What the table shows is therefore not the state the sliders are set to. A concrete gravity dam may indeed be overtopped across its spillway section, but the water load on a non-spillway section still stops at the crest, and this sheet computes a non-spillway section.",
     tarik: "The heel is in tension, the resultant leaves the middle third",
     geser: "The sliding factor is below requirement",
     guling: "The overturning factor is below requirement",
@@ -150,8 +156,15 @@ export function StabilitasBendunganClient() {
   const [residual, setResidual] = useState(UPLIFT_DRAIN_RESIDUAL);
   const [upliftOn, setUpliftOn] = useState(true);
 
+  /*
+   * Kedua muka air dipotong sebelum dipakai: air hulu di mercu, air hilir
+   * di air hulu. Pemotongannya benar, tetapi sebelumnya DIAM-DIAM, sehingga
+   * penggeser menunjuk seratus meter sementara seluruh lembar menjawab
+   * empat puluh meter tanpa satu pun tanda bahwa keduanya berbeda.
+   */
   const Hp = Math.min(H, Hd);
   const Htp = Math.min(Ht, Hp);
+  const dipotong = H > Hd || Ht > Hp;
   const r = gravityDam(Hd, crest, B, Hp, Htp, mu, coh, residual, DRAIN_AT, upliftOn);
 
   const gagal = r.tension || r.fsSliding < FS_SLIDE_MIN || r.fsOverturning < FS_OVER_MIN;
@@ -202,7 +215,7 @@ export function StabilitasBendunganClient() {
           dx: 0,
           dy: -px(r.uplift),
           text: `U ${fmtPlain(r.uplift, 0)} kN`,
-          color: C.signal,
+          color: C.critical,
           root: true,
         });
 
@@ -220,7 +233,7 @@ export function StabilitasBendunganClient() {
                 x: p.x,
                 z: (p.z / angkatMaks) * tinggiDiagram,
               })),
-              color: C.signal,
+              color: C.critical,
               weight: W.thin,
               dash: DASH.solid,
               label: T.upliftLabel,
@@ -319,7 +332,7 @@ export function StabilitasBendunganClient() {
             { x: 0, z: 0, dx: -20, dy: 18, text: T.heelLabel },
             { x: B, z: 0, dx: 18, dy: 18, text: T.toeLabelDam },
           ],
-          heading: r.tension ? x.tarik : undefined,
+          heading: dipotong ? x.dipotong : r.tension ? x.tarik : undefined,
           headingColor: C.signal,
           axisX: T.axSection,
           axisZ: T.elevation,
@@ -339,7 +352,7 @@ export function StabilitasBendunganClient() {
         lang === "id" ? (
           <p>
             Yang paling sering menjatuhkan hitungan ini bukan dorongan airnya
-            melainkan <Term tint={C.signal}>tekanan angkat</Term> di bawah
+            melainkan <Term tint={C.critical}>tekanan angkat</Term> di bawah
             dasarnya, yang menghapus{" "}
             <Term tint={C.critical}>
               {fmt((r.uplift / Math.max(r.weight, 1e-9)) * 100, 0)} persen
@@ -349,7 +362,7 @@ export function StabilitasBendunganClient() {
         ) : (
           <p>
             What most often fails this calculation is not the water pushing on
-            the face but the <Term tint={C.signal}>uplift</Term> beneath the
+            the face but the <Term tint={C.critical}>uplift</Term> beneath the
             base, which cancels{" "}
             <Term tint={C.critical}>
               {fmt((r.uplift / Math.max(r.weight, 1e-9)) * 100, 0)} per cent
@@ -395,7 +408,7 @@ export function StabilitasBendunganClient() {
               <InputRow symbol="Ht" label={x.dHt} value={Ht} min={0} max={40} step={0.5} digits={1} unit="m" onChange={setHt} tint={C.water} />
               <InputRow symbol="μ" label={x.dMu} value={mu} min={0.4} max={1} step={0.02} digits={2} onChange={setMu} />
               <InputRow symbol="c" label={x.dCoh} value={coh} min={0} max={600} step={10} digits={0} unit="kPa" onChange={setCoh} />
-              <InputRow symbol="ku" label={x.dDrain} value={residual} min={0} max={1} step={0.05} digits={2} onChange={setResidual} tint={C.signal} />
+              <InputRow symbol="ku" label={x.dDrain} value={residual} min={0} max={1} step={0.05} digits={2} onChange={setResidual} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -421,7 +434,13 @@ export function StabilitasBendunganClient() {
                       ? x.guling
                       : x.aman}
               </Flag>
+              {dipotong && <Flag alert>{x.dipotong}</Flag>}
             </div>
+            {dipotong && (
+              <div className="mb-2.5">
+                <Note>{x.dipotongNote}</Note>
+              </div>
+            )}
             {r.tension && (
               <div className="mb-2.5">
                 <Note>{x.tarikNote}</Note>
@@ -430,7 +449,7 @@ export function StabilitasBendunganClient() {
             <ResultTable
               rows={[
                 { symbol: "W", label: x.rW, value: fmt(r.weight, 0), unit: "kN per m" },
-                { symbol: "U", label: x.rU, value: fmt(r.uplift, 0), unit: "kN per m", tint: upliftOn ? C.signal : undefined },
+                { symbol: "U", label: x.rU, value: fmt(r.uplift, 0), unit: "kN per m", tint: upliftOn ? C.critical : undefined },
                 { symbol: "Pu", label: x.rPu, value: fmt(r.thrustUp, 0), unit: "kN per m", tint: C.water },
                 { symbol: "Pd", label: x.rPd, value: fmt(r.thrustDown, 0), unit: "kN per m", tint: C.water },
                 { symbol: "ΣV", label: x.rV, value: fmt(r.sumV, 0), unit: "kN per m", strong: true },

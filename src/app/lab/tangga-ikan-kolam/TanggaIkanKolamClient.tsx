@@ -196,7 +196,6 @@ export function TanggaIkanKolamClient() {
             dx: 42,
             dy: 24,
             text: T.slotLabel,
-            color: C.signal,
           },
         ],
         arrows: [
@@ -222,14 +221,14 @@ export function TanggaIkanKolamClient() {
         lang === "id" ? (
           <p>
             Dua syarat yang harus dipenuhi bersama dan diperbaiki dengan cara
-            berbeda: <Term tint={C.signal}>kecepatan celah</Term> yang harus
+            berbeda: <Term tint={C.critical}>kecepatan celah</Term> yang harus
             dilawan, dan <Term tint={C.energy}>keteradukan kolam</Term> yang
             menentukan apakah ikan sanggup beristirahat setelah sampai.
           </p>
         ) : (
           <p>
             Two conditions that must hold together and are fixed in different
-            ways: the <Term tint={C.signal}>slot velocity</Term> the fish must
+            ways: the <Term tint={C.critical}>slot velocity</Term> the fish must
             beat, and the <Term tint={C.energy}>churning of the pool</Term> that
             decides whether it can rest once it arrives.
           </p>
@@ -244,7 +243,7 @@ export function TanggaIkanKolamClient() {
             { label: t.tbUnit, value: "SI (m, m³/s, W)" },
             { label: "Q", value: `${fmt(r.Q, 3)} m³/s`, tint: C.water },
             { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: r.tooTurbulent ? C.signal : C.energy },
-            { label: "V", value: `${fmt(r.slotVelocity, 2)} m/s`, tint: C.signal },
+            { label: "V", value: `${fmt(r.slotVelocity, 2)} m/s`, tint: C.water },
             { label: "n", value: fmt(r.poolCount, 0) },
           ]}
         >
@@ -259,7 +258,7 @@ export function TanggaIkanKolamClient() {
               <InputRow symbol="L" label={x.dL} value={L} min={0.8} max={6} step={0.1} digits={1} unit="m" onChange={setL} />
               <InputRow symbol="B" label={x.dB} value={B} min={0.6} max={5} step={0.1} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="y" label={x.dD} value={D} min={0.4} max={3} step={0.1} digits={1} unit="m" onChange={setD} />
-              <InputRow symbol="b₀" label={x.dSlot} value={slot} min={0.1} max={1} step={0.02} digits={2} unit="m" onChange={setSlot} tint={C.signal} />
+              <InputRow symbol="b₀" label={x.dSlot} value={slot} min={0.1} max={1} step={0.02} digits={2} unit="m" onChange={setSlot} tint={C.critical} />
               <InputRow symbol="H" label={x.dRise} value={rise} min={0.5} max={20} step={0.5} digits={1} unit="m" onChange={setRise} />
             </InputTable>
 
@@ -290,7 +289,7 @@ export function TanggaIkanKolamClient() {
             <ResultTable
               rows={[
                 { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 1), unit: "W/m³", tint: r.tooTurbulent ? C.signal : C.energy, strong: true },
-                { symbol: "V", label: x.rVslot, value: fmt(r.slotVelocity, 3), unit: "m/s", tint: C.signal, strong: true },
+                { symbol: "V", label: x.rVslot, value: fmt(r.slotVelocity, 3), unit: "m/s", tint: C.water, strong: true },
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water },
                 { symbol: "P", label: x.rPower, value: fmt(r.power, 0), unit: "W" },
                 { symbol: "Vk", label: x.rVolume, value: fmt(r.poolVolume, 2), unit: "m³" },

@@ -213,14 +213,14 @@ export function DrainaseUruganBatuClient() {
             Kecepatannya sebanding dengan{" "}
             <Term tint={C.critical}>akar gradien</Term>, bukan dengan gradien.
             Menghitungnya dengan hukum Darcy melebih-lebihkan alirannya{" "}
-            <Term tint={C.signal}>{fmt(r.overprediction, 1)} kali</Term>.
+            <Term tint={C.critical}>{fmt(r.overprediction, 1)} kali</Term>.
           </p>
         ) : (
           <p>
             The velocity scales with the{" "}
             <Term tint={C.critical}>square root of the gradient</Term>, not with
             the gradient. Computing it with Darcy law overpredicts the flow{" "}
-            <Term tint={C.signal}>{fmt(r.overprediction, 1)} times over</Term>.
+            <Term tint={C.critical}>{fmt(r.overprediction, 1)} times over</Term>.
           </p>
         )
       }

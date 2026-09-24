@@ -47,6 +47,9 @@ const TXT = {
     rVtahan: "Kecepatan yang sanggup ditahan",
     rPakai: "Perbandingan kecepatan kerja terhadap tahan",
     mantap: "Batu terpilih mantap",
+    belumPilih: "Ukuran batu belum dipilih",
+    belumPilihNote:
+      "Penggeser ukuran batu masih di nol, artinya belum ada ukuran yang dipilih untuk dibandingkan. Tiga baris terakhir tabel hasil karena itu dihitung dengan ukuran yang DITUNTUT alirannya, bukan dengan ukuran yang direncanakan, sehingga perbandingan kecepatan kerja terhadap kecepatan tahan pasti tepat satu. Angka satu di situ bukan hasil melainkan akibat dari belum adanya pilihan. Geser ukuran batunya ke nilai yang benar-benar akan dipakai supaya perbandingannya berarti.",
     goyah: "Batu terpilih terlalu kecil",
     goyahNote:
       "Ukuran batu yang direncanakan lebih kecil daripada yang dituntut kecepatan aliran ini, jadi batunya akan bergerak. Yang perlu diperhatikan tentang kegagalan lapisan batu: ia tidak pernah bertahap. Begitu beberapa batu terangkat, lubang yang ditinggalkannya memperbesar kecepatan setempat, batu tetangganya ikut terangkat, dan seluruh lapisan terbuka dalam satu banjir yang sama. Itu sebabnya perlindungan batu dirancang dengan cadangan ukuran, bukan dengan cadangan luas.",
@@ -69,6 +72,9 @@ const TXT = {
     rVtahan: "Velocity it can resist",
     rPakai: "Working velocity over resisting velocity",
     mantap: "Chosen stone is stable",
+    belumPilih: "No stone size chosen yet",
+    belumPilihNote:
+      "The stone-size slider is still at zero, meaning no size has been chosen to compare against. The last three rows of the results are therefore computed with the size the flow DEMANDS rather than with a planned size, so the ratio of working velocity to resisting velocity is bound to be exactly one. That one is not a result but a consequence of nothing having been chosen. Move the stone size to the value that will actually be used, and the ratio starts to mean something.",
     goyah: "Chosen stone is too small",
     goyahNote:
       "The planned stone is smaller than this velocity demands, so it will move. What is worth knowing about riprap failure: it is never gradual. Once a few stones lift, the hole they leave raises the local velocity, their neighbours lift too, and the whole layer opens in the same flood. That is why rock protection is designed with a margin on size rather than a margin on area.",
@@ -128,7 +134,14 @@ export function PerlindunganErosiClient() {
           color: C.ink3,
           weight: W.hair,
           dash: DASH.hidden,
-          label: T.axGrainMm.split(",")[0],
+          /*
+           * Namanya tetapan Isbash-nya sendiri, sejajar dengan kurva yang
+           * satu lagi. Sebelumnya terpasang nama SUMBU-nya, dipotong dari
+           * "garis tengah butiran, mm", sehingga di tengah bidang melayang
+           * tulisan "garis tengah butir" yang tidak menyatakan kurva yang
+           * mana dan terbaca seperti judul sumbu yang tersesat.
+           */
+          label: `C ${fmtPlain(ISBASH_EXPOSED, 2)}`,
           labelAt: 0.55,
           labelDy: -11,
         },
@@ -191,14 +204,14 @@ export function PerlindunganErosiClient() {
       intro={
         lang === "id" ? (
           <p>
-            Kecepatan muncul <Term tint={C.signal}>berpangkat dua</Term> pada
+            Kecepatan muncul <Term tint={C.critical}>berpangkat dua</Term> pada
             ukuran batu, dan massa berpangkat tiga pada ukurannya. Aliran dua
             kali lebih deras menuntut batu{" "}
             <Term tint={C.critical}>enam puluh empat kali lebih berat</Term>.
           </p>
         ) : (
           <p>
-            Velocity enters the stone size <Term tint={C.signal}>squared</Term>,
+            Velocity enters the stone size <Term tint={C.critical}>squared</Term>,
             and mass enters the size cubed. A flow twice as fast demands a stone{" "}
             <Term tint={C.critical}>sixty-four times heavier</Term>.
           </p>
@@ -227,7 +240,7 @@ export function PerlindunganErosiClient() {
               <InputRow symbol="V" label={x.dV} value={V} min={0.2} max={8} step={0.05} digits={2} unit="m/s" onChange={setV} tint={C.water} />
               <InputRow symbol="s" label={x.dS} value={s} min={2} max={3.2} step={0.05} digits={2} onChange={setS} />
               <InputRow symbol="C" label={x.dC} value={Cis} min={0.7} max={1.4} step={0.02} digits={2} onChange={setCis} tint={C.critical} />
-              <InputRow symbol="d" label={x.dChosen} value={chosenMm} min={0} max={2000} step={10} digits={0} unit="mm" onChange={setChosenMm} tint={C.signal} />
+              <InputRow symbol="d" label={x.dChosen} value={chosenMm} min={0} max={2000} step={10} digits={0} unit="mm" onChange={setChosenMm} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -247,10 +260,16 @@ export function PerlindunganErosiClient() {
               <Flag tint={!adaPilihan || r.stable ? C.water : undefined} alert={adaPilihan && !r.stable}>
                 {adaPilihan ? (r.stable ? x.mantap : x.goyah) : `${fmt(pas.d50 * 1000, 0)} mm`}
               </Flag>
+              {!adaPilihan && <Flag tint={C.ink2}>{x.belumPilih}</Flag>}
             </div>
             {adaPilihan && !r.stable && (
               <div className="mb-2.5">
                 <Note>{x.goyahNote}</Note>
+              </div>
+            )}
+            {!adaPilihan && (
+              <div className="mb-2.5">
+                <Note>{x.belumPilihNote}</Note>
               </div>
             )}
             <ResultTable

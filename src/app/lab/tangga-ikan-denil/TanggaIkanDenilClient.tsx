@@ -275,7 +275,7 @@ export function TanggaIkanDenilClient() {
               <InputRow symbol="y" label={x.dY} value={y} min={0.2} max={2} step={0.05} digits={2} unit="m" onChange={setY} tint={C.water} />
               <InputRow symbol="S" label={x.dS} value={S * 100} min={4} max={40} step={1} digits={0} unit="%" onChange={(v) => setS(v / 100)} tint={C.energy} />
               <InputRow symbol="H" label={x.dRise} value={rise} min={0.5} max={12} step={0.5} digits={1} unit="m" onChange={setRise} />
-              <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.signal} />
+              <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -320,7 +320,7 @@ export function TanggaIkanDenilClient() {
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water, strong: true },
                 { symbol: "Vrata", label: x.rVmean, value: fmt(r.meanVelocity, 3), unit: "m/s" },
                 { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 0), unit: "W/m³", tint: C.energy },
-                { symbol: "—", label: x.rRasio, value: fmt(r.powerRatioToPool, 1), unit: "×", tint: C.signal },
+                { symbol: "—", label: x.rRasio, value: fmt(r.powerRatioToPool, 1), unit: "×", tint: C.critical },
                 { symbol: "L", label: x.rLength, value: fmt(r.runLength, 2), unit: "m" },
                 { symbol: "Lmax", label: x.rIstirahat, value: fmt(DENIL_RUN_MAX, 0), unit: "m", tint: r.needsRestPool ? C.signal : undefined },
               ]}

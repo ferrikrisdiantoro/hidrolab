@@ -355,7 +355,7 @@ export function PemompaanAirTanahClient() {
               <InputRow symbol="b" label={x.dB} value={b} min={4} max={80} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="rw" label={x.dRw} value={rw} min={0.05} max={0.6} step={0.01} digits={2} unit="m" onChange={setRw} />
               <InputRow symbol="R" label={x.dR} value={R} min={50} max={2000} step={25} digits={0} unit="m" onChange={setR} />
-              <InputRow symbol="C" label={x.dC} value={Cw} min={0} max={6000} step={100} digits={0} unit="s²/m⁵" onChange={setCw} tint={C.signal} />
+              <InputRow symbol="C" label={x.dC} value={Cw} min={0} max={6000} step={100} digits={0} unit="s²/m⁵" onChange={setCw} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -389,7 +389,7 @@ export function PemompaanAirTanahClient() {
             <ResultTable
               rows={[
                 { symbol: "s", label: x.rS, value: fmt(r.sAquifer, 3), unit: "m", tint: C.critical, strong: true },
-                { symbol: "sw", label: x.rLoss, value: fmt(r.sWellLoss, 3), unit: "m", tint: Cw > 0 ? C.signal : undefined },
+                { symbol: "sw", label: x.rLoss, value: fmt(r.sWellLoss, 3), unit: "m", tint: Cw > 0 ? C.critical : undefined },
                 { symbol: "st", label: x.rTotal, value: fmt(r.sTotal, 3), unit: "m", strong: true },
                 { symbol: "hw", label: x.rH, value: fmt(r.hWell, 2), unit: "m", tint: C.water },
                 { symbol: "r½", label: x.rHalf, value: fmt(r.halfRadius, 2), unit: "m" },

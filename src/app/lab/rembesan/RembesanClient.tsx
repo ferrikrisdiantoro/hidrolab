@@ -59,6 +59,9 @@ const TXT = {
     rICrit: "Gradien kritis butirannya",
     rD: "Jarak masuk terkoreksi ke fokus",
     aman: "Garis freatik tertahan di dalam badan",
+    limpas: "Muka air hulu melampaui puncak bendungan",
+    limpasNote:
+      "Kedalaman air hulu yang dipilih sudah melewati tinggi bendungannya sendiri, jadi airnya melimpas di atas mercu. Bendungan urugan tidak boleh dilimpasi sama sekali: berbeda dengan bendungan beton yang mercunya memang dirancang basah, urugan tanah tergerus dari sisi hilir begitu air mengalir di atasnya, dan keruntuhannya berlangsung dalam hitungan jam. Itu sebabnya setiap bendungan urugan punya pelimpah terpisah yang kapasitasnya ditentukan banjir rancangan, bukan dibiarkan melimpas lewat mercunya. Garis freatik di bawah ini karena itu dihitung pada muka air setinggi mercu, bukan pada muka air yang dipilih, dan angkanya tidak lagi menyatakan keadaan yang sedang dipilih penggesernya.",
     keluar: "Garis freatik keluar di lereng hilir",
     keluarNote:
       "Garis freatik memotong lereng hilir, dan yang terjadi di situ bukan rembesan yang menetes melainkan lereng yang jenuh sampai ke permukaannya. Tanah jenuh di permukaan lereng kehilangan hampir seluruh tegangan efektifnya, longsor dangkal mulai dari kaki, dan setiap longsoran memperpendek lereng yang tersisa sehingga longsoran berikutnya lebih mudah. Itu sebabnya bendungan urugan hampir tidak pernah dibangun tanpa drainase kaki, dan sebabnya bukan untuk mengurangi rembesan melainkan untuk memindahkan tempat keluarnya.",
@@ -86,6 +89,9 @@ const TXT = {
     rICrit: "Critical gradient of the grain",
     rD: "Corrected entry to focus distance",
     aman: "The phreatic line stays inside the body",
+    limpas: "The headwater is above the dam crest",
+    limpasNote:
+      "The chosen headwater depth has passed the height of the dam itself, so water spills over the crest. An embankment dam must never be overtopped: unlike a concrete dam, whose crest is designed to run wet, an earth embankment erodes from its downstream face as soon as water flows across it, and its failure takes hours. That is why every embankment has a separate spillway sized by the design flood rather than being allowed to spill over its crest. The phreatic line below is therefore computed at a water level equal to the crest, not at the level chosen, and its figures no longer describe the state the sliders are set to.",
     keluar: "The phreatic line daylights on the downstream slope",
     keluarNote:
       "The phreatic line cuts the downstream slope, and what happens there is not a trickle of seepage but a slope saturated right to its face. Saturated soil at a slope face loses almost all its effective stress, shallow slides start at the toe, and every slide shortens the remaining slope so the next one comes easier. That is why embankment dams are almost never built without a toe drain, and the reason is not to reduce the seepage but to move where it comes out.",
@@ -127,6 +133,16 @@ export function RembesanClient() {
   const kh = kEq * Math.sqrt(aniso);
   const kv = kEq / Math.sqrt(aniso);
 
+  /*
+   * Muka air hulu dipotong di puncak bendungan sebelum dihitung, karena
+   * parabola Kozeny tidak punya arti pada bendungan yang dilimpasi.
+   *
+   * Pemotongan itu sendiri benar. Yang salah sebelumnya, pemotongannya
+   * dilakukan DIAM-DIAM: penggeser menunjukkan dua puluh meter sementara
+   * seluruh lembar menjawab dua belas meter, tanpa satu pun tanda bahwa
+   * keduanya berbeda. Sekarang keadaan itu dinyatakan.
+   */
+  const limpas = H > Hd;
   const r = seepageLine(Math.min(H, Hd), Hd, CREST, mUp, mDown, Ld, kh, kv);
   const g = r.geometry;
 
@@ -249,7 +265,7 @@ export function RembesanClient() {
           arrows: [
             { x: r.phreatic[0].x + (r.focus - r.phreatic[0].x) * 0.45, z: r.y0 * 0.45, length: 18, rise: 4 },
           ],
-          heading: r.daylights ? x.keluar : undefined,
+          heading: limpas ? x.limpas : r.daylights ? x.keluar : undefined,
           headingColor: C.signal,
           imperviousFloor: true,
           axisX: T.axSection,
@@ -270,13 +286,13 @@ export function RembesanClient() {
         lang === "id" ? (
           <p>
             Drainase kaki yang lebih panjang{" "}
-            <Term tint={C.signal}>menaikkan</Term> rembesannya, bukan
+            <Term tint={C.critical}>menaikkan</Term> rembesannya, bukan
             menurunkannya. Yang dibelinya bukan air yang lebih sedikit
             melainkan <Term tint={C.water}>tempat keluar yang terkendali</Term>.
           </p>
         ) : (
           <p>
-            A longer toe drain <Term tint={C.signal}>raises</Term> the seepage
+            A longer toe drain <Term tint={C.critical}>raises</Term> the seepage
             rather than lowering it. What it buys is not less water but{" "}
             <Term tint={C.water}>a controlled place for it to leave</Term>.
           </p>
@@ -308,7 +324,7 @@ export function RembesanClient() {
               <InputRow symbol="md" label={x.dMd} value={mDown} min={1.5} max={4} step={0.25} digits={2} onChange={setMDown} />
               <InputRow symbol="Ld" label={x.dLd} value={Ld} min={0} max={30} step={0.5} digits={1} unit="m" onChange={setLd} tint={C.critical} />
               <InputRow symbol="k" label={x.dK} value={kMikro} min={0.05} max={20} step={0.05} digits={2} unit="µm/s" onChange={setKMikro} />
-              <InputRow symbol="kh/kv" label={x.dAniso} value={aniso} min={1} max={25} step={0.5} digits={1} onChange={setAniso} tint={C.signal} />
+              <InputRow symbol="kh/kv" label={x.dAniso} value={aniso} min={1} max={25} step={0.5} digits={1} onChange={setAniso} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -328,7 +344,13 @@ export function RembesanClient() {
               <Flag tint={r.daylights ? undefined : C.water} alert={r.daylights}>
                 {r.daylights ? x.keluar : x.aman}
               </Flag>
+              {limpas && <Flag alert>{x.limpas}</Flag>}
             </div>
+            {limpas && (
+              <div className="mb-2.5">
+                <Note>{x.limpasNote}</Note>
+              </div>
+            )}
             {r.daylights && (
               <div className="mb-2.5">
                 <Note>{x.keluarNote}</Note>

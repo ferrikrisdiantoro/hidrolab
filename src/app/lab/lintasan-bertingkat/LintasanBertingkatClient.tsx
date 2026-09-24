@@ -284,7 +284,7 @@ export function LintasanBertingkatClient() {
               <InputRow symbol="B" label={x.dB} value={B} min={0.8} max={8} step={0.2} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="y" label={x.dD} value={D} min={0.1} max={3} step={0.05} digits={2} unit="m" onChange={setD} tint={C.critical} />
               <InputRow symbol="Q" label={x.dQ} value={Q} min={0.02} max={5} step={0.02} digits={2} unit="m³/s" onChange={setQ} tint={C.water} />
-              <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.signal} />
+              <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">

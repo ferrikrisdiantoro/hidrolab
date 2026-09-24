@@ -112,7 +112,22 @@ export function ResponsAirTanahClient() {
   const ref = useCanvas(
     (ctx, w, ch) => {
       const yMin = Math.min(r.minHead, 0) - Math.max(r.amplitude * 0.5, 0.05);
-      const yMax = r.maxHead + Math.max(r.amplitude * 0.9, 0.1);
+      const yAtas = r.runsDry ? Math.max(0, r.maxHead) : r.maxHead;
+      /*
+       * Batas atas bidang memuat ambang keluarannya, yaitu nol, tepat pada
+       * keadaan yang melanggarnya.
+       *
+       * Sebelumnya bidangnya hanya memuat muka airnya sendiri. Pada keadaan
+       * kering seluruh muka airnya berada di bawah nol, jadi ambang yang
+       * sedang dilanggar itu jatuh di luar bidang: penanda merah menyatakan
+       * muka air turun di bawah ambang, sementara ambangnya tidak tergambar
+       * di mana pun dan pita "di luar rentang" memenuhi seluruh bidang tanpa
+       * tepi yang terlihat.
+       */
+      const yMax =
+        yAtas +
+        Math.max(r.amplitude * 0.9, 0.1) +
+        (r.runsDry ? Math.max(r.amplitude * 0.6, 0.08) : 0);
 
       /* Imbuhan digambar pada bidang yang sama, diskalakan ke rentang muka
          airnya. Yang dipersoalkan lembar ini bukan besarnya masing-masing
@@ -218,13 +233,13 @@ export function ResponsAirTanahClient() {
             <Term tint={C.critical}>tidak pernah mencapai seperempat musim</Term>
             , betapa pun lamban akuifernya. Lapangan yang puncaknya lebih
             terlambat daripada itu{" "}
-            <Term tint={C.signal}>tidak diberi makan oleh hujan setempat</Term>.
+            <Term tint={C.critical}>tidak diberi makan oleh hujan setempat</Term>.
           </p>
         ) : (
           <p>
             The peak lag <Term tint={C.critical}>never reaches a quarter of the season</Term>,
             however sluggish the aquifer. A site that peaks later than that{" "}
-            <Term tint={C.signal}>is not fed by local rainfall</Term>.
+            <Term tint={C.critical}>is not fed by local rainfall</Term>.
           </p>
         )
       }
@@ -237,7 +252,17 @@ export function ResponsAirTanahClient() {
             { label: t.tbUnit, value: "SI (m, mm/hari)" },
             { label: "τ", value: `${fmt(r.tau, 0)} hari`, tint: C.critical },
             { label: "Δh", value: `${fmt(r.amplitude, 3)} m`, tint: C.water },
-            { label: "t", value: `${fmt(r.lag, 0)} hari` },
+            /*
+             * Lambangnya "tp", bukan "t".
+             *
+             * Kop gambar menulis lambangnya dengan huruf besar, dan di situ
+             * tau Yunani dan t Latin menjadi dua huruf T yang persis sama.
+             * Dua sel bersebelahan yang lambangnya terbaca sama membuat
+             * pembaca tidak dapat memastikan yang mana tetapan waktu dan
+             * yang mana tundaan puncak, dan keduanya kebetulan berdekatan
+             * nilainya pada setelan bawaan.
+             */
+            { label: "tp", value: `${fmt(r.lag, 0)} hari` },
             { label: "Sy", value: fmt(Sy, 2) },
           ]}
         >
@@ -250,7 +275,7 @@ export function ResponsAirTanahClient() {
             <InputTable>
               <InputRow symbol="R" label={x.dMean} value={rata} min={0.1} max={8} step={0.1} digits={1} unit="mm/d" onChange={setRata} tint={C.water} />
               <InputRow symbol="A" label={x.dSwing} value={ayun} min={0.2} max={6} step={0.1} digits={1} unit="mm/d" onChange={setAyun} />
-              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit="mm/d" onChange={setPompa} tint={C.signal} />
+              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit="mm/d" onChange={setPompa} tint={C.critical} />
               <InputRow symbol="Sy" label={x.dSy} value={Sy} min={0.02} max={0.4} step={0.01} digits={2} onChange={setSy} />
               <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit="10⁻³/d" onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
             </InputTable>

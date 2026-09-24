@@ -236,14 +236,14 @@ export function FilterBendunganClient() {
             Lebar jendela filter yang tersedia{" "}
             <Term tint={C.critical}>persis sama</Term> dengan rentang gradasi
             tanah yang dilindunginya. Tanah yang seragam{" "}
-            <Term tint={C.signal}>hampir tidak memberi pilihan</Term>.
+            <Term tint={C.critical}>hampir tidak memberi pilihan</Term>.
           </p>
         ) : (
           <p>
             The width of the available filter window is{" "}
             <Term tint={C.critical}>exactly</Term> the grading span of the soil
             it protects. A uniform soil{" "}
-            <Term tint={C.signal}>gives almost no choice</Term>.
+            <Term tint={C.critical}>gives almost no choice</Term>.
           </p>
         )
       }
