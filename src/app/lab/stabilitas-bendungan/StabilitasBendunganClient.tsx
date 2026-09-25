@@ -263,9 +263,19 @@ export function StabilitasBendunganClient() {
           color: C.critical,
           weight: W.hair,
           dash: DASH.axis,
+          /*
+           * Namanya diangkat mendekat ke garisnya sendiri, dari tiga puluh
+           * empat piksel menjadi enam belas.
+           *
+           * Garis sepertiga tengah sudah duduk sembilan belas piksel di
+           * bawah dasar, jadi nama yang digeser tiga puluh empat piksel
+           * lagi mendarat tiga belas piksel dari ukuran lebar dasar. Tiga
+           * belas piksel bukan jarak, itu tulisan setinggi dua belas piksel
+           * yang kebetulan belum bertindih.
+           */
           label: T.middleThird,
           labelAt: 1,
-          labelDy: 34,
+          labelDy: 16,
         },
         {
           /* Garis kerja resultan pada dasarnya */
