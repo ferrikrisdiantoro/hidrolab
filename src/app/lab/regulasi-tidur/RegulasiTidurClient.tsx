@@ -175,8 +175,13 @@ export function RegulasiTidurClient() {
           color: C.critical,
           weight: W.thin,
           dash: DASH.hidden,
+          /*
+           * Namanya digeser ke sepertiga bidang, menjauhi pita tidur yang
+           * pertama. Pada seperdelapan bidang ia bersentuhan dengan nama
+           * pita itu, dan keduanya terbaca sebagai satu kalimat.
+           */
           label: T.lowerThreshold,
-          labelAt: 0.12,
+          labelAt: 0.34,
           labelDy: 16,
           labelAlign: "left",
         },

@@ -237,8 +237,8 @@ export function StabilitasBendunganClient() {
               weight: W.thin,
               dash: DASH.solid,
               label: T.upliftLabel,
-              labelAt: 0.5,
-              labelDy: 14,
+              labelAt: 0.3,
+              labelDy: 34,
             },
           ]
         : [];
@@ -265,7 +265,7 @@ export function StabilitasBendunganClient() {
           dash: DASH.axis,
           label: T.middleThird,
           labelAt: 1,
-          labelDy: 14,
+          labelDy: 34,
         },
         {
           /* Garis kerja resultan pada dasarnya */
@@ -292,7 +292,7 @@ export function StabilitasBendunganClient() {
           dash: DASH.axis,
           label: T.drainLine,
           labelAt: 0,
-          labelDy: -10,
+          labelDy: -26,
         });
 
       drawStructure(
@@ -302,7 +302,19 @@ export function StabilitasBendunganClient() {
         {
           xMin: -pinggir,
           xMax: B + pinggir,
-          zMin: -tinggiDiagram * 1.15,
+          /*
+           * Ruang di bawah dasar dilebarkan dari satu setengah kali tinggi
+           * diagram menjadi dua kali.
+           *
+           * Di jalur setipis itu berdesakan ENAM tulisan sekaligus: tumit,
+           * ujung kaki, garis tirisan, tekanan angkat, sepertiga tengah,
+           * dan ukuran lebar dasar. Penempat tulisan memang menjaga
+           * keenamnya tidak bertindih, tetapi tidak dapat menciptakan jarak
+           * yang tidak ada, jadi hasilnya enam tulisan yang saling
+           * bersentuhan dan terbaca sebagai satu kalimat panjang. Yang
+           * kurang bukan aturan penempatannya melainkan ruangnya.
+           */
+          zMin: -tinggiDiagram * 2,
           zMax: Hd * 1.16,
           bodies: [{ pts: r.section, hatch: "concrete" }],
           waters: [
@@ -326,11 +338,11 @@ export function StabilitasBendunganClient() {
           lines: garis,
           vectors: vektor,
           dims: [
-            { axis: "h", at: 0, from: 0, to: B, text: `B ${fmtPlain(B, 1)} m`, offset: 46 },
+            { axis: "h", at: 0, from: 0, to: B, text: `B ${fmtPlain(B, 1)} m`, offset: 66 },
           ],
           callouts: [
-            { x: 0, z: 0, dx: -20, dy: 18, text: T.heelLabel },
-            { x: B, z: 0, dx: 18, dy: 18, text: T.toeLabelDam },
+            { x: 0, z: 0, dx: -24, dy: 16, text: T.heelLabel },
+            { x: B, z: 0, dx: 22, dy: 16, text: T.toeLabelDam },
           ],
           heading: dipotong ? x.dipotong : r.tension ? x.tarik : undefined,
           headingColor: C.signal,

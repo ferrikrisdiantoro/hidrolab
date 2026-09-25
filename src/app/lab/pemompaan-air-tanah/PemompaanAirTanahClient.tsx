@@ -277,9 +277,16 @@ export function PemompaanAirTanahClient() {
               at: lebarSumur,
               from: arasAwal - r.sAquifer,
               to: arasAwal,
+              /*
+               * Ukurannya digeser ke sisi KIRI sumur. Di sisi kanan ia
+               * berebut beberapa piksel dengan nama jari-jari separuh
+               * penurunan, yang memang duduk sangat dekat sumurnya karena
+               * separuh penurunan selesai pada akar R dikali rw, yaitu
+               * delapan meter pada bidang selebar delapan ratus meter.
+               */
               text: `s ${fmtPlain(r.sAquifer, 2)} m`,
               color: C.critical,
-              offset: 16,
+              offset: -30,
             },
           ],
           callouts: penunjuk,
