@@ -296,7 +296,7 @@ export function PercobaanReynoldsClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pLaminar, apply: () => { setQ(0.00003); setD(0.05); setSuhu(15); setTenang(0.4); } },
-                  { label: x.pPeralihan, apply: () => { setQ(0.00018); setD(0.05); setSuhu(15); setTenang(0.4); } },
+                  { label: x.pPeralihan, apply: () => { setQ(0.0006); setD(0.05); setSuhu(15); setTenang(0.4); } },
                   { label: x.pTurbulen, apply: () => { setQ(0.002); setD(0.05); setSuhu(15); setTenang(0.4); } },
                   { label: x.pReynolds, apply: () => { setQ(0.0005); setD(0.05); setSuhu(15); setTenang(1); } },
                 ]}

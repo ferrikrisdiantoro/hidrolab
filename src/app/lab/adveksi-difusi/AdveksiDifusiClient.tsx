@@ -15,7 +15,7 @@ import {
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
-import { advectionDiffusion, fmt, fmtSci } from "@/lib/hydraulics";
+import { advectionDiffusion, fmt, fmtPlain, fmtSci } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -46,6 +46,7 @@ const TXT = {
     rLewat: "Selisih waktu datang tepi depan dan tepi belakang",
     adveksi: "Adveksi berkuasa, awannya terbawa utuh",
     difusi: "Penyebaran berkuasa, awannya melebar lebih cepat daripada terbawa",
+    seimbang: "Keduanya sebanding, awannya terbawa sambil melebar",
     note:
       "Dua hal terjadi bersamaan pada zat yang tumpah ke sungai, dan keduanya menuntut jawaban yang berbeda. Adveksi memindahkan awan itu ke hilir tanpa mengubah bentuknya, dan yang ditentukannya adalah kapan zat itu tiba. Penyebaran melebarkan awannya tanpa memindahkan pusatnya, dan yang ditentukannya adalah seberapa pekat zat itu saat tiba dan berapa lama ia lewat. Bilangan Peclet menimbang keduanya, dan pada sungai ia hampir selalu besar, artinya awannya memang terbawa jauh lebih cepat daripada ia melebar. Tiga akibat yang langsung berguna. Pertama, waktu tiba dapat diperkirakan dari kecepatan arus saja, dan perkiraan itu cukup teliti untuk memerintahkan penutupan intake air minum di hilir. Kedua, kepekatan puncaknya turun seperti akar waktu dan bukan seperti waktu, jadi tumpahan yang sudah menempuh empat kali jarak hanya berkurang dua kali kepekatannya. Ketiga, lebar awannya tumbuh seperti akar waktu juga, sehingga tumpahan yang melewati satu titik dalam lima menit pada kilometer pertama akan lewat selama dua puluh menit pada kilometer keenam belas. Yang terakhir itu penting justru bagi yang menunggu di hilir: bukan hanya kapan zatnya datang, tetapi berapa lama ia harus ditunggu sampai habis.",
   },
@@ -69,6 +70,7 @@ const TXT = {
     rLewat: "Time between the arrival of the leading and trailing edges",
     adveksi: "Advection rules, the cloud is carried whole",
     difusi: "Dispersion rules, the cloud widens faster than it is carried",
+    seimbang: "The two are comparable, the cloud widens as it is carried",
     note:
       "Two things happen at once to a substance spilled into a river, and each demands a different answer. Advection moves the cloud downstream without changing its shape, and what it decides is when the substance arrives. Dispersion widens the cloud without moving its centre, and what it decides is how concentrated the substance is on arrival and how long it takes to pass. The Peclet number weighs the two, and in a river it is almost always large, meaning the cloud is indeed carried far faster than it widens. Three consequences are immediately useful. First, the arrival time can be estimated from the current alone, and that estimate is accurate enough to order a downstream drinking-water intake closed. Second, the peak concentration falls as the square root of time rather than as time, so a spill that has travelled four times as far is only twice as dilute. Third, the cloud length grows as the square root of time too, so a spill that passes a point in five minutes at the first kilometre will take twenty minutes to pass at the sixteenth. That last point matters most to whoever waits downstream: not only when the substance arrives, but how long it must be waited out.",
   },
@@ -102,20 +104,37 @@ export function AdveksiDifusiClient() {
   const [titik, setTitik] = useState(800);
 
   const r = advectionDiffusion(massa, luas, U, D, titik, WAKTU);
+  const keadaan = r.advectionDominated
+    ? x.adveksi
+    : r.balanced
+      ? x.seimbang
+      : x.difusi;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
       const warna = [C.ink3, C.critical, C.energy, C.water];
-      const garis: FieldLine[] = r.snapshots.map((s, i) => ({
-        pts: s.profile.map((p) => ({ x: p.x, y: p.c })),
-        color: warna[i % warna.length],
-        weight: i === r.snapshots.length - 1 ? W.bold : W.thin,
-        dash: i === r.snapshots.length - 1 ? DASH.solid : DASH.hidden,
-        label: `${fmt(s.t / 60, 0)} min`,
-        labelAt: 0.5,
-        labelDy: -10,
-        labelAlign: "center",
-      }));
+      /*
+       * Nama tiap saat ditaruh di PUNCAK awannya sendiri. Dengan letak tetap
+       * di tengah deret titiknya, nama awan yang masih rapat di dekat titik
+       * lepas jatuh di ekornya yang datar di dasar gambar, lalu terdesak
+       * keluar bingkai dan menimpa angka sumbu ("6(1 MIN").
+       */
+      const garis: FieldLine[] = r.snapshots.map((s, i) => {
+        let iPuncak = 0;
+        s.profile.forEach((p, j) => {
+          if (p.c > s.profile[iPuncak].c) iPuncak = j;
+        });
+        return {
+          pts: s.profile.map((p) => ({ x: p.x, y: p.c })),
+          color: warna[i % warna.length],
+          weight: i === r.snapshots.length - 1 ? W.bold : W.thin,
+          dash: i === r.snapshots.length - 1 ? DASH.solid : DASH.hidden,
+          label: `${fmtPlain(s.t / 60, 0)} min`,
+          labelAt: s.profile.length > 1 ? iPuncak / (s.profile.length - 1) : 0.5,
+          labelDy: -10,
+          labelAlign: "center",
+        } satisfies FieldLine;
+      });
 
       /* Titik amatnya, sebagai garis tegak pada jarak yang dipilih. */
       const puncakSemua = Math.max(
@@ -158,8 +177,8 @@ export function AdveksiDifusiClient() {
               color: C.ink3,
             },
           ],
-          heading: r.advectionDominated ? x.adveksi : x.difusi,
-          headingColor: r.advectionDominated ? C.water : C.critical,
+          heading: keadaan,
+          headingColor: r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.critical,
           axisX: T.axXMetre,
           axisY: T.axConcentration,
         },
@@ -221,8 +240,8 @@ export function AdveksiDifusiClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pArus, apply: () => { setMassa(50); setLuas(12); setU(1.5); setD(2); setTitik(800); } },
-                  { label: x.pSebar, apply: () => { setMassa(50); setLuas(12); setU(0.2); setD(80); setTitik(800); } },
-                  { label: x.pLambat, apply: () => { setMassa(50); setLuas(12); setU(0.4); setD(5); setTitik(800); } },
+                  { label: x.pSebar, apply: () => { setMassa(50); setLuas(12); setU(0.05); setD(80); setTitik(800); } },
+                  { label: x.pLambat, apply: () => { setMassa(50); setLuas(12); setU(0.05); setD(5); setTitik(800); } },
                 ]}
               />
             </div>
@@ -230,8 +249,8 @@ export function AdveksiDifusiClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5">
-              <Flag tint={r.advectionDominated ? C.water : C.critical}>
-                {r.advectionDominated ? x.adveksi : x.difusi}
+              <Flag tint={r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.critical}>
+                {keadaan}
               </Flag>
             </div>
             <ResultTable

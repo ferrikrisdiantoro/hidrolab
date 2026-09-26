@@ -219,9 +219,15 @@ export function GayaBelokanClient() {
           callouts: adaGaya
             ? [
                 {
-                  x: belakang.x,
-                  z: belakang.z,
-                  dx: 16,
+                  /*
+                   * Nama blok ditunjukkan dari salah satu UJUNG muka
+                   * belakangnya, menjulur ke kiri bawah. Dari tengah muka
+                   * belakang ia jatuh tepat di ujung panah resultan, dan
+                   * nama resultan menimpanya sampai tak terbaca.
+                   */
+                  x: belakang.x - nx * setengah,
+                  z: belakang.z - ny * setengah,
+                  dx: -20,
                   dy: 18,
                   text: x.labelBlok,
                 },
@@ -274,7 +280,7 @@ export function GayaBelokanClient() {
               value: `${fmt(lebarBlok, 2)} m`,
               tint: wajar ? undefined : C.signal,
             },
-            { label: "pA/R", value: `${fmt(r.pressureShare * 100, 1)} %` },
+            { label: "pA/R", value: adaGaya ? `${fmt(r.pressureShare * 100, 1)} %` : "—" },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -325,7 +331,7 @@ export function GayaBelokanClient() {
                 { symbol: "b", label: x.rLebar, value: fmt(lebarBlok, 3), unit: "m", tint: wajar ? undefined : C.signal, strong: true },
                 { symbol: "W", label: x.rBerat, value: fmt(beratGesek, 1), unit: "kN" },
                 { symbol: "V", label: x.rVolume, value: fmt(volumeGesek, 2), unit: "m³" },
-                { symbol: "—", label: x.rBagi, value: fmt(r.pressureShare * 100, 2), unit: "%" },
+                { symbol: "—", label: x.rBagi, value: adaGaya ? fmt(r.pressureShare * 100, 2) : "—", unit: adaGaya ? "%" : undefined },
               ]}
             />
           </Block>

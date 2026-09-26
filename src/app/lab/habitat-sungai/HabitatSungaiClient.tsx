@@ -19,6 +19,7 @@ import {
   HABITAT_BEST_DEPTH,
   HABITAT_BEST_VELOCITY,
   fmt,
+  fmtPlain,
   riverHabitat,
 } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
@@ -125,7 +126,9 @@ export function HabitatSungaiClient() {
           color: C.critical,
           weight: W.hair,
           dash: DASH.axis,
-          label: T.suitabilityCurve,
+          /* Garis ini menandai debit terbaik, bukan lengkung kelayakannya;
+             lengkung kelayakan tidak tergambar di lembar ini sama sekali. */
+          label: `Qopt ${fmtPlain(r.bestDischarge, 2)} m³/s`,
           labelAt: 1,
           labelDy: -10,
           labelAlign: "center",
@@ -222,7 +225,7 @@ export function HabitatSungaiClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pKecil, apply: () => { setQ(0.3); setLebar(20); setKemiringan(0.002); setN(0.035); } },
-                  { label: x.pPuncak, apply: () => { setQ(5); setLebar(20); setKemiringan(0.002); setN(0.035); } },
+                  { label: x.pPuncak, apply: () => { setQ(2.1); setLebar(20); setKemiringan(0.002); setN(0.035); } },
                   { label: x.pBanjir, apply: () => { setQ(90); setLebar(20); setKemiringan(0.002); setN(0.035); } },
                 ]}
               />

@@ -57,6 +57,7 @@ const TXT = {
     kavitasi: "Air mendidih di puncak",
     labelPompa: "pompa",
     labelPuncak: "puncak lintasan",
+    labelTengah: "titik tengah lintasan",
     hisapNote:
       "Garis tekanan sudah jatuh di bawah sumbu pipa di puncaknya, jadi di situ pipa tidak lagi didorong dari dalam melainkan dihisap. Pipa yang dihisap masih boleh bekerja asal sambungannya rapat dan dindingnya kuat menahan tekanan dari luar, tetapi dua hal menjadi tidak berlaku lagi. Udara yang terlarut akan keluar di titik terendah tekanannya dan berkumpul di puncak sampai menyumbat penampangnya, dan setiap sambungan yang bocor akan menghisap udara masuk, bukan mengeluarkan air.",
     kavitasiNote:
@@ -87,6 +88,7 @@ const TXT = {
     kavitasi: "The water boils at the summit",
     labelPompa: "pump",
     labelPuncak: "summit",
+    labelTengah: "midpoint of the route",
     hisapNote:
       "The hydraulic grade line has fallen below the pipe axis at the summit, so there the pipe is no longer pushed from inside but sucked. A pipe under suction may still work, provided its joints are tight and its wall can carry the outside pressure, but two things stop being true. Dissolved air comes out of solution at the point of lowest pressure and gathers at the summit until it blocks the section, and any leaking joint sucks air in rather than letting water out.",
     kavitasiNote:
@@ -172,6 +174,22 @@ export function EnergiBertekananClient() {
   const puncak = r.points[2];
   const daya = (RHO_G * Q * Hp) / 1000;
 
+  /*
+   * Kedua garis digambar bertangga di penampang yang punya perlengkapan atau
+   * pompa: satu titik sebelum lompatannya, satu titik sesudahnya, pada absis
+   * yang sama. Tanpa itu kenaikan pompa di hulu tergambar sebagai kemiringan
+   * sepanjang seperempat lintasan, seolah pipanya sendiri menambah energi.
+   */
+  const bertangga = (pilih: "egl" | "hgl") => {
+    const out: { x: number; z: number }[] = [];
+    r.points.forEach((p, i) => {
+      const lompat = (stations[i].pump ?? 0) - (stations[i].K ?? 0) * p.velocityHead;
+      if (lompat !== 0) out.push({ x: p.x, z: p[pilih] - lompat });
+      out.push({ x: p.x, z: p[pilih] });
+    });
+    return out;
+  };
+
   const ref = useCanvas(
     (ctx, w, ch) => {
       const sumbu = r.points.map((p) => ({ x: p.x, z: p.z }));
@@ -180,7 +198,7 @@ export function EnergiBertekananClient() {
 
       const garis: StructureLine[] = [
         {
-          pts: r.points.map((p) => ({ x: p.x, z: p.egl })),
+          pts: bertangga("egl"),
           color: C.energy,
           weight: W.bold,
           dash: DASH.solid,
@@ -190,7 +208,7 @@ export function EnergiBertekananClient() {
           labelAlign: "center",
         },
         {
-          pts: r.points.map((p) => ({ x: p.x, z: p.hgl })),
+          pts: bertangga("hgl"),
           color: puncak.pressureHead < 0 ? C.critical : C.water,
           weight: W.bold,
           dash: DASH.hidden,
@@ -237,7 +255,9 @@ export function EnergiBertekananClient() {
           to: Hp,
           text: `Hp ${fmtPlain(Hp, 2)} m`,
           color: C.energy,
-          offset: 30,
+          /* Di sisi kiri pompa, karena nama pompanya di sisi kanan dan
+             keduanya duduk pada ketinggian yang sama. */
+          offset: -34,
         },
       ];
 
@@ -258,7 +278,21 @@ export function EnergiBertekananClient() {
           dims,
           callouts: [
             { x: 0, z: Hp / 2, dx: 22, dy: 0, text: x.labelPompa },
-            { x: L * 0.5, z: zPuncak, dx: 10, dy: 26, text: x.labelPuncak },
+            /*
+             * Titik tengahnya hanya disebut puncak bila memang lebih tinggi
+             * daripada kedua ujungnya. Pada setelan yang lebih rendah, titik
+             * itu justru lembah lintasan, dan menamainya puncak menyuruh
+             * pembaca mencari udara di tempat yang salah. Namanya menunjuk
+             * ke ATAS, karena di bawah titik yang rendah sudah menunggu
+             * angka sumbu datar.
+             */
+            {
+              x: L * 0.5,
+              z: zPuncak,
+              dx: 10,
+              dy: zPuncak > Math.max(0, zAkhir) ? 26 : -26,
+              text: zPuncak > Math.max(0, zAkhir) ? x.labelPuncak : x.labelTengah,
+            },
           ],
           heading: r.cavitates
             ? x.kavitasi

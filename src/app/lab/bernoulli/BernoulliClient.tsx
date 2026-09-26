@@ -122,9 +122,31 @@ export function BernoulliClient() {
 
   const ref = useCanvas(
     (ctx, w, ch) => {
-      /* Dinding saluran: sumbu pipa plus dan minus setengah garis tengahnya */
-      const atas = r.points.map((p) => ({ x: p.x, z: p.z + p.D / 2 }));
-      const bawah = r.points.map((p) => ({ x: p.x, z: p.z - p.D / 2 }));
+      /*
+       * Batas bidang dihitung lebih dulu, karena tebal pipa yang digambar
+       * bergantung padanya. Batas atasnya memuat elevasi LEHER juga, bukan
+       * hanya garis energinya: pada leher yang dinaikkan dua puluh lima
+       * meter, pipanya menembus bingkai atas bersama nama dan ukurannya.
+       */
+      const zMin = Math.min(0, r.minPressureHead + leher.z, dz, -2);
+      const zAtasAsli = Math.max(H, r.points[0].egl, dz);
+      const rentang = Math.max(zAtasAsli - zMin, 1);
+
+      /*
+       * Garis tengah pipa DILEBIHKAN pada gambarnya, dan besarnya
+       * pelebihan ditulis di nama dindingnya.
+       *
+       * Pipa empat puluh sentimeter pada sumbu setinggi dua puluh dua meter
+       * tinggal dua garis rambut di dasar bidang, dan lehernya, yaitu pokok
+       * lembar ini, sama sekali tidak terlihat menyempit. Diagram garis
+       * energi di buku ajar pun menggambar pipanya dilebihkan dengan alasan
+       * yang sama. Yang dilebihkan hanya tebal pipanya; seluruh tinggi tekan
+       * tetap digambar pada skala yang sebenarnya.
+       */
+      const lebih = Math.max(1, Math.round((rentang * 0.07) / Math.max(D1, D2)));
+      const zMax = (zAtasAsli + (lebih * Math.max(D1, D2)) / 2) * 1.14 + 1;
+      const atas = r.points.map((p) => ({ x: p.x, z: p.z + (lebih * p.D) / 2 }));
+      const bawah = r.points.map((p) => ({ x: p.x, z: p.z - (lebih * p.D) / 2 }));
 
       const garis: StructureLine[] = [
         {
@@ -143,8 +165,8 @@ export function BernoulliClient() {
           weight: W.bold,
           dash: DASH.hidden,
           label: T.hydraulicGrade,
-          labelAt: 0.82,
-          labelDy: -10,
+          labelAt: 1,
+          labelDy: 16,
           labelAlign: "right",
         },
         {
@@ -184,17 +206,22 @@ export function BernoulliClient() {
           color: C.water,
           offset: 58,
         },
-        {
-          axis: "v",
-          at: L * 0.5,
-          from: 0,
-          to: leher.z,
-          text: `${fmtPlain(leher.z, 2)} m`,
-          offset: 86,
-        },
+        /* Ukuran sepanjang nol tidak mengukur apa pun, dan pada pipa datar
+           ia hanya menjadi tulisan "0,00 m" yang tergantung di dasar. */
+        ...(Math.abs(leher.z) > 0.05
+          ? [
+              {
+                axis: "v" as const,
+                at: L * 0.5,
+                from: 0,
+                to: leher.z,
+                text: `${fmtPlain(leher.z, 2)} m`,
+                offset: 86,
+              },
+            ]
+          : []),
       ];
 
-      const zMin = Math.min(0, r.minPressureHead + leher.z, -2);
       drawStructure(
         ctx,
         w,
@@ -203,13 +230,22 @@ export function BernoulliClient() {
           xMin: -3,
           xMax: L + 3,
           zMin,
-          zMax: Math.max(H, r.points[0].egl) * 1.12,
+          zMax,
           equalScale: false,
           bodies: [],
           lines: garis,
           dims,
           callouts: [
-            { x: L * 0.5, z: leher.z - D2 / 2, dx: -14, dy: 26, text: T.ductWall },
+            {
+              x: L * 0.5,
+              z: leher.z - (lebih * D2) / 2,
+              dx: -14,
+              dy: 26,
+              text:
+                lebih > 1
+                  ? `${T.ductWall} · ${lang === "id" ? "tebal" : "width"} ×${lebih}`
+                  : T.ductWall,
+            },
           ],
           heading: r.cavitates ? x.kavitasi : undefined,
           headingColor: C.signal,
@@ -277,7 +313,12 @@ export function BernoulliClient() {
                 presets={[
                   { label: x.pDatar, apply: () => { setQ(0.15); setH(20); setD1(0.4); setD2(0.18); setDz(0); } },
                   { label: x.pNaik, apply: () => { setQ(0.15); setH(20); setD1(0.4); setD2(0.18); setDz(6); } },
-                  { label: x.pKavitasi, apply: () => { setQ(0.15); setH(20); setD1(0.4); setD2(0.18); setDz(25); } },
+                  /* Leher dinaikkan DAN disempitkan. Menaikkannya saja sampai batas
+                     penggeser, dua puluh lima meter, masih menyisakan tekanan mutlak
+                     tiga setengah meter, jauh di atas tekanan uap, sehingga tombol
+                     bernama "air mendidih" menyalakan penanda "masih di atas tekanan
+                     uap". */
+                  { label: x.pKavitasi, apply: () => { setQ(0.15); setH(20); setD1(0.4); setD2(0.13); setDz(25); } },
                 ]}
               />
             </div>
@@ -302,7 +343,11 @@ export function BernoulliClient() {
                 { symbol: "V", label: x.rV, value: fmt(leher.velocity, 3), unit: "m/s", strong: true },
                 { symbol: "V²/2g", label: x.rHv, value: fmt(leher.velocityHead, 3), unit: "m", tint: C.energy, strong: true },
                 { symbol: "p/γ", label: x.rHp, value: fmt(leher.pressureHead, 3), unit: "m", tint: r.cavitates ? C.signal : C.water, strong: true },
-                { symbol: "pabs", label: x.rAbs, value: fmt(leher.absoluteHead, 3), unit: "m", tint: r.cavitates ? C.signal : undefined },
+                /* Tekanan mutlak tidak dapat turun di bawah tekanan uap: di situ airnya
+                   mendidih dan tekanannya tertahan. Angka negatif yang dihasilkan
+                   persamaannya bukan tekanan melainkan tanda bahwa persamaannya
+                   sudah tidak berlaku. */
+                { symbol: "pabs", label: x.rAbs, value: r.cavitates ? "—" : fmt(leher.absoluteHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : undefined },
                 { symbol: "min", label: x.rHmin, value: fmt(r.minPressureHead, 3), unit: "m" },
                 { symbol: "H", label: x.rEgl, value: fmt(r.points[r.points.length - 1].egl, 4), unit: "m", tint: C.energy },
               ]}

@@ -117,6 +117,14 @@ export function DeformasiFluidaClient() {
   const [waktu, setWaktu] = useState(0.5);
 
   const r = deformation(a, b, c, d, waktu);
+  /*
+   * Sumbu regangan utama hanya ada bila kedua regangan utamanya berbeda.
+   * Pada putaran murni keduanya nol dan pada muai merata keduanya sama,
+   * sehingga SETIAP arah sama utamanya. Sebelumnya lembar ini tetap
+   * menggambar satu sumbu dan menulis sudutnya 0°, arah yang sepenuhnya
+   * ditentukan oleh atan2(0, 0) dan bukan oleh alirannya.
+   */
+  const adaSumbu = r.principal[0] - r.principal[1] > 1e-9;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -142,8 +150,9 @@ export function DeformasiFluidaClient() {
 
       /* Sumbu regangan utama, digambar sebagai satu garis lewat titik pusat. */
       const sudut = (r.principalAngle * Math.PI) / 180;
-      const garis: FieldLine[] = [
-        {
+      const garis: FieldLine[] = [];
+      if (adaSumbu)
+        garis.push({
           pts: [
             { x: -0.95 * Math.cos(sudut), y: -0.95 * Math.sin(sudut) },
             { x: 0.95 * Math.cos(sudut), y: 0.95 * Math.sin(sudut) },
@@ -155,8 +164,24 @@ export function DeformasiFluidaClient() {
           labelAt: 0.92,
           labelDy: -9,
           labelAlign: "right",
-        },
-      ];
+        });
+
+      /*
+       * Bingkai mengikuti bentuk sesudahnya. Dengan bingkai tetap ±1,35,
+       * elemen yang memanjang pada muai atau geser besar terpotong di tepi
+       * dan menabrak judulnya. Ruang di atas ditambah bila judulnya tampil.
+       */
+      const jangkau = Math.max(
+        0.95,
+        ...r.deformed.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)))
+      );
+      const tepi = jangkau * 1.3;
+      const atasJudul = r.incompressible ? 0 : tepi * 0.22;
+
+      /* Nama bentuk ditaruh menempel pada bentuknya sendiri: nama elemen
+         asal di dalam persegi putus-putus, nama bentuk sesudahnya di bawah
+         titik terendahnya, tempat yang pasti kosong dari bentuk itu. */
+      const terendah = r.deformed.reduce((m, p) => (p.y < m.y ? p : m));
 
       /* Medan kecepatannya sendiri, sebagai panah pada kisi tiga kali tiga. */
       const panah: FieldArrow[] = [];
@@ -182,18 +207,18 @@ export function DeformasiFluidaClient() {
         w,
         ch,
         {
-          xMin: -1.35,
-          xMax: 1.35,
-          yMin: -1.35,
-          yMax: 1.35,
+          xMin: -tepi,
+          xMax: tepi,
+          yMin: -tepi,
+          yMax: tepi + atasJudul,
           patches: bidang,
           lines: garis,
           arrows: panah,
           regions: [
-            { x: -1.1, y: 1.18, text: T.fluidElement, color: C.ink3 },
+            { x: 0, y: 0.34, text: T.fluidElement, color: C.ink3 },
             {
-              x: 1.1,
-              y: -1.18,
+              x: terendah.x,
+              y: terendah.y - tepi * 0.12,
               text: T.elementAfter,
               color: r.incompressible ? C.water : C.signal,
             },
@@ -244,7 +269,7 @@ export function DeformasiFluidaClient() {
             { label: t.tbUnit, value: "SI (1/s)" },
             { label: "ω", value: `${fmt(r.vorticity, 2)} 1/s`, tint: C.water },
             { label: "ε₁", value: `${fmt(r.principal[0], 2)} 1/s`, tint: C.critical },
-            { label: "θ", value: `${fmt(r.principalAngle, 1)}°` },
+            { label: "θ", value: adaSumbu ? `${fmt(r.principalAngle, 1)}°` : "—" },
             {
               label: "∇·u",
               value: `${fmt(r.dilatation, 2)} 1/s`,
@@ -293,7 +318,7 @@ export function DeformasiFluidaClient() {
               rows={[
                 { symbol: "ε₁", label: x.rE1, value: fmt(r.principal[0], 3), unit: "1/s", tint: C.critical, strong: true },
                 { symbol: "ε₂", label: x.rE2, value: fmt(r.principal[1], 3), unit: "1/s", tint: C.critical },
-                { symbol: "θ", label: x.rSudut, value: fmt(r.principalAngle, 2), unit: "°" },
+                { symbol: "θ", label: x.rSudut, value: adaSumbu ? fmt(r.principalAngle, 2) : "—", unit: adaSumbu ? "°" : undefined },
                 { symbol: "ω", label: x.rVort, value: fmt(r.vorticity, 3), unit: "1/s", tint: C.water, strong: true },
                 { symbol: "Ω", label: x.rPutar, value: fmt(r.rotationRate, 3), unit: "1/s", tint: C.water },
                 { symbol: "∇·u", label: x.rMuai, value: fmt(r.dilatation, 3), unit: "1/s", tint: r.incompressible ? undefined : C.signal },

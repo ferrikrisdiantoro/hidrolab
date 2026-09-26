@@ -100,8 +100,20 @@ const K_BELOK = 0.3;
 
 /** Penampang-penampang pipanya, dengan katup di tengah dan belokan di tiga perempat. */
 function pipa(L: number, D: number, H: number, Kv: number): DuctStation[] {
-  /* Pipa berangkat dari kolam hulu, menurun landai, lalu mendatar. */
-  const z = (s: number) => -H * 0.5 * Math.min(1, s * 1.6);
+  /*
+   * Pipa berangkat dari BAWAH muka air kolam hulu, menurun, lalu mendatar
+   * di BAWAH muka air kolam hilir.
+   *
+   * Debitnya dicari dengan syarat garis tekanan di ujung pipa jatuh tepat di
+   * muka air kolam hilir, dan syarat itu hanya berlaku bila ujungnya
+   * terendam. Sebelumnya pipanya berakhir di tengah beda tinggi, tiga meter
+   * DI ATAS muka air hilir, sehingga ujungnya sebenarnya mencurah bebas
+   * sementara hitungannya menganggapnya terendam, dan separuh hilir pipanya
+   * tergambar menghisap.
+   */
+  const zMasuk = -D * 1.5;
+  const zKeluar = -H - D * 1.5;
+  const z = (s: number) => zMasuk + (zKeluar - zMasuk) * Math.min(1, s * 1.6);
   return [
     { x: 0, z: z(0), D, K: K_MASUK },
     { x: L * 0.25, z: z(0.25), D },
@@ -152,6 +164,27 @@ export function PersamaanEnergiClient() {
   const total = r.frictionLoss + r.minorLoss + ujung.velocityHead;
   const bagiGesekan = total > 0 ? r.frictionLoss / total : 0;
 
+  /*
+   * Kedua garis digambar bertangga: di penampang yang punya perlengkapan,
+   * satu titik sebelum kehilangannya dan satu titik sesudahnya, pada absis
+   * yang sama.
+   *
+   * Sebelumnya garisnya menghubungkan nilai sesudah-kehilangan dari satu
+   * penampang ke penampang berikutnya, sehingga setiap anak tangga tergambar
+   * sebagai kemiringan yang menyatu dengan kemiringan gesekan. Padahal
+   * membedakan keduanya justru satu-satunya pokok lembar ini, dan kalimat
+   * pengantarnya sendiri menyebut anak tangga.
+   */
+  const bertangga = (pilih: "egl" | "hgl") => {
+    const out: { x: number; z: number }[] = [];
+    r.points.forEach((p, i) => {
+      const hk = (stations[i].K ?? 0) * p.velocityHead;
+      if (hk > 0) out.push({ x: p.x, z: p[pilih] + hk });
+      out.push({ x: p.x, z: p[pilih] });
+    });
+    return out;
+  };
+
   const ref = useCanvas(
     (ctx, w, ch) => {
       const atas = r.points.map((p) => ({ x: p.x, z: p.z + p.D / 2 }));
@@ -171,8 +204,22 @@ export function PersamaanEnergiClient() {
           labelDy: -9,
           labelAlign: "left",
         },
+        /* Muka air kolam hilir, tempat garis tekanan di ujung pipa jatuh. */
         {
-          pts: r.points.map((p) => ({ x: p.x, z: p.egl })),
+          pts: [
+            { x: L * 0.86, z: -H },
+            { x: L * 1.06, z: -H },
+          ],
+          color: C.ink3,
+          weight: W.hair,
+          dash: DASH.axis,
+          label: T.downstream,
+          labelAt: 1,
+          labelDy: -9,
+          labelAlign: "right",
+        },
+        {
+          pts: bertangga("egl"),
           color: C.energy,
           weight: W.bold,
           dash: DASH.solid,
@@ -182,7 +229,7 @@ export function PersamaanEnergiClient() {
           labelAlign: "center",
         },
         {
-          pts: r.points.map((p) => ({ x: p.x, z: p.hgl })),
+          pts: bertangga("hgl"),
           color: C.water,
           weight: W.bold,
           dash: DASH.hidden,
@@ -221,7 +268,7 @@ export function PersamaanEnergiClient() {
       ];
 
       const zMin =
-        Math.min(-H * 0.5 - D, ujung.egl, -H) - Math.max(0.6, H * 0.14);
+        Math.min(ujung.z - D, ujung.egl, -H) - Math.max(0.6, H * 0.14);
       drawStructure(
         ctx,
         w,

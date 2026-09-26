@@ -54,6 +54,7 @@ const TXT = {
     rBagi: "Bagian resultan yang berasal dari tekanan",
     tekananKuasa: "Tekanan yang menentukan",
     momentumKuasa: "Momentum yang menentukan",
+    takAda: "Pipa lurus berpenampang tetap, tidak ada gaya",
     labelCV: "volume kendali",
     labelMasuk: "p₁A₁ + ρQV₁",
     labelKeluar: "p₂A₂ + ρQV₂",
@@ -85,6 +86,7 @@ const TXT = {
     rBagi: "Share of the resultant coming from pressure",
     tekananKuasa: "Pressure decides",
     momentumKuasa: "Momentum decides",
+    takAda: "Straight pipe of constant section, no force at all",
     labelCV: "control volume",
     labelMasuk: "p₁A₁ + ρQV₁",
     labelKeluar: "p₂A₂ + ρQV₂",
@@ -124,6 +126,18 @@ export function PrinsipMomentumClient() {
   const r = momentumForce(Q, D1, D2, head, sudut);
   const panjang = Math.max(D1, D2) * 3;
   const geo = bendGeometry(D1, D2, sudut, panjang);
+  /*
+   * Tanpa gaya sama sekali, pertanyaan "tekanan atau momentum yang
+   * menentukan" tidak punya jawaban. Bagian tekanannya sendiri jatuh ke
+   * seratus persen hanya karena nol dibagi nol diberi nilai satu, dan
+   * kepala gambar yang menyatakannya membaca angka itu seolah temuan.
+   */
+  const adaGaya = r.resultant > 1;
+  const keadaan = !adaGaya
+    ? x.takAda
+    : r.pressureShare > 0.8
+      ? x.tekananKuasa
+      : x.momentumKuasa;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -147,7 +161,11 @@ export function PrinsipMomentumClient() {
       );
       const kotak: StructureLine[] = [
         {
-          pts: dalam,
+          /* Ditutup kembali ke titik awalnya. Digambar sebagai garis, bentuk
+             ini kehilangan ruas penutupnya, dan penampang MASUK volume
+             kendalinya, yaitu separuh dari seluruh pokok lembar ini, tidak
+             pernah tergambar. */
+          pts: [...dalam, dalam[0]],
           color: C.ink3,
           weight: W.thin,
           dash: DASH.hidden,
@@ -196,7 +214,22 @@ export function PrinsipMomentumClient() {
         },
       ];
 
-      const semua = [...badan, geo.outlet, { x: -panjang, z: 0 }];
+      /*
+       * Bidangnya memuat UJUNG PANAH, bukan hanya pipanya. Panah laju aliran
+       * momentum di penampang keluar menjulur searah alirannya, dan pada
+       * belokan siku ia menembus bingkai atas bersama namanya, lalu kepala
+       * gambar jatuh menimpa ujung pipa.
+       */
+      const semua = [
+        ...badan,
+        geo.outlet,
+        { x: -panjang, z: 0 },
+        {
+          x: geo.outlet.x + geo.direction.x * panjang * 0.9,
+          z: geo.outlet.z + geo.direction.z * panjang * 0.9,
+        },
+        { x: -panjang * 1.6, z: 0 },
+      ];
       const lebarBidang = Math.max(D1, D2);
       const xs = semua.map((p) => p.x);
       const zs = semua.map((p) => p.z);
@@ -208,11 +241,11 @@ export function PrinsipMomentumClient() {
           xMin: Math.min(...xs) - lebarBidang,
           xMax: Math.max(...xs) + lebarBidang,
           zMin: Math.min(...zs) - lebarBidang,
-          zMax: Math.max(...zs) + lebarBidang,
+          zMax: Math.max(...zs) + lebarBidang * 2.2,
           bodies: [{ pts: badan, hatch: "none", outline: true }],
           lines: kotak,
           vectors: panah,
-          heading: r.pressureShare > 0.8 ? x.tekananKuasa : x.momentumKuasa,
+          heading: keadaan,
           axisX: T.planView,
           axisZ: T.planView,
         },
@@ -254,7 +287,7 @@ export function PrinsipMomentumClient() {
             { label: "R", value: `${fmt(r.resultant / 1000, 1)} kN`, tint: C.energy },
             { label: "θ", value: `${fmt(sudut, 0)}°` },
             { label: "V₁", value: `${fmt(r.velocity1, 2)} m/s`, tint: C.water },
-            { label: "p₁A₁/R", value: `${fmt(r.pressureShare * 100, 0)} %` },
+            { label: "p₁A₁/R", value: adaGaya ? `${fmt(r.pressureShare * 100, 0)} %` : "—" },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -285,8 +318,8 @@ export function PrinsipMomentumClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5">
-              <Flag tint={r.pressureShare > 0.8 ? C.energy : C.water}>
-                {r.pressureShare > 0.8 ? x.tekananKuasa : x.momentumKuasa}
+              <Flag tint={!adaGaya ? C.ink2 : r.pressureShare > 0.8 ? C.energy : C.water}>
+                {keadaan}
               </Flag>
             </div>
             <ResultTable
@@ -301,7 +334,7 @@ export function PrinsipMomentumClient() {
                 { symbol: "Fy", label: x.rFy, value: fmt(r.Fy / 1000, 2), unit: "kN" },
                 { symbol: "R", label: x.rR, value: fmt(r.resultant / 1000, 2), unit: "kN", tint: C.energy, strong: true },
                 { symbol: "α", label: x.rArah, value: fmt(r.direction, 1), unit: "°" },
-                { symbol: "—", label: x.rBagi, value: fmt(r.pressureShare * 100, 1), unit: "%" },
+                { symbol: "—", label: x.rBagi, value: adaGaya ? fmt(r.pressureShare * 100, 1) : "—", unit: adaGaya ? "%" : undefined },
               ]}
             />
           </Block>

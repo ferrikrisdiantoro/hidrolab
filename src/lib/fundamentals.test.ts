@@ -726,6 +726,30 @@ describe("Kinematika vorteks", () => {
       }
   });
 
+  it("pasangan berlawanan yang tidak sama kuat berputar, tidak melaju", () => {
+    /* Lahir dari uji terima FP-02: Γ 10 dan −40 dilaporkan melaju lurus
+       dengan Ω nol, sementara lintasannya tergambar sebagai lingkaran. */
+    const d = 2;
+    const lama = 3;
+    const r = vortexPair(10, -40, d, lama);
+    assert.equal(r.counterRotating, true);
+    assert.equal(r.translates, false);
+    assert.equal(r.translation, 0);
+    const acuan = (10 - 40) / (2 * Math.PI * d * d);
+    assert.ok(Math.abs(r.angular - acuan) < 1e-12);
+    /* Dan garis penghubungnya memang berputar sebesar Ω t di simulasinya */
+    const a0 = r.pathA[0];
+    const b0 = r.pathB[0];
+    const a1 = r.pathA[r.pathA.length - 1];
+    const b1 = r.pathB[r.pathB.length - 1];
+    let putar =
+      Math.atan2(b1.y - a1.y, b1.x - a1.x) - Math.atan2(b0.y - a0.y, b0.x - a0.x);
+    putar = Math.atan2(Math.sin(putar), Math.cos(putar));
+    let harap = acuan * lama;
+    harap = Math.atan2(Math.sin(harap), Math.cos(harap));
+    assert.ok(Math.abs(putar - harap) < 1e-3, `putar ${putar}, harap ${harap}`);
+  });
+
   it("satu pusaran sendirian tidak pernah memindahkan dirinya", () => {
     const r = vortexPair(10, 0, 2, 20);
     for (const p of r.pathA) {

@@ -85,7 +85,22 @@ export function Sheet({
               key={i}
               className="flex min-w-[104px] flex-col justify-center border-r border-rule px-3.5 py-2.5"
             >
-              <span className="stencil">{c.label}</span>
+              {/*
+               * Label sel hampir selalu SIMBOL, dan huruf besar mengubah
+               * artinya: h/L menjadi H/L padahal H tinggi gelombang, τ
+               * menjadi Τ yang terbaca T, ω menjadi Ω, ε₁ menjadi E₁. Hanya
+               * kata kop yang tetap berhuruf besar.
+               */}
+              <span
+                className="stencil"
+                style={
+                  c.label === t.tbUnit || c.label === t.tbScale
+                    ? undefined
+                    : { textTransform: "none" }
+                }
+              >
+                {c.label}
+              </span>
               <span
                 className="value label mt-0.5 text-[0.86rem] font-semibold leading-tight"
                 style={{ color: c.tint ?? "var(--color-ink)" }}

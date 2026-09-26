@@ -132,13 +132,17 @@ export function GerombolanIkanClient() {
         filled: false,
       }));
 
-      const xs = r.agents.map((a) => a.x);
-      const ys = r.agents.map((a) => a.y);
+      /* Bingkai mencakup jejaknya juga, bukan hanya ikannya: jejak ekor
+         yang tertinggal di belakang gerombolan dulu menembus tepi bingkai
+         dan menimpa judul keadaannya. Ruang di atas disisakan untuk judul. */
+      const semua = [...r.agents, ...r.trails.flat()];
+      const xs = semua.map((a) => a.x);
+      const ys = semua.map((a) => a.y);
       const margin = Math.max(r.nearestNeighbour * 2, r.spread * 0.2, 1);
       const xMin = Math.min(...xs) - margin;
       const xMax = Math.max(...xs) + margin;
       const yMin = Math.min(...ys) - margin;
-      const yMax = Math.max(...ys) + margin;
+      const yMax = Math.max(...ys) + margin + (Math.max(...ys) - Math.min(...ys) + 2 * margin) * 0.14;
 
       drawField(
         ctx,
@@ -211,7 +215,7 @@ export function GerombolanIkanClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="N" label={x.dN} value={jumlah} min={5} max={120} step={1} digits={0} onChange={setJumlah} />
-              <InputRow symbol="a" label={x.dA} value={selaras} min={0} max={3} step={0.05} digits={2} onChange={setSelaras} tint={C.water} />
+              <InputRow symbol="a" label={x.dA} value={selaras} min={0} max={3} step={0.01} digits={2} onChange={setSelaras} tint={C.water} />
               <InputRow symbol="s" label={x.dS} value={jauh} min={0} max={3} step={0.05} digits={2} onChange={setJauh} />
               <InputRow symbol="c" label={x.dC} value={dekat} min={0} max={2} step={0.05} digits={2} onChange={setDekat} tint={C.critical} />
             </InputTable>
@@ -221,9 +225,9 @@ export function GerombolanIkanClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pPencar, apply: () => { setJumlah(40); setSelaras(0); setJauh(0.4); setDekat(0); } },
-                  { label: x.pGerombol, apply: () => { setJumlah(40); setSelaras(0.2); setJauh(1); setDekat(1); } },
+                  { label: x.pGerombol, apply: () => { setJumlah(40); setSelaras(0); setJauh(1); setDekat(1); } },
                   { label: x.pSearah, apply: () => { setJumlah(40); setSelaras(2.5); setJauh(1); setDekat(0.6); } },
-                  { label: x.pPutar, apply: () => { setJumlah(60); setSelaras(0.6); setJauh(1.4); setDekat(1.4); } },
+                  { label: x.pPutar, apply: () => { setJumlah(30); setSelaras(0.02); setJauh(1); setDekat(0.2); } },
                 ]}
               />
             </div>

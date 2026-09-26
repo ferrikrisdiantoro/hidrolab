@@ -160,7 +160,9 @@ export function dimH(
   xRight: number,
   label: string,
   color: string,
-  objY?: number
+  objY?: number,
+  /** Batas kiri dan kanan tempat tulisannya boleh berada, piksel */
+  rentang?: [number, number]
 ) {
   pen(ctx, W.thin, color);
 
@@ -186,7 +188,20 @@ export function dimH(
   ctx.font = F.label;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  stencil(ctx, label, (xLeft + xRight) / 2, y - 5);
+  /*
+   * Tulisan dimensi yang lebih lebar daripada dimensinya sendiri dan duduk
+   * dekat tepi gambar digeser masuk, tidak dibiarkan terpotong. Contohnya
+   * panjang masuk PI-04 sepanjang sebelas sentimeter di pangkal pipa, yang
+   * tertulis "NJANG MASUK". Tanpa rentang, batasnya lebar kanvas.
+   */
+  const separuh = stencilWidth(ctx, label) / 2;
+  const skala = ctx.getTransform().a || 1;
+  const [kiri, kanan] = rentang ?? [0, ctx.canvas.width / skala];
+  const tx = Math.min(
+    Math.max((xLeft + xRight) / 2, kiri + separuh + 6),
+    Math.max(kiri + separuh + 6, kanan - separuh - 6)
+  );
+  stencil(ctx, label, tx, y - 5);
 }
 
 /* ------------------------------------------------------------------ *

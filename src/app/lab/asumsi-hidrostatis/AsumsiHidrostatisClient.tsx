@@ -50,7 +50,7 @@ const TXT = {
     tidak: "Anggapan hidrostatis sudah tidak berlaku",
     lepas: "Tekanan dasar habis, airnya terangkat",
     lepasNote:
-      "Tekanan di dasar sudah turun sampai nol atau lebih rendah, dan air tidak dapat menarik. Yang terjadi bukan tekanan negatif melainkan air yang lepas dari permukaannya: tirainya terangkat, rongga terbentuk di bawahnya, dan tekanan di rongga itu ditentukan udara yang dapat masuk ke sana, bukan lagi oleh alirannya. Pada mercu pelimpah keadaan ini dihindari bukan karena airnya berhenti mengalir, melainkan karena rongga yang tidak berudara akan berdenyut dan menggetarkan seluruh bangunannya.",
+      "Tekanan di dasar sudah turun sampai nol atau lebih rendah, dan air tidak dapat menarik. Yang terjadi bukan tekanan negatif melainkan air yang lepas dari permukaannya: tirainya terangkat, rongga terbentuk di bawahnya, dan tekanan di rongga itu ditentukan udara yang dapat masuk ke sana, bukan lagi oleh alirannya. Garis putus-putus merah di gambar hanya tuntutan rumusnya, dan karena itu angka tekanan dasarnya tidak dituliskan. Pada mercu pelimpah keadaan ini dihindari bukan karena airnya berhenti mengalir, melainkan karena rongga yang tidak berudara akan berdenyut dan menggetarkan seluruh bangunannya.",
     note:
       "Hampir seluruh hidraulika saluran terbuka berdiri di atas satu anggapan yang jarang disebut, yaitu bahwa tekanan bertambah lurus terhadap kedalaman seperti pada air yang diam. Anggapan itu menuntut garis arusnya lurus dan sejajar, dan ia benar pada hampir seluruh panjang sungai. Yang perlu diketahui adalah di mana ia berhenti benar. Begitu garis arusnya melengkung, percepatan menuju pusat lengkungnya harus disediakan oleh selisih tekanan, dan simpangannya terhadap hidrostatis sebesar rho V kuadrat d dibagi R. Dibagi tekanan hidrostatisnya sendiri, kedalamannya lenyap dari perbandingan dan yang tersisa hanya V kuadrat dibagi gR. Satu bilangan, dan seluruh keputusan bergantung padanya. Di atas mercu pelimpah garis arusnya cembung ke atas, jadi tekanan dasarnya lebih kecil daripada hidrostatis, dan pada mercu yang tajam ia dapat habis sama sekali. Di kaki pelimpah keadaannya terbalik: tekanannya lebih besar, dan justru kelebihan itulah yang menuntut lantai kolam olakan setebal yang biasa kita lihat. Dua tempat pada satu bangunan yang sama, dengan dua kesimpulan yang berlawanan, dan keduanya tidak akan pernah muncul dari perhitungan yang memakai anggapan hidrostatis di mana-mana.",
   },
@@ -75,7 +75,7 @@ const TXT = {
     tidak: "The hydrostatic assumption no longer holds",
     lepas: "The bed pressure is gone, the water lifts off",
     lepasNote:
-      "The bed pressure has fallen to zero or below, and water cannot pull. What happens is not a negative pressure but water leaving its surface: the nappe lifts, a cavity forms beneath it, and the pressure in that cavity is set by whatever air can reach it rather than by the flow. On a spillway crest this state is avoided not because the water stops flowing, but because an unvented cavity pulses and shakes the whole structure.",
+      "The bed pressure has fallen to zero or below, and water cannot pull. What happens is not a negative pressure but water leaving its surface: the nappe lifts, a cavity forms beneath it, and the pressure in that cavity is set by whatever air can reach it rather than by the flow. On a spillway crest this state is avoided not because the water stops flowing, but because an unvented cavity pulses and shakes the whole structure. The dashed red line on the drawing is only what the formula demands, which is why the bed pressure figure is not written.",
     note:
       "Almost the whole of open-channel hydraulics rests on one assumption that is rarely named, namely that pressure grows linearly with depth as it does in standing water. That assumption demands straight, parallel streamlines, and it holds along nearly the whole length of a river. What needs to be known is where it stops holding. As soon as the streamlines curve, the acceleration toward their centre of curvature must be supplied by a pressure difference, and the departure from hydrostatic is rho V squared d over R. Divided by the hydrostatic pressure itself, the depth vanishes from the ratio and what remains is V squared over gR alone. One number, and every decision hangs on it. Over a spillway crest the streamlines are convex upward, so the bed pressure is smaller than hydrostatic, and on a sharp crest it can vanish entirely. At the spillway toe the case reverses: the pressure is larger, and it is exactly that excess which demands a stilling-basin floor of the thickness we are used to seeing. Two places on one structure, with opposite conclusions, and neither will ever emerge from a calculation that assumes hydrostatic everywhere.",
   },
@@ -140,7 +140,10 @@ export function AsumsiHidrostatisClient() {
           ],
           color: r.liftsOff ? C.signal : C.water,
           weight: W.bold,
-          dash: DASH.solid,
+          /* Pada keadaan terangkat garis ini hanya tuntutan rumusnya: air
+             tidak dapat menarik, jadi tekanan di bawah nol itu tidak pernah
+             terjadi dan tidak boleh tergambar tegas seperti yang terjadi. */
+          dash: r.liftsOff ? DASH.hidden : DASH.solid,
           label: T.actualPressure,
           labelAt: 0.5,
           labelDy: 16,
@@ -149,7 +152,9 @@ export function AsumsiHidrostatisClient() {
         {
           /* Muka air dan dasar, sebagai dua batas bidangnya. */
           pts: [
-            { x: 0, y: d },
+            /* Selebar bidangnya, termasuk sisi negatif pada keadaan
+               terangkat; tanpa itu labelnya terdesak ke bawah muka air. */
+            { x: Math.min(0, r.actual) * 1.1, y: d },
             { x: Math.max(r.hydrostatic, r.actual) * 1.1, y: d },
           ],
           color: C.ink3,
@@ -189,8 +194,11 @@ export function AsumsiHidrostatisClient() {
           lines: garis,
           dims,
           regions: [
+            /* Pada keadaan terangkat seluruh garis merahnya di sisi negatif
+               dan bidang kosongnya di kiri atas, jadi namanya pindah ke sana
+               supaya tidak menimpa garisnya. */
             {
-              x: pMax * 0.62,
+              x: r.liftsOff ? pMin * 0.55 : pMax * 0.62,
               y: d * 0.86,
               text: r.convex ? x.cembung : x.cekung,
               color: C.ink2,
@@ -243,7 +251,7 @@ export function AsumsiHidrostatisClient() {
             { label: "p₀", value: `${fmt(r.hydrostatic, 1)} kPa` },
             {
               label: "p",
-              value: `${fmt(r.actual, 1)} kPa`,
+              value: r.liftsOff ? "—" : `${fmt(r.actual, 1)} kPa`,
               tint: r.liftsOff ? C.signal : C.water,
             },
             { label: "Δ/p₀", value: `${fmt(r.ratio * 100, 1)} %` },
@@ -299,7 +307,7 @@ export function AsumsiHidrostatisClient() {
               rows={[
                 { symbol: "p₀", label: x.rHid, value: fmt(r.hydrostatic, 2), unit: "kPa" },
                 { symbol: "Δp", label: x.rSim, value: fmt(r.deviation, 2), unit: "kPa", tint: C.critical, strong: true },
-                { symbol: "p", label: x.rAkt, value: fmt(r.actual, 2), unit: "kPa", tint: r.liftsOff ? C.signal : C.water, strong: true },
+                { symbol: "p", label: x.rAkt, value: r.liftsOff ? "—" : fmt(r.actual, 2), unit: r.liftsOff ? undefined : "kPa", tint: r.liftsOff ? C.signal : C.water, strong: true },
                 { symbol: "Δ/p₀", label: x.rNis, value: fmt(r.ratio * 100, 2), unit: "%" },
                 { symbol: "V²/gR", label: x.rBil, value: fmt(r.curvatureNumber, 4), strong: true },
               ]}

@@ -49,6 +49,9 @@ const TXT = {
     rBagi: "Bagian tinggi kecepatan yang berhasil dipulihkan",
     tekananNaik: "Tekanan naik meskipun energi hilang",
     tekananTurun: "Tekanan turun, penampang menyempit",
+    mendidih: "Tekanan sesudah penyempitan jatuh ke tekanan uap",
+    mendidihNote:
+      "Debit ini tidak dapat lewat. Untuk memaksanya melalui penampang sesempit ini, tekanan sesudah penyempitan harus turun di bawah tekanan uap air, dan di situ airnya mendidih: kolomnya putus dan alirannya tersedak, jadi debit yang sebenarnya jauh lebih kecil daripada yang dipilih. Angka tekanan dan kehilangan di bawah karena itu tidak dituliskan. Perbesar penampang sesudahnya, kecilkan debitnya, atau naikkan tinggi tekan di hulunya.",
     labelStep: "anak tangga",
     labelGaya: "gaya pada anak tangga",
     note:
@@ -73,6 +76,9 @@ const TXT = {
     rBagi: "Share of the velocity head actually recovered",
     tekananNaik: "The pressure rises although energy is lost",
     tekananTurun: "The pressure falls, the section narrows",
+    mendidih: "The pressure after the contraction reaches vapour pressure",
+    mendidihNote:
+      "This discharge cannot pass. To force it through a section this narrow, the pressure after the contraction would have to fall below the vapour pressure of water, and there the water boils: the column parts and the flow chokes, so the real discharge is far smaller than the one chosen. The pressure and loss figures below are therefore not written. Enlarge the downstream section, reduce the discharge, or raise the upstream pressure head.",
     labelStep: "step",
     labelGaya: "force on the step",
     note:
@@ -107,6 +113,9 @@ export function MomentumPipaClient() {
   const [head, setHead] = useState(30);
 
   const r = momentumForce(Q, D1, D2, head, 0);
+  /* Kehilangan seluruhnya: pembesaran ATAU penyempitan, tidak pernah keduanya. */
+  const hilang = r.expansionLoss + r.contractionLoss;
+  const mati = r.cavitates;
   const hv1 = (r.velocity1 * r.velocity1) / (2 * G);
   const hv2 = (r.velocity2 * r.velocity2) / (2 * G);
   const naik = r.head2 - head;
@@ -176,7 +185,7 @@ export function MomentumPipaClient() {
           at: L * 0.85,
           from: naik + hv2,
           to: hv1,
-          text: `hL ${fmtPlain(r.expansionLoss, 3)} m`,
+          text: `hL ${fmtPlain(hilang, 3)} m`,
           color: C.energy,
           offset: 26,
         },
@@ -227,8 +236,12 @@ export function MomentumPipaClient() {
           dims,
           vectors: panah,
           callouts: [{ x: 0, z: -zStep, dx: -14, dy: 24, text: x.labelStep }],
-          heading: r.pressureRises ? x.tekananNaik : x.tekananTurun,
-          headingColor: r.pressureRises ? C.water : C.critical,
+          heading: mati
+            ? x.mendidih
+            : r.pressureRises
+              ? x.tekananNaik
+              : x.tekananTurun,
+          headingColor: mati ? C.signal : r.pressureRises ? C.water : C.critical,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
         },
@@ -267,8 +280,8 @@ export function MomentumPipaClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s, kN)" },
-            { label: "Δp/γ", value: `${fmt(naik, 3)} m`, tint: naik >= 0 ? C.water : C.critical },
-            { label: "hL", value: `${fmt(r.expansionLoss, 3)} m`, tint: C.energy },
+            { label: "Δp/γ", value: mati ? "—" : `${fmt(naik, 3)} m`, tint: naik >= 0 ? C.water : C.critical },
+            { label: "hL", value: mati ? "\u2014" : `${fmt(hilang, 3)} m`, tint: C.energy },
             { label: "V₁", value: `${fmt(r.velocity1, 2)} m/s` },
             { label: "V₂", value: `${fmt(r.velocity2, 2)} m/s` },
           ]}
@@ -300,18 +313,23 @@ export function MomentumPipaClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5">
-              <Flag tint={r.pressureRises ? C.water : C.critical}>
-                {r.pressureRises ? x.tekananNaik : x.tekananTurun}
+              <Flag tint={r.pressureRises ? C.water : C.critical} alert={mati}>
+                {mati ? x.mendidih : r.pressureRises ? x.tekananNaik : x.tekananTurun}
               </Flag>
             </div>
+            {mati && (
+              <div className="mb-2.5">
+                <Note>{x.mendidihNote}</Note>
+              </div>
+            )}
             <ResultTable
               rows={[
                 { symbol: "V₁", label: x.rV1, value: fmt(r.velocity1, 3), unit: "m/s" },
                 { symbol: "V₂", label: x.rV2, value: fmt(r.velocity2, 3), unit: "m/s" },
-                { symbol: "h₂", label: x.rH2, value: fmt(r.head2, 3), unit: "m" },
-                { symbol: "Δp/γ", label: x.rNaik, value: fmt(naik, 4), unit: "m", tint: naik >= 0 ? C.water : C.critical, strong: true },
-                { symbol: "hL", label: x.rHilang, value: fmt(r.expansionLoss, 4), unit: "m", tint: C.energy, strong: true },
-                { symbol: "Fx", label: x.rF, value: fmt(r.Fx / 1000, 2), unit: "kN" },
+                { symbol: "h₂", label: x.rH2, value: mati ? "—" : fmt(r.head2, 3), unit: mati ? undefined : "m" },
+                { symbol: "Δp/γ", label: x.rNaik, value: mati ? "—" : fmt(naik, 4), unit: mati ? undefined : "m", tint: naik >= 0 ? C.water : C.critical, strong: true },
+                { symbol: "hL", label: x.rHilang, value: mati ? "—" : fmt(hilang, 4), unit: mati ? undefined : "m", tint: C.energy, strong: true },
+                { symbol: "Fx", label: x.rF, value: mati ? "—" : fmt(r.Fx / 1000, 2), unit: mati ? undefined : "kN" },
                 { symbol: "—", label: x.rBagi, value: fmt(pulih * 100, 1), unit: "%" },
               ]}
             />

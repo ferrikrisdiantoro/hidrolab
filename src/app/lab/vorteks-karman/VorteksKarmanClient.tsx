@@ -305,7 +305,7 @@ export function VorteksKarmanClient() {
                 presets={[
                   { label: x.pTiang, apply: () => { setU(1.2); setD(0.6); setAlam(0); setFluida(0); } },
                   { label: x.pCerobong, apply: () => { setU(12); setD(1.2); setAlam(0); setFluida(1); } },
-                  { label: x.pKunci, apply: () => { setU(12); setD(1.2); setAlam(2); setFluida(1); } },
+                  { label: x.pKunci, apply: () => { setU(12); setD(1.2); setAlam(2.7); setFluida(1); } },
                 ]}
               />
             </div>

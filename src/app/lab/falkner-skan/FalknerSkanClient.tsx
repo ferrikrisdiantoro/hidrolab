@@ -44,6 +44,7 @@ const TXT = {
     rBaji: "Sudut baji setara",
     untung: "Gradien menguntungkan, alirannya dipercepat",
     rugi: "Gradien merugikan, alirannya diperlambat",
+    datar: "Tanpa gradien, lapisan batas pelat datar Blasius",
     lepas: "Lapisan batasnya sudah terlepas",
     lepasNote:
       "Kemiringan profil di dinding sudah mencapai nol, dan itu tepat arti terlepasnya lapisan batas: tegangan geser di dinding habis, dan sedikit lebih jauh ke hilir aliran di dekat dinding akan berbalik arah. Yang perlu dilihat pada gambarnya bukan angkanya melainkan bentuknya, yaitu profil yang menempel tegak lurus pada dindingnya. Sesudah titik ini lapisan batas tidak lagi dapat dihitung dengan persamaan yang sama, karena persamaannya sendiri menganggap alirannya hanya berjalan ke satu arah. Seluruh rekayasa bentuk benda yang dialiri, dari sayap pesawat sampai pilar jembatan, adalah usaha menunda titik ini sejauh mungkin ke belakang.",
@@ -66,6 +67,7 @@ const TXT = {
     rBaji: "Equivalent wedge angle",
     untung: "Favourable gradient, the flow accelerates",
     rugi: "Adverse gradient, the flow decelerates",
+    datar: "No gradient, the Blasius flat-plate layer",
     lepas: "The boundary layer has separated",
     lepasNote:
       "The slope of the profile at the wall has reached zero, and that is exactly what separation means: the wall shear stress is gone, and a little farther downstream the flow near the wall will reverse. What to look at in the drawing is not the number but the shape, a profile standing perpendicular to its own wall. Past this point the boundary layer can no longer be computed with the same equations, because those equations assume the flow goes one way only. The whole engineering of shapes in a flow, from an aircraft wing to a bridge pier, is an effort to push this point as far back as possible.",
@@ -98,6 +100,27 @@ export function FalknerSkanClient() {
   const [beta, setBeta] = useState(0);
 
   const r = falknerSkan(beta);
+  /*
+   * Pelat datar punya keadaannya sendiri. Sebelumnya β = 0 tepat, yaitu
+   * tombol pelat datar, jatuh ke "gradien merugikan" karena yang diperiksa
+   * hanya β > 0. Ambangnya setengah langkah penggeser, karena langkahnya
+   * berpangkal di ambang terlepas dan titik terdekatnya ke nol −0,00084.
+   */
+  const datar = Math.abs(beta) < 0.001;
+  const keadaan = r.separated
+    ? x.lepas
+    : datar
+      ? x.datar
+      : r.favourable
+        ? x.untung
+        : x.rugi;
+  const warnaKeadaan = r.separated
+    ? C.signal
+    : datar
+      ? C.ink2
+      : r.favourable
+        ? C.water
+        : C.critical;
   const blasius = falknerSkan(0);
 
   const ref = useCanvas(
@@ -171,16 +194,8 @@ export function FalknerSkanClient() {
           equalScale: false,
           lines: garis,
           markers: titik,
-          heading: r.separated
-            ? x.lepas
-            : r.favourable
-              ? x.untung
-              : x.rugi,
-          headingColor: r.separated
-            ? C.signal
-            : r.favourable
-              ? C.water
-              : C.critical,
+          heading: keadaan,
+          headingColor: warnaKeadaan,
           axisX: T.axVelocityRatio,
           axisY: T.axEta,
         },
@@ -235,7 +250,7 @@ export function FalknerSkanClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="β" label={x.dB} value={beta} min={-0.198} max={2} step={0.002} digits={3} onChange={setBeta} tint={C.critical} />
+              <InputRow symbol="β" label={x.dB} value={beta} min={FALKNER_SKAN_SEPARATION} max={2} step={0.002} digits={3} onChange={setBeta} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -245,7 +260,7 @@ export function FalknerSkanClient() {
                   { label: x.pBlasius, apply: () => setBeta(0) },
                   { label: x.pMenguntungkan, apply: () => setBeta(1) },
                   { label: x.pMerugikan, apply: () => setBeta(-0.14) },
-                  { label: x.pLepas, apply: () => setBeta(-0.198) },
+                  { label: x.pLepas, apply: () => setBeta(FALKNER_SKAN_SEPARATION) },
                 ]}
               />
             </div>
@@ -253,11 +268,8 @@ export function FalknerSkanClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5">
-              <Flag
-                tint={r.favourable ? C.water : C.critical}
-                alert={r.separated}
-              >
-                {r.separated ? x.lepas : r.favourable ? x.untung : x.rugi}
+              <Flag tint={warnaKeadaan} alert={r.separated}>
+                {keadaan}
               </Flag>
             </div>
             {r.separated && (
@@ -272,7 +284,9 @@ export function FalknerSkanClient() {
                 { symbol: "δ*", label: x.rDesak, value: fmt(r.displacement, 4) },
                 { symbol: "θ", label: x.rMomen, value: fmt(r.momentum, 4) },
                 { symbol: "H", label: x.rBentuk, value: fmt(r.shapeFactor, 4), tint: C.critical, strong: true },
-                { symbol: "α", label: x.rBaji, value: fmt(r.wedgeAngle, 1), unit: "°" },
+                /* Di atas β = 1 (titik stagnasi, baji 180°) tidak ada baji yang
+                   sesuai; 360° pada β = 2 bukan sudut benda apa pun. */
+                { symbol: "α", label: x.rBaji, value: beta <= 1 ? fmt(r.wedgeAngle, 1) : "—", unit: beta <= 1 ? "°" : undefined },
               ]}
             />
           </Block>

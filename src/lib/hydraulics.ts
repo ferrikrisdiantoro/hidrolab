@@ -358,9 +358,20 @@ export function getNumberLocale(): string {
   return numberLocale;
 }
 
+/*
+ * Nilai yang membulat ke nol ditulis nol, bukan "−0,0". Tanpa ini tanda
+ * sumbu yang jatuh tepat di nol dapat tertulis −0,0 (Math.ceil dari bilangan
+ * negatif kecil menghasilkan nol negatif), dan hasil sebesar −0,0004 tertulis
+ * −0,00, yang dibaca orang sebagai "sedikit negatif" padahal angkanya sendiri
+ * tidak dapat membedakannya dari nol.
+ */
+function tanpaNolNegatif(value: number, digits: number) {
+  return Math.abs(value) < 0.5 * Math.pow(10, -digits) ? 0 : value;
+}
+
 export function fmt(value: number, digits = 2): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(numberLocale, {
+  return tanpaNolNegatif(value, digits).toLocaleString(numberLocale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
@@ -379,7 +390,7 @@ export function fmt(value: number, digits = 2): string {
  */
 export function fmtPlain(value: number, digits = 2): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(numberLocale, {
+  return tanpaNolNegatif(value, digits).toLocaleString(numberLocale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
     useGrouping: false,
@@ -6448,6 +6459,20 @@ export type MomentumForce = {
   head2: number;
   /** Kehilangan Borda-Carnot pada pembesaran mendadak, meter */
   expansionLoss: number;
+  /**
+   * Kehilangan pada penyempitan mendadak, meter.
+   *
+   * Sebelumnya nol. Air yang masuk ke penampang yang lebih kecil membentuk
+   * vena contracta di belakang tepinya, lalu mengembang lagi ke seluruh
+   * penampang, dan pengembangan itulah yang kehilangan energinya, persis
+   * seperti pembesaran mendadak dalam ukuran yang lebih kecil. Menulisnya
+   * nol membuat penyempitan tampak sebagai pertukaran tanpa rugi, padahal
+   * pada penyempitan yang tajam ia dapat mencapai separuh tinggi
+   * kecepatan hilirnya.
+   */
+  contractionLoss: number;
+  /** Benar bila tekanan mutlak sesudah perubahan jatuh ke tekanan uap */
+  cavitates: boolean;
   /** Benar bila penampangnya membesar sehingga tekanannya NAIK */
   pressureRises: boolean;
 };
@@ -6512,8 +6537,15 @@ export function momentumForce(
    */
   const expansionLoss =
     D2 > D1 ? ((V1 - V2) * (V1 - V2)) / (2 * G) : 0;
+  /* Idelchik, diagram 3-7, untuk tepi tajam: K = 0,5 (1 - A2/A1) terhadap
+     tinggi kecepatan hilir. Nol tepat pada penampang yang sama, setengah
+     pada saluran yang keluar dari kolam yang sangat besar. */
+  const contractionLoss =
+    D2 < D1 && area1 > 0
+      ? 0.5 * (1 - area2 / area1) * ((V2 * V2) / (2 * G))
+      : 0;
   const head2 =
-    head1 + (V1 * V1 - V2 * V2) / (2 * G) - expansionLoss;
+    head1 + (V1 * V1 - V2 * V2) / (2 * G) - expansionLoss - contractionLoss;
 
   const p1 = head1 * rho * G;
   const p2 = head2 * rho * G;
@@ -6556,6 +6588,8 @@ export function momentumForce(
     pressureShare: resultant > 0 ? hanyaTekanan / resultant : 1,
     head2,
     expansionLoss,
+    contractionLoss,
+    cavitates: head2 + ATM_HEAD <= vapourHead(15),
     pressureRises: head2 > head1,
   };
 }
@@ -6941,9 +6975,17 @@ export function acceleration(
     const V = Qt(t) / Math.max(A, 1e-12);
     /* ∂u/∂t = (dQ/dt)/A, bentuk tertutup */
     const local = (Q0 * swing * omega * Math.cos(omega * t)) / Math.max(A, 1e-12);
-    /* u ∂u/∂x, beda tengah supaya berlaku juga pada kerucut apa pun */
-    const h = Math.max(L, 1e-6) * 1e-5;
-    const dudx = (u(xx + h, t) - u(xx - h, t)) / (2 * h);
+    /*
+     * u ∂u/∂x dalam bentuk tertutup. Untuk u = Q/(πD²/4) dengan D linear
+     * terhadap x: ∂u/∂x = −2 u (dD/dx) / D.
+     *
+     * Sebelumnya beda tengah. Di kedua ujung saluran beda itu mengambil satu
+     * titik di luar saluran, tempat garis tengahnya dijepit tetap, sehingga
+     * turunannya tinggal separuh dan kurvanya anjlok tepat di penampang
+     * tersempit, tempat percepatannya justru paling besar.
+     */
+    const dDdx = (D2 - D1) / Math.max(L, 1e-9);
+    const dudx = (-2 * V * dDdx) / Math.max(Dx(xx), 1e-12);
     return { V, local, convective: V * dudx };
   };
 
@@ -7796,14 +7838,19 @@ export type VortexPair = {
   /** Lintasan kedua pusaran */
   pathA: { x: number; y: number }[];
   pathB: { x: number; y: number }[];
-  /** Kecepatan pindah pasangan berlawanan arah, m/s */
+  /** Kecepatan pindah pasangan yang sama kuat berlawanan arah, m/s */
   translation: number;
-  /** Kecepatan sudut pasangan searah, radian tiap detik */
+  /** Kecepatan sudut putaran pasangannya, radian tiap detik */
   angular: number;
-  /** Waktu satu putaran penuh pasangan searah, detik */
+  /** Waktu satu putaran penuh, detik; tak hingga bila pasangannya melaju */
   period: number;
   /** Benar bila keduanya berlawanan arah putar */
   counterRotating: boolean;
+  /**
+   * Benar hanya bila jumlah sirkulasinya nol, yaitu sama kuat dan
+   * berlawanan. Hanya di situ pasangannya melaju lurus.
+   */
+  translates: boolean;
   /** Jarak antar keduanya di akhir pengamatan, meter */
   finalSeparation: number;
   /** Berapa jauh jarak keduanya berubah selama pengamatan */
@@ -7889,19 +7936,32 @@ export function vortexPair(
   const counterRotating = gammaA * gammaB < 0;
   const jumlah = gammaA + gammaB;
   const finalSeparation = Math.hypot(bx - ax, by - ay);
+  /*
+   * Dua pusaran titik SELALU berputar kaku mengelilingi pusat sirkulasinya,
+   * (Γ1 x1 + Γ2 x2)/(Γ1 + Γ2), dengan Ω = (Γ1 + Γ2)/(2π d²). Pasangan yang
+   * berlawanan tetapi tidak sama kuat pun berputar, hanya pusatnya di luar
+   * ruas yang menghubungkan keduanya. Pusat itu lari ke tak hingga hanya
+   * bila jumlahnya nol, dan hanya di situ putaran menjadi lajuan lurus.
+   *
+   * Sebelumnya keputusannya diambil dari tanda saja, sehingga Γ1 = 10 dan
+   * Γ2 = −40 dilaporkan melaju lurus dengan Ω nol dan perioda tak hingga
+   * sementara lintasannya sendiri tergambar sebagai dua lingkaran.
+   */
+  const translates =
+    Math.abs(jumlah) <= 1e-9 * Math.max(Math.abs(gammaA), Math.abs(gammaB)) &&
+    Math.abs(gammaA) > 0;
 
   return {
     pathA,
     pathB,
-    translation: counterRotating
-      ? Math.abs(gammaA) / (2 * Math.PI * d0)
-      : 0,
-    angular: !counterRotating ? jumlah / (2 * Math.PI * d0 * d0) : 0,
+    translation: translates ? Math.abs(gammaA) / (2 * Math.PI * d0) : 0,
+    angular: translates ? 0 : jumlah / (2 * Math.PI * d0 * d0),
     period:
-      !counterRotating && Math.abs(jumlah) > 1e-12
+      !translates && Math.abs(jumlah) > 1e-12
         ? (4 * Math.PI * Math.PI * d0 * d0) / Math.abs(jumlah)
         : Infinity,
     counterRotating,
+    translates,
     finalSeparation,
     separationDrift: Math.abs(finalSeparation - d0) / d0,
   };
@@ -8052,6 +8112,11 @@ export type AdvectionDiffusion = {
   /** Selisih waktu datang antara tepi depan dan tepi belakang awan, detik */
   passageTime: number;
   advectionDominated: boolean;
+  /**
+   * Benar bila bilangan Pecletnya antara satu dan sepuluh: tidak ada yang
+   * berkuasa, awannya terbawa sambil melebar sebanding.
+   */
+  balanced: boolean;
 };
 
 /**
@@ -8116,7 +8181,13 @@ export function advectionDiffusion(
    * tergambar tidak lagi memulangkan massa yang dimasukkan.
    */
   const xMax = Math.max(centre + 4 * sigma, station * 1.3, 1);
-  const xMin = Math.min(0, centre - 4 * sigma);
+  /* Dari SETIAP saat, bukan hanya yang terakhir: awan yang paling awal
+     paling rapat, tetapi pusatnya paling dekat titik lepas, jadi ekor
+     hulunya bisa melewati nol padahal ekor hulu awan terakhir tidak. */
+  const xMin = Math.min(
+    0,
+    ...times.map((t) => U * t - 4 * Math.sqrt(2 * Dd * Math.max(t, 0)))
+  );
   const snapshots = times.map((t) => {
     const profile: { x: number; c: number }[] = [];
     const n = 240;
@@ -8142,6 +8213,7 @@ export function advectionDiffusion(
     /* Lama awan melintasi satu titik: panjang awan dibagi kecepatannya */
     passageTime: U > 0 ? (4 * sigmaDi) / U : Infinity,
     advectionDominated: Dd > 0 && (U * station) / Dd > 10,
+    balanced: Dd > 0 && (U * station) / Dd >= 1 && (U * station) / Dd <= 10,
   };
 }
 

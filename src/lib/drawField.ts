@@ -160,7 +160,27 @@ export function drawField(
   const T = cl(lang);
   ground(ctx, w, h);
 
-  const padL = 58;
+  /*
+   * Lebar tepi kiri mengikuti angka sumbu tegak yang terpanjang. Dengan
+   * tepi tetap 58 piksel, angka seperti −0,040 menjorok sampai menimpa
+   * judul sumbunya yang berdiri di x = 16. Langkah angkanya hanya
+   * bergantung pada rentang, bukan pada piksel, jadi dapat dihitung dulu.
+   */
+  const yStepAwal = niceStep(Math.max(s.yMax - s.yMin, 1e-12), 5);
+  const desimalAwal =
+    yStepAwal >= 10 ? 0 : yStepAwal >= 1 ? 1 : yStepAwal >= 0.1 ? 2 : 3;
+  ctx.font = F.value;
+  let lebarAngka = 0;
+  for (
+    let v = Math.ceil(s.yMin / yStepAwal) * yStepAwal;
+    v <= s.yMax + 1e-9;
+    v += yStepAwal
+  )
+    lebarAngka = Math.max(
+      lebarAngka,
+      ctx.measureText(fmtPlain(v, desimalAwal)).width
+    );
+  const padL = Math.max(58, Math.ceil(lebarAngka) + 36);
   const padR = s.padRight ?? 26;
   const padT = 26;
   const padB = 52;
@@ -192,8 +212,14 @@ export function drawField(
 
   /* ---------------- kisi dan angka sumbu ---------------- */
 
-  const xStep = niceStep(spanX, 6);
-  const yStep = niceStep(spanY, 5);
+  /* Banyaknya angka sumbu mengikuti panjang PIKSEL yang benar-benar
+     terpakai, bukan rentangnya. Pada skala sama, medan yang lebar dan
+     pipih tinggal pita setinggi beberapa puluh piksel, dan lima angka
+     sumbu tegak di situ saling menindih sampai tidak terbaca (FP-01). */
+  const sasaranX = Math.max(2, Math.min(6, Math.round(lebarPakai / 92)));
+  const sasaranY = Math.max(2, Math.min(5, Math.round(tinggiPakai / 46)));
+  const xStep = niceStep(spanX, sasaranX);
+  const yStep = niceStep(spanY, sasaranY);
   const xs: number[] = [];
   const ys: number[] = [];
   for (let v = Math.ceil(s.xMin / xStep) * xStep; v <= s.xMax + 1e-9; v += xStep)
@@ -312,7 +338,11 @@ export function drawField(
   for (const d of s.dims ?? []) {
     const geser = d.offset ?? 0;
     if (d.axis === "v") dimV(ctx, X(d.at) + geser, Y(d.from), Y(d.to), d.text, d.color ?? C.ink);
-    else dimH(ctx, Y(d.at) + geser, X(d.from), X(d.to), d.text, d.color ?? C.ink);
+    else
+      dimH(ctx, Y(d.at) + geser, X(d.from), X(d.to), d.text, d.color ?? C.ink, undefined, [
+        X(s.xMin),
+        X(s.xMax),
+      ]);
   }
 
   /* ---------------- penanda partikel ----------------

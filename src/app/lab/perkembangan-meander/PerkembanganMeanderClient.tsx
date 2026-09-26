@@ -47,8 +47,11 @@ const TXT = {
     cepat: "Nisbah jari-jari di sekitar laju pindah tercepat",
     lambat: "Kelokannya bergerak lambat",
     potong: "Lehernya sudah cukup sempit untuk terpotong",
+    lipat: "Sungai selebar ini tidak dapat membelok setajam ini",
+    lipatNote:
+      "Jari-jari lengkung terkecil lintasannya sudah kurang dari separuh lebar sungainya, sehingga tebing dalamnya harus berbelok dengan jari-jari negatif: garis tebingnya melipat dan membelit dirinya sendiri, seperti yang tergambar putus-putus. Bentuk itu tidak dapat ada. Sungai yang sebenarnya sudah memotong lehernya jauh sebelum sampai ke sini, jadi laju pindahnya tidak dituliskan. Sempitkan sungainya, panjangkan gelombangnya, atau kurangi sudut ayunnya.",
     potongNote:
-      "Nisbah jari-jari terhadap lebar sungai sudah turun di bawah ambang pemotongan. Yang terjadi berikutnya bukan kelokan yang bertambah tajam melainkan kelokan yang berakhir: kedua sisi lehernya bertemu, sungainya memotong jalan pintas, dan kelokan yang ditinggalkannya menjadi danau tapal kuda. Sungai karena itu tidak pernah berkelok semakin tajam tanpa batas, dan sinusitas sungai alami di seluruh dunia berhenti di sekitar tiga. Yang membatasinya bukan aliran airnya melainkan geometrinya sendiri.",
+      "Sinusitasnya sudah melewati 2,8, ambang tempat leher kelokan mulai terpotong. Yang terjadi berikutnya bukan kelokan yang bertambah tajam melainkan kelokan yang berakhir: kedua sisi lehernya bertemu, sungainya memotong jalan pintas, dan kelokan yang ditinggalkannya menjadi danau tapal kuda. Sungai karena itu tidak pernah berkelok semakin tajam tanpa batas, dan sinusitas sungai alami di seluruh dunia berhenti di sekitar tiga. Yang membatasinya bukan aliran airnya melainkan geometrinya sendiri.",
     note:
       "Sungai yang berkelok tidak berkelok karena ada yang menghalanginya. Lembar ini memakai lengkung bersudut sinus, yaitu bentuk yang ditemukan Langbein dan Leopold sebagai lintasan yang membelokkan arah dengan kerja paling sedikit di antara semua lintasan yang menghubungkan dua titik dengan panjang tertentu. Bentuk itu muncul sendiri pada sungai, pada aliran air lelehan di atas es, dan bahkan pada arus laut yang sama sekali tidak bertepi, jadi ia bukan hasil tanah melainkan hasil geometri. Dua angka pantas diingat darinya. Pertama, panjang gelombang meander hampir selalu sekitar sebelas kali lebar sungainya, hubungan yang bertahan dari parit selebar satu meter sampai sungai selebar satu kilometer, lima orde besaran. Kedua, kelokan berpindah paling cepat bukan saat ia paling tajam melainkan saat jari-jarinya sekitar dua sampai tiga kali lebar sungainya. Kelokan yang lebih landai belum cukup memusatkan alirannya; kelokan yang lebih tajam sudah kehilangan tenaganya sendiri karena gesekan di tikungan. Akibatnya sungai punya kecepatan berkelok yang paling disukainya, dan kelokan yang melewati ambang itu justru melambat sampai lehernya terpotong dan seluruh daurnya dimulai kembali.",
   },
@@ -70,8 +73,11 @@ const TXT = {
     cepat: "Radius ratio near the fastest migration",
     lambat: "The bend is moving slowly",
     potong: "The neck is narrow enough to be cut off",
+    lipat: "A river this wide cannot turn this sharply",
+    lipatNote:
+      "The smallest radius of the path is already less than half the river width, so the inner bank would have to turn on a negative radius: its line folds and loops over itself, as drawn dashed. That shape cannot exist. A real river cuts its neck long before it gets here, so no migration rate is written. Narrow the river, lengthen the wavelength, or reduce the swing angle.",
     potongNote:
-      "The ratio of radius to river width has dropped below the cutoff threshold. What comes next is not a sharper bend but the end of the bend: the two sides of the neck meet, the river takes the short cut, and the bend left behind becomes an oxbow lake. A river therefore never bends more and more sharply without limit, and the sinuosity of natural rivers everywhere stops at about three. What limits it is not the water but its own geometry.",
+      "The sinuosity has passed 2.8, the threshold at which the neck of a bend begins to be cut off. What comes next is not a sharper bend but the end of the bend: the two sides of the neck meet, the river takes the short cut, and the bend left behind becomes an oxbow lake. A river therefore never bends more and more sharply without limit, and the sinuosity of natural rivers everywhere stops at about three. What limits it is not the water but its own geometry.",
     note:
       "A meandering river does not meander because something is in its way. This sheet uses the sine-generated curve, the shape Langbein and Leopold found to be the path that turns a direction with the least work among all paths joining two points with a given length. That shape appears by itself in rivers, in meltwater channels across ice, and even in ocean currents that have no banks at all, so it is not a product of the ground but of geometry. Two numbers are worth remembering from it. First, the meander wavelength is nearly always about eleven times the river width, a relation holding from a one-metre ditch to a one-kilometre river, five orders of magnitude. Second, a bend migrates fastest not when it is sharpest but when its radius is about two to three times the river width. A gentler bend does not concentrate its flow enough; a sharper one has lost its own energy to friction in the turn. A river therefore has a preferred speed of bending, and a bend that passes that threshold actually slows down until its neck is cut off and the whole cycle begins again.",
   },
@@ -117,9 +123,17 @@ export function PerkembanganMeanderClient() {
 
   const [W_, setW] = useState(30);
   const [L, setL] = useState(330);
-  const [sudut, setSudut] = useState(70);
+  const [sudut, setSudut] = useState(40);
 
   const r = meanderPath(W_, L, sudut);
+  /*
+   * Tebing yang digambar sejauh setengah lebar dari garis tengahnya hanya
+   * mungkin bila jari-jari lengkung terkecilnya lebih besar daripada
+   * setengah lebar itu. Di bawahnya tebing dalam melipat, dan lembar ini
+   * dulu tetap menggambarnya membelit sambil menyebut kelokannya "bergerak
+   * lambat", dengan laju pindah yang diambil dari rumus yang dijepit.
+   */
+  const terlipat = r.radiusRatio < 0.5;
   const akhir = r.path[r.path.length - 1];
 
   const ref = useCanvas(
@@ -141,9 +155,9 @@ export function PerkembanganMeanderClient() {
         },
         {
           pts: tebing(r.path, setengah, 1),
-          color: C.ink2,
+          color: terlipat ? C.signal : C.ink2,
           weight: W.thin,
-          dash: DASH.solid,
+          dash: terlipat ? DASH.hidden : DASH.solid,
           label: T.outerBank,
           labelAt: 0.24,
           labelDy: -10,
@@ -151,9 +165,9 @@ export function PerkembanganMeanderClient() {
         },
         {
           pts: tebing(r.path, setengah, -1),
-          color: C.ink2,
+          color: terlipat ? C.signal : C.ink2,
           weight: W.thin,
-          dash: DASH.solid,
+          dash: terlipat ? DASH.hidden : DASH.solid,
         },
         {
           pts: r.path,
@@ -173,7 +187,9 @@ export function PerkembanganMeanderClient() {
       const xMin = Math.min(...xs) - W_;
       const xMax = Math.max(...xs) + W_;
       const yMin = Math.min(...ys) - W_;
-      const yMax = Math.max(...ys) + W_;
+      /* Ruang di atas untuk judul keadaan, supaya tidak menimpa kelokannya */
+      const adaJudul = terlipat || r.cutoff || r.fastestMigration;
+      const yMax = Math.max(...ys) + W_ + (adaJudul ? (Math.max(...ys) - Math.min(...ys) + 2 * W_) * 0.22 : 0);
 
       drawField(
         ctx,
@@ -185,12 +201,14 @@ export function PerkembanganMeanderClient() {
           yMin,
           yMax,
           lines: garis,
-          heading: r.cutoff
-            ? x.potong
-            : r.fastestMigration
-              ? x.cepat
-              : undefined,
-          headingColor: r.cutoff ? C.signal : C.critical,
+          heading: terlipat
+            ? x.lipat
+            : r.cutoff
+              ? x.potong
+              : r.fastestMigration
+                ? x.cepat
+                : undefined,
+          headingColor: terlipat || r.cutoff ? C.signal : C.critical,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
         },
@@ -235,10 +253,10 @@ export function PerkembanganMeanderClient() {
             {
               label: "Rc/W",
               value: fmt(r.radiusRatio, 2),
-              tint: r.cutoff ? C.signal : r.fastestMigration ? C.critical : undefined,
+              tint: terlipat || r.cutoff ? C.signal : r.fastestMigration ? C.critical : undefined,
             },
             { label: "λ/W", value: fmt(r.wavelength / W_, 1) },
-            { label: "ṁ", value: `${fmt(r.migrationRate, 3)} W/y` },
+            { label: "ṁ", value: terlipat ? "—" : `${fmt(r.migrationRate, 3)} W/y` },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -258,7 +276,7 @@ export function PerkembanganMeanderClient() {
                 label={t.presetExample}
                 presets={[
                   { label: x.pLurus, apply: () => { setW(30); setL(330); setSudut(20); } },
-                  { label: x.pMatang, apply: () => { setW(30); setL(330); setSudut(70); } },
+                  { label: x.pMatang, apply: () => { setW(30); setL(330); setSudut(40); } },
                   { label: x.pLeher, apply: () => { setW(30); setL(330); setSudut(130); } },
                 ]}
               />
@@ -267,11 +285,16 @@ export function PerkembanganMeanderClient() {
 
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.fastestMigration ? C.critical : C.ink2} alert={r.cutoff}>
-                {r.cutoff ? x.potong : r.fastestMigration ? x.cepat : x.lambat}
+              <Flag tint={r.fastestMigration ? C.critical : C.ink2} alert={terlipat || r.cutoff}>
+                {terlipat ? x.lipat : r.cutoff ? x.potong : r.fastestMigration ? x.cepat : x.lambat}
               </Flag>
             </div>
-            {r.cutoff && (
+            {terlipat && (
+              <div className="mb-2.5">
+                <Note>{x.lipatNote}</Note>
+              </div>
+            )}
+            {!terlipat && r.cutoff && (
               <div className="mb-2.5">
                 <Note>{x.potongNote}</Note>
               </div>
@@ -281,8 +304,8 @@ export function PerkembanganMeanderClient() {
                 { symbol: "P", label: x.rSin, value: fmt(r.sinuosity, 4), tint: C.water, strong: true },
                 { symbol: "λ", label: x.rPanjang, value: fmt(r.wavelength, 1), unit: "m" },
                 { symbol: "Rc", label: x.rJari, value: fmt(r.minRadius, 2), unit: "m" },
-                { symbol: "Rc/W", label: x.rNisbah, value: fmt(r.radiusRatio, 3), tint: r.cutoff ? C.signal : C.critical, strong: true },
-                { symbol: "ṁ", label: x.rPindah, value: fmt(r.migrationRate, 4), unit: "W/y" },
+                { symbol: "Rc/W", label: x.rNisbah, value: fmt(r.radiusRatio, 3), tint: terlipat || r.cutoff ? C.signal : C.critical, strong: true },
+                { symbol: "ṁ", label: x.rPindah, value: terlipat ? "—" : fmt(r.migrationRate, 4), unit: terlipat ? undefined : "W/y" },
                 { symbol: "λL", label: x.rLeopold, value: fmt(r.wavelengthLeopold, 1), unit: "m" },
               ]}
             />

@@ -97,14 +97,48 @@ export function GarisAliranClient() {
   const [omega, setOmega] = useState(1);
   const [waktu, setWaktu] = useState(5);
 
-  const r = flowLines(U, V, omega, waktu, SPAN);
+  /*
+   * Panjang yang digambar mengikuti lintasan partikelnya, bukan tetap
+   * sepuluh meter. Partikel yang dilepas pada saat nol sudah menempuh U·t
+   * pada saat pengamatan, dan jarak Δ di tabel diukur sepanjang seluruh
+   * lintasan itu. Dengan panjang tetap, pada U atau t yang besar lintasan
+   * dan garis jejaknya keluar dari bingkai (labelnya ikut hilang), dan Δ
+   * dilaporkan di tempat yang tidak tergambar.
+   */
+  const panjang = Math.max(SPAN, U * waktu);
+  const r = flowLines(U, V, omega, waktu, panjang);
   const miring = U !== 0 ? (V * Math.cos(omega * waktu)) / U : 0;
   const amplitudo = omega !== 0 ? Math.abs(V / omega) : Math.abs(V * waktu);
   const perioda = omega !== 0 ? (2 * Math.PI) / omega : Infinity;
 
+  /*
+   * Tinggi bingkai mencakup ketiga garisnya. Garis arusnya lurus dan dapat
+   * naik jauh lebih tinggi daripada simpangan partikelnya.
+   */
+  const puncak = Math.max(
+    ...[...r.streamline, ...r.pathline, ...r.streakline].map((p) => Math.abs(p.y))
+  );
+  const batasGambar = Math.max(puncak * 1.25, amplitudo * 1.35, SPAN * 0.3);
+
   const ref = useCanvas(
     (ctx, w, ch) => {
       const garis: FieldLine[] = [
+        /* Garis penunjuk dari titik lepasnya tegak ke bawah. Ketiga garis
+           berangkat ke kanan, jadi sisi bawah titiknya selalu kosong, dan
+           namanya tidak lagi mengambang di pojok bingkai jauh dari titiknya. */
+        {
+          pts: [
+            { x: 0, y: 0 },
+            { x: 0, y: -batasGambar * 0.62 },
+          ],
+          color: C.ink3,
+          weight: W.hair,
+          dash: DASH.solid,
+          label: T.releasePoint,
+          labelAt: 1,
+          labelDy: 14,
+          labelAlign: "left",
+        },
         {
           pts: r.streamline,
           color: C.critical,
@@ -139,17 +173,19 @@ export function GarisAliranClient() {
       ];
 
       /* Panah kecepatan pada saat ini, seragam di seluruh bidang karena
-         medannya memang seragam. Itulah sebabnya garis arusnya lurus. */
+         medannya memang seragam. Itulah sebabnya garis arusnya lurus.
+         Panjangnya tetap sembilan persen lebar bingkai, arahnya mengikuti
+         (U, v): tanpa itu pada U besar panahnya saling menyambung. */
       const vSaat = V * Math.cos(omega * waktu);
+      const skala = U > 0 ? (panjang * 0.09) / U : 0;
       const panah: FieldArrow[] = [];
-      const jangkau = Math.max(amplitudo, SPAN * 0.18);
       for (let i = 1; i <= 4; i++)
         for (let j = -1; j <= 1; j++)
           panah.push({
-            x: (SPAN * i) / 5,
-            y: j * jangkau * 0.75,
-            dx: U * 0.5,
-            dy: vSaat * 0.5,
+            x: (panjang * i) / 5,
+            y: j * batasGambar * 0.6,
+            dx: U * skala,
+            dy: vSaat * skala,
             color: C.ink3,
             weight: W.hair,
           });
@@ -158,21 +194,19 @@ export function GarisAliranClient() {
         { x: 0, y: 0, color: C.ink, size: 4, filled: true },
       ];
 
-      const batas = Math.max(amplitudo * 1.35, SPAN * 0.3);
       drawField(
         ctx,
         w,
         ch,
         {
-          xMin: -SPAN * 0.06,
-          xMax: SPAN * 1.1,
-          yMin: -batas,
-          yMax: batas,
+          xMin: -panjang * 0.06,
+          xMax: panjang * 1.1,
+          yMin: -batasGambar,
+          yMax: batasGambar,
           equalScale: false,
           lines: garis,
           arrows: panah,
           markers: titik,
-          regions: [{ x: 0.35, y: -batas * 0.82, text: T.releasePoint }],
           heading: r.steady ? x.tunak : undefined,
           axisX: T.axXMetre,
           axisY: T.axYMetre,

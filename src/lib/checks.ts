@@ -6016,6 +6016,23 @@ export function checksMomentum(
     },
     {
       label: {
+        id: "Kehilangan penyempitan mendadak mengikuti koefisien tepi tajam",
+        en: "The sudden contraction loss follows the sharp-edged coefficient",
+      },
+      source: "Idelchik (1996), diagram 3-7, K = 0,5 (1 − A2/A1)",
+      kind: "terbitan",
+      expected:
+        D2 < D1
+          ? 0.5 * (1 - (D2 * D2) / (D1 * D1)) * ((r.velocity2 * r.velocity2) / (2 * G))
+          : 0,
+      actual: r.contractionLoss,
+      tol: 1e-12,
+      absTol: 1e-12,
+      unit: "m",
+      digits: 6,
+    },
+    {
+      label: {
         id: "Pembesaran penampang menaikkan tekanan meskipun energinya hilang",
         en: "An expansion raises the pressure even though energy is lost",
       },
@@ -7023,12 +7040,12 @@ export function checksVortexPair(
     },
     {
       label: {
-        id: "Pasangan berlawanan arah melaju dengan sirkulasi dibagi dua pi kali jaraknya",
-        en: "A counter rotating pair travels at the circulation over two pi times the separation",
+        id: "Pasangan sama kuat berlawanan arah melaju dengan sirkulasi dibagi dua pi kali jaraknya",
+        en: "An equal and opposite pair travels at the circulation over two pi times the separation",
       },
       source: "Lamb (1932), Hydrodynamics, edisi ke-6, bab 7",
       kind: "terbitan",
-      expected: r.counterRotating
+      expected: r.translates
         ? Math.abs(gammaA) / (2 * Math.PI * separation)
         : 0,
       actual: r.translation,
@@ -7038,8 +7055,8 @@ export function checksVortexPair(
     },
     {
       label: {
-        id: "Pasangan searah mengelilingi dengan perioda bentuk tertutupnya",
-        en: "A co rotating pair orbits with its closed form period",
+        id: "Pasangan yang jumlah sirkulasinya tidak nol berputar dengan perioda bentuk tertutupnya",
+        en: "A pair whose circulations do not sum to zero orbits with its closed form period",
       },
       /*
        * Pasangan yang berlawanan arah tidak mengelilingi apa pun, jadi
@@ -7052,12 +7069,12 @@ export function checksVortexPair(
       source: "Lamb (1932), T = 4π²d²/(Γ1 + Γ2)",
       kind: "terbitan",
       expected:
-        !r.counterRotating && Math.abs(gammaA + gammaB) > 1e-12
+        !r.translates && Math.abs(gammaA + gammaB) > 1e-12
           ? (4 * Math.PI * Math.PI * separation * separation) /
             Math.abs(gammaA + gammaB)
           : 0,
       actual:
-        !r.counterRotating && Math.abs(gammaA + gammaB) > 1e-12 ? r.period : 0,
+        !r.translates && Math.abs(gammaA + gammaB) > 1e-12 ? r.period : 0,
       tol: 1e-9,
       absTol: 1e-9,
       unit: "s",

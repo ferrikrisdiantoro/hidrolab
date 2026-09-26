@@ -151,10 +151,25 @@ export function GelombangLinearClient() {
           color: C.water,
           weight: W.bold,
           dash: DASH.solid,
-          label: T.waveSurface,
+          /* Kurva ini kecepatan rambat terhadap perioda, bukan muka air. */
+          label: T.celerityCurve,
           labelAt: 0.62,
           labelDy: -12,
           labelAlign: "center",
+        },
+        /* Penunjuk pendek untuk titik kosong, yang dulu tidak bernama. */
+        {
+          pts: [
+            { x: perioda, y: r.groupVelocity },
+            { x: perioda + tMax * 0.035, y: r.groupVelocity },
+          ],
+          color: C.critical,
+          weight: W.hair,
+          dash: DASH.solid,
+          label: T.groupVelocityMark,
+          labelAt: 1,
+          labelDy: 4,
+          labelAlign: "left",
         },
       ];
 
@@ -238,7 +253,7 @@ export function GelombangLinearClient() {
               <PresetRow
                 label={t.presetExample}
                 presets={[
-                  { label: x.pPantai, apply: () => { setPerioda(8); setDalam(2); setTinggi(1); } },
+                  { label: x.pPantai, apply: () => { setPerioda(8); setDalam(1.2); setTinggi(1); } },
                   { label: x.pLaut, apply: () => { setPerioda(8); setDalam(200); setTinggi(2); } },
                   { label: x.pAlun, apply: () => { setPerioda(20); setDalam(40); setTinggi(1.5); } },
                 ]}
@@ -314,5 +329,5 @@ function notice(perioda: number, dalam: number, tinggi: number, lang: Lang) {
 
   if (lang === "en")
     return `At a period of ${fmt(perioda, 1)} seconds in ${fmt(dalam, 1)} metres of water the crest travels at ${fmt(a.celerity, 2)} metres a second while its energy travels at ${fmt(a.groupVelocity, 2)}, a ratio of ${fmt(a.groupRatio, 2)}. Lengthen the period to ${fmt(perioda * 2.5, 1)} seconds and the celerity becomes ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "it has stopped growing, because in shallow water the depth alone decides it" : "it keeps growing, because the wave is still deep enough to disperse"}. Take the same period into 500 metres of water and it reaches ${fmt(laut.celerity, 2)} metres a second, the deep-water limit, beyond which more depth changes nothing at all.`;
-  return `Pada perioda ${fmt(perioda, 1)} detik di air setinggi ${fmt(dalam, 1)} meter, puncaknya melaju ${fmt(a.celerity, 2)} meter tiap detik sementara tenaganya melaju ${fmt(a.groupVelocity, 2)}, yaitu nisbah ${fmt(a.groupRatio, 2)}. Panjangkan periodanya menjadi ${fmt(perioda * 2.5, 1)} detik dan kecepatannya menjadi ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "ia berhenti bertambah, karena di air dangkal kedalamannya sendiri yang menentukan" : "ia terus bertambah, karena gelombangnya masih cukup dalam untuk tersebar"}. Bawa perioda yang sama ke air setinggi 500 meter dan ia mencapai ${fmt(laut.celerity, 2)} meter tiap detik, yaitu batas air dalam, dan lebih dalam daripada itu tidak mengubah apa pun lagi.`;
+  return `Pada perioda ${fmt(perioda, 1)} detik di air sedalam ${fmt(dalam, 1)} meter, puncaknya melaju ${fmt(a.celerity, 2)} meter tiap detik sementara tenaganya melaju ${fmt(a.groupVelocity, 2)}, yaitu nisbah ${fmt(a.groupRatio, 2)}. Panjangkan periodanya menjadi ${fmt(perioda * 2.5, 1)} detik dan kecepatannya menjadi ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "ia berhenti bertambah, karena di air dangkal kedalamannya sendiri yang menentukan" : "ia terus bertambah, karena gelombangnya masih cukup dalam untuk tersebar"}. Bawa perioda yang sama ke air sedalam 500 meter dan ia mencapai ${fmt(laut.celerity, 2)} meter tiap detik, yaitu batas air dalam, dan lebih dalam daripada itu tidak mengubah apa pun lagi.`;
 }

@@ -232,7 +232,7 @@ export function PercepatanAliranClient() {
                 presets={[
                   { label: x.pTunak, apply: () => { setQ0(0.1); setSwing(0); setOmega(1); setD2(0.06); setPos(0.25); setWaktu(0.4); } },
                   { label: x.pAyun, apply: () => { setQ0(0.05); setSwing(0.8); setOmega(6); setD2(0.19); setPos(0.25); setWaktu(0.4); } },
-                  { label: x.pKeduanya, apply: () => { setQ0(0.1); setSwing(0.5); setOmega(3); setD2(0.08); setPos(0.25); setWaktu(0.4); } },
+                  { label: x.pKeduanya, apply: () => { setQ0(0.02); setSwing(0.5); setOmega(6); setD2(0.17); setPos(0.25); setWaktu(0.2); } },
                 ]}
               />
             </div>

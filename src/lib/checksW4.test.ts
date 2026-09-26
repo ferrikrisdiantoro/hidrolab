@@ -264,7 +264,7 @@ describe("Blok verifikasi pekan keempat memenuhi aturan PRD", () => {
   });
 
   it("FP-05 Falkner-Skan", () => {
-    for (const beta of [-0.19, -0.1, 0, 0.3, 1, 1.8])
+    for (const beta of [-0.19884, -0.19, -0.1, 0, 0.3, 1, 1.8])
       semuaLolos(checksFalknerSkan(beta), `beta=${beta}`);
   });
 });
