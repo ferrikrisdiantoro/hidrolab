@@ -230,12 +230,16 @@ export function sectionFlow(
 /**
  * Kedalaman normal: kedalaman yang mengalirkan debit Q pada kemiringan S.
  *
- * Dicari dengan membagi dua, bukan Newton-Raphson seperti di cl42. Pada pipa
- * lingkaran debitnya TIDAK naik terus sampai pipa penuh: puncaknya di sekitar
- * 0,938 D, lalu turun lagi karena keliling basah bertambah lebih cepat
- * daripada luasnya. Newton-Raphson yang mulai dari separuh pipa dapat
- * melompat ke cabang turun itu dan memberi kedalaman yang salah. Pembagian
- * dua dibatasi pada cabang naik, yaitu sampai kedalaman debit terbesar.
+ * Dicari dengan membagi dua pada cabang naik, yaitu sampai kedalaman
+ * debit terbesar. Pada pipa lingkaran debitnya TIDAK naik terus sampai
+ * penuh: puncaknya di sekitar 0,938 D, lalu turun lagi karena keliling
+ * basah bertambah lebih cepat daripada luasnya.
+ *
+ * Newton-Raphson di cl42 memberi kedalaman yang sama sampai debit
+ * terbesar (diuji ulang 27 September). Cacatnya di atas itu: debit yang
+ * melebihi kapasitas pipa diam-diam dijawab "pipa penuh", padahal pipa
+ * penuh mengalirkan sembilan persen LEBIH SEDIKIT daripada yang diminta.
+ * Di sini jawabannya null, dan lembarnya harus mengatakannya.
  *
  * Mengembalikan null bila Q melebihi debit terbesar penampangnya.
  */
@@ -299,8 +303,9 @@ export function maxDischargeDepth(s: SectionInput, S: number, r: Resistance) {
  *
  * Lebih longgar daripada cl42, yang hanya menerima koma sebagai pemisah
  * kolom. Berkas dari Excel berbahasa Indonesia memakai titik koma sebagai
- * pemisah kolom dan koma sebagai pemisah desimal, dan cl42 membacanya
- * sebagai data kosong tanpa keterangan. Di sini pemisah kolomnya ditebak
+ * pemisah kolom dan koma sebagai pemisah desimal. cl42 memotong barisnya
+ * di koma, sehingga "1,75;9,8" terbaca x = 1, y = 75: angka yang salah,
+ * tanpa keterangan apa pun (diuji ulang 27 September). Di sini pemisah kolomnya ditebak
  * dari baris pertama: tab, titik koma, lalu koma. Bila pemisah kolomnya
  * bukan koma, koma di dalam angka dibaca sebagai pemisah desimal.
  */

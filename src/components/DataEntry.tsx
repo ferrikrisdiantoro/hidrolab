@@ -16,25 +16,35 @@ import { parsePairs, type Pt } from "@/lib/discharge";
  * Isinya disimpan sebagai teks, bukan angka, supaya pengguna dapat mengetik
  * "0," tanpa angkanya melompat. Baris yang belum lengkap atau bukan angka
  * tidak ikut dihitung, dan jumlahnya ditulis di bawah tabel.
+ *
+ * Baris TIDAK dihapus satu per satu, melainkan dicentang ikut atau tidak.
+ * Itu permintaan revisi klien pada cl42 (Rev1, bagian Data Input): titik
+ * yang dikeluarkan dari hitungan harus dapat dimasukkan lagi kapan saja.
+ * Yang menghapus hanya tombol kosongkan, untuk memulai dari awal.
  */
 
-export type Row = { x: string; y: string };
+export type Row = { x: string; y: string; on?: boolean };
 
 export const rowsFromPts = (pts: Pt[]): Row[] =>
-  pts.map((p) => ({ x: String(p.x), y: String(p.y) }));
+  pts.map((p) => ({ x: String(p.x), y: String(p.y), on: true }));
 
 /** Membaca baris isian; koma diterima sebagai pemisah desimal. */
-export function ptsFromRows(rows: Row[]): { pts: Pt[]; bad: number } {
+export function ptsFromRows(rows: Row[]): { pts: Pt[]; bad: number; off: number } {
   const pts: Pt[] = [];
   let bad = 0;
+  let off = 0;
   for (const r of rows) {
     if (r.x.trim() === "" && r.y.trim() === "") continue;
+    if (r.on === false) {
+      off++;
+      continue;
+    }
     const x = parseFloat(r.x.replace(",", "."));
     const y = parseFloat(r.y.replace(",", "."));
     if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
     else bad++;
   }
-  return { pts, bad };
+  return { pts, bad, off };
 }
 
 const TXT = {
@@ -42,8 +52,10 @@ const TXT = {
     tambah: "tambah baris",
     unggah: "unggah CSV",
     contoh: "data contoh",
-    kosongkan: "kosongkan",
-    hapus: "hapus baris",
+    kosongkan: "kosongkan semua",
+    pakai: "pakai",
+    ikut: "ikut dihitung",
+    mati: (n: number) => `${n} baris tidak dicentang, tidak dihitung`,
     terbaca: (n: number) => `${n} pasangan terbaca`,
     rusak: (n: number) => `${n} baris bukan angka, tidak dihitung`,
     lewat: (n: number) => `${n} baris berkas tidak terbaca dan dilewati`,
@@ -55,8 +67,10 @@ const TXT = {
     tambah: "add row",
     unggah: "upload CSV",
     contoh: "sample data",
-    kosongkan: "clear",
-    hapus: "delete row",
+    kosongkan: "clear all",
+    pakai: "use",
+    ikut: "included",
+    mati: (n: number) => `${n} rows unticked, not counted`,
     terbaca: (n: number) => `${n} pairs read`,
     rusak: (n: number) => `${n} rows are not numbers and are not counted`,
     lewat: (n: number) => `${n} file rows could not be read and were skipped`,
@@ -85,7 +99,7 @@ export function DataEntry({
   const x = TXT[lang];
   const berkas = useRef<HTMLInputElement>(null);
   const [pesanBerkas, setPesanBerkas] = useState<string | null>(null);
-  const { pts, bad } = ptsFromRows(rows);
+  const { pts, bad, off } = ptsFromRows(rows);
 
   const ubah = (i: number, k: "x" | "y", v: string) => {
     const baru = rows.slice();
@@ -122,12 +136,12 @@ export function DataEntry({
               <th style={{ width: "2rem" }}>#</th>
               <th className="n">{headX}</th>
               <th className="n">{headY}</th>
-              <th style={{ width: "2rem" }} />
+              <th style={{ width: "3rem" }}>{x.pakai}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>
+              <tr key={i} style={r.on === false ? { opacity: 0.45 } : undefined}>
                 <td className="text-ink-3">{i + 1}</td>
                 {(["x", "y"] as const).map((k) => (
                   <td key={k} className="n">
@@ -141,14 +155,17 @@ export function DataEntry({
                   </td>
                 ))}
                 <td className="n">
-                  <button
-                    type="button"
-                    onClick={() => onChange(rows.filter((_, j) => j !== i))}
-                    aria-label={`${x.hapus} ${i + 1}`}
-                    className="text-ink-3 hover:text-ink"
-                  >
-                    ×
-                  </button>
+                  <input
+                    type="checkbox"
+                    checked={r.on !== false}
+                    onChange={(e) => {
+                      const baru = rows.slice();
+                      baru[i] = { ...baru[i], on: e.target.checked };
+                      onChange(baru);
+                    }}
+                    aria-label={`${x.ikut} ${i + 1}`}
+                    className="h-3.5 w-3.5 accent-[var(--color-ink)]"
+                  />
                 </td>
               </tr>
             ))}
@@ -157,7 +174,7 @@ export function DataEntry({
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        <button type="button" className={tombol} onClick={() => onChange([...rows, { x: "", y: "" }])}>
+        <button type="button" className={tombol} onClick={() => onChange([...rows, { x: "", y: "", on: true }])}>
           {x.tambah}
         </button>
         <button type="button" className={tombol} onClick={() => berkas.current?.click()}>
@@ -177,7 +194,7 @@ export function DataEntry({
           type="button"
           className={tombol}
           onClick={() => {
-            onChange([{ x: "", y: "" }]);
+            onChange([{ x: "", y: "", on: true }]);
             setPesanBerkas(null);
           }}
         >
@@ -194,6 +211,7 @@ export function DataEntry({
 
       <p className="label mt-2 text-[0.76rem] text-ink-3">
         {x.terbaca(pts.length)}
+        {off > 0 && <span> · {x.mati(off)}</span>}
         {bad > 0 && <span className="text-signal"> · {x.rusak(bad)}</span>}
         {pesanBerkas && <span className="text-signal"> · {pesanBerkas}</span>}
       </p>

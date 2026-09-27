@@ -504,16 +504,23 @@ export function axisTitle(
   text: string,
   x: number,
   y: number,
-  rotate = 0
+  rotate = 0,
+  /** Teks milik pengguna ditulis apa adanya, tidak dikapitalkan */
+  plain = false
 ) {
   ctx.save();
   ctx.translate(x, y);
   if (rotate) ctx.rotate(rotate);
   ctx.fillStyle = C.ink2;
-  ctx.font = F.label;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  stencil(ctx, text, 0, 0, 1.1);
+  if (plain) {
+    ctx.font = '500 12px "Public Sans", system-ui, sans-serif';
+    ctx.fillText(text, 0, 0);
+  } else {
+    ctx.font = F.label;
+    stencil(ctx, text, 0, 0, 1.1);
+  }
   ctx.restore();
 }
 

@@ -88,6 +88,18 @@ export type ChartMarker = {
   hollow?: boolean;
 };
 
+/** Satu baris legenda: contoh garis atau titik, lalu namanya. */
+export type ChartLegendItem = {
+  text: string;
+  color?: string;
+  /** Contoh berupa garis; bila tidak ada, contohnya titik */
+  line?: { weight?: number; dash?: readonly number[] };
+  /** Titik kosong */
+  hollow?: boolean;
+  /** Titik juga digambar di atas contoh garisnya */
+  marker?: boolean;
+};
+
 /** Titik kerja dengan jalur baca ke kedua sumbu. */
 export type ChartPoint = {
   x: number;
@@ -115,6 +127,16 @@ export type ChartSpec = {
   regions?: ChartRegion[];
   point?: ChartPoint;
   markers?: ChartMarker[];
+  /**
+   * Tiga pilihan untuk grafik yang akan disalin ke laporan, ditambahkan
+   * untuk lembar regresi dan prediksi dari cl42 (permintaan revisi klien,
+   * Rev1): tanpa kisi di dalam bingkai dengan tanda sumbu di luarnya, judul
+   * yang ditulis pengguna sendiri, dan legenda. Judul dan legenda ditulis
+   * apa adanya, tidak dikapitalkan, karena itu teks milik pengguna.
+   */
+  noGrid?: boolean;
+  title?: string;
+  legend?: ChartLegendItem[];
   /** Nama besar di dalam bidang, menyatakan keadaan yang sedang digambar */
   heading?: string;
   headingColor?: string;
@@ -134,7 +156,7 @@ export function drawChart(
 
   const padL = 62;
   const padR = s.padRight ?? 30;
-  const padT = 26;
+  const padT = s.title ? 48 : 26;
   const padB = 52;
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
@@ -197,10 +219,27 @@ export function drawChart(
       yTicks.push(v);
   }
 
-  ruling(ctx, padL, padT, padL + plotW, padT + plotH, {
-    horizontal: yTicks.map(Y),
-    vertical: xTicks.map(X),
-  });
+  if (!s.noGrid)
+    ruling(ctx, padL, padT, padL + plotW, padT + plotH, {
+      horizontal: yTicks.map(Y),
+      vertical: xTicks.map(X),
+    });
+  else {
+    /* Tanda sumbu pendek di luar bingkai, seperti grafik jurnal */
+    pen(ctx, W.thin, C.ink, DASH.solid);
+    ctx.beginPath();
+    for (const v of xTicks) {
+      const px = Math.round(X(v)) + 0.5;
+      ctx.moveTo(px, padT + plotH);
+      ctx.lineTo(px, padT + plotH + 5);
+    }
+    for (const v of yTicks) {
+      const py = Math.round(Y(v)) + 0.5;
+      ctx.moveTo(padL, py);
+      ctx.lineTo(padL - 5, py);
+    }
+    ctx.stroke();
+  }
 
   // Jumlah desimal dari jarak antar angka, bukan dari nilainya. Membulatkan
   // ke bilangan bulat membuat sumbu berlangkah setengah terbaca "0 1 1 2 2".
@@ -231,8 +270,10 @@ export function drawChart(
       "middle"
     );
 
-  axisTitle(ctx, s.axisX, padL + plotW / 2, padT + plotH + 34);
-  axisTitle(ctx, s.axisY, 18, padT + plotH / 2, -Math.PI / 2);
+  /* Pada grafik laporan (dengan judul pengguna) nama sumbunya juga milik
+     pengguna, jadi ditulis apa adanya: "x (debit)" bukan "X (DEBIT)". */
+  axisTitle(ctx, s.axisX, padL + plotW / 2, padT + plotH + 34, 0, !!s.title);
+  axisTitle(ctx, s.axisY, 18, padT + plotH / 2, -Math.PI / 2, !!s.title);
 
   /* ---------------- daerah di luar rentang ----------------
      Digambar sebelum kurva, supaya kurvanya tetap di atas arsiran. */
@@ -578,6 +619,57 @@ export function drawChart(
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     stencil(ctx, s.heading, pos.x, pos.y, 2);
+  }
+
+  /* ---------------- judul dan legenda ---------------- */
+
+  if (s.title) {
+    ctx.fillStyle = C.ink;
+    ctx.font = '600 13px "Public Sans", system-ui, sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(s.title, padL + plotW / 2, padT - 16, plotW);
+  }
+
+  if (s.legend && s.legend.length) {
+    const huruf = '500 11px "Public Sans", system-ui, sans-serif';
+    ctx.font = huruf;
+    const baris = 17;
+    const contoh = 26;
+    const lebar =
+      Math.max(...s.legend.map((l) => ctx.measureText(l.text).width)) + contoh + 22;
+    const tinggi = s.legend.length * baris + 10;
+    const x0 = padL + 10;
+    const y0 = padT + 10;
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(x0, y0, lebar, tinggi);
+    pen(ctx, W.hair, C.rule ?? C.ink3, DASH.solid);
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, lebar, tinggi);
+    s.legend.forEach((l, i) => {
+      const cy = y0 + 5 + baris * i + baris / 2;
+      const warna = l.color ?? C.ink;
+      if (l.line) {
+        pen(ctx, l.line.weight ?? W.bold, warna, l.line.dash ?? DASH.solid);
+        ctx.beginPath();
+        ctx.moveTo(x0 + 8, cy);
+        ctx.lineTo(x0 + 8 + contoh, cy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (!l.line || l.marker) {
+        pen(ctx, W.thin, warna, DASH.solid);
+        ctx.beginPath();
+        ctx.arc(x0 + 8 + contoh / 2, cy, 3.4, 0, Math.PI * 2);
+        ctx.fillStyle = l.hollow ? C.sheet : warna;
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = C.ink;
+      ctx.font = huruf;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(l.text, x0 + 14 + contoh, cy + 0.5);
+    });
   }
 
   /* ---------------- bingkai ---------------- */
