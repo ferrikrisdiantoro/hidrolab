@@ -72,6 +72,22 @@ export type ChartRegion = {
   big?: boolean;
 };
 
+/**
+ * Titik data terukur, digambar sebagai lingkaran kecil tanpa garis.
+ *
+ * Ditambahkan untuk lembar modul debit yang dipindahkan dari cl42: di sana
+ * pasangan data ukur adalah pokoknya, dan kurvanya hanya hasil pencocokan
+ * terhadap titik-titik itu. Bulatan kosong dipakai untuk titik yang tidak
+ * ikut dihitung, misalnya debit nol pada bentuk pangkat.
+ */
+export type ChartMarker = {
+  x: number;
+  y: number;
+  color?: string;
+  /** Kosong bila titiknya tidak ikut dipakai menghitung */
+  hollow?: boolean;
+};
+
 /** Titik kerja dengan jalur baca ke kedua sumbu. */
 export type ChartPoint = {
   x: number;
@@ -98,6 +114,7 @@ export type ChartSpec = {
   bands?: ChartBand[];
   regions?: ChartRegion[];
   point?: ChartPoint;
+  markers?: ChartMarker[];
   /** Nama besar di dalam bidang, menyatakan keadaan yang sedang digambar */
   heading?: string;
   headingColor?: string;
@@ -348,6 +365,17 @@ export function drawChart(
     );
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  /* Titik data, di atas kurvanya supaya selisih terhadap kurva terbaca */
+  for (const m of s.markers ?? []) {
+    const warna = m.color ?? C.ink;
+    pen(ctx, W.thin, warna, DASH.solid);
+    ctx.beginPath();
+    ctx.arc(X(m.x), Y(m.y), 3.4, 0, Math.PI * 2);
+    ctx.fillStyle = m.hollow ? C.sheet : warna;
+    ctx.fill();
+    ctx.stroke();
   }
 
   ctx.restore();

@@ -50,7 +50,8 @@ const L = (
 });
 
 /**
- * Katalog lengkap: 69 laboratorium dalam 13 pokok bahasan.
+ * Katalog lengkap: 69 laboratorium Paket C dalam 13 pokok bahasan, ditambah
+ * modul debit, regresi, dan prediksi yang dipindahkan dari proyek cl42.
  *
  * Penomoran mengikuti kebiasaan berkas gambar — dua huruf pokok bahasan
  * diikuti nomor urut. Setiap lembar berdiri sendiri dan bisa direvisi
@@ -278,13 +279,20 @@ export const LABS: Lab[] = [
     "Berapa kapasitas alir melalui tubuh bendungan urugan batu?",
     "What flow capacity passes through a rockfill dam body?", "siap"),
 
-  /* ---------------- Hidrologi (2) ---------------- */
+  /* ---------------- Hidrologi (4) ---------------- */
   L("HY-01", "penelusuran-waduk", "HY", "Penelusuran waduk", "Reservoir routing",
     "Seberapa besar waduk meredam puncak banjir yang masuk?",
     "How much does a reservoir attenuate the inflow flood peak?", "siap"),
   L("HY-02", "hidrograf-banjir", "HY", "Hidrograf banjir", "Flood hydrograph",
     "Bagaimana hujan di daerah aliran berubah menjadi debit sungai?",
     "How does catchment rainfall become river discharge?", "siap"),
+  /* Modul debit dari proyek cl42, digabungkan sesudah 69 lembar Paket C */
+  L("HY-03", "debit-penampang", "HY", "Debit penampang saluran", "Channel section discharge",
+    "Berapa debit yang dialirkan penampang ini pada kedalaman tertentu?",
+    "How much does this section carry at a given depth?", "siap"),
+  L("HY-04", "lengkung-debit", "HY", "Lengkung debit", "Rating curve",
+    "Bagaimana tinggi muka air terukur diubah menjadi debit?",
+    "How is a measured water level turned into discharge?", "siap"),
 
   /* ---------------- Sistem & dinamika (1) ---------------- */
   L("SY-01", "regulasi-tidur", "SY", "Regulasi tidur", "Sleep regulation",
