@@ -136,6 +136,11 @@ export type ChartSpec = {
    */
   noGrid?: boolean;
   title?: string;
+  /**
+   * Tanda sumbu datar yang ditentukan lembarnya sendiri, misalnya tanggal
+   * pada deret waktu. Bila ada, langkah bulat otomatis tidak dipakai.
+   */
+  xTickLabels?: { at: number; label: string }[];
   legend?: ChartLegendItem[];
   /** Nama besar di dalam bidang, menyatakan keadaan yang sedang digambar */
   heading?: string;
@@ -209,6 +214,12 @@ export function drawChart(
       xTicks.push(v);
   }
 
+  if (s.xTickLabels) {
+    xTicks.length = 0;
+    for (const t of s.xTickLabels) if (t.at >= s.xMin - tolX && t.at <= s.xMax + tolX) xTicks.push(t.at);
+  }
+  const labelX = new Map((s.xTickLabels ?? []).map((t) => [t.at, t.label]));
+
   const yTicks: number[] = [];
   if (s.yLog) {
     for (let e = Math.ceil(ly0); e <= Math.floor(ly1) + 1e-9; e++)
@@ -254,7 +265,7 @@ export function drawChart(
   for (const v of xTicks)
     axisValue(
       ctx,
-      s.xLog ? pangkat(v) : fmtPlain(v, xDig),
+      labelX.get(v) ?? (s.xLog ? pangkat(v) : fmtPlain(v, xDig)),
       X(v),
       padT + plotH + 9,
       "center",

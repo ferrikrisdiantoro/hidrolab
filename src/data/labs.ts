@@ -279,7 +279,7 @@ export const LABS: Lab[] = [
     "Berapa kapasitas alir melalui tubuh bendungan urugan batu?",
     "What flow capacity passes through a rockfill dam body?", "siap"),
 
-  /* ---------------- Hidrologi (5) ---------------- */
+  /* ---------------- Hidrologi (6) ---------------- */
   L("HY-01", "penelusuran-waduk", "HY", "Penelusuran waduk", "Reservoir routing",
     "Seberapa besar waduk meredam puncak banjir yang masuk?",
     "How much does a reservoir attenuate the inflow flood peak?", "siap"),
@@ -296,6 +296,9 @@ export const LABS: Lab[] = [
   L("HY-05", "regresi", "HY", "Regresi", "Regression",
     "Rumus apa yang paling dekat dengan data ukur ini?",
     "Which formula comes closest to these measurements?", "siap"),
+  L("HY-06", "prediksi-hujan", "HY", "Prediksi curah hujan", "Rainfall prediction",
+    "Seberapa jauh hujan besok dapat diramal dari hari-hari sebelumnya?",
+    "How far can tomorrow's rain be predicted from the days before?", "siap"),
 
   /* ---------------- Sistem & dinamika (1) ---------------- */
   L("SY-01", "regulasi-tidur", "SY", "Regulasi tidur", "Sleep regulation",

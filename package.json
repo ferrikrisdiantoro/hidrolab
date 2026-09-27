@@ -8,10 +8,13 @@
     "start": "next start",
     "test": "node --test src/**/*.test.ts",
     "test:watch": "node --test --watch src/**/*.test.ts",
-    "check": "npm run test && npm run build"
+    "check": "npm run test && npm run build",
+    "predev": "node scripts/salin-ort.mjs",
+    "prebuild": "node scripts/salin-ort.mjs"
   },
   "dependencies": {
     "next": "16.1.1",
+    "onnxruntime-web": "1.23.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
