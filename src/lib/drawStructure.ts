@@ -350,8 +350,15 @@ export function drawStructure(
 
   ctx.restore();
 
-  /* ---------------- garis tambahan ---------------- */
+  /* ---------------- garis tambahan ----------------
+     Dipotong ke bidang gambar. Garis yang sengaja jatuh keluar bingkai,
+     misalnya garis tekanan yang menembus tekanan uap di PI-06, dulu terus
+     tergambar melewati angka sumbu sampai ke kop di bawahnya. */
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padL, padT, plotW, plotH);
+  ctx.clip();
   for (const l of s.lines ?? []) {
     if (l.pts.length < 2) continue;
     pen(ctx, l.weight ?? W.thin, l.color ?? C.energy, l.dash ?? DASH.hidden);
@@ -362,6 +369,7 @@ export function drawStructure(
     ctx.stroke();
     ctx.setLineDash([]);
   }
+  ctx.restore();
 
   /* ---------------- dimensi ---------------- */
 

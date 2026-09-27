@@ -134,7 +134,14 @@ describe("Tombol kondisi contoh pekan keempat menepati namanya", () => {
   });
 
   it("EH-05 keempat bentuk gerombolan", () => {
-    assert.equal(shoal(40, 0, 0.4, 0).state, "berpencar");
+    const pencar = shoal(40, 0, 0.4, 0);
+    assert.equal(pencar.state, "berpencar");
+    /* Dan benar-benar tersebar, bukan cincin: dulu setiap ekor berenang
+       lurus dengan laju sama, sehingga semuanya duduk di satu lingkaran. */
+    const jari = pencar.agents.map((q) => Math.hypot(q.x, q.y));
+    const rata = jari.reduce((a, b) => a + b, 0) / jari.length;
+    const sb = Math.sqrt(jari.reduce((a, b) => a + (b - rata) ** 2, 0) / jari.length);
+    assert.ok(sb / rata > 0.35, `koefisien ragam jari-jari ${sb / rata}`);
     assert.equal(shoal(40, 0, 1, 1).state, "bergerombol");
     assert.equal(shoal(40, 2.5, 1, 0.6).state, "searah");
     /* Dulu 30 ekor, a 0,02, c 0,2: satu-satunya setelan yang berputar, dengan

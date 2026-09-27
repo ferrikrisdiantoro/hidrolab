@@ -7375,6 +7375,8 @@ export function shoal(
   /* Tetangga di belakang, di dalam sudut buta, tidak terlihat. Diperiksa
      lewat hasil kali titik arah dengan vektor ke tetangga, bukan atan2. */
   const batasButa = -Math.cos(sudutButa / 2);
+  /* Kelipatan kegaduhan arah bagi ikan yang tidak melihat tetangga */
+  const KELANA = 12;
   const zona1 = zonaJauh;
   const zona2 = zonaJauh + zonaSearah;
   const zona3 = zonaJauh + zonaSearah + zonaTarik;
@@ -7444,9 +7446,21 @@ export function shoal(
         }
       }
 
-      const ingin = Math.atan2(dy, dx) + (acak() - 0.5) * noise;
+      /*
+       * Ikan yang tidak melihat seekor tetangga pun berkelana: arahnya
+       * dibelokkan acak jauh lebih besar. Tanpa itu, pada keadaan tanpa
+       * aturan setiap ekor berenang lurus dengan laju yang sama dari satu
+       * kotak awal, sehingga sesudah tiga ratus langkah seluruhnya duduk
+       * pada satu lingkaran rapi, dan "berpencar" tergambar sebagai cincin.
+       */
+      const sendirian = nJauh + nSearah + nTarik === 0;
+      const ingin =
+        Math.atan2(dy, dx) + (acak() - 0.5) * noise * (sendirian ? KELANA : 1);
       let belok = Math.atan2(Math.sin(ingin - arah[i]), Math.cos(ingin - arah[i]));
-      if (Math.abs(belok) > belokMaks) belok = Math.sign(belok) * belokMaks;
+      /* Batas belok adalah kelembaman berenang di dalam gerombolan; ikan
+         yang berkelana sendirian dibiarkan berbelok sebebas kegaduhannya. */
+      if (!sendirian && Math.abs(belok) > belokMaks)
+        belok = Math.sign(belok) * belokMaks;
       arahBaru[i] = arah[i] + belok;
     }
     for (let i = 0; i < n; i++) {

@@ -157,7 +157,9 @@ export function MomentumPipaClient() {
           weight: W.bold,
           dash: DASH.hidden,
           label: T.hydraulicGrade,
-          labelAt: 0.98,
+          /* Saat mendidih ruas hilirnya jatuh keluar bingkai, jadi namanya
+             ditaruh di ruas hulu yang masih tergambar. */
+          labelAt: mati ? 0.12 : 0.98,
           labelDy: -10,
           labelAlign: "right",
         },

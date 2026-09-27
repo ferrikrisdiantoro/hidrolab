@@ -210,7 +210,7 @@ export function GerombolanIkanClient() {
             { label: t.tbUnit, value: "SI (m)" },
             { label: "P", value: fmt(r.polarisation, 3), tint: C.water },
             { label: "M", value: fmt(r.milling, 3), tint: C.critical },
-            { label: "d̄", value: `${fmt(r.nearestNeighbour, 2)} m` },
+            { label: "d_nn", value: `${fmt(r.nearestNeighbour, 2)} m` },
             { label: "R", value: `${fmt(r.spread, 2)} m` },
           ]}
         >
@@ -248,7 +248,7 @@ export function GerombolanIkanClient() {
               rows={[
                 { symbol: "P", label: x.rPol, value: fmt(r.polarisation, 4), tint: C.water, strong: true },
                 { symbol: "M", label: x.rMil, value: fmt(r.milling, 4), tint: C.critical, strong: true },
-                { symbol: "d̄", label: x.rJarak, value: fmt(r.nearestNeighbour, 3), unit: "m" },
+                { symbol: "d_nn", label: x.rJarak, value: fmt(r.nearestNeighbour, 3), unit: "m" },
                 { symbol: "R", label: x.rSebar, value: fmt(r.spread, 3), unit: "m" },
               ]}
             />
