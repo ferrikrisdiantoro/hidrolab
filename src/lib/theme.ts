@@ -85,6 +85,16 @@ export const F = {
 } as const;
 
 /** Menulis teks kapital dengan jarak huruf, seperti stensil lettering. */
+/*
+ * Huruf stensil gambar teknik ditulis kapital, tetapi HANYA huruf Latin.
+ * Huruf Yunani adalah simbol, dan kapitalnya simbol lain: β menjadi Β yang
+ * terbaca B, ρ menjadi Ρ yang terbaca P (ρQV tertulis "PQV" di FF-03), ω
+ * menjadi Ω. Simbol-simbol itu dibiarkan dalam bentuk aslinya.
+ */
+function kapitalLatin(teks: string) {
+  return teks.replace(/[a-zà-ÿ]/g, (c) => c.toUpperCase());
+}
+
 export function stencil(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -92,7 +102,7 @@ export function stencil(
   y: number,
   spacing = 0.8
 ) {
-  const chars = text.toUpperCase().split("");
+  const chars = kapitalLatin(text).split("");
   let cx = x;
   const widths = chars.map((c) => ctx.measureText(c).width);
   const total = widths.reduce((a, b) => a + b, 0) + spacing * (chars.length - 1);
@@ -116,7 +126,7 @@ export function stencilWidth(
   text: string,
   spacing = 0.8
 ) {
-  const chars = text.toUpperCase().split("");
+  const chars = kapitalLatin(text).split("");
   return (
     chars.reduce((a, c) => a + ctx.measureText(c).width, 0) +
     spacing * (chars.length - 1)

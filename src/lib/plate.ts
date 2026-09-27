@@ -714,8 +714,11 @@ export function createLabelPlacer(
     const tx =
       align === "left" ? xx + napas : align === "right" ? xx - napas : xx;
 
-    const besar = (font ?? "").includes("15px");
-    const naik = besar ? 17 : 7;
+    /* Tinggi huruf dibaca dari ukuran fonnya sendiri, supaya judul yang
+       dikecilkan karena terlalu panjang tetap mendapat ruang yang benar. */
+    const ukuran = Number(/(\d+)px/.exec(font ?? "")?.[1] ?? 0);
+    const besar = ukuran >= 12;
+    const naik = besar ? ukuran + 2 : 7;
     const turun = besar ? 3 : 7;
 
     let yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
@@ -746,14 +749,25 @@ export function createLabelPlacer(
     color: string,
     opts: { spacing?: number; align?: CanvasTextAlign; big?: boolean } = {}
   ) => {
+    /*
+     * Judul keadaan yang lebih lebar daripada bidangnya dikecilkan, tidak
+     * dibiarkan terpotong di kedua tepi. FP-02 pernah menulis
+     * "...ANAN TETAPI TIDAK SAMA KUAT..." dengan awal kalimat hilang.
+     */
+    let fonJudul: string = F.heading;
+    if (opts.big) {
+      ctx.font = F.heading;
+      if (stencilWidth(ctx, teks, 2) + 14 > plotW)
+        fonJudul = F.heading.replace("15px", "12px");
+    }
     const pos = opts.big
-      ? place(teks, x, y, 2, opts.align ?? "center", F.heading)
+      ? place(teks, x, y, 2, opts.align ?? "center", fonJudul)
       : place(teks, x, y, opts.spacing ?? 1.4, opts.align ?? "center");
     alas(pos);
     const rata = opts.align ?? "center";
     if (opts.big) {
       ctx.fillStyle = color;
-      ctx.font = F.heading;
+      ctx.font = fonJudul;
       ctx.textAlign = rata;
       ctx.textBaseline = "bottom";
       stencil(ctx, teks, pos.x, pos.y, 2);

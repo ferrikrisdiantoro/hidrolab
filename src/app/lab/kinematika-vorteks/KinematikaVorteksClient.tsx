@@ -156,7 +156,12 @@ export function KinematikaVorteksClient() {
           xMin: Math.min(...xs) - margin,
           xMax: Math.max(...xs) + margin,
           yMin: Math.min(...ys) - margin,
-          yMax: Math.max(...ys) + margin,
+          /* Ruang di atas untuk judul keadaannya, yang selalu tampil; tanpa
+             itu lintasan yang melaju lurus ke atas menembus judulnya. */
+          yMax:
+            Math.max(...ys) +
+            margin +
+            (Math.max(...ys) - Math.min(...ys) + 2 * margin) * 0.16,
           lines: garis,
           markers: titik,
           heading: keadaan,

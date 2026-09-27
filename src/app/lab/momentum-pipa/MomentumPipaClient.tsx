@@ -179,7 +179,10 @@ export function MomentumPipaClient() {
         },
       ];
 
-      const dims: StructureDim[] = [
+      /* Pada keadaan mendidih kedua ukuran itu hanya tuntutan hitungan yang
+         tidak dapat terjadi (Δp/γ sampai minus seribu meter), jadi tidak
+         diukur; kop dan tabelnya pun menulis "—". */
+      const dims: StructureDim[] = mati ? [] : [
         {
           axis: "v",
           at: L * 0.85,
@@ -219,8 +222,18 @@ export function MomentumPipaClient() {
           : [];
 
       const tinggi = Math.max(D1, D2) / 2;
-      const zMax = Math.max(tinggi, hv1, naik + hv2) * 1.35 + 0.02;
-      const zMin = Math.min(-tinggi, naik) * 1.35 - 0.02;
+      /*
+       * Pada keadaan mendidih bingkainya TIDAK diperluas sampai garis tekanan
+       * yang minus seribu meter itu, karena pipanya lalu tinggal satu garis.
+       * Garisnya dibiarkan jatuh menembus dasar bingkai: tekanan itu memang
+       * tidak ada. Di atas disisakan ruang untuk judul dan tulisan ukuran,
+       * yang dulu terpotong di tepi atas.
+       */
+      const zMaxDasar = Math.max(tinggi, hv1, naik + hv2) * 1.35 + 0.02;
+      const zMin = mati
+        ? -Math.max(tinggi * 3, hv1 * 2)
+        : Math.min(-tinggi, naik) * 1.35 - 0.02;
+      const zMax = zMaxDasar + (zMaxDasar - zMin) * 0.3;
       drawStructure(
         ctx,
         w,

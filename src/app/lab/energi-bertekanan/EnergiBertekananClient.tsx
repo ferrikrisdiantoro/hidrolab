@@ -226,9 +226,11 @@ export function EnergiBertekananClient() {
           weight: W.hair,
           dash: DASH.axis,
           label: T.datumLine,
-          labelAt: 0.04,
+          /* Di ujung kanan, karena pompanya berdiri di ujung kiri tepat pada
+             bidang acuan dan alas tulisannya dulu menutupi pangkal pipanya. */
+          labelAt: 1,
           labelDy: 13,
-          labelAlign: "left",
+          labelAlign: "right",
         },
         { pts: sumbu, color: C.ink3, weight: W.hair, dash: DASH.axis },
         { pts: atas, color: C.ink, weight: W.bold, dash: DASH.solid },
@@ -239,15 +241,21 @@ export function EnergiBertekananClient() {
          Itulah satu-satunya ukuran yang menentukan pipanya didorong atau
          dihisap, jadi ia yang digambar, bukan tinggi energinya. */
       const dims: StructureDim[] = [
-        {
-          axis: "v",
-          at: L * 0.5,
-          from: puncak.z,
-          to: puncak.hgl,
-          text: `${fmtPlain(puncak.pressureHead, 2)} m`,
-          color: puncak.pressureHead < 0 ? C.signal : C.water,
-          offset: 30,
-        },
+        /* Tidak diukur bila airnya mendidih: tinggi tekan di bawah tekanan
+           uap itu tuntutan hitungan, bukan tekanan yang terjadi. */
+        ...(r.cavitates
+          ? []
+          : [
+              {
+                axis: "v" as const,
+                at: L * 0.5,
+                from: puncak.z,
+                to: puncak.hgl,
+                text: `${fmtPlain(puncak.pressureHead, 2)} m`,
+                color: puncak.pressureHead < 0 ? C.critical : C.water,
+                offset: 30,
+              },
+            ]),
         {
           axis: "v",
           at: 0,
@@ -341,7 +349,7 @@ export function EnergiBertekananClient() {
             { label: "Hp", value: `${fmt(Hp, 2)} m`, tint: C.energy },
             {
               label: "p/γ",
-              value: `${fmt(puncak.pressureHead, 2)} m`,
+              value: r.cavitates ? "—" : `${fmt(puncak.pressureHead, 2)} m`,
               tint: r.cavitates
                 ? C.signal
                 : puncak.pressureHead < 0
@@ -406,8 +414,8 @@ export function EnergiBertekananClient() {
                 {
                   symbol: "p/γ",
                   label: x.rPuncak,
-                  value: fmt(puncak.pressureHead, 3),
-                  unit: "m",
+                  value: r.cavitates ? "—" : fmt(puncak.pressureHead, 3),
+                  unit: r.cavitates ? undefined : "m",
                   tint: r.cavitates
                     ? C.signal
                     : puncak.pressureHead < 0

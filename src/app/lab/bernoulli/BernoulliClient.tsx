@@ -197,15 +197,21 @@ export function BernoulliClient() {
           color: C.energy,
           offset: 30,
         },
-        {
-          axis: "v",
-          at: L * 0.5,
-          from: leher.z,
-          to: leher.hgl,
-          text: `${fmtPlain(leher.pressureHead, 2)} m`,
-          color: C.water,
-          offset: 58,
-        },
+        /* Tinggi tekan di leher tidak diukur bila airnya mendidih: angka
+           di bawah tekanan uap itu hanya tuntutan hitungan, tidak terjadi. */
+        ...(r.cavitates
+          ? []
+          : [
+              {
+                axis: "v" as const,
+                at: L * 0.5,
+                from: leher.z,
+                to: leher.hgl,
+                text: `${fmtPlain(leher.pressureHead, 2)} m`,
+                color: C.water,
+                offset: 58,
+              },
+            ]),
         /* Ukuran sepanjang nol tidak mengukur apa pun, dan pada pipa datar
            ia hanya menjadi tulisan "0,00 m" yang tergantung di dasar. */
         ...(Math.abs(leher.z) > 0.05
@@ -236,11 +242,17 @@ export function BernoulliClient() {
           lines: garis,
           dims,
           callouts: [
+            /*
+             * Menunjuk dinding atas di ruas masuk, ke ATAS. Dulu menunjuk
+             * dinding bawah leher ke bawah: pada pipa datar tulisannya jatuh
+             * ke angka sumbu di bawah bingkai, dan pada leher yang tinggi ia
+             * menabrak nama garis energi.
+             */
             {
-              x: L * 0.5,
-              z: leher.z - (lebih * D2) / 2,
-              dx: -14,
-              dy: 26,
+              x: (atas[0].x + atas[1].x) / 2,
+              z: (atas[0].z + atas[1].z) / 2,
+              dx: 14,
+              dy: -26,
               text:
                 lebih > 1
                   ? `${T.ductWall} · ${lang === "id" ? "tebal" : "width"} ×${lebih}`
@@ -289,7 +301,7 @@ export function BernoulliClient() {
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "H", value: `${fmt(H, 2)} m`, tint: C.energy },
             { label: "V", value: `${fmt(leher.velocity, 2)} m/s` },
-            { label: "p/γ", value: `${fmt(leher.pressureHead, 2)} m`, tint: r.cavitates ? C.signal : C.water },
+            { label: "p/γ", value: r.cavitates ? "—" : `${fmt(leher.pressureHead, 2)} m`, tint: r.cavitates ? C.signal : C.water },
             { label: "V²/2g", value: `${fmt(leher.velocityHead, 2)} m` },
           ]}
         >
@@ -342,7 +354,7 @@ export function BernoulliClient() {
               rows={[
                 { symbol: "V", label: x.rV, value: fmt(leher.velocity, 3), unit: "m/s", strong: true },
                 { symbol: "V²/2g", label: x.rHv, value: fmt(leher.velocityHead, 3), unit: "m", tint: C.energy, strong: true },
-                { symbol: "p/γ", label: x.rHp, value: fmt(leher.pressureHead, 3), unit: "m", tint: r.cavitates ? C.signal : C.water, strong: true },
+                { symbol: "p/γ", label: x.rHp, value: r.cavitates ? "—" : fmt(leher.pressureHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : C.water, strong: true },
                 /* Tekanan mutlak tidak dapat turun di bawah tekanan uap: di situ airnya
                    mendidih dan tekanannya tertahan. Angka negatif yang dihasilkan
                    persamaannya bukan tekanan melainkan tanda bahwa persamaannya

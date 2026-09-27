@@ -137,7 +137,11 @@ describe("Tombol kondisi contoh pekan keempat menepati namanya", () => {
     assert.equal(shoal(40, 0, 0.4, 0).state, "berpencar");
     assert.equal(shoal(40, 0, 1, 1).state, "bergerombol");
     assert.equal(shoal(40, 2.5, 1, 0.6).state, "searah");
-    assert.equal(shoal(30, 0.02, 1, 0.2).state, "berputar");
+    /* Dulu 30 ekor, a 0,02, c 0,2: satu-satunya setelan yang berputar, dengan
+       M 0,474 di tepi ambang 0,45. Sekarang cincinnya harus jelas. */
+    const putar = shoal(40, 0.3, 1, 1);
+    assert.equal(putar.state, "berputar");
+    assert.ok(putar.milling > 0.7, `M ${putar.milling}`);
   });
 
   it("EH-06 debit rendah, di puncak, dan banjir", () => {

@@ -165,18 +165,14 @@ export function AdveksiDifusiClient() {
           xMin: Math.min(...xs, 0),
           xMax: Math.max(...xs, titik * 1.05),
           yMin: 0,
-          yMax: puncakSemua * 1.2,
+          /* Ruang di atas untuk judul keadaan dan nama awan 1 menit, yang
+             puncaknya paling tinggi. Nama "awan zat terlarut" dihapus: tiap
+             awan sudah bernama saatnya sendiri, dan tulisan itu dulu
+             berebut tempat dengan judul dan nama 1 menit. */
+          yMax: puncakSemua * 1.45,
           equalScale: false,
           lines: garis,
           markers: tanda,
-          regions: [
-            {
-              x: r.centre,
-              y: puncakSemua * 1.1,
-              text: T.soluteCloud,
-              color: C.ink3,
-            },
-          ],
           heading: keadaan,
           headingColor: r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.critical,
           axisX: T.axXMetre,

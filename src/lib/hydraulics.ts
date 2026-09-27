@@ -7287,9 +7287,10 @@ export type Shoal = {
 /**
  * Gerombolan dari tiga aturan yang tidak menyebut gerombolan.
  *
- * Tiap ekor hanya melihat tetangga terdekatnya dan mematuhi tiga aturan:
- * menjauh bila terlalu rapat, menyamakan arah dengan tetangganya, dan
- * mendekat bila terlalu renggang. Tidak ada pemimpin, tidak ada rencana,
+ * Tiap ekor hanya melihat tetangga di sekitarnya dan mematuhi tiga aturan
+ * dalam tiga zona bersarang: menjauh dari yang terlalu rapat, menyamakan
+ * arah dengan yang di tengah, dan mendekat ke yang jauh. Ketiga bobot di
+ * lembar ini adalah lebar zona itu masing-masing. Tidak ada pemimpin, tidak ada rencana,
  * dan tidak satu ekor pun tahu bentuk gerombolannya.
  *
  * Yang muncul dari ketiganya tiga bentuk yang berbeda sama sekali, dan
@@ -7322,7 +7323,7 @@ export function shoal(
   /** Kegaduhan arah tiap langkah, radian */
   noise = 0.1,
   /** Banyaknya langkah yang dijalankan */
-  steps = 240
+  steps = 300
 ): Shoal {
   /* Pembangkit acak berbenih tetap, supaya gambarnya tidak berubah sendiri */
   let benih = 20260919;
@@ -7333,96 +7334,148 @@ export function shoal(
 
   const n = Math.max(2, Math.round(count));
   const laju = 1;
-  const rJauh = 1.2;
-  const rDekat = 6;
+  /* Jarak tempuh tiap langkah, meter */
+  const langkahJarak = 0.3;
+  /*
+   * Ketiga bobot dibaca sebagai LEBAR tiga zona bersarang, menurut Couzin
+   * dkk. (2002): zona menjauh, di luarnya zona menyamakan arah, di luarnya
+   * lagi zona mendekat. Aturannya berprioritas: bila ada tetangga di zona
+   * menjauh, ikan itu hanya menjauh; bila tidak, ia menyamakan arah dengan
+   * tetangga di zona tengah sambil menuju tetangga di zona luar.
+   *
+   * Sebelumnya ketiganya dijumlahkan sebagai gaya dalam satu zona yang
+   * sama tanpa batas belok. Susunan itu hampir tidak pernah memutar: dari
+   * tiga ratus setelan hanya satu yang tergolong berputar, dan itu pun di
+   * tepi ambangnya, sehingga tombol "berputar" menampilkan kerumunan biasa.
+   * Justru pemisahan zona dan batas belok itulah yang menurut Couzin
+   * melahirkan cincin berputar.
+   */
+  const zonaJauh = 0.4 + 0.4 * Math.max(0, separation);
+  const zonaSearah = alignment * 5;
+  const zonaTarik = cohesion * 14;
+  /* Belokan terbesar tiap langkah dan sudut buta di belakang, radian */
+  const belokMaks = 0.15;
+  const sudutButa = Math.PI / 3;
 
-  const agents: ShoalAgent[] = [];
+  /* Posisi dan arah disimpan dalam larik bertipe. Pasangan ikan diperiksa
+     n² kali tiap langkah selama tiga ratus langkah, dan objek per ekor
+     membuat lembar ini tersendat tiap kali penggeser digeser. */
+  const px = new Float64Array(n);
+  const py = new Float64Array(n);
+  const arah = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const a = acak() * Math.PI * 2;
-    agents.push({
-      x: (acak() - 0.5) * 20,
-      y: (acak() - 0.5) * 20,
-      vx: Math.cos(a) * laju,
-      vy: Math.sin(a) * laju,
-    });
+    px[i] = (acak() - 0.5) * 20;
+    py[i] = (acak() - 0.5) * 20;
+    arah[i] = a;
   }
 
   const trails: { x: number; y: number }[][] = [[], [], [], [], []];
 
+  /* Tetangga di belakang, di dalam sudut buta, tidak terlihat. Diperiksa
+     lewat hasil kali titik arah dengan vektor ke tetangga, bukan atan2. */
+  const batasButa = -Math.cos(sudutButa / 2);
+  const zona1 = zonaJauh;
+  const zona2 = zonaJauh + zonaSearah;
+  const zona3 = zonaJauh + zonaSearah + zonaTarik;
+  const zona3k = zona3 * zona3;
+  const hx = new Float64Array(n);
+  const hy = new Float64Array(n);
+  const arahBaru = new Float64Array(n);
+
   for (let langkah = 0; langkah < steps; langkah++) {
-    const baru = agents.map((a) => ({ ...a }));
     for (let i = 0; i < n; i++) {
+      hx[i] = Math.cos(arah[i]);
+      hy[i] = Math.sin(arah[i]);
+    }
+    for (let i = 0; i < n; i++) {
+      let jx = 0;
+      let jy = 0;
+      let nJauh = 0;
       let sx = 0;
       let sy = 0;
-      let ax = 0;
-      let ay = 0;
-      let cx = 0;
-      let cy = 0;
-      let nDekat = 0;
-      let nJauh = 0;
+      let nSearah = 0;
+      let tx = 0;
+      let ty = 0;
+      let nTarik = 0;
+      const xi = px[i];
+      const yi = py[i];
+      const hxi = hx[i];
+      const hyi = hy[i];
 
       for (let j = 0; j < n; j++) {
         if (i === j) continue;
-        const dx = agents[j].x - agents[i].x;
-        const dy = agents[j].y - agents[i].y;
-        const d = Math.hypot(dx, dy);
-        if (d < 1e-9) continue;
-        if (d < rJauh) {
-          sx -= dx / d;
-          sy -= dy / d;
+        const dx = px[j] - xi;
+        const dy = py[j] - yi;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 1e-18 || d2 >= zona3k) continue;
+        const d = Math.sqrt(d2);
+        if (hxi * dx + hyi * dy < batasButa * d) continue;
+        if (d < zona1) {
+          jx -= dx / d;
+          jy -= dy / d;
           nJauh++;
-        } else if (d < rDekat) {
-          ax += agents[j].vx;
-          ay += agents[j].vy;
-          cx += dx;
-          cy += dy;
-          nDekat++;
+        } else if (d < zona2) {
+          sx += hx[j];
+          sy += hy[j];
+          nSearah++;
+        } else {
+          tx += dx / d;
+          ty += dy / d;
+          nTarik++;
         }
       }
 
-      let vx = agents[i].vx;
-      let vy = agents[i].vy;
+      let dx = hxi;
+      let dy = hyi;
       if (nJauh > 0) {
-        vx += separation * (sx / nJauh);
-        vy += separation * (sy / nJauh);
-      }
-      if (nDekat > 0) {
-        const an = Math.hypot(ax, ay);
-        if (an > 1e-9) {
-          vx += alignment * (ax / an);
-          vy += alignment * (ay / an);
+        dx = jx;
+        dy = jy;
+      } else if (nSearah + nTarik > 0) {
+        dx = 0;
+        dy = 0;
+        if (nSearah > 0) {
+          dx += sx / nSearah;
+          dy += sy / nSearah;
         }
-        vx += cohesion * (cx / nDekat) * 0.05;
-        vy += cohesion * (cy / nDekat) * 0.05;
+        if (nTarik > 0) {
+          dx += tx / nTarik;
+          dy += ty / nTarik;
+        }
       }
 
-      const sudut = (acak() - 0.5) * noise;
-      const c = Math.cos(sudut);
-      const s2 = Math.sin(sudut);
-      const rx = vx * c - vy * s2;
-      const ry = vx * s2 + vy * c;
-
-      const v = Math.hypot(rx, ry);
-      baru[i].vx = v > 1e-9 ? (rx / v) * laju : laju;
-      baru[i].vy = v > 1e-9 ? (ry / v) * laju : 0;
-      baru[i].x = agents[i].x + baru[i].vx * 0.1;
-      baru[i].y = agents[i].y + baru[i].vy * 0.1;
+      const ingin = Math.atan2(dy, dx) + (acak() - 0.5) * noise;
+      let belok = Math.atan2(Math.sin(ingin - arah[i]), Math.cos(ingin - arah[i]));
+      if (Math.abs(belok) > belokMaks) belok = Math.sign(belok) * belokMaks;
+      arahBaru[i] = arah[i] + belok;
     }
-    for (let i = 0; i < n; i++) agents[i] = baru[i];
+    for (let i = 0; i < n; i++) {
+      arah[i] = arahBaru[i];
+      px[i] += Math.cos(arah[i]) * langkahJarak;
+      py[i] += Math.sin(arah[i]) * langkahJarak;
+    }
 
     if (langkah > steps - 60)
-      for (let k = 0; k < Math.min(5, n); k++)
-        trails[k].push({ x: agents[k].x, y: agents[k].y });
+      for (let k = 0; k < Math.min(5, n); k++) trails[k].push({ x: px[k], y: py[k] });
   }
 
+  const agents: ShoalAgent[] = [];
+  for (let i = 0; i < n; i++)
+    agents.push({
+      x: px[i],
+      y: py[i],
+      vx: Math.cos(arah[i]) * laju,
+      vy: Math.sin(arah[i]) * laju,
+    });
+
   /* Keteraturan arah: panjang jumlah vektor arah dibagi banyaknya */
-  let px = 0;
-  let py = 0;
+  let jumlahX = 0;
+  let jumlahY = 0;
   for (const a of agents) {
-    px += a.vx;
-    py += a.vy;
+    jumlahX += a.vx;
+    jumlahY += a.vy;
   }
-  const polarisation = Math.hypot(px, py) / (n * laju);
+  const polarisation = Math.hypot(jumlahX, jumlahY) / (n * laju);
 
   /* Keteraturan putar: momentum sudut terhadap pusat gerombolannya */
   const mx = agents.reduce((s2, a) => s2 + a.x, 0) / n;
@@ -7454,7 +7507,7 @@ export function shoal(
       ? "searah"
       : milling > 0.45
         ? "berputar"
-        : spread < rDekat * 1.6
+        : spread < 9.6
           ? "bergerombol"
           : "berpencar";
 

@@ -96,7 +96,10 @@ export function Sheet({
                 style={
                   c.label === t.tbUnit || c.label === t.tbScale
                     ? undefined
-                    : { textTransform: "none" }
+                    : /* Tanpa jarak antarhuruf juga: jarak itu memisahkan
+                         tanda gabung dari hurufnya, sehingga d̄ tertulis
+                         "d ¯" dengan garis atasnya melayang di samping. */
+                      { textTransform: "none", letterSpacing: "normal" }
                 }
               >
                 {c.label}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Basis, Eq, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -103,7 +103,14 @@ export function GerombolanIkanClient() {
   const [jauh, setJauh] = useState(1);
   const [dekat, setDekat] = useState(0.5);
 
-  const r = shoal(jumlah, selaras, jauh, dekat);
+  /* Simulasinya n² tiap langkah dan dijalankan sebelas kali per keadaan
+     (gambar, catatan, blok verifikasi), jadi hanya dihitung ulang bila
+     masukannya berubah, tidak pada setiap render seperti ganti bahasa. */
+  const r = useMemo(() => shoal(jumlah, selaras, jauh, dekat), [jumlah, selaras, jauh, dekat]);
+  const cek = useMemo(
+    () => checksShoal(jumlah, selaras, jauh, dekat),
+    [jumlah, selaras, jauh, dekat]
+  );
   const nama = NAMA[lang][r.state];
   const warna =
     r.state === "searah"
@@ -227,7 +234,7 @@ export function GerombolanIkanClient() {
                   { label: x.pPencar, apply: () => { setJumlah(40); setSelaras(0); setJauh(0.4); setDekat(0); } },
                   { label: x.pGerombol, apply: () => { setJumlah(40); setSelaras(0); setJauh(1); setDekat(1); } },
                   { label: x.pSearah, apply: () => { setJumlah(40); setSelaras(2.5); setJauh(1); setDekat(0.6); } },
-                  { label: x.pPutar, apply: () => { setJumlah(30); setSelaras(0.02); setJauh(1); setDekat(0.2); } },
+                  { label: x.pPutar, apply: () => { setJumlah(40); setSelaras(0.3); setJauh(1); setDekat(1); } },
                 ]}
               />
             </div>
@@ -252,7 +259,7 @@ export function GerombolanIkanClient() {
           </Block>
         </>
       }
-      verification={<Verification checks={checksShoal(jumlah, selaras, jauh, dekat)} />}
+      verification={<Verification checks={cek} />}
       below={
         <Basis
           equations={
