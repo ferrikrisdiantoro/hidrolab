@@ -371,10 +371,19 @@ export function PresetRow({
    * mana yang menyala, bukan riwayat penekanan tombolnya.
    */
   active,
+  /**
+   * Isi tabel data lembar saat ini, untuk contoh yang juga memasang data
+   * (bidang `data` pada tombolnya). Tanda contoh itu padam begitu isinya
+   * berbeda. Tabel data ada di blok lain, jadi geseran pencacah blok ini
+   * tidak melihat perubahannya: tanpa ini, unggah berkas penampang
+   * membiarkan "Sungai alam, data cl42" tetap menyala (uji rekan V8).
+   */
+  dataKey,
 }: {
   label: string;
-  presets: { label: string; apply: () => void }[];
+  presets: { label: string; apply: () => void; data?: string }[];
   active?: number;
+  dataKey?: string;
 }) {
   const lingkup = useContext(PresetContext);
   const [dipakai, setDipakai] = useState<{ i: number; gen: number } | null>(
@@ -386,7 +395,8 @@ export function PresetRow({
       ? active === i
       : dipakai !== null &&
         dipakai.i === i &&
-        dipakai.gen === (lingkup?.gen ?? 0);
+        dipakai.gen === (lingkup?.gen ?? 0) &&
+        (presets[i].data === undefined || presets[i].data === dataKey);
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">

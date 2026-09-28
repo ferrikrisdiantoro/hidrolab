@@ -503,10 +503,11 @@ export function DebitPenampangClient() {
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
+                dataKey={JSON.stringify(rows)}
                 presets={[
                   { label: x.pGorong, apply: () => { setShape("lingkaran"); setMethod("manning"); setD(1); setH(0.5); setSpm(1); setN(0.013); } },
                   { label: x.pBox, apply: () => { setShape("persegi"); setMethod("manning"); setWd(2); setHc(1.5); setH(0.8); setSpm(0.5); setN(0.015); } },
-                  { label: x.pSungai, apply: () => { setShape("alam"); setMethod("manning"); setRows(rowsFromPts(SAMPLE_SECTION)); setH(1.5); setSpm(0.5); setN(0.035); } },
+                  { label: x.pSungai, apply: () => { setShape("alam"); setMethod("manning"); setRows(rowsFromPts(SAMPLE_SECTION)); setH(1.5); setSpm(0.5); setN(0.035); }, data: JSON.stringify(rowsFromPts(SAMPLE_SECTION)) },
                 ]}
               />
             </div>

@@ -12,16 +12,23 @@ import { xlsxBytes, type XlsxCell } from "@/lib/xlsx";
  * Grafik ekspor TIDAK diambil dari kanvas di layar. Kanvas layar ukurannya
  * mengikuti lebar jendela dan kerapatan piksel layar pengguna, jadi grafik
  * yang sama akan tersimpan dalam ukuran yang berbeda-beda. Di sini fungsi
- * gambarnya dijalankan ulang pada kanvas tersendiri berukuran tetap, dua
- * kali rapat, supaya tetap tajam saat dicetak.
+ * gambarnya dijalankan ulang pada kanvas tersendiri berukuran tetap.
+ *
+ * Ukurannya ditentukan oleh HURUF, bukan piksel. Grafik laporan ditempel
+ * selebar halaman, sekitar 16 cm, dan huruf penggambar ukurannya tetap
+ * dalam px. Dulu digambar selebar 1100 px sehingga di Word angka sumbu
+ * tinggal sekitar 4,5 pt (uji rekan V8). Selebar 640 px angka sumbu
+ * sekitar 8 pt dan judul sekitar 9 pt, ukuran lazim gambar jurnal.
+ * Kerapatan 3,5 kali menjaga jumlah pikselnya (2240 × 1400) tetap tajam
+ * saat dicetak.
  */
 
 export type Draw = (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
 
-export const EXPORT_W = 1100;
-export const EXPORT_H = 680;
+export const EXPORT_W = 640;
+export const EXPORT_H = 400;
 
-function render(draw: Draw, w = EXPORT_W, h = EXPORT_H, skala = 2): HTMLCanvasElement {
+function render(draw: Draw, w = EXPORT_W, h = EXPORT_H, skala = 3.5): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = w * skala;
   c.height = h * skala;
