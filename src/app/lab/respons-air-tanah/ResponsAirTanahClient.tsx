@@ -249,8 +249,8 @@ export function ResponsAirTanahClient() {
           title={x.sheetTitle}
           rev="A"
           cells={[
-            { label: t.tbUnit, value: "SI (m, mm/hari)" },
-            { label: "τ", value: `${fmt(r.tau, 0)} hari`, tint: C.critical },
+            { label: t.tbUnit, value: lang === "id" ? "SI (m, mm/hari)" : "SI (m, mm/day)" },
+            { label: "τ", value: `${fmt(r.tau, 0)} ${lang === "id" ? "hari" : "d"}`, tint: C.critical },
             { label: "Δh", value: `${fmt(r.amplitude, 3)} m`, tint: C.water },
             /*
              * Lambangnya "tp", bukan "t".
@@ -262,7 +262,7 @@ export function ResponsAirTanahClient() {
              * yang mana tundaan puncak, dan keduanya kebetulan berdekatan
              * nilainya pada setelan bawaan.
              */
-            { label: "tp", value: `${fmt(r.lag, 0)} hari` },
+            { label: "tp", value: `${fmt(r.lag, 0)} ${lang === "id" ? "hari" : "d"}` },
             { label: "Sy", value: fmt(Sy, 2) },
           ]}
         >

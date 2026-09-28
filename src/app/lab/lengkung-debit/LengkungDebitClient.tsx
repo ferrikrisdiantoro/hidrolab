@@ -142,7 +142,9 @@ export function LengkungDebitClient() {
   const cek = useMemo(() => checksRating(pts, kind, deg), [kunciData, kind, deg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hDataMax = pts.length ? Math.max(...pts.map((p) => p.x)) : 2;
-  const hSliderMax = Math.max(0.1, hDataMax * 1.5);
+  /* Dibulatkan ke atas ke sentimeter supaya ujung penggeser tidak jatuh
+     di luar sumbu: 1,75 × 1,5 = 2,625 tertulis 2,63 pada penggeser */
+  const hSliderMax = Math.ceil(Math.max(0.1, hDataMax * 1.5) * 100 - 1e-9) / 100;
   const luar = r !== null && (hBaca < r.hMin || hBaca > r.hMax);
   const qBaca = r ? ratingValue(r, hBaca) : 0;
   const angka = (v: number, d: number) => fmtPlain(v, d);
@@ -151,7 +153,7 @@ export function LengkungDebitClient() {
     (ctx, w, h) => {
       const semuaH = pts.map((p) => p.x);
       const semuaQ = pts.map((p) => p.y);
-      const xMax = Math.max(hSliderMax, ...semuaH, 0.1);
+      const xMax = Math.max(hSliderMax, hBaca, ...semuaH, 0.1);
       const xMin = Math.min(0, ...semuaH);
 
       const deret: ChartSeries[] = [];

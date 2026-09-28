@@ -73,7 +73,7 @@ export function Sheet({
 
       <figcaption className="border-t border-ink">
         <div className="flex flex-wrap items-stretch">
-          <div className="flex min-w-[220px] flex-1 flex-col justify-center border-r border-rule px-3.5 py-2.5">
+          <div className="flex min-w-[180px] flex-1 flex-col justify-center border-r border-rule px-3.5 py-2.5">
             <span className="stencil">{t.tbSimulation}</span>
             <span className="label mt-0.5 text-[0.82rem] font-semibold leading-tight text-ink">
               {title}
@@ -83,7 +83,7 @@ export function Sheet({
           {cells.map((c, i) => (
             <div
               key={i}
-              className="flex min-w-[104px] flex-col justify-center border-r border-rule px-3.5 py-2.5"
+              className="flex min-w-[92px] flex-col justify-center border-r border-rule px-3.5 py-2.5"
             >
               {/*
                * Label sel hampir selalu SIMBOL, dan huruf besar mengubah

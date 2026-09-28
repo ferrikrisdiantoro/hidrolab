@@ -147,6 +147,8 @@ export function SeriesEntry({
       const hasil: SeriesRow[] = [];
       for (const l of baris) {
         const k = l.split(pemisah);
+        /* Baris ramalan dari tombol unduh CSV lembar ini bukan data */
+        if (k.some((s) => /^(ramalan|forecast)\b/i.test(s.trim()))) continue;
         const t = tanggalBerkas(k[0] ?? "");
         if (!Number.isFinite(t)) continue;
         hasil.push({ d: isoDate(t), v: (k[1] ?? "").trim(), w: dua ? (k[2] ?? "").trim() : undefined, on: true });

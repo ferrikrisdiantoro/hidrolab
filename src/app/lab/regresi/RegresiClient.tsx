@@ -15,7 +15,7 @@ import {
   type RegKind,
   type XY,
 } from "@/lib/regression";
-import { copyPng, copyText, downloadCsv, downloadPng, type Draw } from "@/lib/exportChart";
+import { copyPng, copyText, downloadCsv, downloadPng, downloadXlsx, type Draw } from "@/lib/exportChart";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -56,6 +56,7 @@ const TXT = {
     unduhPng: "unduh grafik PNG",
     salinGrafik: "salin grafik",
     unduhCsv: "unduh data CSV",
+    unduhXlsx: "unduh data Excel",
     rR2: "Koefisien determinasi",
     rR2Excel: "R² seperti garis tren Excel (ruang ln y)",
     rMae: "Galat mutlak rata-rata",
@@ -103,6 +104,7 @@ const TXT = {
     unduhPng: "download chart PNG",
     salinGrafik: "copy chart",
     unduhCsv: "download data CSV",
+    unduhXlsx: "download data Excel",
     rR2: "Coefficient of determination",
     rR2Excel: "R² as in an Excel trendline (ln y space)",
     rMae: "Mean absolute error",
@@ -273,6 +275,19 @@ export function RegresiClient() {
     setTimeout(() => setPesan(null), 2200);
   };
 
+  /* Satu baris tabel menjadi satu baris ekspor, termasuk yang tidak
+     dicentang, supaya datanya dapat dimuat ulang utuh */
+  const isiEkspor = (): [string[], (number | string)[][]] => [
+    [nama.x, nama.y, lang === "id" ? "dipakai" : "used", lang === "id" ? "prediksi" : "predicted"],
+    rows.flatMap((r) => {
+      const px = parseFloat(r.x.replace(",", "."));
+      const py = parseFloat(r.y.replace(",", "."));
+      if (!Number.isFinite(px) || !Number.isFinite(py)) return [];
+      const ramal = f?.predict ? f.predict(px) : NaN;
+      return [[px, py, r.on === false ? 0 : 1, Number.isFinite(ramal) ? ramal : ""]];
+    }),
+  ];
+
   const tombol =
     "label border-b border-rule-strong pb-px text-[0.8rem] text-ink-2 hover:border-ink hover:text-ink disabled:opacity-40";
 
@@ -336,26 +351,11 @@ export function RegresiClient() {
             >
               {x.salinGrafik}
             </button>
-            <button
-              type="button"
-              className={tombol}
-              onClick={() =>
-                downloadCsv(
-                  [nama.x, nama.y, lang === "id" ? "dipakai" : "used", lang === "id" ? "prediksi" : "predicted"],
-                  /* Satu baris tabel menjadi satu baris CSV, termasuk yang
-                     tidak dicentang, supaya datanya dapat dimuat ulang utuh */
-                  rows.flatMap((r) => {
-                    const px = parseFloat(r.x.replace(",", "."));
-                    const py = parseFloat(r.y.replace(",", "."));
-                    if (!Number.isFinite(px) || !Number.isFinite(py)) return [];
-                    const ramal = f?.predict ? f.predict(px) : NaN;
-                    return [[px, py, r.on === false ? 0 : 1, Number.isFinite(ramal) ? ramal : ""]];
-                  }),
-                  "regresi"
-                )
-              }
-            >
+            <button type="button" className={tombol} onClick={() => downloadCsv(...isiEkspor(), "regresi")}>
               {x.unduhCsv}
+            </button>
+            <button type="button" className={tombol} onClick={() => downloadXlsx(...isiEkspor(), "regresi")}>
+              {x.unduhXlsx}
             </button>
             {pesan && <span className="label text-[0.78rem] text-ink-3">{pesan}</span>}
           </div>

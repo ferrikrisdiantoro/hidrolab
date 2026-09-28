@@ -23,7 +23,7 @@ import {
 } from "@/lib/forecast";
 import { autoArima, fitArima, forecastArima, oneStepPredictions, type ArimaFit, type ArimaOrder } from "@/lib/arima";
 import { browserRunner } from "@/lib/onnxBrowser";
-import { copyPng, downloadCsv, downloadPng, type Draw } from "@/lib/exportChart";
+import { copyPng, downloadCsv, downloadPng, downloadXlsx, type Draw } from "@/lib/exportChart";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -143,6 +143,7 @@ const TXT = {
     unduhPng: "unduh grafik PNG",
     salinGrafik: "salin grafik",
     unduhCsv: "unduh data CSV",
+    unduhXlsx: "unduh data Excel",
     tersalin: "tersalin",
     gagalSalin: "peramban menolak menyalin",
     note:
@@ -214,6 +215,7 @@ const TXT = {
     unduhPng: "download chart PNG",
     salinGrafik: "copy chart",
     unduhCsv: "download data CSV",
+    unduhXlsx: "download data Excel",
     tersalin: "copied",
     gagalSalin: "the browser refused to copy",
     note:
@@ -412,9 +414,23 @@ export function PrediksiHujanClient() {
     /* Tanda tanggal: langkah bulat dalam hari, kira-kira enam tanda */
     const langkah = [1, 2, 7, 14, 30, 61, 91, 182, 365].find((s) => xMax / s <= 7) ?? 365;
     const tanda: { at: number; label: string }[] = [];
-    for (let k = 0; k <= xMax; k += langkah) {
-      const d = new Date(t0 + k * HARI);
-      tanda.push({ at: k, label: `${d.getUTCDate()} ${BLN[lang][d.getUTCMonth()]}${langkah >= 30 ? ` ${String(d.getUTCFullYear()).slice(2)}` : ""}` });
+    if (langkah >= 30) {
+      /* Langkah sebulan atau lebih jatuh di tanggal 1, bukan tiap 30 hari
+         dari hari pertama data (dulu "4 Agu, 3 Sep, 3 Okt") */
+      const tiap = Math.round(langkah / 30.4);
+      const d0 = new Date(t0);
+      let bl = d0.getUTCFullYear() * 12 + d0.getUTCMonth() + (d0.getUTCDate() > 1 ? 1 : 0);
+      bl = Math.ceil(bl / tiap) * tiap;
+      for (; ; bl += tiap) {
+        const k = hariKe(Date.UTC(Math.floor(bl / 12), bl % 12, 1));
+        if (k > xMax) break;
+        tanda.push({ at: k, label: `${BLN[lang][bl % 12]} ${String(Math.floor(bl / 12)).slice(2)}` });
+      }
+    } else {
+      for (let k = 0; k <= xMax; k += langkah) {
+        const d = new Date(t0 + k * HARI);
+        tanda.push({ at: k, label: `${d.getUTCDate()} ${BLN[lang][d.getUTCMonth()]}` });
+      }
     }
 
     const deret: ChartSeries[] = [
@@ -480,6 +496,21 @@ export function PrediksiHujanClient() {
   const persisUkur = mode === "mv" ? UKUR.mv.persistensi : UKUR.uv_lengkap.persistensi;
   const klaim = mode === "uv" ? KLAIM_CL42[uvModel] : null;
   const tAkhir = n ? seri.t[n - 1] : 0;
+  /* Tanggal sebagai Date: di Excel menjadi tanggal sungguhan, di CSV ditulis 2020-12-01 */
+  const isiEkspor = (): [string[], (Date | number | string)[][]] => [
+    lang === "id"
+      ? ["tanggal", "hujan_mm", ...(mode === "mv" ? ["tma_m"] : []), "jenis"]
+      : ["date", "rain_mm", ...(mode === "mv" ? ["wl_m"] : []), "type"],
+    [
+      ...seri.t.map((tt, i) => [new Date(tt), seri.rain[i], ...(mode === "mv" ? [seri.wl[i]] : []), "data"]),
+      ...hasil.ramalan.map((v, i) => [
+        new Date(tAkhir + (i + 1) * HARI),
+        v,
+        ...(mode === "mv" ? [""] : []),
+        `${lang === "id" ? "ramalan" : "forecast"} ${NAMA[model]}`,
+      ]),
+    ],
+  ];
   const s = hasil.uji?.skor;
   const pr = hasil.uji?.persistensi;
 
@@ -513,7 +544,7 @@ export function PrediksiHujanClient() {
             title={x.sheetTitle}
             rev="A"
             cells={[
-              { label: t.tbUnit, value: "mm/hari" },
+              { label: t.tbUnit, value: lang === "id" ? "mm/hari" : "mm/day" },
               { label: lang === "id" ? "Model" : "Model", value: NAMA[model] },
               { label: "n", value: String(n) },
               { label: "RMSE", value: s ? fmt(s.rmse, 3) : "—", tint: kalah ? C.signal : C.critical },
@@ -529,21 +560,11 @@ export function PrediksiHujanClient() {
             <button type="button" className={tombol} onClick={async () => kabar((await copyPng(gambar)) ? x.tersalin : x.gagalSalin)}>
               {x.salinGrafik}
             </button>
-            <button
-              type="button"
-              className={tombol}
-              onClick={() =>
-                downloadCsv(
-                  ["tanggal", "hujan_mm", ...(mode === "mv" ? ["tma_m"] : []), "jenis"],
-                  [
-                    ...seri.t.map((tt, i) => [isoDate(tt), seri.rain[i], ...(mode === "mv" ? [seri.wl[i]] : []), "data"]),
-                    ...hasil.ramalan.map((v, i) => [isoDate(tAkhir + (i + 1) * HARI), v, ...(mode === "mv" ? [""] : []), `ramalan ${NAMA[model]}`]),
-                  ],
-                  "prediksi-hujan"
-                )
-              }
-            >
+            <button type="button" className={tombol} onClick={() => downloadCsv(...isiEkspor(), "prediksi-hujan")}>
               {x.unduhCsv}
+            </button>
+            <button type="button" className={tombol} onClick={() => downloadXlsx(...isiEkspor(), "prediksi-hujan")}>
+              {x.unduhXlsx}
             </button>
             {hasil.status === "hitung" && <span className="label text-[0.78rem] text-ink-3">{x.menghitung}</span>}
             {pesan && <span className="label text-[0.78rem] text-ink-3">{pesan}</span>}
