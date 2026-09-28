@@ -354,8 +354,9 @@ export function DebitPenampangClient() {
       }
 
       if (f.depth > 0) {
-        const kanan =
-          shape === "alam" ? Math.max(...f.wetted.flat().map((p) => p.x)) : absisUkur;
+        /* Penampang alam: di luar tebing kanan, bukan di tepi air. Tebing
+           yang naik curam di kanan tepi air menimpa ukurannya (uji V8) */
+        const kanan = shape === "alam" ? Math.max(...pts.map((p) => p.x)) : absisUkur;
         dims.push({
           axis: "v",
           at: kanan,
