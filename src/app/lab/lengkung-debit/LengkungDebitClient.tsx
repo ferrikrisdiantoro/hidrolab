@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Basis, Eq, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -65,6 +65,7 @@ const TXT = {
       "Tinggi muka air yang dibaca berada di luar rentang pengukuran yang menyusun lengkung ini, jadi debitnya ekstrapolasi, bukan hasil ukur. Lengkung debit paling sering dipakai justru untuk banjir, yang jarang sempat diukur, dan di situ kesalahannya paling besar: penampang kendalinya bisa berubah, misalnya air mulai melimpas ke bantaran. ISO 18320 membatasi ekstrapolasi ke atas sampai sekitar dua puluh persen di atas pengukuran tertinggi, dan hanya bila bentuk penampangnya tidak berubah di rentang itu.",
     simpan: "pakai di HY-03",
     tersimpan: "tersimpan, HY-03 akan membandingkan debitnya",
+    tersimpanLain: "lengkung tersimpan sebelumnya (bukan lengkung di layar) masih dipakai HY-03",
     note:
       "Lengkung debit mengubah pembacaan papan duga, yang murah dan dapat dicatat setiap jam, menjadi debit, yang mahal dan hanya diukur beberapa kali setahun. Karena itu seluruh catatan debit sebuah sungai sebenarnya adalah catatan tinggi muka air yang dilewatkan lengkung ini, dan setiap kesalahan pada lengkungnya ikut ke seluruh catatan itu. Tiga hal pantas dijaga. Pertama, bentuknya: debit di penampang kendali alami mengikuti hukum pangkat terhadap tinggi air DI ATAS titik aliran nol, bukan di atas nol papan duga, dan memaksa H0 = 0 pada data yang nol papannya tidak di dasar sungai membengkokkan kedua koefisiennya. Kedua, rentangnya: di luar data ukur lengkung ini tebakan, bukan pengukuran. Ketiga, waktunya: dasar sungai bergeser, rumput tumbuh, dan lengkung yang disusun tahun lalu bisa sudah tidak berlaku, sehingga pengukuran debit harus diulang secara berkala untuk memeriksanya.",
     blkSimpan: "hubungan ke HY-03",
@@ -101,6 +102,7 @@ const TXT = {
       "The water level being read lies outside the range of measurements that built this curve, so its discharge is an extrapolation, not a measurement. Rating curves are used most for floods, which are rarely measured, and that is exactly where they are most wrong: the control can change, for instance when water starts spilling onto the floodplain. ISO 18320 limits upward extrapolation to about twenty per cent above the highest measurement, and only if the section shape does not change over that range.",
     simpan: "use in HY-03",
     tersimpan: "saved, HY-03 will compare its discharge",
+    tersimpanLain: "an earlier saved curve (not the one on screen) is still used by HY-03",
     note:
       "A rating curve turns gauge readings, which are cheap and can be logged every hour, into discharge, which is expensive and measured only a few times a year. The entire discharge record of a river is therefore really a record of water levels passed through this curve, and every error in the curve travels into the whole record. Three things deserve care. First, its form: discharge at a natural control follows a power law in the water depth ABOVE the zero-flow point, not above gauge zero, and forcing H0 = 0 on data whose gauge zero is not at the bed bends both coefficients. Second, its range: outside the measured data the curve is a guess, not a measurement. Third, its age: the bed shifts, weeds grow, and a curve built last year may no longer hold, so discharge measurements must be repeated periodically to check it.",
     blkSimpan: "link to HY-03",
@@ -134,7 +136,20 @@ export function LengkungDebitClient() {
   const [kind, setKind] = useState<RatingKind>("pangkat");
   const [deg, setDeg] = useState(2);
   const [hBaca, setHBaca] = useState(1.2);
-  const [simpan, setSimpan] = useState(false);
+  /*
+   * Isi lengkung yang tersimpan untuk HY-03, dibaca dari localStorage.
+   * Indikatornya diturunkan dari isi itu, bukan dari riwayat tombol: sesudah
+   * Reset lembar dipasang ulang, lengkung yang tersimpan tetap ada dan tetap
+   * dipakai HY-03, jadi indikatornya tidak boleh padam begitu saja.
+   */
+  const [tersimpan, setTersimpan] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setTersimpan(localStorage.getItem(RATING_STORAGE_KEY));
+    } catch {
+      /* Penyimpanan peramban dapat ditolak */
+    }
+  }, []);
 
   const { pts } = ptsFromRows(rows);
   const kunciData = JSON.stringify(pts);
@@ -241,8 +256,9 @@ export function LengkungDebitClient() {
   const simpanKe = () => {
     if (!r) return;
     try {
-      localStorage.setItem(RATING_STORAGE_KEY, JSON.stringify(r));
-      setSimpan(true);
+      const isi = JSON.stringify(r);
+      localStorage.setItem(RATING_STORAGE_KEY, isi);
+      setTersimpan(isi);
     } catch {
       /* Penyimpanan peramban dapat ditolak; lembarnya tetap berjalan */
     }
@@ -295,10 +311,7 @@ export function LengkungDebitClient() {
           <Block heading={x.blkData}>
             <DataEntry
               rows={rows}
-              onChange={(v) => {
-                setRows(v);
-                setSimpan(false);
-              }}
+              onChange={setRows}
               headX={x.hH}
               headY={x.hQ}
               sample={SAMPLE_RATING}
@@ -310,9 +323,9 @@ export function LengkungDebitClient() {
               label={x.bentuk}
               active={KINDS.indexOf(kind)}
               presets={[
-                { label: x.kPangkat, apply: () => { setKind("pangkat"); setSimpan(false); } },
-                { label: x.kPangkatH0, apply: () => { setKind("pangkat-h0"); setSimpan(false); } },
-                { label: x.kPoli, apply: () => { setKind("polinomial"); setSimpan(false); } },
+                { label: x.kPangkat, apply: () => { setKind("pangkat"); } },
+                { label: x.kPangkatH0, apply: () => { setKind("pangkat-h0"); } },
+                { label: x.kPoli, apply: () => { setKind("polinomial"); } },
               ]}
             />
             {kind === "polinomial" && (
@@ -322,7 +335,7 @@ export function LengkungDebitClient() {
                   active={deg - 2}
                   presets={[2, 3, 4].map((d) => ({
                     label: String(d),
-                    apply: () => { setDeg(d); setSimpan(false); },
+                    apply: () => { setDeg(d); },
                   }))}
                 />
               </div>
@@ -406,7 +419,11 @@ export function LengkungDebitClient() {
               >
                 {x.simpan}
               </button>
-              {simpan && <span className="label text-[0.78rem] text-ink-3">{x.tersimpan}</span>}
+              {tersimpan !== null && (
+                <span className="label text-[0.78rem] text-ink-3">
+                  {r && tersimpan === JSON.stringify(r) ? x.tersimpan : x.tersimpanLain}
+                </span>
+              )}
             </div>
           </Block>
 

@@ -364,7 +364,7 @@ export function RegresiClient() {
       side={
         <>
           <Block heading={x.blkData}>
-            <DataEntry rows={rows} onChange={setRows} headX="x" headY="y" sample={SAMPLE_REGRESSION} />
+            <DataEntry rows={rows} onChange={setRows} headX="x" headY="y" sample={SAMPLE_REGRESSION} reset />
           </Block>
 
           <Block heading={x.blkTampilan}>

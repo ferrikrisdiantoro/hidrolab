@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useLang } from "@/lib/i18n";
+import { ResetButton, useResetGuard } from "./ResetScope";
 import { parsePairs, type Pt } from "@/lib/discharge";
 
 /**
@@ -87,6 +88,7 @@ export function DataEntry({
   headY,
   sample,
   maxHeight = "16rem",
+  reset = false,
 }: {
   rows: Row[];
   onChange: (rows: Row[]) => void;
@@ -94,12 +96,17 @@ export function DataEntry({
   headY: string;
   sample: Pt[];
   maxHeight?: string;
+  /** Tampilkan tombol Reset lembar di deret tombol tabel (lembar tanpa InputTable). */
+  reset?: boolean;
 }) {
   const { lang } = useLang();
   const x = TXT[lang];
   const berkas = useRef<HTMLInputElement>(null);
   const [pesanBerkas, setPesanBerkas] = useState<string | null>(null);
   const { pts, bad, off } = ptsFromRows(rows);
+  // Isi yang berbeda dari data contoh tidak bisa dikembalikan Reset tanpa
+  // hilang, jadi Reset lembar menanyakan dulu.
+  useResetGuard(JSON.stringify(rows) !== JSON.stringify(rowsFromPts(sample)));
 
   const ubah = (i: number, k: "x" | "y", v: string) => {
     const baru = rows.slice();
@@ -200,6 +207,7 @@ export function DataEntry({
         >
           {x.kosongkan}
         </button>
+        {reset && <ResetButton inline />}
         <input
           ref={berkas}
           type="file"

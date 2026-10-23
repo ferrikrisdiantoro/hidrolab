@@ -14,6 +14,7 @@ import {
   Term,
 } from "@/components/ui";
 import { DataEntry, ptsFromRows, rowsFromPts, type Row } from "@/components/DataEntry";
+import { useResetGuard } from "@/components/ResetScope";
 import { useCanvas } from "@/lib/useCanvas";
 import {
   drawStructure,
@@ -186,6 +187,10 @@ export function DebitPenampangClient() {
   const [Wd, setWd] = useState(2);
   const [Hc, setHc] = useState(1.5);
   const [rows, setRows] = useState<Row[]>(rowsFromPts(SAMPLE_SECTION));
+  // Tabel penampang alam tetap tersimpan walau bentuk lain sedang dipilih
+  // (DataEntry-nya tidak terpasang), jadi penjaga Reset dipasang di sini.
+  const [awalRows] = useState(rows);
+  useResetGuard(rows !== awalRows);
   const [H, setH] = useState(0.5);
   const [Spm, setSpm] = useState(1);
   const [n, setN] = useState(0.013);

@@ -22,6 +22,7 @@ export function LabShell({
   side,
   verification,
   below,
+  status,
 }: {
   sheet: string;
   subject: string;
@@ -32,6 +33,11 @@ export function LabShell({
   /** Blok verifikasi, ditaruh sebelum dasar perhitungan */
   verification?: ReactNode;
   below?: ReactNode;
+  /**
+   * Penunjuk keadaan di atas gambar, misalnya RegimeScale. Ikut menempel
+   * bersama gambarnya, karena keduanya dibaca bersamaan saat menggeser.
+   */
+  status?: ReactNode;
 }) {
   const t = str(useLang().lang);
 
@@ -55,7 +61,7 @@ export function LabShell({
         </div>
       </header>
 
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
+      <div className="grid grid-cols-1 gap-7 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
         {/*
           Gambar menempel, kartu di sampingnya yang bergerak.
 
@@ -69,8 +75,11 @@ export function LabShell({
           karena di bawah itu kolomnya bertumpuk dan gambar yang menempel justru
           akan menutupi masukannya.
         */}
-        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">{drawing}</div>
-        <aside className="flex flex-col gap-6">{side}</aside>
+        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+          {status && <div className="mb-3">{status}</div>}
+          {drawing}
+        </div>
+        <aside className="flex min-w-0 flex-col gap-6">{side}</aside>
       </div>
 
       {verification && <div className="mt-9">{verification}</div>}
@@ -98,8 +107,8 @@ export function Basis({
   const t = str(useLang().lang);
 
   return (
-    <div className="grid gap-8 border-t border-ink pt-3 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
-      <div>
+    <div className="grid grid-cols-1 gap-8 border-t border-ink pt-3 lg:grid-cols-[minmax(0,1.62fr)_minmax(310px,0.72fr)]">
+      <div className="min-w-0">
         <h2 className="stencil mb-3">{t.blkBasis}</h2>
         <div className="flex flex-col gap-2.5">{equations}</div>
         <p className="mt-4 max-w-[64ch] text-[0.94rem] leading-[1.6] text-ink-2">

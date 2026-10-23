@@ -4,22 +4,25 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawEnergy } from "@/lib/drawEnergy";
 import {
+  G,
   REGIME_LABEL,
   classifyRegime,
   criticalDepth,
   fmt,
+  frictionSlope,
   froude,
   normalDepth,
   normalDepthReachable,
@@ -27,7 +30,7 @@ import {
   slopeType,
   specificEnergy,
 } from "@/lib/hydraulics";
-import { C } from "@/lib/theme";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
@@ -102,6 +105,29 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Batas pita Froude diturunkan dari batas classifyRegime, bukan ditulis 1
+ * bulat. Model menggolongkan rezim dari y/yc dengan pita ±2 %, dan untuk
+ * saluran persegi Fr = (yc/y)^1,5 tepat (V = q/y, yc³ = q²/g), jadi
+ * y/yc = 1,02 setara Fr = 1,02^-1,5 dan y/yc = 0,98 setara Fr = 0,98^-1,5.
+ * Dengan begitu penanda tidak pernah berada di pita "kritis" sementara
+ * badge menulis "subkritis".
+ *
+ * Skala log 0,002 sampai 10 memuat seluruh jangkauan penggeser (Fr paling
+ * kecil sekitar 0,0025 pada Q 0,5, b 0,5, n 0,07, S 0,05 ‰; paling besar
+ * sekitar 5,4 pada Q 120, b 25, n 0,01, S 40 ‰), sehingga "di luar skala"
+ * hanya muncul bila kedalaman normal tidak ada dan y₀ hanyalah batas atas
+ * pencarian.
+ */
+const FR_SUB = Math.pow(1.02, -1.5);
+const FR_SUPER = Math.pow(0.98, -1.5);
+
+const NADA_REZIM: Record<string, Tone> = {
+  subkritis: "water",
+  kritis: "critical",
+  superkritis: "energy",
+};
+
 export function EnergiSpesifikClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -131,6 +157,21 @@ export function EnergiSpesifikClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Fr"
+          value={terjangkau ? Fr0 : NaN}
+          invalid={!terjangkau}
+          pesan={terjangkau ? undefined : x.tak}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: 0.002, to: FR_SUB, label: REGIME_LABEL.subkritis[lang], tone: "water" },
+            { from: FR_SUB, to: FR_SUPER, label: REGIME_LABEL.kritis[lang], tone: "critical" },
+            { from: FR_SUPER, to: 10, label: REGIME_LABEL.superkritis[lang], tone: "energy" },
+          ]}
+        />
+      }
       sheet="OC-02"
       subject={SUBJECTS.OC[lang]}
       title={x.title}
@@ -193,7 +234,20 @@ export function EnergiSpesifikClient() {
                 label={x.slope}
                 presets={[
                   { label: x.sl[0], apply: () => { setS(0.0008); setQ(12); setB(5); } },
-                  { label: x.sl[1], apply: () => { setS(0.0043); setQ(12); setB(5); setN(0.025); } },
+                  {
+                    label: x.sl[1],
+                    /* Kemiringan kritis: kemiringan gesek Manning tepat pada
+                       kedalaman kritis, jadi y₀ = yc dan Fr = 1. Dihitung dari
+                       model, bukan ditulis, supaya tetap kritis bila Q, b,
+                       atau n contoh ini diubah. (Angka lama 4,3 ‰ memberi
+                       Fr 0,67, subkritis.) */
+                    apply: () => {
+                      setQ(12);
+                      setB(5);
+                      setN(0.025);
+                      setS(frictionSlope(12, 5, criticalDepth(12 / 5), 0.025));
+                    },
+                  },
                   { label: x.sl[2], apply: () => { setS(0.02); setQ(12); setB(5); } },
                 ]}
               />
@@ -201,23 +255,8 @@ export function EnergiSpesifikClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag
-                tint={regime === "kritis" ? C.critical : C.ink2}
-                alert={regime === "kritis"}
-              >
-                {REGIME_LABEL[regime][lang]}
-              </Flag>
-              <span className="value label text-[0.78rem] text-ink-3">
-                {slope[lang]}
-              </span>
-              {!terjangkau && <Flag alert>{x.tak}</Flag>}
-            </div>
-            {!terjangkau && (
-              <div className="mb-2.5">
-                <Note>{x.takNote}</Note>
-              </div>
-            )}
+            {/* Nama rezim dan peringatan kapasitas kini satu tempat saja,
+                di kartu keadaan di bawah; jenis kemiringan ada di kop. */}
             <ResultTable
               rows={[
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical, strong: true },
@@ -232,11 +271,57 @@ export function EnergiSpesifikClient() {
                 { symbol: "q", label: x.rq, value: fmt(q, 3), unit: "m²/s" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.rq,
+                    rumus: (<><span>q =</span><Frac num="Q" den="b" /></>),
+                    isi: `${fmt(Q, 1)} / ${fmt(b, 1)}`,
+                    hasil: fmt(q, 3),
+                    satuan: "m²/s",
+                  },
+                  {
+                    judul: x.rYc,
+                    rumus: (<><span>yc =</span><Frac num="∛( q² )" den="∛g" /></>),
+                    isi: `∛( ${fmt(q, 3)}² / ${fmt(G, 2)} )`,
+                    hasil: fmt(yc, 3),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.rE0,
+                    rumus: (<><span>E₀ = y₀ +</span><Frac num="q²" den="2 · g · y₀²" /></>),
+                    // Tanpa kedalaman normal, y₀ hanya batas atas pencarian.
+                    isi: terjangkau
+                      ? `${fmt(y0, 3)} + ${fmt(q, 3)}² / ( 2 · ${fmt(G, 2)} · ${fmt(y0, 3)}² )`
+                      : "—",
+                    hasil: terjangkau ? fmt(E0, 3) : "—",
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rEmin,
+                    rumus: <span>Emin = {fmt(1.5, 1)} · yc</span>,
+                    isi: `${fmt(1.5, 1)} · ${fmt(yc, 3)}`,
+                    hasil: fmt(Emin, 3),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice({ regime, y0, yc, Fr0, E0, Emin }, lang)}</Note>
-          </Block>
+          {terjangkau ? (
+            <StateCard
+              tone={NADA_REZIM[regime]}
+              badge={REGIME_LABEL[regime][lang]}
+              {...notice({ regime, y0, yc, Fr0, E0, Emin }, lang)}
+            />
+          ) : (
+            <StateCard tone="invalid" badge={x.tak} state={x.takNote} />
+          )}
         </>
       }
       verification={<Verification checks={checksEnergy(Q, b, n, S)} />}
@@ -269,25 +354,66 @@ export function EnergiSpesifikClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama satu paragraf; hanya dipecah:
+ * kalimat pertama menyatakan keadaan, sisanya menjadi butir yang perlu
+ * diperhatikan.
+ */
 function notice(
   s: { regime: string; y0: number; yc: number; Fr0: number; E0: number; Emin: number },
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
   const y0 = fmt(s.y0, 3);
   const yc = fmt(s.yc, 3);
   const res = fmt((s.E0 - s.Emin), 3);
 
   if (lang === "en") {
     if (s.regime === "kritis")
-      return "Normal depth almost coincides with critical depth. This looks tidy on paper but is unstable in the field: a small disturbance sets the water surface swinging up and down without settling. In design, critical slope is best avoided.";
+      return {
+        state: "Normal depth almost coincides with critical depth.",
+        notice: [
+          "This looks tidy on paper but is unstable in the field: a small disturbance sets the water surface swinging up and down without settling.",
+          "In design, critical slope is best avoided.",
+        ],
+      };
     if (s.regime === "subkritis")
-      return `Normal depth ${y0} m sits above critical depth ${yc} m, so the channel is mild and the flow subcritical. Control comes from downstream — a structure below will affect the water surface far upstream. There is ${res} m of energy in reserve above the minimum.`;
-    return `Normal depth ${y0} m sits below critical depth, so the channel is steep and the flow supercritical with a Froude number of ${fmt(s.Fr0, 2)}. Control now comes from upstream, and disturbances downstream cannot travel back up. Where flow this fast meets calm tailwater, a hydraulic jump forms — exactly the condition on sheet OC-01.`;
+      return {
+        state: `Normal depth ${y0} m sits above critical depth ${yc} m, so the channel is mild and the flow subcritical.`,
+        notice: [
+          "Control comes from downstream — a structure below will affect the water surface far upstream.",
+          `There is ${res} m of energy in reserve above the minimum.`,
+        ],
+      };
+    return {
+      state: `Normal depth ${y0} m sits below critical depth, so the channel is steep and the flow supercritical with a Froude number of ${fmt(s.Fr0, 2)}.`,
+      notice: [
+        "Control now comes from upstream, and disturbances downstream cannot travel back up.",
+        "Where flow this fast meets calm tailwater, a hydraulic jump forms — exactly the condition on sheet OC-01.",
+      ],
+    };
   }
 
   if (s.regime === "kritis")
-    return "Kedalaman normal hampir berimpit dengan kedalaman kritis. Kondisi ini terlihat rapi di atas kertas, tetapi di lapangan justru tidak stabil: gangguan kecil membuat muka air berayun naik-turun tanpa henti. Dalam desain, kemiringan kritis sebaiknya dihindari.";
+    return {
+      state: "Kedalaman normal hampir berimpit dengan kedalaman kritis.",
+      notice: [
+        "Kondisi ini terlihat rapi di atas kertas, tetapi di lapangan justru tidak stabil: gangguan kecil membuat muka air berayun naik-turun tanpa henti.",
+        "Dalam desain, kemiringan kritis sebaiknya dihindari.",
+      ],
+    };
   if (s.regime === "subkritis")
-    return `Kedalaman normal ${y0} m berada di atas kedalaman kritis ${yc} m, jadi salurannya landai dan alirannya subkritis. Pengendalian datang dari hilir — bangunan di hilir akan mempengaruhi muka air jauh ke arah hulu. Cadangan energinya ${res} m di atas energi minimum.`;
-  return `Kedalaman normal ${y0} m berada di bawah kedalaman kritis, sehingga salurannya curam dan alirannya superkritis dengan Froude ${fmt(s.Fr0, 2)}. Pengendalian kini datang dari hulu, dan gangguan di hilir tidak dapat menjalar ke atas. Bila aliran secepat ini bertemu air tenang di hilir, akan terbentuk loncatan air — persis kondisi pada lembar OC-01.`;
+    return {
+      state: `Kedalaman normal ${y0} m berada di atas kedalaman kritis ${yc} m, jadi salurannya landai dan alirannya subkritis.`,
+      notice: [
+        "Pengendalian datang dari hilir — bangunan di hilir akan mempengaruhi muka air jauh ke arah hulu.",
+        `Cadangan energinya ${res} m di atas energi minimum.`,
+      ],
+    };
+  return {
+    state: `Kedalaman normal ${y0} m berada di bawah kedalaman kritis, sehingga salurannya curam dan alirannya superkritis dengan Froude ${fmt(s.Fr0, 2)}.`,
+    notice: [
+      "Pengendalian kini datang dari hulu, dan gangguan di hilir tidak dapat menjalar ke atas.",
+      "Bila aliran secepat ini bertemu air tenang di hilir, akan terbentuk loncatan air — persis kondisi pada lembar OC-01.",
+    ],
+  };
 }

@@ -47,7 +47,51 @@ export const C = {
   /* Material */
   concrete: "#3d4644",
   concreteFace: "#c3c9c6",
+
+  /* Kosakata penilaian — untuk pita rezim, badge, dan latar zona.
+     Hijau kebiruan redup = memenuhi syarat (aman, lolos, dalam batas
+     desain). Oker = masih berlaku tetapi perlu diwaspadai (mendekati
+     batas, peralihan). Keduanya BUKAN air dan BUKAN energi: jangan
+     dipakai untuk menggambar benda, hanya untuk menilai keadaan. */
+  pass: "#3f7a5a",
+  caution: "#a87a1e",
+
+  /* Isian lembut: latar pita dan zona, selalu berpasangan dengan garis
+     berwarna penuh dari kata yang sama. Isian tidak pernah berdiri
+     sendiri sebagai penanda. signalFill hanya untuk zona di luar
+     rentang berlaku, sama seperti signal. */
+  passFill: "rgba(63, 122, 90, 0.12)",
+  cautionFill: "rgba(168, 122, 30, 0.12)",
+  criticalFill: "rgba(110, 85, 149, 0.12)",
+  energyFill: "rgba(166, 64, 43, 0.12)",
+  signalFill: "rgba(192, 52, 31, 0.12)",
+  neutralFill: "rgba(83, 93, 91, 0.08)",
 } as const;
+
+/**
+ * Nada sebuah keadaan, dipakai komponen penilai (StateCard, RegimeScale,
+ * BigResult). Setiap nada memetakan ke satu kata dari kosakata di atas.
+ * "invalid" adalah merah sinyal dan HANYA boleh berarti di luar rentang
+ * berlaku; bukan untuk keadaan yang sekadar buruk atau kritis.
+ */
+export type Tone =
+  | "neutral"
+  | "water"
+  | "critical"
+  | "energy"
+  | "pass"
+  | "caution"
+  | "invalid";
+
+export const TONE: Record<Tone, { line: string; fill: string }> = {
+  neutral: { line: C.ink2, fill: C.neutralFill },
+  water: { line: C.water, fill: C.waterFill },
+  critical: { line: C.critical, fill: C.criticalFill },
+  energy: { line: C.energy, fill: C.energyFill },
+  pass: { line: C.pass, fill: C.passFill },
+  caution: { line: C.caution, fill: C.cautionFill },
+  invalid: { line: C.signal, fill: C.signalFill },
+};
 
 /** Tiga bobot garis. Tidak boleh ada nilai lain di seluruh aplikasi. */
 export const W = {

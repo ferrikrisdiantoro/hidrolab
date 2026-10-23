@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Basis, Eq, LabShell } from "@/components/LabShell";
 import { Block, Flag, InputRow, InputTable, Note, PresetRow, ResultTable, Sheet, Term } from "@/components/ui";
 import { SeriesEntry, readSeries, type SeriesRow } from "@/components/SeriesEntry";
+import { useResetGuard } from "@/components/ResetScope";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { fmt } from "@/lib/hydraulics";
@@ -270,6 +271,12 @@ export function PrediksiHujanClient() {
   const [mode, setMode] = useState<"uv" | "mv">("uv");
   const [rowsUv, setRowsUv] = useState<SeriesRow[]>(contohUv);
   const [rowsMv, setRowsMv] = useState<SeriesRow[]>(contohMv);
+  // Deret yang sudah diketik atau diunggah (di mode mana pun) membuat Reset
+  // lembar meminta konfirmasi. Pembanding: rujukan larik awal, karena setiap
+  // suntingan SeriesEntry membuat larik baru.
+  const [awalUv] = useState(rowsUv);
+  const [awalMv] = useState(rowsMv);
+  useResetGuard(rowsUv !== awalUv || rowsMv !== awalMv);
   const [uvModel, setUvModel] = useState<UvModel>("lstm");
   const [mvModel, setMvModel] = useState<MvModel>("lstm_mv");
   const [preset, setPreset] = useState<ArimaPreset>("auto");
@@ -482,7 +489,7 @@ export function PrediksiHujanClient() {
   const isian = (label: string, nilai: string, ubah: (v: string) => void) => (
     <label className="flex items-baseline gap-3 border-b border-rule-faint py-1.5">
       <span className="label w-28 shrink-0 text-[0.8rem] text-ink-2">{label}</span>
-      <input value={nilai} onChange={(e) => ubah(e.target.value)} className="label w-full bg-transparent text-[0.84rem] text-ink outline-none" />
+      <input value={nilai} onChange={(e) => ubah(e.target.value)} className="label w-full min-w-0 bg-transparent text-[0.84rem] text-ink outline-none" />
     </label>
   );
 

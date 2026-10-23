@@ -81,6 +81,24 @@ export const S = {
     thQuantity: "Besaran",
     thValue: "Nilai",
     thComputed: "Besaran terhitung",
+
+    /* komponen bersama: kotak angka, reset, kartu keadaan, hitungan */
+    inValueSuffix: "(angka)",
+    inClampedTo: "dibatasi ke",
+    inOutOfRange: "di luar rentang",
+    inNotNumber: "bukan angka",
+    inRangeHint: "Ketik angka dari",
+    inRangeTo: "sampai",
+    reset: "Reset",
+    resetTitle: "Kembalikan semua masukan lembar ini ke nilai awal",
+    resetDone: "Semua masukan dikembalikan ke nilai awal",
+    resetConfirm: "Tabel data lembar ini sudah diubah. Reset akan mengganti isinya dengan data contoh dan semua masukan kembali ke nilai awal. Lanjutkan?",
+    inRoundedTo: "dibulatkan ke",
+    inReadAs: "dibaca sebagai",
+    stateNow: "kondisi saat ini",
+    offScale: "di luar skala",
+    showCalc: "Tunjukkan hitungan",
+    hideCalc: "Sembunyikan hitungan",
   },
 
   en: {
@@ -151,6 +169,23 @@ export const S = {
     thQuantity: "Quantity",
     thValue: "Value",
     thComputed: "Computed quantity",
+
+    inValueSuffix: "(value)",
+    inClampedTo: "limited to",
+    inOutOfRange: "outside",
+    inNotNumber: "not a number",
+    inRangeHint: "Type a number from",
+    inRangeTo: "to",
+    reset: "Reset",
+    resetTitle: "Return every input on this sheet to its starting value",
+    resetDone: "All inputs returned to their starting values",
+    resetConfirm: "The data table on this sheet has been changed. Reset will replace it with the sample data and return every input to its starting value. Continue?",
+    inRoundedTo: "rounded to",
+    inReadAs: "read as",
+    stateNow: "current state",
+    offScale: "off scale",
+    showCalc: "Show calculation",
+    hideCalc: "Hide calculation",
   },
 } as const;
 
