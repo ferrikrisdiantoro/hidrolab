@@ -547,6 +547,7 @@ export function gvfProfile(
   // Sisi kedalaman kritis tempat profil ini berada. Ia tidak boleh berpindah
   // sisi, karena berpindah sisi berarti melintasi kondisi kritis.
   const sisi = yControl >= yc ? 1 : -1;
+  const sisiY0 = Number.isFinite(y0) ? Math.sign(yControl - y0) : 0;
   let endsAtCritical = false;
 
   for (let i = 0; i <= steps; i++) {
@@ -568,7 +569,17 @@ export function gvfProfile(
     const k2 = gvfSlope(Q, b, clampDepth(y + (dx * k1) / 2, yc), n, S0);
     const k3 = gvfSlope(Q, b, clampDepth(y + (dx * k2) / 2, yc), n, S0);
     const k4 = gvfSlope(Q, b, clampDepth(y + dx * k3, yc), n, S0);
-    const yBaru = y + (dx / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+    let yBaru = y + (dx / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+
+    /*
+     * Kedalaman normal juga tidak boleh dilompati. Profil mendekati y0
+     * secara asimtotik (Chow 1959, Bab 9) dan tidak menyeberanginya. Dekat
+     * kemiringan kritis, y0 dan yc hanya terpaut beberapa persen dan satu
+     * langkah tetap bisa melompati y0; tanpa penjaga ini M1 lalu menelusur
+     * seperti M2 sampai kritis dan dilaporkan berakhir di kritis, yang
+     * mustahil (uji gvfY0.test.ts).
+     */
+    if (sisiY0 !== 0 && Math.sign(yBaru - y0) !== sisiY0) yBaru = y0;
 
     /*
      * Penelusuran berhenti di kedalaman kritis, tidak diteruskan ke seberang.
@@ -756,6 +767,13 @@ export type SlopeBreak = {
    * ikut tergenang. Ini keadaan yang berbeda, bukan kegagalan hitungan.
    */
   jumpDrowned: boolean;
+  /**
+   * Benar bila profil M3 belum mencapai kedalaman konjugatnya di dalam ruas
+   * hilir yang digambar: loncatan berdiri di HILIR ujung bentang, kebalikan
+   * dari jumpDrowned. Dulu keadaan ini tidak bernama dan lembarnya menyebutnya
+   * tenggelam (temuan insinyur-hidraulika 23 Okt 2026).
+   */
+  jumpBeyondReach: boolean;
 };
 
 /**
@@ -857,6 +875,7 @@ export function slopeBreak(
   let jumpTo: number | null = null;
   let jumpFrom: number | null = null;
   let jumpDrowned = false;
+  let jumpBeyondReach = false;
 
   if (mildA && !mildB) {
     // Kendali tepat di patahan. Sedikit di atas dan di bawah kritis dipakai
@@ -903,6 +922,7 @@ export function slopeBreak(
     if (jumpAt === null && pts.length > 0 && konj(pts[0].y) < y0b) {
       jumpDrowned = true;
     }
+    if (jumpAt === null && !jumpDrowned && pts.length > 0) jumpBeyondReach = true;
   }
 
   return {
@@ -916,6 +936,7 @@ export function slopeBreak(
     jumpTo,
     jumpFrom,
     jumpDrowned,
+    jumpBeyondReach,
   };
 }
 
