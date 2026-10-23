@@ -670,6 +670,13 @@ export type BackwaterExtent = {
   y0: number;
   /** Benar bila pengaruhnya belum habis pada bentang terpanjang yang dicari */
   beyondSearch: boolean;
+  /**
+   * Benar pada saluran curam dengan muka air kendali di atas kritis (S1):
+   * pengaruh bangunan berhenti di loncatan air, dan `distance` adalah jarak
+   * dari bangunan ke loncatan itu (0 bila loncatannya terdorong sampai ke
+   * bangunan), bukan jarak sampai tinggal sekian persen
+   */
+  endsInJump: boolean;
 };
 
 /**
@@ -693,7 +700,48 @@ export function backwaterExtent(
   const y0 = normalDepth(Q, b, n, S0);
   const rise = yControl - y0;
   if (Math.abs(rise) < 1e-9) {
-    return { distance: 0, rise: 0, y0, beyondSearch: false };
+    return { distance: 0, rise: 0, y0, beyondSearch: false, endsInJump: false };
+  }
+
+  /*
+   * Saluran curam, muka air kendali di atas kritis (profil S1). Di hulunya
+   * aliran superkritis pada y0 dan tidak dapat merasakan bangunan; pengaruh
+   * bangunan berhenti di loncatan air, tempat kedalaman S1 sama dengan
+   * kedalaman konjugat y0 menurut Belanger (Chow 1959 Bab 9, profil S1
+   * diawali loncatan). Sebelumnya profil S1 dibaca seperti M1 sampai
+   * "tinggal satu persen", dan karena S1 berakhir di kritis, bukan di y0,
+   * hasilnya "> 500 km" (Q 80, b 25, n 0,010, S0 10 permil).
+   */
+  const qSat = Q / b;
+  const ycS = criticalDepth(qSat);
+  if (y0 < ycS && yControl > ycS) {
+    const Fr0 = froude(qSat / y0, y0);
+    const y2 = conjugateDepth(y0, Fr0);
+    if (yControl <= y2) {
+      return { distance: 0, rise, y0, beyondSearch: false, endsInJump: true };
+    }
+    // Muka air S1 hampir datar (dy/dx mendekati S0), jadi panjangnya kira-
+    // kira (yControl − yc)/S0; bentang dibuat empat kali itu supaya profil
+    // pasti sampai kritis, dengan langkah rapat.
+    const bentang = Math.min(maxLength, Math.max(10, (4 * (yControl - ycS)) / S0));
+    const pr = gvfProfile(Q, b, n, S0, yControl, bentang, 5000);
+    const turun = [...pr.points].reverse();
+    const xKendali = turun[0].x;
+    for (let i = 1; i < turun.length; i++) {
+      if (turun[i].y <= y2 && turun[i - 1].y > y2) {
+        const a = turun[i - 1];
+        const c = turun[i];
+        const f = (y2 - a.y) / (c.y - a.y);
+        return {
+          distance: Math.abs(xKendali - (a.x + (c.x - a.x) * f)),
+          rise,
+          y0,
+          beyondSearch: false,
+          endsInJump: true,
+        };
+      }
+    }
+    return { distance: maxLength, rise, y0, beyondSearch: true, endsInJump: true };
   }
 
   const target = y0 + rise * fraction;
@@ -717,10 +765,11 @@ export function backwaterExtent(
         rise,
         y0,
         beyondSearch: false,
+        endsInJump: false,
       };
     }
   }
-  return { distance: maxLength, rise, y0, beyondSearch: true };
+  return { distance: maxLength, rise, y0, beyondSearch: true, endsInJump: false };
 }
 
 /* ------------------------------------------------------------------ *
@@ -2040,7 +2089,12 @@ export type FlumeResult = {
    */
   controlled: boolean;
   outOfRange: boolean;
-  reason: "" | "HL-kecil" | "HL-besar" | "Fr-besar" | "tak-terkendali";
+  /**
+   * "leher-lebar": leher lebih lebar daripada saluran datangnya (b > B),
+   * bukan flum lagi. b = B tetap sah (flum dengan penyempitan dasar saja,
+   * Bos 1989 bab 7)
+   */
+  reason: "" | "HL-kecil" | "HL-besar" | "Fr-besar" | "tak-terkendali" | "leher-lebar";
 };
 
 /** Batas bawah perbandingan tinggi energi terhadap panjang leher. */
@@ -2094,8 +2148,15 @@ export function flumeDischarge(
   const k = A1 > 0 ? Math.pow(Cd * FLUME_C * bThroat, 2) / (2 * G * A1 * A1) : 0;
   const puncak = k > 0 ? 1 / Math.sqrt(3 * k) : Number.POSITIVE_INFINITY;
   const terkendali = h1 > 0 && (k === 0 || puncak - h1 - k * puncak * puncak * puncak >= 0);
+  /*
+   * Leher yang lebih lebar daripada saluran datangnya bukan penyempitan:
+   * persamaan kecepatan datang masih memberi akar (h1 0,30, b 5, B 1, p 1,5
+   * memberi 1,72 m³/s), tetapi air tidak dapat melebar ke leher yang lebih
+   * lebar dari dindingnya sendiri. Ditolak, bukan dipotong ke B.
+   */
+  const leherLebar = bThroat > bApproach + 1e-12;
 
-  if (!terkendali) {
+  if (!terkendali || leherLebar) {
     return {
       Q: 0,
       H1: h1,
@@ -2105,7 +2166,7 @@ export function flumeDischarge(
       tailLimit: p,
       controlled: false,
       outOfRange: true,
-      reason: "tak-terkendali",
+      reason: terkendali ? "leher-lebar" : "tak-terkendali",
     };
   }
 
@@ -2667,8 +2728,20 @@ export function rouseConcentration(
 export type RouseResult = {
   ws: number;
   Z: number;
-  /** Cara angkut yang berlaku pada bilangan Rouse itu */
+  /**
+   * @deprecated Penamaannya bergeser satu golongan (Z 1,2-2,5 disebut
+   * "dasar", Z >= 2,5 "tidak-terangkut"). Pakai `transport`. Dipertahankan
+   * sampai Client SD-02 pindah, supaya label lembar tidak rusak di antaranya
+   */
   mode: "melayang-penuh" | "melayang-sebagian" | "dasar" | "tidak-terangkut";
+  /**
+   * Cara angkut menurut tabel golongan bilangan Rouse: Z < 0,8 muatan bilas
+   * (wash load), 0,8-1,2 melayang penuh (100 %), 1,2-2,5 melayang sebagian
+   * (50 %), >= 2,5 angkutan dasar (bed load). Tabel dari Wikipedia "Rouse
+   * number" (dibuka 23 Okt 2026), yang mengutip Whipple (2004), MIT OCW
+   * 12.163 Course Notes bab IV; tabelnya sendiri tanpa rujukan halaman
+   */
+  transport: "muatan-bilas" | "melayang-penuh" | "melayang-sebagian" | "dasar";
   /** Perbandingan kepekatan di setengah kedalaman terhadap acuan */
   midRatio: number;
   /** Bagian muatan yang berada di separuh bawah kedalaman */
@@ -2704,6 +2777,14 @@ export function rouseState(
         : Z < ROUSE_BEDLOAD
           ? "dasar"
           : "tidak-terangkut";
+  const transport: RouseResult["transport"] =
+    Z < ROUSE_FULL
+      ? "muatan-bilas"
+      : Z < ROUSE_PARTIAL
+        ? "melayang-penuh"
+        : Z < ROUSE_BEDLOAD
+          ? "melayang-sebagian"
+          : "dasar";
 
   // Bagian muatan di separuh bawah, dihitung dengan aturan trapesium pada
   // seratus pias. Pias dipilih tetap supaya angkanya tidak bergoyang saat
@@ -2725,6 +2806,7 @@ export function rouseState(
     ws,
     Z,
     mode,
+    transport,
     midRatio: rouseConcentration(h / 2, h, a, Z),
     lowerHalf: total > 0 ? bawah / total : 1,
   };
@@ -2930,8 +3012,22 @@ export type HydrographResult = {
   volume: number;
   /** Kedalaman limpasan yang dihitung balik dari isi hidrograf, mm */
   runoffDepth: number;
-  /** Benar bila hujannya lebih pendek daripada seperlima waktu naik */
+  /**
+   * @deprecated Selalu false. Dulu "hujan lebih pendek dari seperlima waktu
+   * naik", yang terbalik arti: hujan pendek bukan masalah, pias yang panjang
+   * terhadap tc yang masalah. Pakai `blockTooCoarse`. Dipertahankan hanya
+   * sampai Client HY-02 berhenti memakainya
+   */
   burstTooShort: boolean;
+  /** Lama satu pias hujan ΔD, jam */
+  blockLength: number;
+  /**
+   * Benar bila ΔD > 0,25 Tp (NEH 630 Bab 16 hlm. 16A-3: bentuk hidrograf
+   * satuan tidak terwakili). Sesudah pias mengikuti tc, hanya dapat benar
+   * bila ΔD dipotong ke sejam pada tc besar; pada rentang penggeser HY-02
+   * selalu false
+   */
+  blockTooCoarse: boolean;
 };
 
 /**
@@ -3001,6 +3097,11 @@ export function scsPeakRate(areaKm2: number, tp: number): number {
  *
  * Rujukan: Chow, Maidment & Mays (1988), Applied Hydrology, Bab 7.
  */
+/** ΔD = 0,133 Tc, NEH 630 Bab 16 pers. 16A-13 */
+export const SCS_BLOCK_TC = 0.133;
+/** ΔD tidak lebih dari 0,25 Tp, NEH 630 Bab 16 hlm. 16A-3 */
+export const SCS_BLOCK_MAX_TP = 0.25;
+
 export function floodHydrograph(
   /** Hujan total, mm */
   P: number,
@@ -3014,13 +3115,25 @@ export function floodHydrograph(
   steps = 400
 ): HydrographResult {
   const Pe = scsEffectiveRain(P, CN);
-  // Waktu naik hidrograf satuan untuk pias hujan sejam: tp = 0,5 dt + 0,6 tc.
-  const dtPias = 1;
+  /*
+   * Lama pias hujan ΔD mengikuti waktu konsentrasi, bukan tetap sejam.
+   * NEH 630 Bab 16 (USDA NRCS, Maret 2007), Lampiran 16A hlm. 16A-3:
+   * Tp = ΔD/2 + L (pers. 16A-7), L = 0,6 Tc, ΔD = 0,133 Tc (pers. 16A-13),
+   * dan "it should be no greater than 0.25 Tp". Pias sejam pada tc 0,3 jam
+   * memberi puncak 342 m³/s untuk hujan tetap yang seharusnya mendatar di
+   * i A = 277,8 m³/s (+23 %), dengan sisi datar bergerigi.
+   *
+   * Pias tidak dibuat lebih panjang dari sejam (lama hujan dan penggesernya
+   * dalam jam), dan lamanya dibulatkan supaya bilangan pias bulat mengisi
+   * seluruh lama hujan tepat.
+   */
+  const dtTarget = Math.min(1, SCS_BLOCK_TC * Math.max(tc, 1e-6));
+  const nPias = Math.max(1, Math.ceil(duration / dtTarget - 1e-9));
+  const dtPias = duration > 0 ? duration / nPias : dtTarget;
   const tp = 0.5 * dtPias + 0.6 * tc;
   const qp = scsPeakRate(areaKm2, tp);
   const tb = 2.67 * tp;
 
-  const nPias = Math.max(1, Math.round(duration / dtPias));
   const perPias = Pe / nPias;
   const tAkhir = duration + tb;
   const dt = tAkhir / steps;
@@ -3056,7 +3169,9 @@ export function floodHydrograph(
     effectiveRain: Pe,
     volume,
     runoffDepth: areaKm2 > 0 ? (volume / (areaKm2 * 1e6)) * 1000 : 0,
-    burstTooShort: duration < tp / 5,
+    burstTooShort: false,
+    blockLength: dtPias,
+    blockTooCoarse: dtPias > SCS_BLOCK_MAX_TP * tp,
   };
 }
 
@@ -3136,30 +3251,65 @@ export function reservoirRouting(
     storage: 0,
   });
 
-  for (let i = 1; i < inflow.length; i++) {
-    const dt = (inflow[i].t - inflow[i - 1].t) * 3600;
-    const I1 = inflow[i - 1].Q;
-    const I2 = inflow[i].Q;
-    const O1 = keluar(h);
-    const S1 = tampung(h);
+  // Kepala muka air yang memberi keluaran O, kebalikan rumus ambang.
+  const kepalaUntuk = (O: number) =>
+    O <= 0 ? 0 : Math.pow(O / ((2 / 3) * Cd * crestWidth * Math.sqrt(2 * G)), 2 / 3);
 
-    // Yang dicari h2 yang memenuhi:
-    //   S(h2) + dt O(h2)/2 = S1 - dt O1/2 + dt (I1 + I2)/2
-    const kanan = S1 - (dt * O1) / 2 + (dt * (I1 + I2)) / 2;
-    let lo = 0;
-    let hi = Math.max(h * 2, 1);
-    while (tampung(hi) + (dt * keluar(hi)) / 2 < kanan && hi < 1e4) hi *= 2;
-    for (let k = 0; k < 200; k++) {
-      const mid = (lo + hi) / 2;
-      if (tampung(mid) + (dt * keluar(mid)) / 2 < kanan) lo = mid;
-      else hi = mid;
-      if (hi - lo < 1e-12) break;
+  for (let i = 1; i < inflow.length; i++) {
+    const dtSelang = (inflow[i].t - inflow[i - 1].t) * 3600;
+    const Ia = inflow[i - 1].Q;
+    const Ib = inflow[i].Q;
+
+    // Trapesium (Crank-Nicolson) stabil tetapi berosilasi bila langkahnya
+    // jauh di atas tetapan waktu waduk K = dS/dO = As h / (1,5 O): waduk
+    // yang tampungannya hampir nol lalu memberi O > I, padahal keluaran
+    // waduk tidak pernah melampaui masukannya (Chow, Maidment & Mays 1988,
+    // Applied Hydrology §8.2, puncak keluar jatuh di perpotongan kedua
+    // kurva). Karena itu tiap selang dipecah menjadi m sublangkah dengan
+    // dt <= 0,5 K, I diinterpolasi lurus, K dihitung pada h* tempat
+    // O(h*) = maks(I1, I2, O1). Titik keluaran tetap pada kisi masukan.
+    const hBintang = kepalaUntuk(Math.max(Ia, Ib, keluar(h)));
+    const K = hBintang > 0 ? (surfaceArea * hBintang) / (1.5 * keluar(hBintang)) : Infinity;
+    const m = Math.min(5000, Math.max(1, Math.ceil(dtSelang / (0.5 * K))));
+    const dt = dtSelang / m;
+
+    for (let j = 0; j < m; j++) {
+      const I1 = Ia + ((Ib - Ia) * j) / m;
+      const I2 = Ia + ((Ib - Ia) * (j + 1)) / m;
+      const O1 = keluar(h);
+      const S1 = tampung(h);
+
+      // Yang dicari h2 yang memenuhi:
+      //   S(h2) + dt O(h2)/2 = S1 - dt O1/2 + dt (I1 + I2)/2
+      // Ruas kiri As h + (dt/2) c h^1,5 naik dan cembung terhadap h, jadi
+      // Newton yang dimulai dari kanan akarnya (h = kanan/As, tempat ruas
+      // kiri sudah >= kanan) turun monoton ke akar tanpa melompatinya.
+      // Bagi dua 200 kali per sublangkah terlalu lambat untuk penggeser
+      // begitu tiap selang dipecah ratusan sublangkah.
+      const kanan = S1 - (dt * O1) / 2 + (dt * (I1 + I2)) / 2;
+      if (kanan <= 0) {
+        h = 0;
+        continue;
+      }
+      let hh = kanan / surfaceArea;
+      for (let k = 0; k < 100; k++) {
+        const fh = tampung(hh) + (dt * keluar(hh)) / 2 - kanan;
+        const turunan = surfaceArea + (dt * 1.5 * keluar(hh)) / (2 * Math.max(hh, 1e-300));
+        const baru = hh - fh / turunan;
+        if (!(baru > 0)) {
+          hh = hh / 2;
+          continue;
+        }
+        const selesai = Math.abs(baru - hh) <= 1e-14 * hh;
+        hh = baru;
+        if (selesai) break;
+      }
+      h = hh;
     }
-    h = (lo + hi) / 2;
 
     points.push({
       t: inflow[i].t,
-      inflow: I2,
+      inflow: Ib,
       outflow: keluar(h),
       head: h,
       storage: tampung(h),
@@ -3186,6 +3336,34 @@ export function reservoirRouting(
     maxStorage: points.reduce((m, p) => Math.max(m, p.storage), 0),
     overtops: maxHead > freeboard,
   };
+}
+
+/**
+ * Hidrograf masuk segitiga untuk HY-01: naik lurus dari 0 ke Ip pada tp,
+ * turun lurus ke 0 pada tb = 2,67 tp (bentuk hidrograf satuan segitiga SCS,
+ * NEH 630 Bab 16), dicatat sampai 1,6 tb. Kisi rata n selang ditambah titik
+ * t = tp, supaya puncak yang dicatat persis Ip (kisi rata saja melewatkan
+ * puncak: Ip 120, tp 6 tercatat 118,95).
+ */
+export function triangularInflow(
+  peak: number,
+  tPeak: number,
+  n = 160
+): { t: number; Q: number }[] {
+  const tb = 2.67 * tPeak;
+  const bentuk = (tt: number) =>
+    tt <= 0 || tt >= tb ? 0 : tt <= tPeak ? tt / tPeak : (tb - tt) / (tb - tPeak);
+  const pts: { t: number; Q: number }[] = [];
+  let sudah = false;
+  for (let i = 0; i <= n; i++) {
+    const tt = (tb * 1.6 * i) / n;
+    if (!sudah && tt >= tPeak) {
+      if (tt > tPeak) pts.push({ t: tPeak, Q: peak });
+      sudah = true;
+    }
+    pts.push({ t: tt, Q: tt === tPeak ? peak : peak * bentuk(tt) });
+  }
+  return pts;
 }
 
 /* ------------------------------------------------------------------ *
@@ -3482,7 +3660,14 @@ export type MarkRecaptureResult = {
   /** Bagian populasi yang tertandai */
   markedFraction: number;
   /** Benar bila tangkapan ulangnya terlalu sedikit untuk dipercaya */
-  tooFewRecaptures: boolean;
+  tooFewRecaptures: boolean;  /**
+   * Benar bila tangkapan ulang bertanda melebihi yang ditandai atau
+   * tangkapan keduanya (m > min(M, n)). Masukan seperti itu mustahil:
+   * ragamnya negatif dan Chapman melampaui Petersen. Angka lain tetap
+   * dihitung dari rumusnya supaya gambar tidak putus; Client wajib menahan
+   * hasil dengan tanda tidak berlaku.
+   */
+  impossible: boolean;
 };
 
 /** Banyaknya tangkapan ulang terkecil yang masih dianggap layak dipercaya. */
@@ -3527,6 +3712,7 @@ export function markRecapture(
     ciHigh: chapman + 1.96 * se,
     markedFraction: chapman > 0 ? M / chapman : 0,
     tooFewRecaptures: m < RECAPTURE_MIN,
+    impossible: m > Math.min(M, n),
   };
 }
 
@@ -4122,7 +4308,37 @@ export type CulvertResult = {
    * HDS-5 sendiri menyatakan caranya hanya pendekatan di daerah itu.
    */
   flowsFull: boolean;
+  /** Kedalaman kritis di pipa bulat, meter (tidak pernah melampaui D) */
+  criticalDepth: number;
+  /** Energi spesifik pada kedalaman kritis Hc = dc + Vc²/2g, meter */
+  criticalHead: number;
+  /** Ku Q/(A D^0,5), peubah bagan kendali masuk HDS-5 */
+  inletParameter: number;
+  /** Bentuk kendali masuk yang dipakai HDS-5 pada X itu */
+  inletForm: "tak-terendam" | "peralihan" | "terendam";
+  /**
+   * Benar bila HW kendali masuk keluar di bawah kedalaman kritis di pipa.
+   * Terjadi pada debit kecil di pipa besar yang curam: suku Ks·S (pers. A.1)
+   * melampaui Hc sehingga HW bisa negatif. Itu di luar bagan HDS-5, jadi
+   * angkanya tidak dipakai sebagai jawaban; Client wajib menandainya.
+   * (tinjauan insinyur-hidraulika, 23 Okt 2026)
+   */
+  inletBelowChart: boolean;
 };
+
+/*
+ * Tetapan kendali sisi masuk FHWA HDS-5 edisi ke-3 (2012), Lampiran A:
+ * Ku dan Ks dari §A.2.1, K/M/c/Y dari Tabel A.1 Chart 1 skala 1 (pipa beton
+ * bulat, mulut persegi berdinding kepala), batas X dari §A.2.1 dan §A.2.2.
+ */
+export const HDS5_KU = 1.811;
+export const HDS5_KS = -0.5;
+export const HDS5_K = 0.0098;
+export const HDS5_M = 2.0;
+export const HDS5_C = 0.0398;
+export const HDS5_Y = 0.67;
+export const HDS5_X_UNSUB = 3.5;
+export const HDS5_X_SUB = 4.0;
 
 /** Perbandingan tinggi muka air terhadap tinggi gorong-gorong yang lazim jadi batas rancangan. */
 export const CULVERT_HW_D_MAX = 1.5;
@@ -4170,28 +4386,72 @@ export function culvert(
   const V = A > 0 ? Q / A : 0;
 
   /*
-   * Kendali sisi masuk, bentuk lubang terendam yang dipakai HDS-5 pada
-   * HW/D di atas kira-kira satu:
-   *
-   *   HW = D [ (Q / (C A sqrt(g D)))^2 + k ]
-   *
-   * Tetapan diambil untuk mulut ujung terpotong sejajar timbunan.
+   * Kedalaman kritis di pipa bulat, dari Q²/g = A³/T, dicari dengan bagi dua
+   * pada 0 < y < D. A³/T naik dari nol ke tak hingga saat y mendekati D,
+   * jadi akarnya selalu ada dan dc tidak pernah melampaui D (HDS-5 §3.3.3:
+   * "Critical depth (dc) cannot exceed D").
    */
-  const bilangan = A > 0 && D > 0 ? Q / (A * Math.sqrt(G * D)) : 0;
-  const inletHeadwater = D * (0.44 * bilangan * bilangan + 0.5 * bilangan + 0.05);
+  const geomLingkaran = (y: number) => {
+    const th = 2 * Math.acos(1 - (2 * y) / D);
+    return { A: ((D * D) / 8) * (th - Math.sin(th)), T: D * Math.sin(th / 2) };
+  };
+  let dc = 0;
+  if (Q > 0 && D > 0) {
+    let lo = 0;
+    let hi = D;
+    for (let i = 0; i < 100; i++) {
+      const mid = (lo + hi) / 2;
+      const g = geomLingkaran(mid);
+      if ((g.A * g.A * g.A) / Math.max(g.T, 1e-300) < (Q * Q) / G) lo = mid;
+      else hi = mid;
+    }
+    dc = (lo + hi) / 2;
+  }
+  const gc = dc > 0 ? geomLingkaran(dc) : { A: 0, T: 0 };
+  const Vc = gc.A > 0 ? Q / gc.A : 0;
+  const Hc = dc + (Vc * Vc) / (2 * G);
+
+  /*
+   * Kendali sisi masuk menurut FHWA HDS-5 edisi ke-3 (FHWA-HIF-12-026,
+   * 2012), Lampiran A §A.2:
+   *
+   *   tak terendam (pers. A.1, Form 1):  HW/D = Hc/D + K (Ku Q/(A D^0,5))^M + Ks S
+   *   terendam (pers. A.3):              HW/D = c (Ku Q/(A D^0,5))² + Y + Ks S
+   *
+   * Ku = 1,811 (SI), Ks = −0,5. Tabel A.1, Chart 1 skala 1, pipa beton bulat
+   * mulut persegi berdinding kepala: K 0,0098, M 2,0, c 0,0398, Y 0,67.
+   * A.1 berlaku sampai Ku Q/(A D^0,5) sekitar 3,5, A.3 di atas sekitar 4,0.
+   * HDS-5 mengisi selang di antaranya dengan lengkung yang menyinggung
+   * keduanya; di sini diinterpolasi lurus terhadap X (pilihan model, bukan
+   * dari HDS-5). Rumus lama D(0,44B² + 0,5B + 0,05) tidak cocok dengan
+   * bentuk HDS-5 mana pun dan memberi HW di bawah Hc (Q 2, D 1,2, S 0,01:
+   * 0,510 m, sedangkan A.1 memberi 1,211 m).
+   */
+  const X = A > 0 && D > 0 ? (HDS5_KU * Q) / (A * Math.sqrt(D)) : 0;
+  const takTerendam = () =>
+    Hc / Math.max(D, 1e-12) + HDS5_K * Math.pow(X, HDS5_M) + HDS5_KS * S;
+  const terendam = () => HDS5_C * X * X + HDS5_Y + HDS5_KS * S;
+  let hwPerD: number;
+  if (X <= HDS5_X_UNSUB) hwPerD = takTerendam();
+  else if (X >= HDS5_X_SUB) hwPerD = terendam();
+  else {
+    const f = (X - HDS5_X_UNSUB) / (HDS5_X_SUB - HDS5_X_UNSUB);
+    hwPerD = (1 - f) * takTerendam() + f * terendam();
+  }
+  const inletHeadwater = Q > 0 ? D * hwPerD : 0;
 
   /*
    * Kendali sisi keluar, persamaan energi sepanjang pipa:
    *
-   *   HW = TW + H - S L,   H = (Ke + 2g n^2 L / R^(4/3) + 1) V^2 / 2g
+   *   HW = ho + H - S L,   H = (Ke + 2g n^2 L / R^(4/3) + 1) V^2 / 2g
    *
-   * Muka air hilir dipakai bila melebihi setengah tinggi pipa; bila tidak,
-   * dipakai kedalaman kritis semu setengah tinggi pipa, seperti pada HDS-5.
+   * ho = maks(TW, (dc + D)/2), HDS-5 §3.3.3 Outlet Control. Sebelumnya
+   * maks(TW, D/2), yang disebut "seperti pada HDS-5" padahal bukan.
    */
   const R = D / 4;
   const hf =
     ((Ke + (2 * G * n * n * L) / Math.pow(R, 4 / 3) + 1) * V * V) / (2 * G);
-  const ho = Math.max(tailwater, D / 2);
+  const ho = Math.max(tailwater, (dc + D) / 2);
   const outletHeadwater = ho + hf - S * L;
 
   const headwater = Math.max(inletHeadwater, outletHeadwater);
@@ -4206,6 +4466,11 @@ export function culvert(
     hwRatio: D > 0 ? headwater / D : 0,
     overtops: headwater > roadHeight,
     fishBarrier: V > CULVERT_FISH_VELOCITY,
+    criticalDepth: dc,
+    criticalHead: Hc,
+    inletParameter: X,
+    inletForm: X <= HDS5_X_UNSUB ? "tak-terendam" : X >= HDS5_X_SUB ? "terendam" : "peralihan",
+    inletBelowChart: Q > 0 && inletHeadwater < dc,
   };
 }
 
@@ -4224,6 +4489,11 @@ export type BridgeResult = {
   velocityBetween: number;
   /** Kedalaman gerusan setempat di hidung pilar, meter */
   scourDepth: number;
+  /**
+   * Benar bila gerusan dipotong ke batas atas HEC-18 pers. 7.2 (2,4 a bila
+   * Fr <= 0,8, 3,0 a bila lebih). Pemotongan wajib bersuara di layar
+   */
+  scourCapped: boolean;
   /** Benar bila alirannya superkritis sehingga rumus Yarnell tidak berlaku */
   outOfRange: boolean;
   /** Benar bila penyempitannya melampaui batas yang biasa diterima */
@@ -4239,7 +4509,21 @@ export type BridgeResult = {
    * antaranya menjadi tak hingga.
    */
   fullyBlocked: boolean;
+  /**
+   * Benar bila penyempitan di antara pilar memaksa aliran kritis (aliran
+   * kelas B): energi hilir E3 = y3 + V3²/2g lebih kecil daripada energi
+   * minimum di celah, 1,5 (qc²/g)^(1/3) dengan qc = Q/(B − N a). Yarnell
+   * hanya berlaku untuk kelas A, jadi `outOfRange` ikut benar dan Δh tidak
+   * boleh dilaporkan
+   */
+  choked: boolean;
 };
+
+/** HEC-18 ed. 5 (2012) Tabel 7.3: K3 gerusan air jernih / dasar datar / gumuk kecil */
+export const HEC18_K3_CLEAR = 1.1;
+/** HEC-18 ed. 5 (2012) pers. 7.2: ys/a paling besar 2,4 (Fr <= 0,8) dan 3,0 (Fr > 0,8) */
+export const HEC18_YS_A_MAX_LOW = 2.4;
+export const HEC18_YS_A_MAX_HIGH = 3.0;
 
 /** Bagian lebar tertutup pilar yang lazim dipakai sebagai batas rancangan. */
 export const BRIDGE_BLOCKAGE_MAX = 0.25;
@@ -4310,13 +4594,48 @@ export function bridgePiers(
    * yang sedang dihitung, dan menyajikannya sebagai hasil membuat jembatan
    * tanpa pilar tampak tetap menuntut pondasi dalam.
    */
-  const scourDepth =
+  /*
+   * HEC-18 edisi ke-5 (FHWA-HIF-12-003, 2012) §7.2: pers. 7.1
+   * ys = 2,0 K1 K2 K3 a^0,65 y1^0,35 Fr1^0,43, dengan K3 = 1,1 untuk gerusan
+   * air jernih, dasar datar, dan gumuk kecil (Tabel 7.3; gumuk sedang dan
+   * besar 1,1 sampai 1,3 tidak dimodelkan). K1 = K2 = 1: pilar berhidung
+   * bulat sejajar arus (Tabel 7.1). Penggeser K lembar ini koefisien bentuk
+   * Yarnell, bukan K1; padanannya belum diperiksa ke sumber.
+   *
+   * Batas atas pers. 7.2 untuk pilar berhidung bulat sejajar arus:
+   * ys <= 2,4 a bila Fr <= 0,8, ys <= 3,0 a bila Fr > 0,8. Pemotongan itu
+   * ditandai `scourCapped`. Sebelumnya K3 diambil 1 dan tanpa batas: Q 3000,
+   * B 300, y3 15, N 2, a 0,2 memberi 0,521 m = 2,6 a.
+   *
+   * Catatan: HEC-18 memakai kedalaman dan Froude di HULU pilar; lembar ini
+   * memakai y3 dan Fr hilir (hampiran yang sudah ada, tidak diubah).
+   */
+  const scourBebas =
     piers > 0 && pierWidth > 0 && y3 > 0
       ? 2.0 *
+        HEC18_K3_CLEAR *
         Math.pow(pierWidth, 0.65) *
         Math.pow(y3, 0.35) *
         Math.pow(Math.max(Fr, 1e-9), 0.43)
       : 0;
+  const batasGerus = (Fr <= 0.8 ? HEC18_YS_A_MAX_LOW : HEC18_YS_A_MAX_HIGH) * pierWidth;
+  const scourCapped = scourBebas > batasGerus;
+  const scourDepth = scourCapped ? batasGerus : scourBebas;
+
+  /*
+   * Pemeriksaan tersendat. Tanpa kehilangan di celah, energi spesifik hilir
+   * E3 harus sanggup melewatkan debit per lebar celah qc; energi terkecil
+   * untuk qc pada penampang persegi adalah 1,5 yc (Henderson 1966, Open
+   * Channel Flow, bab 2, energi spesifik minimum di penyempitan). Bila E3
+   * lebih kecil, celahnya menjadi kendali kritis dan muka air hulu naik
+   * sampai sanggup melewatkannya: itu aliran kelas B, di luar percobaan
+   * Yarnell. Contoh: Q 600, B 50, y3 3, N 4, a 3 (α 0,24, di bawah batas
+   * 0,25) memberi E3 3,815 m < 4,410 m, tetapi dulu Δh 1,284 m tampil tanpa
+   * tanda.
+   */
+  const qCelah = Q / Bbersih;
+  const E3 = y3 + (V3 * V3) / (2 * G);
+  const choked = alpha < 1 && E3 < 1.5 * criticalDepth(qCelah);
 
   return {
     backwater,
@@ -4324,7 +4643,9 @@ export function bridgePiers(
     Fr,
     velocityBetween: Vantara,
     scourDepth,
-    outOfRange: Fr >= 1 || alpha >= 1,
+    scourCapped,
+    choked,
+    outOfRange: Fr >= 1 || alpha >= 1 || choked,
     heavyBlockage: alpha > BRIDGE_BLOCKAGE_MAX,
     fullyBlocked: alpha >= 1,
   };
@@ -6837,6 +7158,16 @@ export type Deformation = {
   pureRotation: boolean;
   /** Benar bila gerakannya regangan murni tanpa putaran */
   pureStrain: boolean;
+  /**
+   * Benar bila elemennya hanya mengembang atau menyusut sama ke segala arah
+   * (tanpa regangan geser dan tanpa putaran, ∇·u ≠ 0). Regangan bagian
+   * setangkup tanpa jejak dan putarannya sama-sama nol
+   */
+  pureDilatation: boolean;
+  /** Benar bila keempat kemiringan kecepatannya nol */
+  still: boolean;
+  /** Luas elemen satuan sesudah waktu t, e^{t ∇·u} */
+  deformedArea: number;
 };
 
 /**
@@ -6887,8 +7218,44 @@ export function deformation(
   const besarPutar = Math.abs(rotationRate);
   const jumlah = besarRegang + besarPutar;
 
-  /* Elemen persegi satuan sesudah waktu t, dengan hampiran linear:
-     x' = x + t (dudx x + dudy y), y' = y + t (dvdx x + dvdy y). */
+  /*
+   * Elemen persegi satuan sesudah waktu t, dari penyelesaian tepat
+   * dx/dt = A x, yaitu x' = e^{tA} x. Sebelumnya dipakai hampiran
+   * x' = (I + tA) x, yang mengubah luas sebesar det(I + tA) walau ∇·u = 0:
+   * putaran murni (0, −1, 1, 0) pada t 0,5 memberi luas 1,25.
+   *
+   * Eksponen matriks 2×2 bentuk tertutup: A = τI + B dengan τ = tr A / 2
+   * dan B tanpa jejak, B² = s² I, s² = ((a − d)/2)² + b c, sehingga
+   * e^{tA} = e^{τt} [cosh(st) I + sinh(st)/s B] (s² > 0), atau cos/sin
+   * bila s² < 0, atau I + tB bila s² = 0 (B nilpoten: geser sederhana).
+   * Luasnya e^{t ∇·u} (rumus Liouville), tepat 1 bila tak mampat.
+   */
+  const tau = (dudx + dvdy) / 2;
+  const b11 = dudx - tau;
+  const b12 = dudy;
+  const b21 = dvdx;
+  const b22 = dvdy - tau;
+  const s2 = b11 * b11 + b12 * b21;
+  let c0: number;
+  let c1: number;
+  if (s2 > 1e-14) {
+    const sq = Math.sqrt(s2);
+    c0 = Math.cosh(sq * t);
+    c1 = Math.sinh(sq * t) / sq;
+  } else if (s2 < -1e-14) {
+    const w = Math.sqrt(-s2);
+    c0 = Math.cos(w * t);
+    c1 = Math.sin(w * t) / w;
+  } else {
+    c0 = 1;
+    c1 = t;
+  }
+  const skala = Math.exp(tau * t);
+  const m11 = skala * (c0 + c1 * b11);
+  const m12 = skala * c1 * b12;
+  const m21 = skala * c1 * b21;
+  const m22 = skala * (c0 + c1 * b22);
+
   const pojok = [
     { x: -0.5, y: -0.5 },
     { x: 0.5, y: -0.5 },
@@ -6896,8 +7263,8 @@ export function deformation(
     { x: -0.5, y: 0.5 },
   ];
   const deformed = pojok.map((p) => ({
-    x: p.x + t * (dudx * p.x + dudy * p.y),
-    y: p.y + t * (dvdx * p.x + dvdy * p.y),
+    x: m11 * p.x + m12 * p.y,
+    y: m21 * p.x + m22 * p.y,
   }));
 
   return {
@@ -6912,6 +7279,10 @@ export function deformation(
     incompressible: Math.abs(dilatation) < 1e-12,
     pureRotation: besarRegang < 1e-12 && besarPutar > 1e-12,
     pureStrain: besarPutar < 1e-12 && besarRegang > 1e-12,
+    pureDilatation:
+      besarRegang < 1e-12 && besarPutar < 1e-12 && Math.abs(dilatation) > 1e-12,
+    still: besarRegang < 1e-12 && besarPutar < 1e-12 && Math.abs(dilatation) < 1e-12,
+    deformedArea: m11 * m22 - m12 * m21,
   };
 }
 
@@ -7055,7 +7426,7 @@ export type ReynoldsExperiment = {
   criticalReynolds: number;
   /** Faktor gesekan pada keadaan itu */
   friction: number;
-  /** Tebal lapisan kental di dinding, milimeter */
+  /** Tebal lapisan kental di dinding, milimeter. NaN bila laminar */
   viscousThickness: number;
   /** Benar bila alirannya masih laminar pada bilangan Reynolds tinggi */
   quietLaminar: boolean;
@@ -7133,14 +7504,32 @@ export function reynoldsExperiment(
     : 4.4 * Math.pow(Math.max(Re, 1), 1 / 6);
   const entryLength = entryDiameters * D;
 
+  /*
+   * Di luar laminar dipakai Colebrook-White untuk pipa licin (ε = 0), yaitu
+   * kurva licin diagram Moody yang sama dengan lembar PI-01. Sebelumnya
+   * dipakai Blasius 0,316 Re^-0,25, yang hanya berlaku sampai Re 100 000
+   * (Blasius 1913; dikutip di Wikipedia "Darcy friction factor formulae",
+   * bagian Blasius correlation, dibuka 23 Okt 2026), padahal penggesernya
+   * mencapai Re 7,7·10⁶: pada Re 1,1·10⁶ Blasius memberi 0,00974, kurva
+   * licin 0,0115.
+   */
   const friction = laminar
     ? 64 / Math.max(Re, 1e-9)
-    : 0.316 / Math.pow(Math.max(Re, 1), 0.25);
+    : colebrookFriction(Math.max(Re, 1), 0);
 
-  /* Tebal lapisan kental, dari kecepatan gesek pada faktor gesekan itu */
+  /*
+   * Tebal lapisan kental, dari kecepatan gesek pada faktor gesekan itu.
+   * Lapisan kental dinding adalah bagian dari aliran turbulen; pada aliran
+   * laminar seluruh penampangnya kental dan besaran ini tidak terdefinisi,
+   * jadi NaN (ditulis "—"). Sebelumnya Q 1 ml/s, D 200 mm, T 0 memberi
+   * 187,5 mm, hampir sebesar jari-jarinya.
+   */
   const uStar = V * Math.sqrt(Math.max(friction, 0) / 8);
-  const viscousThickness =
-    uStar > 0 ? (WALL_VISCOUS_MAX * nu) / uStar * 1000 : Infinity;
+  const viscousThickness = laminar
+    ? Number.NaN
+    : uStar > 0
+      ? (WALL_VISCOUS_MAX * nu) / uStar * 1000
+      : Infinity;
 
   return {
     reynolds: Re,
@@ -7592,6 +7981,12 @@ export type Habitat = {
   curve: { Q: number; usable: number }[];
   /** Benar bila menambah debit justru mengurangi luas layaknya */
   pastPeak: boolean;
+  /**
+   * Benar bila kedalaman yang memenuhi debitnya melampaui batas pencarian
+   * 10 000 m (tidak terjadi pada rentang penggeser EH-06; penanda tetap
+   * disediakan karena pemotongan wajib bersuara)
+   */
+  depthCapped: boolean;
 };
 
 /** Kedalaman dan kecepatan yang paling disukai ikan rancangan. */
@@ -7663,14 +8058,28 @@ export function riverHabitat(
     return q;
   };
 
-  let lo = 0;
-  let hi = 20;
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2;
-    if (debitPada(mid) < Q) lo = mid;
-    else hi = mid;
-  }
-  const maxDepth = (lo + hi) / 2;
+  /*
+   * Satu fungsi kedalaman untuk titik yang dipilih maupun untuk lengkung.
+   * Batas atas bagi dua dilebarkan sampai debitnya mencukupi. Batas tetap
+   * 20 m (dan 40 m pada lengkung) sebelumnya memotong kedalaman diam-diam
+   * pada sungai sempit yang landai dan kasar: Q 30 sampai 120, W 2,
+   * S 0,2 permil, n 0,08 semuanya memberi 20,000 m.
+   */
+  const KEDALAMAN_MAKS = 1e4;
+  const kedalamanUntuk = (Qi: number) => {
+    let atas = 1;
+    while (debitPada(atas) < Qi && atas < KEDALAMAN_MAKS) atas *= 2;
+    let bawah = 0;
+    for (let i = 0; i < 80; i++) {
+      const mid = (bawah + atas) / 2;
+      if (debitPada(mid) < Qi) bawah = mid;
+      else atas = mid;
+      if (atas - bawah <= 1e-12 * atas) break;
+    }
+    return (bawah + atas) / 2;
+  };
+  const maxDepth = kedalamanUntuk(Q);
+  const depthCapped = debitPada(KEDALAMAN_MAKS) < Q;
 
   /* Lengkung kelayakan berbentuk lonceng, lebarnya sebanding nilai
      terbaiknya sendiri supaya bentuknya sama untuk ikan besar dan kecil. */
@@ -7707,14 +8116,7 @@ export function riverHabitat(
 
   /** Luas layak pada satu debit, dipakai lengkungnya maupun pencarian puncaknya. */
   const layakPada = (Qi: number) => {
-    let lo2 = 0;
-    let hi2 = 40;
-    for (let k = 0; k < 50; k++) {
-      const mid = (lo2 + hi2) / 2;
-      if (debitPada(mid) < Qi) lo2 = mid;
-      else hi2 = mid;
-    }
-    const Hi = (lo2 + hi2) / 2;
+    const Hi = kedalamanUntuk(Qi);
     let u = 0;
     for (let j = 0; j < pias; j++) {
       const d = bentuk((j + 0.5) * dy, Hi);
@@ -7775,6 +8177,7 @@ export function riverHabitat(
     bestUsableArea,
     curve,
     pastPeak: Q > bestDischarge,
+    depthCapped,
   };
 }
 
@@ -7941,7 +8344,7 @@ export type VortexPair = {
   translates: boolean;
   /** Jarak antar keduanya di akhir pengamatan, meter */
   finalSeparation: number;
-  /** Berapa jauh jarak keduanya berubah selama pengamatan */
+  /** Berapa jauh jarak keduanya berubah selama pengamatan, meter (mutlak) */
   separationDrift: number;
 };
 
@@ -7987,39 +8390,51 @@ export function vortexPair(
   let bx = d0 / 2;
   let by = 0;
 
-  const pathA: { x: number; y: number }[] = [{ x: ax, y: ay }];
-  const pathB: { x: number; y: number }[] = [{ x: bx, y: by }];
+  const pathA: { x: number; y: number }[] = [];
+  const pathB: { x: number; y: number }[] = [];
 
-  const dt = span / steps;
-  /* Kecepatan yang dikenakan pusaran bersirkulasi G di jarak r: G/(2 pi r),
-     tegak lurus garis penghubungnya. Tiap pusaran hanya dibawa yang lain. */
-  const bawa = (
-    xs: number, ys: number, xo: number, yo: number, G: number
-  ) => {
-    const dx = xs - xo;
-    const dy = ys - yo;
-    const r2 = dx * dx + dy * dy;
-    if (r2 < 1e-18) return { u: 0, v: 0 };
-    return { u: (-G * dy) / (2 * Math.PI * r2), v: (G * dx) / (2 * Math.PI * r2) };
-  };
-
-  for (let i = 0; i < steps; i++) {
-    const va = bawa(ax, ay, bx, by, gammaB);
-    const vb = bawa(bx, by, ax, ay, gammaA);
-    /* Runge-Kutta orde dua, cukup karena lintasannya mulus */
-    const ax2 = ax + va.u * dt * 0.5;
-    const ay2 = ay + va.v * dt * 0.5;
-    const bx2 = bx + vb.u * dt * 0.5;
-    const by2 = by + vb.v * dt * 0.5;
-    const va2 = bawa(ax2, ay2, bx2, by2, gammaB);
-    const vb2 = bawa(bx2, by2, ax2, ay2, gammaA);
-    ax += va2.u * dt;
-    ay += va2.v * dt;
-    bx += vb2.u * dt;
-    by += vb2.v * dt;
-    pathA.push({ x: ax, y: ay });
-    pathB.push({ x: bx, y: by });
+  /*
+   * Bentuk tertutup, bukan pemaduan waktu. Dua pusaran titik berputar kaku
+   * mengelilingi pusat sirkulasinya xc = (Γ1 x1 + Γ2 x2)/(Γ1 + Γ2) dengan
+   * Ω = (Γ1 + Γ2)/(2π d²), atau melaju lurus Γ/(2π d) bila jumlahnya nol
+   * (Lamb 1932, Hydrodynamics §155; Saffman 1992 bab 2). Sebelumnya dipakai
+   * Runge-Kutta orde dua 400 langkah tetap: pada Γ 40/40, d 0,5 sudut
+   * putarnya Ω·20 = 1018,6 rad, 2,5 rad per langkah, dan lintasan yang
+   * tergambar tertinggal fase dari Ω di tabel.
+   *
+   * Banyaknya titik gambar dinaikkan sampai sudut per titik paling besar
+   * 0,05 rad (paling banyak 20 000 titik), supaya lingkarannya tidak
+   * tergambar sebagai bintang segi banyak.
+   */
+  const S = gammaA + gammaB;
+  const skalaG = Math.max(Math.abs(gammaA), Math.abs(gammaB));
+  const lurus = Math.abs(S) <= 1e-9 * skalaG;
+  const Om = lurus ? 0 : S / (2 * Math.PI * d0 * d0);
+  const nTitik = Math.min(
+    20000,
+    Math.max(steps, Math.ceil((Math.abs(Om) * span) / 0.05))
+  );
+  /* Kecepatan lajuan bersama bila jumlahnya nol: A dibawa B, (0, −Γ2/(2π d)) */
+  const vLurus = lurus ? -gammaB / (2 * Math.PI * d0) : 0;
+  const xc = lurus ? 0 : (gammaA * ax + gammaB * bx) / S;
+  for (let i = 0; i <= nTitik; i++) {
+    const tt = (span * i) / nTitik;
+    if (lurus) {
+      pathA.push({ x: ax, y: vLurus * tt });
+      pathB.push({ x: bx, y: vLurus * tt });
+    } else {
+      const c = Math.cos(Om * tt);
+      const sn = Math.sin(Om * tt);
+      pathA.push({ x: xc + (ax - xc) * c, y: (ax - xc) * sn });
+      pathB.push({ x: xc + (bx - xc) * c, y: (bx - xc) * sn });
+    }
   }
+  const akhirA = pathA[pathA.length - 1];
+  const akhirB = pathB[pathB.length - 1];
+  ax = akhirA.x;
+  ay = akhirA.y;
+  bx = akhirB.x;
+  by = akhirB.y;
 
   const counterRotating = gammaA * gammaB < 0;
   const jumlah = gammaA + gammaB;
@@ -8051,7 +8466,7 @@ export function vortexPair(
     counterRotating,
     translates,
     finalSeparation,
-    separationDrift: Math.abs(finalSeparation - d0) / d0,
+    separationDrift: Math.abs(finalSeparation - d0),
   };
 }
 
@@ -8079,11 +8494,34 @@ export type LinearWave = {
   deepCelerity: number;
   /** Panjang gelombang di air dalam pada periode yang sama, meter */
   deepLength: number;
-  /** Setengah tinggi lintasan partikel di dasar, meter */
+  /**
+   * Setengah sumbu MENDATAR lintasan partikel tepat di atas dasar, meter.
+   * Sumbu tegaknya nol di dasar kedap
+   */
   bottomOrbit: number;
   /** Benar bila gerak airnya masih terasa sampai dasar */
   feelsBottom: boolean;
+  /** Kecuraman H/L */
+  steepness: number;
+  /** Batas kecuraman Miche 0,142 tanh(kh) pada kedalaman ini */
+  steepnessLimit: number;
+  /** Tinggi gelombang dibagi kedalaman H/h */
+  heightDepthRatio: number;
+  /**
+   * Benar bila gelombang setinggi itu pecah (H/L di atas batas Miche atau
+   * H/h di atas 0,78), jadi teori linear tidak berlaku lagi
+   */
+  breaking: boolean;
 };
+
+/*
+ * Batas pecah gelombang. Bosboom & Stive, Coastal Dynamics (TU Delft,
+ * versi LibreTexts §5.2.5 "Wave breaking", dibuka 23 Okt 2026):
+ * kriteria Miche (1944) pers. 5.2.5.1, [H/L]maks = 0,142 tanh(kh), dan
+ * indeks pecah dari teori gelombang tunggal γ = Hb/hb ≈ 0,78 (McCowan 1894).
+ */
+export const WAVE_MICHE_STEEPNESS = 0.142;
+export const WAVE_BREAKER_INDEX = 0.78;
 
 export const WAVE_SHALLOW = 0.05;
 export const WAVE_DEEP = 0.5;
@@ -8169,10 +8607,17 @@ export function linearWave(
     shallowCelerity: Math.sqrt(G * h),
     deepCelerity: (G * T) / (2 * Math.PI),
     deepLength,
-    /* Setengah sumbu tegak lintasan partikel di dasar; di air dalam ia
-       lenyap, dan di air dangkal ia sama dengan setengah tinggi gelombang */
+    /* Setengah sumbu MENDATAR lintasan partikel di dasar, H / (2 sinh kh);
+       sumbu tegaknya nol di dasar kedap. Di air dalam ia lenyap; di air
+       dangkal ia mendekati H / (2 kh), jauh lebih besar daripada H/2 */
     bottomOrbit: height / (2 * Math.sinh(Math.max(kh, 1e-12))),
     feelsBottom: relativeDepth < WAVE_DEEP,
+    steepness: height / length,
+    steepnessLimit: WAVE_MICHE_STEEPNESS * Math.tanh(kh),
+    heightDepthRatio: height / h,
+    breaking:
+      height / length > WAVE_MICHE_STEEPNESS * Math.tanh(kh) ||
+      height / h > WAVE_BREAKER_INDEX,
   };
 }
 

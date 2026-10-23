@@ -1964,7 +1964,14 @@ export function checksFlume(
       },
       source: "Kondisi kritis pada penampang persegi, Chow (1959) Bab 3",
       kind: "terbitan",
-      expected: (2 / 3) * r.H1,
+      /*
+       * Leher yang tidak mengendalikan aliran (tak terkendali atau lebih
+       * lebar daripada saluran datang) tidak punya penampang kritis, dan
+       * modelnya mengembalikan yc 0. Seperti pada bendung ogee, pemeriksaan
+       * kritisnya dibuat lewat begitu saja di sana; sebelumnya ia gagal pada
+       * h1 0,02, b 0,6, B 0,15, p 0, di dalam rentang penggeser.
+       */
+      expected: r.controlled ? (2 / 3) * r.H1 : r.yc,
       actual: r.yc,
       tol: 1e-12,
       unit: "m",
@@ -1991,10 +1998,9 @@ export function checksFlume(
       source: "Definisi kondisi kritis",
       kind: "sifat",
       expected: 1,
-      actual: froude(
-        r.yc > 0 ? r.Q / Cd / (bThroat * r.yc) : 0,
-        r.yc
-      ),
+      actual: r.controlled
+        ? froude(r.yc > 0 ? r.Q / Cd / (bThroat * r.yc) : 0, r.yc)
+        : 1,
       tol: 1e-9,
       digits: 6,
     },
@@ -3073,9 +3079,15 @@ export function checksRouting(
       expected: tampungAkhir,
       actual: isiMasuk - isiKeluar,
       tol: 0.01,
+      // Penelusuran memecah tiap pias menjadi sublangkah (waduk kecil), jadi
+      // jumlah trapesium pada pias keluaran tidak persis jumlah sublangkah.
+      // Sisa itu sebanding dengan isi yang lewat, bukan dengan tampungan
+      // tersisa yang pada waduk kecil hampir nol; hasil jalan 23 Okt 2026:
+      // paling besar 6e-5 isi masuk pada rentang penggeser.
+      absTol: 1e-3 * Math.abs(isiMasuk),
       tolReason: {
-        id: "Kedua isinya dijumlahkan dengan aturan trapesium pada pias yang sama dengan pias penelusuran, jadi sisa selisihnya berasal dari penjumlahan itu.",
-        en: "Both volumes are summed with the trapezium rule on the same steps as the routing, so the remaining difference comes from that summation.",
+        id: "Kedua isinya dijumlahkan dengan aturan trapesium pada pias keluaran, sedangkan penelusurannya memakai sublangkah yang lebih rapat bila waduknya kecil. Sisa selisihnya berasal dari penjumlahan itu dan diukur terhadap isi yang lewat (paling banyak satu per seribu).",
+        en: "Both volumes are summed with the trapezium rule on the output steps, while the routing uses finer substeps when the reservoir is small. The remaining difference comes from that summation and is measured against the volume passing through (at most one part in a thousand).",
       },
       unit: "m³",
       digits: 1,
@@ -3459,7 +3471,14 @@ export function checksHarvest(
  * ------------------------------------------------------------------ */
 
 export function checksMarkRecapture(M: number, n: number, m: number): Check[] {
-  const r = markRecapture(M, n, m);
+  /*
+   * Sifat-sifat taksiran hanya berlaku pada masukan yang mungkin, m <= M dan
+   * m <= n. Masukan yang mustahil ditandai `impossible` oleh modelnya dan
+   * ditolak di layar; pemeriksaannya dijalankan pada m terbesar yang mungkin,
+   * seperti pemeriksaan Petersen di bawah dijalankan pada m sekurangnya satu.
+   */
+  const mSah = Math.min(m, M, n);
+  const r = markRecapture(M, n, mSah);
 
   return [
     {
@@ -3485,13 +3504,17 @@ export function checksMarkRecapture(M: number, n: number, m: number): Check[] {
     },
     {
       label: {
-        id: "Taksiran Chapman selalu lebih kecil daripada Petersen",
-        en: "The Chapman estimate is always smaller than the Petersen estimate",
+        id: "Taksiran Chapman tidak pernah lebih besar daripada Petersen",
+        en: "The Chapman estimate is never larger than the Petersen estimate",
       },
+      /*
+       * Sama persis bila m = n: kedua rumus memberi M. Tuntutan "selalu
+       * lebih kecil" gagal di sana walau perilakunya benar (M 5, n 5, m 5).
+       */
       source: "Chapman (1951), pembetulan berat sebelah ke atas pada contoh kecil",
       kind: "sifat",
       expected: 1,
-      actual: r.chapman < r.petersen ? 1 : 0,
+      actual: r.chapman <= r.petersen * (1 + 1e-12) ? 1 : 0,
       tol: 0,
       digits: 0,
     },
@@ -3528,8 +3551,9 @@ export function checksMarkRecapture(M: number, n: number, m: number): Check[] {
       kind: "perilaku",
       expected: 1,
       actual: (() => {
-        const sedikit = markRecapture(M, n, Math.max(m, 2));
-        const banyak = markRecapture(M, n, Math.min(Math.max(m, 2) * 2, n));
+        const batas = Math.min(M, n);
+        const sedikit = markRecapture(M, n, Math.min(Math.max(mSah, 2), batas));
+        const banyak = markRecapture(M, n, Math.min(Math.max(mSah, 2) * 2, batas));
         return banyak.ciHigh - banyak.ciLow <= sedikit.ciHigh - sedikit.ciLow
           ? 1
           : 0;
@@ -3656,13 +3680,34 @@ export function checksPassage(
     },
     {
       label: {
-        id: "Populasi tidak pernah melampaui daya dukungnya",
-        en: "The population never exceeds its carrying capacity",
+        id:
+          N0 > K
+            ? "Populasi yang dimulai di atas daya dukungnya turun tanpa naik lagi"
+            : "Populasi yang dimulai di bawah daya dukungnya tidak pernah melampauinya",
+        en:
+          N0 > K
+            ? "A population starting above its carrying capacity falls and never rises again"
+            : "A population starting below its carrying capacity never exceeds it",
       },
+      /*
+       * Laju r p N (1 − N/K) − d N negatif untuk setiap N > K, jadi di atas
+       * K populasinya hanya turun. Tuntutan lama "tidak pernah melampaui K"
+       * gagal pada setiap N0 > K (N0 1200, K 1000), padahal penggeser N0
+       * sampai 20 000 dan K mulai 500.
+       */
       source: "Sifat yang harus berlaku pada pertumbuhan logistik",
       kind: "sifat",
       expected: 1,
-      actual: r.path.every((p) => p.population <= K * 1.0000001) ? 1 : 0,
+      actual:
+        N0 > K
+          ? r.path.every(
+              (p, i) => i === 0 || p.population <= r.path[i - 1].population * (1 + 1e-12)
+            )
+            ? 1
+            : 0
+          : r.path.every((p) => p.population <= K * 1.0000001)
+            ? 1
+            : 0,
       tol: 0,
       digits: 0,
     },
@@ -4252,9 +4297,14 @@ export function checksBridge(
       source: "HEC-18, suku lebar pilar berpangkat 0,65",
       kind: "perilaku",
       expected: 1,
+      /*
+       * Tanpa pilar (N 0, di dalam rentang penggeser) gerusannya nol pada
+       * lebar berapa pun, dan tuntutan "bertambah" gagal walau perilakunya
+       * benar. Di sana pemeriksaannya dijalankan pada satu pilar.
+       */
       actual:
-        bridgePiers(Q, B, y3, piers, pierWidth * 2, K).scourDepth >
-        r.scourDepth
+        bridgePiers(Q, B, y3, Math.max(piers, 1), pierWidth * 2, K).scourDepth >
+        bridgePiers(Q, B, y3, Math.max(piers, 1), pierWidth, K).scourDepth
           ? 1
           : 0,
       tol: 0,
@@ -4271,8 +4321,15 @@ export function checksBridge(
       actual: (() => {
         // Kedalaman yang membuat alirannya superkritis pada debit ini.
         const yc = criticalDepth(Q / B);
+        /*
+         * Pada aliran subkritis penandanya boleh tetap menyala, tetapi hanya
+         * karena sebab lain yang sah: pilar menutup seluruh lebar, atau celah
+         * antar pilar tersendat (kelas B). Dulu sisi ini menuntut penanda
+         * padam, dan gagal pada setiap penutupan penuh di rentang penggeser.
+         */
+        const sub = bridgePiers(Q, B, yc * 2, piers, pierWidth, K);
         return bridgePiers(Q, B, yc * 0.7, piers, pierWidth, K).outOfRange &&
-          !bridgePiers(Q, B, yc * 2, piers, pierWidth, K).outOfRange
+          sub.outOfRange === (sub.fullyBlocked || sub.choked)
           ? 1
           : 0;
       })(),

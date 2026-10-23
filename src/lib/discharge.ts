@@ -59,9 +59,22 @@ export type SectionFlow = {
    * airnya meluap. Hitungannya dipotong ke tepi atas saluran.
    */
   overtopped: boolean;
+  /**
+   * Benar bila titik penampang alam tidak berurut x naik dari tebing kiri ke
+   * kanan. Hitungan per ruas mengandaikan urutan itu; ruas yang mundur
+   * menghitung luas dan lebar dua kali. Titiknya TIDAK diurutkan diam-diam:
+   * Client wajib menahan hasil dengan tanda tidak berlaku
+   */
+  unordered: boolean;
   /** Bagian penampang yang basah, satu poligon untuk tiap genangan terpisah */
   wetted: Pt[][];
 };
+
+/** Benar bila x tiap titik tidak turun dari titik sebelumnya */
+export function ptsOrdered(pts: Pt[]): boolean {
+  for (let i = 1; i < pts.length; i++) if (pts[i].x < pts[i - 1].x) return false;
+  return true;
+}
 
 const G = 9.81;
 
@@ -207,10 +220,24 @@ export function sectionFlow(
   const velocity = velocityOf(radius, S, r);
   const discharge = velocity * area;
   const hidraulis = topWidth > 0 ? area / topWidth : 0;
-  const froude = hidraulis > 0 ? velocity / Math.sqrt(G * hidraulis) : 0;
+  /*
+   * Pipa penuh: lebar muka airnya nol, kedalaman hidraulis A/T tak hingga,
+   * dan bilangan Froude tidak terdefinisi (Chow 1959 §1-3 memakai D = A/T
+   * untuk aliran bermuka bebas). NaN, ditulis "—". Sebelumnya 0, yang
+   * terbaca "sangat subkritis".
+   */
+  const froude =
+    topWidth > 0
+      ? hidraulis > 0
+        ? velocity / Math.sqrt(G * hidraulis)
+        : 0
+      : area > 0
+        ? Number.NaN
+        : 0;
 
   const zMin =
     s.shape === "alam" && s.pts.length ? Math.min(...s.pts.map((p) => p.y)) : 0;
+  const unordered = s.shape === "alam" && !ptsOrdered(s.pts);
 
   return {
     depth: y,
@@ -223,6 +250,7 @@ export function sectionFlow(
     discharge,
     froude,
     overtopped,
+    unordered,
     wetted,
   };
 }
