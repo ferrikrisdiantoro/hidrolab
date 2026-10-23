@@ -127,7 +127,7 @@ export function PerkembanganMeanderClient() {
 
   const r = meanderPath(W_, L, sudut);
   /*
-   * Tebing yang digambar sejauh setengah lebar dari garis tengahnya hanya
+   * Tebing yang digambar sejauh setengah lebar dari sumbunya hanya
    * mungkin bila jari-jari lengkung terkecilnya lebih besar daripada
    * setengah lebar itu. Di bawahnya tebing dalam melipat, dan lembar ini
    * dulu tetap menggambarnya membelit sambil menyebut kelokannya "bergerak

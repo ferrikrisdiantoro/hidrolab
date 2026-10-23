@@ -36,15 +36,15 @@ const TXT = {
   id: {
     title: "Venturi",
     sheetTitle: "Tabung venturi klasik — garis tinggi tekan dan potongan pipa",
-    dD1: "Garis tengah pipa",
-    dD2: "Garis tengah leher",
+    dD1: "Diameter pipa",
+    dD2: "Diameter leher",
     ddh: "Beda tinggi tekan terbaca",
     dC: "Koefisien debit",
     pMesin: "Leher hasil pemesinan",
     pCor: "Leher hasil cor",
     pLas: "Pelat besi dilas",
     rQ: "Debit",
-    rBeta: "Perbandingan garis tengah",
+    rBeta: "Perbandingan diameter",
     rV1: "Kecepatan di pipa",
     rV2: "Kecepatan di leher",
     rFaktor: "Faktor kecepatan datang",
@@ -55,13 +55,13 @@ const TXT = {
     luar: "Di luar perbandingan yang lazim",
     bukan: "Leher tidak lebih sempit dari pipa",
     bukanNote:
-      "Garis tengah leher sama dengan atau lebih besar daripada garis tengah pipa, jadi tidak ada penyempitan dan tidak ada percepatan. Rumus venturi membagi dengan akar dari satu dikurangi beta pangkat empat, yang nol pada beta satu, sehingga tidak ada debit yang dapat dihitung. Bacaan manometer yang dimasukkan pun tidak punya arti pada geometri ini. Kecilkan garis tengah lehernya.",
+      "Diameter leher sama dengan atau lebih besar daripada diameter pipa, jadi tidak ada penyempitan dan tidak ada percepatan. Rumus venturi membagi dengan akar dari satu dikurangi beta pangkat empat, yang nol pada beta satu, sehingga tidak ada debit yang dapat dihitung. Bacaan manometer yang dimasukkan pun tidak punya arti pada geometri ini. Kecilkan diameter lehernya.",
     luarKecil:
-      "Perbandingan garis tengah di bawah 0,3. Leher sesempit itu menghasilkan kecepatan yang sangat tinggi dan beda tekanan yang besar, tetapi juga mendekatkan tekanan di leher ke tekanan uap, sehingga kavitasi menjadi risiko nyata. Koefisien debit terbitan juga tidak dijamin berlaku di luar rentang itu.",
+      "Perbandingan diameter di bawah 0,3. Leher sesempit itu menghasilkan kecepatan yang sangat tinggi dan beda tekanan yang besar, tetapi juga mendekatkan tekanan di leher ke tekanan uap, sehingga kavitasi menjadi risiko nyata. Koefisien debit terbitan juga tidak dijamin berlaku di luar rentang itu.",
     luarBesar:
-      "Perbandingan garis tengah di atas 0,75. Beda tekanan yang dihasilkan menjadi terlalu kecil untuk dibaca dengan teliti, dan faktor kecepatan datang membesar cepat sehingga kesalahan kecil pada garis tengah berubah menjadi kesalahan besar pada debit.",
+      "Perbandingan diameter di atas 0,75. Beda tekanan yang dihasilkan menjadi terlalu kecil untuk dibaca dengan teliti, dan faktor kecepatan datang membesar cepat sehingga kesalahan kecil pada diameter berubah menjadi kesalahan besar pada debit.",
     note:
-      "Satu suku pada rumus ini yang paling sering hilang, dan hilangnya selalu ke arah yang sama. Beda tekanan yang terbaca bukan mengukur tinggi kecepatan di leher melainkan SELISIH tinggi kecepatan antara leher dan pipa, karena air di pipa sudah bergerak sebelum masuk. Mengabaikan hal itu membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya, dan besarnya kesalahan naik cepat terhadap perbandingan garis tengah: pada 0,5 sekitar tiga persen, pada 0,75 sudah lebih dari dua puluh persen. Faktor kecepatan datang pada tabel di samping adalah suku itu, dan lembar ini menghitung debit dengan dan tanpa suku itu supaya selisihnya terbaca sebagai angka. Hal kedua yang membedakan venturi dari pelat lubang terbaca pada panel atas: garis tinggi tekan menukik di leher lalu naik kembali hampir setinggi semula. Bagian yang tidak pulih itulah kehilangan tetap, dan kecilnya bagian itu berutang pada bagian membesar yang sengaja dibuat panjang dan landai, sehingga aliran tidak sempat terlepas dari dinding.",
+      "Satu suku pada rumus ini yang paling sering hilang, dan hilangnya selalu ke arah yang sama. Beda tekanan yang terbaca bukan mengukur tinggi kecepatan di leher melainkan SELISIH tinggi kecepatan antara leher dan pipa, karena air di pipa sudah bergerak sebelum masuk. Mengabaikan hal itu membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya, dan besarnya kesalahan naik cepat terhadap perbandingan diameter: pada 0,5 sekitar tiga persen, pada 0,75 sudah lebih dari dua puluh persen. Faktor kecepatan datang pada tabel di samping adalah suku itu, dan lembar ini menghitung debit dengan dan tanpa suku itu supaya selisihnya terbaca sebagai angka. Hal kedua yang membedakan venturi dari pelat lubang terbaca pada panel atas: garis tinggi tekan menukik di leher lalu naik kembali hampir setinggi semula. Bagian yang tidak pulih itulah kehilangan tetap, dan kecilnya bagian itu berutang pada bagian membesar yang sengaja dibuat panjang dan landai, sehingga aliran tidak sempat terlepas dari dinding.",
   },
   en: {
     title: "Venturi meter",
@@ -280,9 +280,9 @@ function notice(r: VenturiResult, salah: number, dh: number, lang: Lang): string
   if (r.reason === "bukan-venturi")
     return lang === "en"
       ? "There is nothing to notice yet: without a contraction there is no venturi. Bring the throat diameter below the pipe diameter and the pressure head line, the discharge, and the approach factor all come back."
-      : "Belum ada yang perlu diperhatikan: tanpa penyempitan tidak ada venturi. Kecilkan garis tengah leher sampai di bawah garis tengah pipa, dan garis tinggi tekan, debit, serta faktor kecepatan datang akan kembali.";
+      : "Belum ada yang perlu diperhatikan: tanpa penyempitan tidak ada venturi. Kecilkan diameter leher sampai di bawah diameter pipa, dan garis tinggi tekan, debit, serta faktor kecepatan datang akan kembali.";
 
   if (lang === "en")
     return `At a diameter ratio of ${fmt(r.beta, 3)} the velocity of approach factor is ${fmt(r.approachFactor, 4)}, so leaving it out would understate the discharge by ${fmt(salah, 2)} per cent. Push the throat diameter up toward the pipe diameter and watch that error grow far faster than the ratio does. On the upper panel, ${fmt(pulih, 0)} per cent of the head difference comes back downstream; an orifice plate at the same ratio would return far less, and that recovery is the whole reason a Venturi costs more.`;
-  return `Pada perbandingan garis tengah ${fmt(r.beta, 3)}, faktor kecepatan datangnya ${fmt(r.approachFactor, 4)}, sehingga melupakannya akan mengecilkan debit sebesar ${fmt(salah, 2)} persen. Naikkan garis tengah leher mendekati garis tengah pipa, lalu perhatikan kesalahan itu bertambah jauh lebih cepat daripada perbandingannya sendiri. Pada panel atas, ${fmt(pulih, 0)} persen dari beda tinggi tekan kembali di hilir; pelat lubang pada perbandingan yang sama mengembalikan jauh lebih sedikit, dan pemulihan itulah seluruh alasan venturi lebih mahal.`;
+  return `Pada perbandingan diameter ${fmt(r.beta, 3)}, faktor kecepatan datangnya ${fmt(r.approachFactor, 4)}, sehingga melupakannya akan mengecilkan debit sebesar ${fmt(salah, 2)} persen. Naikkan diameter leher mendekati diameter pipa, lalu perhatikan kesalahan itu bertambah jauh lebih cepat daripada perbandingannya sendiri. Pada panel atas, ${fmt(pulih, 0)} persen dari beda tinggi tekan kembali di hilir; pelat lubang pada perbandingan yang sama mengembalikan jauh lebih sedikit, dan pemulihan itulah seluruh alasan venturi lebih mahal.`;
 }

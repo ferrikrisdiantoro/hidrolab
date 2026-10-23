@@ -39,7 +39,7 @@ const TXT = {
     dL: "Panjang bak searah aliran",
     dB: "Lebar bak",
     dH: "Kedalaman air",
-    dD: "Garis tengah butir rancangan",
+    dD: "Diameter butir rancangan",
     dTanks: "Banyaknya bak seri semu",
     dT: "Suhu air",
     pIrigasi: "Kantong lumpur irigasi",

@@ -39,7 +39,7 @@ const TXT = {
     dB: "Lebar kolam",
     dD: "Kedalaman kolam yang direncanakan",
     dQ: "Debit yang lewat",
-    dU: "Kecepatan sentak ikan rancangan",
+    dU: "Kecepatan sentak (burst) ikan rancangan",
     pLandai: "Banyak undakan rendah",
     pCuram: "Sedikit undakan tinggi",
     pDangkal: "Kolam terlalu dangkal",

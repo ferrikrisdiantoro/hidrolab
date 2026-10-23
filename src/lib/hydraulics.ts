@@ -1813,7 +1813,7 @@ export const VENTURI_C_CAST = 0.984;
 export const VENTURI_C_WELDED = 0.985;
 
 export type VenturiResult = {
-  /** Perbandingan garis tengah leher terhadap pipa */
+  /** Perbandingan diameter leher terhadap pipa */
   beta: number;
   Q: number;
   /** Kecepatan di pipa dan di leher */
@@ -1830,9 +1830,9 @@ export type VenturiResult = {
   reason: "" | "beta-kecil" | "beta-besar" | "bukan-venturi";
 };
 
-/** Batas bawah perbandingan garis tengah yang lazim dipakai pada venturi klasik. */
+/** Batas bawah perbandingan diameter yang lazim dipakai pada venturi klasik. */
 export const VENTURI_BETA_MIN = 0.3;
-/** Batas atas perbandingan garis tengah yang lazim dipakai pada venturi klasik. */
+/** Batas atas perbandingan diameter yang lazim dipakai pada venturi klasik. */
 export const VENTURI_BETA_MAX = 0.75;
 
 /**
@@ -1840,16 +1840,16 @@ export const VENTURI_BETA_MAX = 0.75;
  *
  * Faktor kecepatan datang di dalam akar sering terlupa, dan melupakannya
  * membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya.
- * Besarnya kesalahan itu naik cepat terhadap perbandingan garis tengah: pada
+ * Besarnya kesalahan itu naik cepat terhadap perbandingan diameter: pada
  * beta 0,5 ia sekitar tiga persen, pada beta 0,75 sudah lebih dari dua puluh
  * persen.
  *
  * Rujukan: ISO 5167-4, tabung venturi klasik.
  */
 export function venturiDischarge(
-  /** Garis tengah pipa, meter */
+  /** Diameter pipa, meter */
   D1: number,
-  /** Garis tengah leher, meter */
+  /** Diameter leher, meter */
   D2: number,
   /** Beda tinggi tekan antara pipa dan leher, meter kolom air */
   dh: number,
@@ -2338,7 +2338,7 @@ export type WallingfordResult = {
  * Hydraulic Design of Pipes, Sewers and Channels.
  */
 export function wallingfordVelocity(
-  /** Garis tengah dalam pipa, meter */
+  /** Diameter dalam pipa, meter */
   D: number,
   /** Kemiringan hidrolik */
   S: number,
@@ -2474,7 +2474,7 @@ export function chezyVelocity(C: number, R: number, S: number): number {
  * Kurva Shields
  * ------------------------------------------------------------------ */
 
-/** Rapat massa jenis butir terhadap air, nilai lazim untuk kuarsa. */
+/** Berat jenis relatif butir (Gs), nilai lazim untuk kuarsa. */
 export const SEDIMENT_S = 2.65;
 
 /**
@@ -2535,9 +2535,9 @@ export function shieldsState(
   R: number,
   /** Kemiringan dasar */
   S: number,
-  /** Garis tengah butir, meter */
+  /** Diameter butir, meter */
   d: number,
-  /** Rapat massa jenis butir terhadap air */
+  /** Berat jenis relatif butir (Gs) */
   s: number,
   nu: number,
   rho = 1000
@@ -2580,9 +2580,9 @@ export function shieldsState(
  * settling velocity, Journal of Sedimentary Research vol. 74.
  */
 export function settlingVelocity(
-  /** Garis tengah butir, meter */
+  /** Diameter butir, meter */
   d: number,
-  /** Rapat massa jenis butir terhadap air */
+  /** Berat jenis relatif butir (Gs) */
   s: number,
   nu: number,
   C1 = 18,
@@ -2744,7 +2744,7 @@ export const COHESIVE_LIMIT = 0.00006;
  * Rujukan: Hjulstrom (1935); Sundborg (1956); Shields (1936).
  */
 export function hjulstrom(
-  /** Garis tengah butir, meter */
+  /** Diameter butir, meter */
   d: number,
   /** Kedalaman aliran, meter */
   h: number,
@@ -2914,12 +2914,12 @@ export type HydrographResult = {
 };
 
 /**
- * Kehilangan hujan menurut bilangan kurva SCS.
+ * Kehilangan hujan menurut Curve Number SCS.
  *
  *   S = 25400/CN - 254  (mm),  Ia = 0,2 S
  *   Pe = (P - Ia)^2 / (P - Ia + S)  bila P melebihi Ia, selain itu nol
  *
- * Bilangan kurva menyatukan jenis tanah, tutupan lahan, dan keadaan lembap
+ * Curve Number menyatukan jenis tanah, tutupan lahan, dan keadaan lembap
  * sebelumnya ke dalam satu angka antara 30 dan 100. Angka itu tidak punya
  * makna fisis sendiri; ia pengenal baris pada tabel yang disusun dari ribuan
  * petak percobaan.
@@ -2933,7 +2933,7 @@ export function scsEffectiveRain(P: number, CN: number): number {
   return Math.pow(P - Ia, 2) / (P - Ia + S);
 }
 
-/** Simpanan maksimum menurut bilangan kurva, mm. */
+/** Simpanan maksimum menurut Curve Number, mm. */
 export function scsStorage(CN: number): number {
   return 25400 / Math.min(Math.max(CN, 1), 100) - 254;
 }
@@ -4130,7 +4130,7 @@ export const CULVERT_FISH_VELOCITY = 1.2;
 export function culvert(
   /** Debit rancangan, meter kubik per detik */
   Q: number,
-  /** Garis tengah gorong-gorong, meter */
+  /** Diameter gorong-gorong, meter */
   D: number,
   /** Panjang gorong-gorong, meter */
   L: number,
@@ -4228,7 +4228,7 @@ export const BRIDGE_BLOCKAGE_MAX = 0.25;
  *
  *   dh = K (K + 5 Fr^2 - 0,6) (alpha + 15 alpha^4) Fr^2 y3
  *
- * dengan alpha bagian lebar yang tertutup pilar dan K tetapan bentuk hidung
+ * dengan alpha bagian lebar yang tertutup pilar dan K koefisien bentuk
  * pilar. Rumus ini berasal dari lebih dari dua ribu percobaan saluran dan
  * tetap dipakai sampai sekarang untuk pilar tanpa kondisi tersendat.
  *
@@ -4253,7 +4253,7 @@ export function bridgePiers(
   piers: number,
   /** Lebar satu pilar, meter */
   pierWidth: number,
-  /** Tetapan bentuk hidung pilar Yarnell */
+  /** Koefisien bentuk pilar Yarnell (K) */
   K = 0.9
 ): BridgeResult {
   const alpha = B > 0 ? (piers * pierWidth) / B : 0;
@@ -4314,7 +4314,7 @@ export function bridgePiers(
  * ------------------------------------------------------------------ */
 
 export type RiprapResult = {
-  /** Garis tengah batu yang dibutuhkan, meter */
+  /** Diameter batu yang dibutuhkan, meter */
   d50: number;
   /** Massa satu batu seukuran itu, kilogram */
   stoneMass: number;
@@ -4327,9 +4327,9 @@ export type RiprapResult = {
   stable: boolean;
 };
 
-/** Tetapan Isbash untuk batu yang tertanam rapat di dalam lapisan. */
+/** Koefisien Isbash untuk batu yang tertanam rapat di dalam lapisan. */
 export const ISBASH_EMBEDDED = 1.2;
-/** Tetapan Isbash untuk batu yang menonjol sendirian di permukaan. */
+/** Koefisien Isbash untuk batu yang menonjol sendirian di permukaan. */
 export const ISBASH_EXPOSED = 0.86;
 
 /**
@@ -4344,7 +4344,7 @@ export const ISBASH_EXPOSED = 0.86;
  * lawan 0,86 ukuran yang dibutuhkan berbeda hampir dua kali lipat.
  *
  * Perhatikan pangkat dua pada kecepatan: menggandakan kecepatan menuntut
- * batu empat kali lebih besar garis tengahnya, yaitu enam puluh empat kali
+ * batu empat kali lebih besar diameternya, yaitu enam puluh empat kali
  * lebih berat.
  *
  * Rujukan: Isbash (1936); USACE EM 1110-2-1601, Hydraulic Design of Flood
@@ -4353,9 +4353,9 @@ export const ISBASH_EXPOSED = 0.86;
 export function riprapSize(
   /** Kecepatan rata-rata aliran, m/s */
   V: number,
-  /** Rapat massa jenis batu terhadap air */
+  /** Berat jenis relatif batu (Gs) */
   s: number,
-  /** Tetapan Isbash */
+  /** Koefisien Isbash */
   C = ISBASH_EMBEDDED,
   /** Ukuran batu yang direncanakan dipakai, meter; nol berarti pas ukuran */
   chosen = 0,
@@ -4367,9 +4367,9 @@ export function riprapSize(
 
   return {
     d50,
-    // Batu dianggap bola dengan garis tengah d50.
+    // Batu dianggap bola dengan diameter d50.
     stoneMass: s * rho * (Math.PI / 6) * Math.pow(dPakai, 3),
-    // Tebal lapisan yang lazim disyaratkan dua kali garis tengah batu.
+    // Tebal lapisan yang lazim disyaratkan dua kali diameter batu.
     layerThickness: 2 * dPakai,
     capacityVelocity,
     utilisation: capacityVelocity > 0 ? V / capacityVelocity : Infinity,
@@ -5060,7 +5060,7 @@ export function pumpingWell(
   /** Jari-jari pengaruh, meter */
   R: number,
   confined: boolean,
-  /** Tetapan kehilangan sumur menurut Jacob */
+  /** Koefisien kehilangan sumur (C) menurut Jacob */
   wellLossC = 0
 ): WellResult {
   const T = k * thickness;
@@ -5159,7 +5159,7 @@ export type AquiferResponse = {
 /**
  * Akuifer sebagai satu tampungan lurus.
  *
- * Simpanan tertentu dikali laju perubahan muka air sama dengan imbuhan
+ * Specific yield (Sy) dikali laju perubahan muka air sama dengan imbuhan
  * dikurangi pemompaan dikurangi keluaran, dan keluarannya diambil
  * berbanding lurus dengan muka airnya sendiri:
  *
@@ -5195,7 +5195,7 @@ export function aquiferResponse(
   rechargeSwing: number,
   /** Pemompaan tetap yang disebar atas luasnya, milimeter tiap hari */
   pumping: number,
-  /** Simpanan tertentu, tanpa satuan */
+  /** Specific yield (Sy), tanpa satuan */
   Sy: number,
   /** Tetapan resesi keluaran, meter tiap hari tiap meter muka air */
   alpha: number,
@@ -5549,7 +5549,7 @@ export const HAZEN_C = 100;
 export type Gradation = {
   d50: number;
   cu: number;
-  /** Simpangan baku logaritma natural garis tengah butirannya */
+  /** Simpangan baku logaritma natural diameter butirannya */
   sigma: number;
   d10: number;
   d15: number;
@@ -5560,7 +5560,7 @@ export type Gradation = {
   k: number;
 };
 
-/** Menyusun gradasi log-normal dari garis tengah tengah dan keseragamannya. */
+/** Menyusun gradasi log-normal dari diameter median dan keseragamannya. */
 export function gradation(d50: number, cu: number): Gradation {
   const sigma = Math.log(Math.max(cu, 1.0001)) / (Z_LOLOS[60] - Z_LOLOS[10]);
   const D = (p: number) => d50 * Math.exp(Z_LOLOS[p] * sigma);
@@ -5593,14 +5593,14 @@ function normalCdf(z: number): number {
   return z >= 0 ? 1 - p : p;
 }
 
-/** Persen lolos pada garis tengah tertentu, kebalikan dari gradation. */
+/** Persen lolos pada diameter tertentu, kebalikan dari gradation. */
 export function passingAt(g: Gradation, d: number): number {
   if (g.sigma <= 0) return d >= g.d50 ? 100 : 0;
   const z = Math.log(Math.max(d, 1e-12) / g.d50) / g.sigma;
   return 100 * normalCdf(z);
 }
 
-/** Garis tengah pada persen lolos tertentu, arah maju dari gradation. */
+/** Diameter pada persen lolos tertentu, arah maju dari gradation. */
 export function sizeAt(g: Gradation, percent: number): number {
   const p = Math.min(Math.max(percent, 0.01), 99.99) / 100;
   /* Kebalikan sebaran normal, hampiran Acklam yang dipangkas ke satu cabang */
@@ -5653,7 +5653,7 @@ export type FilterResult = {
  * kedua syaratnya bila dibaca satu per satu.
  *
  * Akibat kedua dari syarat kedua: karena permeabilitas kira-kira sebanding
- * dengan kuadrat garis tengah butiran, filter yang memenuhi syarat aliran
+ * dengan kuadrat diameter butiran, filter yang memenuhi syarat aliran
  * SELALU sekurangnya enam belas kali lebih lolos daripada tanah yang
  * dilindunginya. Filter bukan lapisan yang sedikit lebih kasar.
  *
@@ -5768,7 +5768,7 @@ export type RockflowResult = {
 export function rockfillFlow(
   /** Gradien hidraulik, beda tinggi dibagi panjang lintasan */
   i: number,
-  /** Garis tengah butiran setara, meter */
+  /** Diameter butiran setara, meter */
   d: number,
   /** Porositas urugan */
   n: number,
@@ -6255,7 +6255,7 @@ export type DuctStation = {
   x: number;
   /** Elevasi sumbu saluran, meter */
   z: number;
-  /** Garis tengah dalam, meter */
+  /** Diameter dalam, meter */
   D: number;
   /** Koefisien kehilangan setempat yang bekerja DI penampang ini */
   K?: number;
@@ -6369,7 +6369,7 @@ export function ductEnergy(
       const Drata = (a.D + s.D) / 2;
       const Arata = (Math.PI * Drata * Drata) / 4;
       const Vrata = Arata > 0 ? Q / Arata : 0;
-      /* Gesekan dihitung pada garis tengah rata-rata ruasnya, bukan pada
+      /* Gesekan dihitung pada diameter rata-rata ruasnya, bukan pada
          salah satu ujungnya, supaya ruas yang mengerucut tidak dihitung
          seluruhnya pada penampang tersempit atau terlebar. */
       const hf =
@@ -6489,7 +6489,7 @@ export type MomentumForce = {
  * Tiga hal yang pantas diperhatikan.
  *
  * Pertama, SUKU TEKANAN BIASANYA JAUH MENGUASAI SUKU MOMENTUM. Pipa air
- * garis tengah setengah meter bertekanan sepuluh bar mengalirkan air pada
+ * diameter setengah meter bertekanan sepuluh bar mengalirkan air pada
  * tiga meter per detik: gaya tekanannya seratus sembilan puluh enam
  * kilonewton, gaya momentumnya lima koma tiga kilonewton. Angkur belokan
  * pipa karena itu ditentukan tekanannya, bukan kecepatannya, dan pipa yang
@@ -6511,9 +6511,9 @@ export type MomentumForce = {
 export function momentumForce(
   /** Debit, meter kubik tiap detik */
   Q: number,
-  /** Garis tengah penampang masuk, meter */
+  /** Diameter penampang masuk, meter */
   D1: number,
-  /** Garis tengah penampang keluar, meter */
+  /** Diameter penampang keluar, meter */
   D2: number,
   /** Tinggi tekan di penampang masuk, meter kolom air */
   head1: number,
@@ -6728,7 +6728,7 @@ export function flowLines(
   U: number,
   /** Simpangan kecepatan tegak, m/s */
   V: number,
-  /** Kekerapan ayunan, radian tiap detik */
+  /** Frekuensi ayunan, radian tiap detik */
   omega: number,
   /** Saat yang digambar, detik */
   t: number,
@@ -6947,11 +6947,11 @@ export function acceleration(
   Q0: number,
   /** Simpangan debit terhadap rata-ratanya, bagian dari Q0 */
   swing: number,
-  /** Kekerapan ayunan debit, radian tiap detik */
+  /** Frekuensi ayunan debit, radian tiap detik */
   omega: number,
-  /** Garis tengah di pangkal, meter */
+  /** Diameter di pangkal, meter */
   D1: number,
-  /** Garis tengah di ujung, meter */
+  /** Diameter di ujung, meter */
   D2: number,
   /** Panjang saluran mengerucutnya, meter */
   L: number,
@@ -6980,7 +6980,7 @@ export function acceleration(
      * terhadap x: ∂u/∂x = −2 u (dD/dx) / D.
      *
      * Sebelumnya beda tengah. Di kedua ujung saluran beda itu mengambil satu
-     * titik di luar saluran, tempat garis tengahnya dijepit tetap, sehingga
+     * titik di luar saluran, tempat diameternya dijepit tetap, sehingga
      * turunannya tinggal separuh dan kurvanya anjlok tepat di penampang
      * tersempit, tempat percepatannya justru paling besar.
      */
@@ -7026,7 +7026,7 @@ export type ReynoldsExperiment = {
   regime: "laminar" | "peralihan" | "turbulen";
   /** Panjang masuk sampai profil kecepatannya berkembang penuh, meter */
   entryLength: number;
-  /** Panjang masuk itu dalam kelipatan garis tengah pipanya */
+  /** Panjang masuk itu dalam kelipatan diameter pipanya */
   entryDiameters: number;
   /** Kecepatan tempat alirannya mulai meninggalkan laminar, m/s */
   criticalVelocity: number;
@@ -7063,7 +7063,7 @@ export type ReynoldsExperiment = {
 export function reynoldsExperiment(
   /** Debit, meter kubik tiap detik */
   Q: number,
-  /** Garis tengah pipa, meter */
+  /** Diameter pipa, meter */
   D: number,
   /** Suhu air, derajat Celsius */
   TCelsius: number,
@@ -7103,9 +7103,9 @@ export function reynoldsExperiment(
   /*
    * Panjang masuk. Pada aliran laminar ia sebanding LURUS dengan bilangan
    * Reynolds, jadi pipa laminar yang cepat menuntut panjang masuk ratusan
-   * kali garis tengahnya. Pada aliran turbulen ia hampir tidak bergantung
+   * kali diameternya. Pada aliran turbulen ia hampir tidak bergantung
    * pada Reynolds sama sekali, dan berhenti di sekitar empat puluh kali
-   * garis tengah.
+   * diameter.
    */
   const entryDiameters = laminar
     ? 0.06 * Re
@@ -7772,7 +7772,7 @@ export type VortexStreet = {
   reynolds: number;
   /** Bilangan Strouhal */
   strouhal: number;
-  /** Kekerapan lepasnya pusaran, hertz */
+  /** Frekuensi lepasnya pusaran, hertz */
   frequency: number;
   /** Jarak antar pusaran sebaris, meter */
   spacing: number;
@@ -7780,7 +7780,7 @@ export type VortexStreet = {
   rowGap: number;
   /** Nada yang terdengar bila silinder itu bergetar, hertz */
   toneHz: number;
-  /** Kekerapan getar alami batangnya, hertz */
+  /** Frekuensi getar alami batangnya, hertz */
   naturalHz: number;
   /** Benar bila keduanya berdekatan sehingga getarannya mengunci */
   lockIn: boolean;
@@ -7799,13 +7799,13 @@ export type VortexStreet = {
 /**
  * Mengapa pusaran terlepas bergantian, dan mengapa nadanya tetap.
  *
- * Bilangan Strouhal, yaitu kekerapan lepas dikali garis tengah dibagi
+ * Bilangan Strouhal, yaitu frekuensi lepas dikali diameter dibagi
  * kecepatan datang, hampir tidak berubah di sepanjang empat tingkat
  * besaran bilangan Reynolds: ia bertahan di sekitar nol koma dua dari
  * Reynolds tiga ratus sampai dua ratus ribu.
  *
  * Akibatnya satu kalimat yang dapat diperiksa siapa saja: kawat yang
- * bersiul di dalam angin bernada yang ditentukan garis tengahnya dan
+ * bersiul di dalam angin bernada yang ditentukan diameternya dan
  * kecepatan anginnya SAJA, tidak oleh bahannya, tidak oleh panjangnya, dan
  * hampir tidak oleh kekentalan udaranya. Kawat satu milimeter di dalam
  * angin sepuluh meter per detik bersiul pada dua kilohertz.
@@ -7824,11 +7824,11 @@ export type VortexStreet = {
 export function vortexStreet(
   /** Kecepatan datang, m/s */
   U: number,
-  /** Garis tengah silinder, meter */
+  /** Diameter silinder, meter */
   d: number,
   /** Kekentalan kinematik fluida, m2/s */
   nu: number,
-  /** Kekerapan getar alami batangnya, hertz. Nol berarti tidak ditinjau */
+  /** Frekuensi getar alami batangnya, hertz. Nol berarti tidak ditinjau */
   naturalHz = 0,
   /** Banyaknya pusaran tiap baris yang digambar */
   count = 8
@@ -7851,7 +7851,7 @@ export function vortexStreet(
   const frequency = strouhal > 0 ? (strouhal * U) / Math.max(d, 1e-9) : 0;
 
   /*
-   * Jarak antar pusaran sebaris: kecepatan datang dibagi kekerapannya,
+   * Jarak antar pusaran sebaris: kecepatan datang dibagi frekuensinya,
    * dikurangi sedikit karena pusarannya hanyut lebih lambat daripada
    * aliran bebasnya. Nisbah antar barisnya tetap, nol koma dua delapan
    * satu, dan itulah satu-satunya nisbah yang mantap.
@@ -7885,8 +7885,8 @@ export function vortexStreet(
     regime,
     toneHz: frequency,
     naturalHz,
-    /* Terkunci bila kekerapan lepasnya jatuh di dalam kira-kira dua puluh
-       persen kekerapan getar alaminya; di dalam jendela itu getaran
+    /* Terkunci bila frekuensi lepasnya jatuh di dalam kira-kira dua puluh
+       persen frekuensi getar alaminya; di dalam jendela itu getaran
        batangnya mengatur lepasnya pusaran, bukan sebaliknya. */
     lockIn:
       naturalHz > 0 &&
@@ -8011,7 +8011,7 @@ export function vortexPair(
    * bila jumlahnya nol, dan hanya di situ putaran menjadi lajuan lurus.
    *
    * Sebelumnya keputusannya diambil dari tanda saja, sehingga Γ1 = 10 dan
-   * Γ2 = −40 dilaporkan melaju lurus dengan Ω nol dan perioda tak hingga
+   * Γ2 = −40 dilaporkan melaju lurus dengan Ω nol dan periode tak hingga
    * sementara lintasannya sendiri tergambar sebagai dua lingkaran.
    */
   const translates =
@@ -8056,7 +8056,7 @@ export type LinearWave = {
   shallowCelerity: number;
   /** Kecepatan rambat menurut hampiran air dalam, m/s */
   deepCelerity: number;
-  /** Panjang gelombang di air dalam pada perioda yang sama, meter */
+  /** Panjang gelombang di air dalam pada periode yang sama, meter */
   deepLength: number;
   /** Setengah tinggi lintasan partikel di dasar, meter */
   bottomOrbit: number;
@@ -8094,7 +8094,7 @@ export const WAVE_DEEP = 0.5;
  * L.H. (2007). Waves in Oceanic and Coastal Waters, bab 5.
  */
 export function linearWave(
-  /** Perioda gelombang, detik */
+  /** Periode gelombang, detik */
   period: number,
   /** Kedalaman air, meter */
   depth: number,

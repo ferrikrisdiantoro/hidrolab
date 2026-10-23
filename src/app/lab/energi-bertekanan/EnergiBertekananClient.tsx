@@ -38,7 +38,7 @@ const TXT = {
     title: "Persamaan energi aliran bertekanan",
     sheetTitle: "Garis tekanan dan garis energi di sepanjang pipa tekan berpompa",
     dQ: "Debit yang dipompa",
-    dD: "Garis tengah pipa",
+    dD: "Diameter pipa",
     dL: "Panjang pipa",
     dPuncak: "Elevasi puncak lintasan",
     dAkhir: "Elevasi muka air kolam tujuan",

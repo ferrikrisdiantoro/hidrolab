@@ -31,9 +31,9 @@
  * tangga itulah pokok PI-06.
  */
 export function bendPlan(
-  /** Garis tengah penampang masuk, meter */
+  /** Diameter penampang masuk, meter */
   D1: number,
-  /** Garis tengah penampang keluar, meter */
+  /** Diameter penampang keluar, meter */
   D2: number,
   /** Sudut belokan, derajat. Nol berarti lurus */
   angleDeg: number,
@@ -42,11 +42,11 @@ export function bendPlan(
   lenOut: number,
   /**
    * Jari-jari sumbu belokannya, meter. Bila kosong dipakai satu setengah
-   * kali garis tengah terbesarnya, yaitu belokan pabrikan yang biasa.
+   * kali diameter terbesarnya, yaitu belokan pabrikan yang biasa.
    *
    * Diberikan sendiri hanya bila ada bentuk kedua yang harus BERSARANG di
    * dalam bentuk pertama, misalnya batas volume kendali di dalam pipanya.
-   * Bentuk yang jari-jarinya dihitung dari garis tengahnya masing-masing
+   * Bentuk yang jari-jarinya dihitung dari diameternya masing-masing
    * tidak akan pernah sejajar dengan bentuk yang lain.
    */
   radius?: number

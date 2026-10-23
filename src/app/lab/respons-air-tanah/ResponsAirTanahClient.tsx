@@ -27,10 +27,10 @@ const TXT = {
   id: {
     title: "Respons air tanah",
     sheetTitle: "Muka air tanah terhadap imbuhan musiman dan pemompaan",
-    dMean: "Imbuhan rata-rata",
+    dMean: "Imbuhan (recharge) rata-rata",
     dSwing: "Simpangan imbuhan musiman",
     dPump: "Pemompaan, disebar atas luasnya",
-    dSy: "Simpanan tertentu",
+    dSy: "Specific yield (Sy)",
     dAlpha: "Tetapan resesi keluaran",
     pLambat: "Akuifer lamban, pasir halus tebal",
     pCepat: "Akuifer tanggap, kerikil tipis",
@@ -49,7 +49,7 @@ const TXT = {
     keringNote:
       "Pemompaan melampaui imbuhan, jadi muka air tanah turun melewati ambang tempat akuifer ini mengalirkan airnya keluar. Yang terjadi sesudah itu tidak tergambar di lembar ini, dan sebabnya penting: begitu muka air turun di bawah ambang keluarannya, suku umpan balik yang menarik sistem kembali ke tempatnya berhenti bekerja. Akuifer yang kehilangan umpan baliknya tidak lagi punya keadaan tunak, dan penurunannya berjalan terus selama pemompaannya berjalan. Mata air mengering, sungai yang tadinya menerima air berbalik menyerahkannya, dan pemulihannya memakan waktu berkali-kali lipat tetapan waktu yang tertulis di tabel ini.",
     note:
-      "Lembar ini sebenarnya lembar tentang umpan balik dan tundaan, dan air tanah hanya kebetulan menjadi bendanya. Umpan baliknya suku keluaran yang sebanding dengan muka airnya sendiri: makin tinggi muka air makin deras ia mengalir keluar, sehingga sistemnya selalu menarik dirinya kembali. Tundaannya simpanan tertentu: air yang masuk tidak segera menjadi muka air melainkan harus mengisi pori lebih dulu. Hasil bagi keduanya adalah tetapan waktu, dan seluruh perilaku sistemnya tergantung pada perbandingan tetapan waktu itu terhadap panjang musimnya. Yang paling berguna diingat dari lembar ini satu kalimat: tundaan puncaknya tidak pernah mencapai seperempat musim, betapa pun lamban akuifernya. Itu bukan angka empiris melainkan akibat bentuk arctan, yang tidak pernah mencapai setengah pi. Akibat praktisnya langsung: lapangan yang muka air tanahnya memuncak lebih dari tiga bulan sesudah puncak hujannya pasti tidak diberi makan oleh hujan setempat, dan mencari sumber imbuhannya di tempat lain akan lebih berhasil daripada memperbaiki taksiran simpanannya. Yang kedua: peredaman dan tundaan sama-sama mengukur satu besaran yang sama, yaitu tetapan waktu. Mengukur salah satunya di lapangan sudah cukup, dan mengukur keduanya adalah cara memeriksa apakah model tampungan tunggal ini memang berlaku di situ.",
+      "Lembar ini sebenarnya lembar tentang umpan balik dan tundaan, dan air tanah hanya kebetulan menjadi bendanya. Umpan baliknya suku keluaran yang sebanding dengan muka airnya sendiri: makin tinggi muka air makin deras ia mengalir keluar, sehingga sistemnya selalu menarik dirinya kembali. Tundaannya specific yield (Sy): air yang masuk tidak segera menjadi muka air melainkan harus mengisi pori lebih dulu. Hasil bagi keduanya adalah tetapan waktu, dan seluruh perilaku sistemnya tergantung pada perbandingan tetapan waktu itu terhadap panjang musimnya. Yang paling berguna diingat dari lembar ini satu kalimat: tundaan puncaknya tidak pernah mencapai seperempat musim, betapa pun lamban akuifernya. Itu bukan angka empiris melainkan akibat bentuk arctan, yang tidak pernah mencapai setengah pi. Akibat praktisnya langsung: lapangan yang muka air tanahnya memuncak lebih dari tiga bulan sesudah puncak hujannya pasti tidak diberi makan oleh hujan setempat, dan mencari sumber imbuhannya di tempat lain akan lebih berhasil daripada memperbaiki taksiran simpanannya. Yang kedua: peredaman dan tundaan sama-sama mengukur satu besaran yang sama, yaitu tetapan waktu. Mengukur salah satunya di lapangan sudah cukup, dan mengukur keduanya adalah cara memeriksa apakah model tampungan tunggal ini memang berlaku di situ.",
   },
   en: {
     title: "Groundwater response",
@@ -57,7 +57,7 @@ const TXT = {
     dMean: "Mean recharge",
     dSwing: "Seasonal recharge swing",
     dPump: "Pumping, spread over the area",
-    dSy: "Specific yield",
+    dSy: "Specific yield (Sy)",
     dAlpha: "Outflow recession constant",
     pLambat: "A sluggish aquifer, thick fine sand",
     pCepat: "A responsive aquifer, thin gravel",
@@ -97,6 +97,7 @@ const REFS = {
 
 export function ResponsAirTanahClient() {
   const { lang } = useLang();
+  const mmHari = lang === "id" ? "mm/hari" : "mm/day";
   const t = str(lang);
   const x = TXT[lang];
   const T = cl(lang);
@@ -273,11 +274,11 @@ export function ResponsAirTanahClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="R" label={x.dMean} value={rata} min={0.1} max={8} step={0.1} digits={1} unit="mm/d" onChange={setRata} tint={C.water} />
-              <InputRow symbol="A" label={x.dSwing} value={ayun} min={0.2} max={6} step={0.1} digits={1} unit="mm/d" onChange={setAyun} />
-              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit="mm/d" onChange={setPompa} tint={C.critical} />
+              <InputRow symbol="R" label={x.dMean} value={rata} min={0.1} max={8} step={0.1} digits={1} unit={mmHari} onChange={setRata} tint={C.water} />
+              <InputRow symbol="A" label={x.dSwing} value={ayun} min={0.2} max={6} step={0.1} digits={1} unit={mmHari} onChange={setAyun} />
+              <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit={mmHari} onChange={setPompa} tint={C.critical} />
               <InputRow symbol="Sy" label={x.dSy} value={Sy} min={0.02} max={0.4} step={0.01} digits={2} onChange={setSy} />
-              <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit="10⁻³/d" onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
+              <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit={lang === "id" ? "10⁻³/hari" : "10⁻³/d"} onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -305,15 +306,15 @@ export function ResponsAirTanahClient() {
             )}
             <ResultTable
               rows={[
-                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: "d", tint: C.critical, strong: true },
+                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: lang === "id" ? "hari" : "d", tint: C.critical, strong: true },
                 { symbol: "h̄", label: x.rMean, value: fmt(r.meanHead, 3), unit: "m", tint: C.water, strong: true },
                 { symbol: "Δh", label: x.rAmp, value: fmt(r.amplitude, 4), unit: "m" },
                 { symbol: "Δh₀", label: x.rAmpUn, value: fmt(r.amplitudeUndamped, 4), unit: "m" },
                 { symbol: "D", label: x.rDamp, value: fmt(r.damping, 4) },
-                { symbol: "t", label: x.rLag, value: fmt(r.lag, 1), unit: "d", strong: true },
+                { symbol: "t", label: x.rLag, value: fmt(r.lag, 1), unit: lang === "id" ? "hari" : "d", strong: true },
                 { symbol: "t/P", label: x.rLagF, value: fmt(r.lagFraction, 4) },
                 { symbol: "hmin", label: x.rMin, value: fmt(r.minHead, 3), unit: "m", tint: r.runsDry ? C.signal : undefined },
-                { symbol: "q", label: x.rBase, value: fmt(r.baseflow, 3), unit: "mm/d" },
+                { symbol: "q", label: x.rBase, value: fmt(r.baseflow, 3), unit: mmHari },
               ]}
             />
           </Block>
@@ -365,5 +366,5 @@ function notice(
 
   if (lang === "en")
     return `The time constant is ${fmt(r.tau, 0)} days, so the water table peaks ${fmt(r.lag, 0)} days after the recharge peak, about ${fmt(bulan, 1)} months, and swings ${fmt(r.damping * 100, 0)} per cent of what it would swing without storage. Now treble the specific yield. The lag grows to ${fmt(lamban.lag, 0)} days and the swing falls to ${fmt(lamban.damping * 100, 0)} per cent: storage buys smoothness and pays for it in delay. Push the storage as high as you like and the lag still stops short of ninety one days, a quarter of the season, because arctan never reaches half pi.`;
-  return `Tetapan waktunya ${fmt(r.tau, 0)} hari, jadi muka air tanahnya memuncak ${fmt(r.lag, 0)} hari sesudah puncak imbuhan, kira-kira ${fmt(bulan, 1)} bulan, dan berayun ${fmt(r.damping * 100, 0)} persen dari ayunan yang akan terjadi bila tanpa simpanan. Sekarang lipattigakan simpanan tertentunya. Tundaannya menjadi ${fmt(lamban.lag, 0)} hari dan ayunannya turun menjadi ${fmt(lamban.damping * 100, 0)} persen: simpanan membeli kehalusan dan membayarnya dengan tundaan. Naikkan simpanannya setinggi apa pun dan tundaannya tetap berhenti sebelum sembilan puluh satu hari, yaitu seperempat musim, karena arctan tidak pernah mencapai setengah pi.`;
+  return `Tetapan waktunya ${fmt(r.tau, 0)} hari, jadi muka air tanahnya memuncak ${fmt(r.lag, 0)} hari sesudah puncak imbuhan, kira-kira ${fmt(bulan, 1)} bulan, dan berayun ${fmt(r.damping * 100, 0)} persen dari ayunan yang akan terjadi bila tanpa simpanan. Sekarang lipattigakan specific yield-nya. Tundaannya menjadi ${fmt(lamban.lag, 0)} hari dan ayunannya turun menjadi ${fmt(lamban.damping * 100, 0)} persen: simpanan membeli kehalusan dan membayarnya dengan tundaan. Naikkan simpanannya setinggi apa pun dan tundaannya tetap berhenti sebelum sembilan puluh satu hari, yaitu seperempat musim, karena arctan tidak pernah mencapai setengah pi.`;
 }

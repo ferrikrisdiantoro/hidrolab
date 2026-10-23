@@ -55,27 +55,27 @@ const TXT = {
     title: "Deret vorteks Kármán",
     sheetTitle: "Pusaran yang terlepas bergantian di belakang silinder",
     dU: "Kecepatan datang",
-    dD: "Garis tengah silinder",
-    dF: "Kekerapan getar alami batangnya",
+    dD: "Diameter silinder",
+    dF: "Frekuensi getar alami batangnya",
     fluida: "Fluida",
     air: "Air, 15 °C",
     udara: "Udara",
     pTiang: "Tiang jembatan di sungai",
     pCerobong: "Cerobong tertiup angin",
-    pKunci: "Kekerapan terkunci, batangnya beresonansi",
+    pKunci: "Frekuensi terkunci, batangnya beresonansi",
     rRe: "Bilangan Reynolds",
     rSt: "Bilangan Strouhal",
-    rF: "Kekerapan lepasnya pusaran",
+    rF: "Frekuensi lepasnya pusaran",
     rJarak: "Jarak antar pusaran sebaris",
     rGap: "Jarak antar kedua baris",
     rNisbah: "Nisbah jarak baris terhadap jarak sebaris",
     rNada: "Nada yang terdengar",
-    kunci: "Kekerapan lepasnya terkunci pada getar alami batangnya",
-    aman: "Kekerapan lepasnya jauh dari getar alami batangnya",
+    kunci: "Frekuensi lepasnya terkunci pada getar alami batangnya",
+    aman: "Frekuensi lepasnya jauh dari getar alami batangnya",
     kunciNote:
-      "Kekerapan lepasnya pusaran sudah berdekatan dengan kekerapan getar alami batangnya, dan pada keadaan itu keduanya saling mengunci. Yang terjadi bukan penjumlahan dua getaran melainkan satu getaran yang menguatkan dirinya sendiri: batang yang bergoyang menggeser titik lepasnya pusaran, titik lepas yang bergeser memperkuat goyangannya, dan simpangannya tumbuh sampai ditahan sesuatu yang lain. Jembatan Tacoma Narrows bukan contohnya, karena yang di sana kibasan aeroelastik, tetapi cerobong baja, kabel laut, dan tiang rambu memang runtuh karena ini, dan penangkalnya selalu sama: pasang sirip pemecah di sepertiga atas batangnya supaya pusarannya tidak dapat lepas serentak di sepanjang batang.",
+      "Frekuensi lepasnya pusaran sudah berdekatan dengan frekuensi getar alami batangnya, dan pada keadaan itu keduanya saling mengunci. Yang terjadi bukan penjumlahan dua getaran melainkan satu getaran yang menguatkan dirinya sendiri: batang yang bergoyang menggeser titik lepasnya pusaran, titik lepas yang bergeser memperkuat goyangannya, dan simpangannya tumbuh sampai ditahan sesuatu yang lain. Jembatan Tacoma Narrows bukan contohnya, karena yang di sana kibasan aeroelastik, tetapi cerobong baja, kabel laut, dan tiang rambu memang runtuh karena ini, dan penangkalnya selalu sama: pasang sirip pemecah di sepertiga atas batangnya supaya pusarannya tidak dapat lepas serentak di sepanjang batang.",
     note:
-      "Deret vorteks adalah salah satu dari sedikit hal dalam mekanika fluida yang dapat diramalkan hampir tanpa perhitungan. Satu bilangan, yaitu bilangan Strouhal, mendatar di sekitar nol koma dua sepanjang empat orde besaran bilangan Reynolds, dan dari situ kekerapan lepasnya pusaran mengikuti langsung dari kecepatan dibagi garis tengahnya. Kármán sendiri menghitung susunan yang stabil dan menemukan bahwa hanya satu nisbah jarak yang bertahan, yaitu nol koma dua delapan satu, dan susunan dengan nisbah lain terurai sendiri. Dua akibat yang perlu dipegang. Pertama, gaya yang dirasakan silindernya berayun pada kekerapan itu, tegak lurus arah aliran, dan besarnya pada keadaan terkunci dapat melebihi gaya seretnya sendiri. Kedua, karena kekerapannya berbanding lurus dengan kecepatan, setiap batang yang terkena arus atau angin punya satu kecepatan tertentu yang paling berbahaya baginya, dan kecepatan itu belum tentu kecepatan terbesar yang pernah dialaminya. Batang yang selamat pada badai bisa runtuh pada angin sedang.",
+      "Deret vorteks adalah salah satu dari sedikit hal dalam mekanika fluida yang dapat diramalkan hampir tanpa perhitungan. Satu bilangan, yaitu bilangan Strouhal, mendatar di sekitar nol koma dua sepanjang empat orde besaran bilangan Reynolds, dan dari situ frekuensi lepasnya pusaran mengikuti langsung dari kecepatan dibagi diameternya. Kármán sendiri menghitung susunan yang stabil dan menemukan bahwa hanya satu nisbah jarak yang bertahan, yaitu nol koma dua delapan satu, dan susunan dengan nisbah lain terurai sendiri. Dua akibat yang perlu dipegang. Pertama, gaya yang dirasakan silindernya berayun pada frekuensi itu, tegak lurus arah aliran, dan besarnya pada keadaan terkunci dapat melebihi gaya seretnya sendiri. Kedua, karena frekuensinya berbanding lurus dengan kecepatan, setiap batang yang terkena arus atau angin punya satu kecepatan tertentu yang paling berbahaya baginya, dan kecepatan itu belum tentu kecepatan terbesar yang pernah dialaminya. Batang yang selamat pada badai bisa runtuh pada angin sedang.",
   },
   en: {
     title: "Kármán vortex street",
@@ -250,7 +250,7 @@ export function VorteksKarmanClient() {
           <p>
             Satu bilangan, <Term tint={C.water}>Strouhal</Term>, mendatar di
             sekitar nol koma dua sepanjang empat orde besaran, dan dari situ
-            kekerapan lepasnya pusaran mengikuti langsung. Setiap batang punya
+            frekuensi lepasnya pusaran mengikuti langsung. Setiap batang punya
             satu <Term tint={C.critical}>kecepatan paling berbahaya</Term>.
           </p>
         ) : (
@@ -384,5 +384,5 @@ function notice(U: number, d: number, nu: number, alam: number, lang: Lang) {
 
   if (lang === "en")
     return `The vortices leave at ${fmt(a.frequency, 2)} hertz. Double the velocity and the frequency doubles to ${fmt(cepat.frequency, 2)}; double the diameter instead and it halves to ${fmt(besar.frequency, 2)}. Both follow from one flat Strouhal number and nothing else.${alam > 0 ? ` For a member whose natural frequency is ${fmt(alam, 1)} hertz, the dangerous approach velocity is about ${fmt(bahaya, 2)} metres a second, and it is that velocity, not the largest one, that has to be checked.` : ""}`;
-  return `Pusarannya lepas pada ${fmt(a.frequency, 2)} hertz. Lipatduakan kecepatannya dan kekerapannya ikut berlipat dua menjadi ${fmt(cepat.frequency, 2)}; lipatduakan garis tengahnya dan ia justru separuh, menjadi ${fmt(besar.frequency, 2)}. Keduanya mengikuti satu bilangan Strouhal yang mendatar dan bukan yang lain.${alam > 0 ? ` Untuk batang yang kekerapan getar alaminya ${fmt(alam, 1)} hertz, kecepatan datang yang berbahaya sekitar ${fmt(bahaya, 2)} meter tiap detik, dan kecepatan itulah yang harus diperiksa, bukan kecepatan terbesarnya.` : ""}`;
+  return `Pusarannya lepas pada ${fmt(a.frequency, 2)} hertz. Lipatduakan kecepatannya dan frekuensinya ikut berlipat dua menjadi ${fmt(cepat.frequency, 2)}; lipatduakan diameternya dan ia justru separuh, menjadi ${fmt(besar.frequency, 2)}. Keduanya mengikuti satu bilangan Strouhal yang mendatar dan bukan yang lain.${alam > 0 ? ` Untuk batang yang frekuensi getar alaminya ${fmt(alam, 1)} hertz, kecepatan datang yang berbahaya sekitar ${fmt(bahaya, 2)} meter tiap detik, dan kecepatan itulah yang harus diperiksa, bukan kecepatan terbesarnya.` : ""}`;
 }

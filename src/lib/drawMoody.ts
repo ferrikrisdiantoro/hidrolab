@@ -126,14 +126,13 @@ export function drawMoody(
   ctx.lineTo(Math.round(xc1) + 0.5, padT + plotH);
   ctx.stroke();
   ctx.setLineDash([]);
-  region(
-    ctx,
-    T.criticalZone,
-    (xc0 + xc1) / 2,
-    padT + plotH * 0.62,
-    C.ink3,
-    -Math.PI / 2
-  );
+  // Tulisan tegak di pita zona kritis. Jalur baca f titik operasi melintas
+  // mendatar dan pada pipa beton biasa jatuh tepat di tinggi 0,62, memotong
+  // tulisannya menjadi "ZO KRITIS"; bila begitu tulisannya pindah ke bawah.
+  const yZona0 = padT + plotH * 0.62;
+  const yBaca = s.f >= F_MIN && s.f <= F_MAX ? Y(s.f) : -1e9;
+  const yZona = Math.abs(yBaca - yZona0) < 45 ? padT + plotH * 0.84 : yZona0;
+  region(ctx, T.criticalZone, (xc0 + xc1) / 2, yZona, C.ink3, -Math.PI / 2);
 
   /* ---------------- garis laminar ---------------- */
   pen(ctx, W.bold, C.ink);
@@ -152,7 +151,10 @@ export function drawMoody(
   // Nama wilayah laminar duduk di sudut kiri bawah, tempat label Re titik
   // operasi juga mendarat bila Re di bawah 3·10³. Bila keduanya bertemu,
   // nama wilayahnya yang mengalah ke atas.
-  const xLam = X(1.45e3);
+  // Dijaga setengah lebar tulisan dari bingkai kiri; pada bidang lebar huruf
+  // L-nya dulu menimpa garis bingkai.
+  ctx.font = F.region;
+  const xLam = Math.max(X(1.45e3), padL + stencilWidth(ctx, T.laminar, 1.4) / 2 + 6);
   const lamTertimpa =
     s.Re >= RE_MIN && s.Re <= RE_MAX && s.f >= F_MIN && s.f <= F_MAX &&
     Math.abs(X(s.Re) - xLam) < 70;
@@ -160,6 +162,7 @@ export function drawMoody(
 
   /* ---------------- keluarga kurva kekasaran ---------------- */
   const roughLocus: [number, number][] = [];
+  const labelKanan: { y: number; teks: string; active: boolean }[] = [];
 
   for (const rr of FAMILY) {
     const active =
@@ -192,15 +195,20 @@ export function drawMoody(
     }
 
     const fEnd = colebrookFriction(RE_MAX, rr);
-    if (fEnd >= F_MIN && fEnd <= F_MAX) {
-      curveLabel(
-        ctx,
-        fmtRR(rr),
-        padL + plotW + 7,
-        Y(fEnd),
-        active ? C.water : C.ink3
-      );
-    }
+    if (fEnd >= F_MIN && fEnd <= F_MAX) labelKanan.push({ y: Y(fEnd), teks: fmtRR(rr), active });
+  }
+
+  // Nama kurva di tepi kanan. Pada bidang pendek (layar HP) kurva kekasaran
+  // kecil berhimpit; label yang jaraknya kurang dari satu baris dilewati,
+  // kecuali kurva yang sedang dipakai, yang selalu ditulis.
+  {
+    const JARAK = 11;
+    const tulis: typeof labelKanan = [];
+    for (const l of labelKanan.filter((l) => l.active))
+      tulis.push(l);
+    for (const l of labelKanan)
+      if (!l.active && tulis.every((t) => Math.abs(t.y - l.y) >= JARAK)) tulis.push(l);
+    for (const l of tulis) curveLabel(ctx, l.teks, padL + plotW + 7, l.y, l.active ? C.water : C.ink3);
   }
 
   // Pipa licin sempurna
@@ -218,7 +226,14 @@ export function drawMoody(
   }
   ctx.stroke();
   ctx.setLineDash([]);
-  curveLabel(ctx, T.smoothPipe, X(2.2e7), Y(colebrookFriction(2.2e7, 0)) + 12, C.ink2);
+  // Di bawah kurvanya, pada Re 10⁶. Dulu di Re 2,2·10⁷, tempat f pipa licin
+  // sudah di bawah batas bawah 0,008, sehingga namanya jatuh keluar bingkai
+  // dan menimpa judul sumbu di layar sempit.
+  {
+    const yLicin = Y(colebrookFriction(1e6, 0));
+    const bawah = yLicin + 12 <= padT + plotH - 8;
+    curveLabel(ctx, T.smoothPipe, X(1e6), bawah ? yLicin + 12 : yLicin - 12, C.ink2);
+  }
 
   // Garis batas turbulen penuh
   if (roughLocus.length > 2) {
@@ -317,7 +332,9 @@ function fmtRe(Re: number): string {
 function fmtRR(rr: number): string {
   if (rr >= 0.01) return fmtPlain(rr, 2);
   if (rr >= 1e-3) return fmtPlain(rr, 3);
-  const exp = Math.round(Math.log10(rr));
+  // Pangkat dibulatkan ke BAWAH. Dengan pembulatan terdekat, 6·10⁻⁴ tertulis
+  // "1·10⁻³", 4·10⁻⁴ tertulis "0·10⁻³", dan 5·10⁻⁵ tertulis "1·10⁻⁴".
+  const exp = Math.floor(Math.log10(rr) + 1e-9);
   const mant = rr / Math.pow(10, exp);
   return Math.abs(mant - 1) < 0.1
     ? `10${sup(exp)}`

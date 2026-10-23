@@ -36,10 +36,10 @@ const TXT = {
   id: {
     title: "Kurva Shields",
     sheetTitle: "Kurva Shields — ambang gerak butir dasar",
-    dD: "Garis tengah butir",
+    dD: "Diameter butir",
     dR: "Jari-jari hidrolik atau kedalaman",
     dS: "Kemiringan dasar",
-    dRho: "Rapat massa jenis butir terhadap air",
+    dRho: "Berat jenis relatif butir (Gs)",
     dT: "Suhu air",
     pPasir: "Pasir sedang di saluran datar",
     pKerikil: "Kerikil di sungai pegunungan",
@@ -65,7 +65,7 @@ const TXT = {
     dD: "Grain diameter",
     dR: "Hydraulic radius or depth",
     dS: "Bed slope",
-    dRho: "Grain density relative to water",
+    dRho: "Specific gravity of the grains (Gs)",
     dT: "Water temperature",
     pPasir: "Medium sand in a flat channel",
     pKerikil: "Gravel in a mountain river",
@@ -246,7 +246,7 @@ export function KurvaShieldsClient() {
               <InputRow symbol="d" label={x.dD} value={dMm} min={0.004} max={300} step={0.002} digits={3} unit="mm" onChange={setDMm} tint={C.critical} />
               <InputRow symbol="R" label={x.dR} value={R} min={0.02} max={10} step={0.02} digits={2} unit="m" onChange={setR} tint={C.water} />
               <InputRow symbol="S" label={x.dS} value={S * 1000} min={0.02} max={60} step={0.02} digits={2} unit="‰" onChange={(v) => setS(v / 1000)} />
-              <InputRow symbol="s" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS_} />
+              <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS_} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>
 

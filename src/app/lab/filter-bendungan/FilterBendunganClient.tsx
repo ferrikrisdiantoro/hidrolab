@@ -40,9 +40,9 @@ const TXT = {
   id: {
     title: "Filter bendungan",
     sheetTitle: "Gradasi filter terhadap tanah yang dilindunginya — kriteria Terzaghi",
-    dBaseD50: "Garis tengah tengah tanah",
+    dBaseD50: "Diameter median tanah",
     dBaseCu: "Keseragaman tanah",
-    dFilterD50: "Garis tengah tengah filter",
+    dFilterD50: "Diameter median filter",
     dFilterCu: "Keseragaman filter",
     pPas: "Filter yang memenuhi",
     pKasar: "Filter terlalu kasar",
@@ -66,7 +66,7 @@ const TXT = {
     alirNote:
       "D15 filter kurang dari empat kali D15 tanah, jadi filternya tidak cukup lebih lolos daripada tanah yang dilindunginya. Filter yang tidak mengalirkan bukan filter melainkan lapisan kedap kedua: air yang sampai ke situ tertahan, tekanan air pori di belakangnya naik, dan tekanan air pori yang naik adalah persis keadaan yang ingin dihindari dengan memasang filter.",
     note:
-      "Kedua syarat Terzaghi menarik ke arah yang berlawanan, dan itulah yang membuat perancangan filter menjadi soal dan bukan sekadar pilihan. Filter harus cukup halus untuk menahan butiran tanah, dan cukup kasar untuk mengalirkan air lebih lancar daripada tanahnya. Bagi kedua syarat itu satu sama lain dan angka empatnya saling menghapus: lebar jendela yang tersedia persis sama dengan D85 tanah dibagi D15 tanah, yaitu rentang gradasi tanah yang dilindungi itu sendiri. Kesimpulan itu tidak terbaca dari kedua syaratnya bila dibaca satu per satu, dan akibatnya langsung di lapangan. Tanah yang bergradasi lebar memberi pilihan filter yang longgar. Tanah yang seragam, misalnya pasir dune atau lanau hasil endapan, hampir tidak memberi pilihan sama sekali, dan di situ filter satu lapis sering tidak cukup sehingga harus dipakai filter bertingkat dua atau tiga. Akibat kedua, dari syarat alirannya saja: karena permeabilitas kira-kira sebanding dengan kuadrat garis tengah butiran, filter yang memenuhi syarat aliran selalu sekurangnya enam belas kali lebih lolos daripada tanahnya. Filter bukan lapisan yang sedikit lebih kasar; ia lapisan yang alirannya satu tingkat besaran berbeda.",
+      "Kedua syarat Terzaghi menarik ke arah yang berlawanan, dan itulah yang membuat perancangan filter menjadi soal dan bukan sekadar pilihan. Filter harus cukup halus untuk menahan butiran tanah, dan cukup kasar untuk mengalirkan air lebih lancar daripada tanahnya. Bagi kedua syarat itu satu sama lain dan angka empatnya saling menghapus: lebar jendela yang tersedia persis sama dengan D85 tanah dibagi D15 tanah, yaitu rentang gradasi tanah yang dilindungi itu sendiri. Kesimpulan itu tidak terbaca dari kedua syaratnya bila dibaca satu per satu, dan akibatnya langsung di lapangan. Tanah yang bergradasi lebar memberi pilihan filter yang longgar. Tanah yang seragam, misalnya pasir dune atau lanau hasil endapan, hampir tidak memberi pilihan sama sekali, dan di situ filter satu lapis sering tidak cukup sehingga harus dipakai filter bertingkat dua atau tiga. Akibat kedua, dari syarat alirannya saja: karena permeabilitas kira-kira sebanding dengan kuadrat diameter butiran, filter yang memenuhi syarat aliran selalu sekurangnya enam belas kali lebih lolos daripada tanahnya. Filter bukan lapisan yang sedikit lebih kasar; ia lapisan yang alirannya satu tingkat besaran berbeda.",
   },
   en: {
     title: "Dam filter",
@@ -344,7 +344,7 @@ export function FilterBendunganClient() {
               <Eq>
                 <span className="text-ink-3">
                   {lang === "id"
-                    ? "gradasi disusun log-normal dari garis tengah tengah dan keseragamannya, jadi tiap titik kurvanya terhitung dan bukan digambar tangan"
+                    ? "gradasi disusun log-normal dari diameter median dan keseragamannya, jadi tiap titik kurvanya terhitung dan bukan digambar tangan"
                     : "the gradation is built log normal from the median size and the uniformity, so every point on the curve is computed rather than drawn by hand"}
                 </span>
               </Eq>

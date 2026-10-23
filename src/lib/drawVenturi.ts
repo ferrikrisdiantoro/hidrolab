@@ -18,9 +18,9 @@ import type { Lang } from "./i18n";
 import { fmtPlain } from "./hydraulics";
 
 export type VenturiDrawState = {
-  /** Garis tengah pipa, meter */
+  /** Diameter pipa, meter */
   D1: number;
-  /** Garis tengah leher, meter */
+  /** Diameter leher, meter */
   D2: number;
   /** Kecepatan di pipa dan di leher */
   V1: number;
@@ -29,7 +29,7 @@ export type VenturiDrawState = {
   dh: number;
   /** Kehilangan tekanan tetap sesudah alat, meter */
   permanentLoss: number;
-  /** Di luar rentang perbandingan garis tengah yang lazim */
+  /** Di luar rentang perbandingan diameter yang lazim */
   outOfRange: boolean;
   /** Leher tidak lebih sempit dari pipa: tidak ada garis tinggi tekan yang bisa digambar */
   notVenturi: boolean;
@@ -40,7 +40,7 @@ export type VenturiDrawState = {
  *
  * Panel atas garis tinggi tekan, panel bawah potongan pipanya. Keduanya
  * dipisah karena skalanya memang tidak sebanding: tinggi tekan diukur dalam
- * meter kolom air sedangkan garis tengah pipa dalam sentimeter, dan
+ * meter kolom air sedangkan diameter pipa dalam sentimeter, dan
  * memaksakan keduanya pada satu skala akan membuat salah satunya lenyap.
  *
  * Yang harus terbaca sekali pandang: garis tekan MENUKIK di leher lalu naik
@@ -71,7 +71,7 @@ export function drawVenturi(
   const atasY = padT;
   const bawahY = padT + tinggiAtas + sela;
 
-  /* -------- geometri venturi dalam satuan garis tengah pipa --------
+  /* -------- geometri venturi dalam satuan diameter pipa --------
      Perbandingan bagian-bagiannya mengikuti bentuk baku venturi klasik:
      bagian menyempit landai, leher pendek, bagian membesar jauh lebih
      panjang. Justru bagian membesar yang panjang itulah yang membuat

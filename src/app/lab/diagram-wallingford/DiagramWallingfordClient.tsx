@@ -34,7 +34,7 @@ const TXT = {
   id: {
     title: "Diagram Wallingford",
     sheetTitle: "Bagan Wallingford — kecepatan pipa penuh dari kemiringan hidrolik",
-    dD: "Garis tengah dalam pipa",
+    dD: "Diameter dalam pipa",
     dS: "Kemiringan hidrolik",
     dKs: "Kekasaran mutlak dinding",
     dT: "Suhu air",
@@ -92,7 +92,7 @@ const REFS = {
   ],
 } as const;
 
-/** Keluarga garis tengah yang digambar sebagai kurva latar, meter. */
+/** Keluarga diameter yang digambar sebagai kurva latar, meter. */
 const KELUARGA_D = [0.075, 0.1, 0.15, 0.225, 0.3, 0.45, 0.6, 0.9, 1.2, 1.8];
 
 const V_MIN = 0.05;
@@ -153,7 +153,7 @@ export function DiagramWallingfordClient() {
         };
       };
 
-      // Keluarga garis tengah baku, latar belakang untuk membaca pipa lain.
+      // Keluarga diameter baku, latar belakang untuk membaca pipa lain.
       const deret: ChartSeries[] = KELUARGA_D.map((Dk) => {
         const pts = kurvaUntuk(Dk);
         return {
@@ -170,7 +170,7 @@ export function DiagramWallingfordClient() {
       /*
        * Pipa yang sedang dipilih, SELALU digambar sebagai kurvanya sendiri.
        *
-       * Sebelumnya kurva tebal hanya muncul bila garis tengahnya kebetulan
+       * Sebelumnya kurva tebal hanya muncul bila diameternya kebetulan
        * salah satu dari sepuluh ukuran baku, padahal penggesernya melangkah
        * lima milimeter. Hampir seluruh posisi penggeser karena itu tidak
        * punya kurva tebal sama sekali, dan titik kerjanya melayang di antara

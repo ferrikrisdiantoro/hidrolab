@@ -55,7 +55,7 @@ const TXT = {
     blkKoordinat: "koordinat penampang",
     hX: "X, m",
     hY: "Y, m",
-    dD: "Garis tengah pipa",
+    dD: "Diameter pipa",
     dW: "Lebar dasar",
     dHc: "Tinggi dinding",
     dH: "Kedalaman air dari titik terendah",
@@ -91,7 +91,7 @@ const TXT = {
     rcNone:
       "Belum ada lengkung debit tersimpan. Susun lengkungnya di lembar HY-04 lalu tekan \"pakai di HY-03\" untuk membandingkan kedua debit di sini.",
     note:
-      "Rumus Manning dan Chezy menghitung debit ALIRAN SERAGAM, yaitu aliran yang kedalamannya sama sepanjang saluran karena gaya berat yang mendorong tepat diimbangi gesekan dasar dan dinding. Dua andaian ikut di dalamnya dan jarang disebut. Pertama, kemiringan yang dimasukkan adalah kemiringan garis energi, yang sama dengan kemiringan dasar hanya bila alirannya memang seragam; di dekat bendung, gorong-gorong, atau perubahan penampang, kedalamannya berubah dan rumus ini tidak berlaku. Kedua, koefisien kekasaran dianggap tetap untuk seluruh penampang, padahal pada sungai alam dasar berbatu dan bantaran berumput kekasarannya jauh berbeda. Yang menarik dari penampang lingkaran: debitnya tidak terbesar saat pipa penuh. Mendekati puncak, keliling basah bertambah jauh lebih cepat daripada luasnya, sehingga jari-jari hidraulisnya turun, dan puncak debitnya berada di sekitar 94 persen garis tengah.",
+      "Rumus Manning dan Chezy menghitung debit ALIRAN SERAGAM, yaitu aliran yang kedalamannya sama sepanjang saluran karena gaya berat yang mendorong tepat diimbangi gesekan dasar dan dinding. Dua andaian ikut di dalamnya dan jarang disebut. Pertama, kemiringan yang dimasukkan adalah kemiringan garis energi, yang sama dengan kemiringan dasar hanya bila alirannya memang seragam; di dekat bendung, gorong-gorong, atau perubahan penampang, kedalamannya berubah dan rumus ini tidak berlaku. Kedua, koefisien kekasaran dianggap tetap untuk seluruh penampang, padahal pada sungai alam dasar berbatu dan bantaran berumput kekasarannya jauh berbeda. Yang menarik dari penampang lingkaran: debitnya tidak terbesar saat pipa penuh. Mendekati puncak, keliling basah bertambah jauh lebih cepat daripada luasnya, sehingga jari-jari hidraulisnya turun, dan puncak debitnya berada di sekitar 94 persen diameter.",
   },
   en: {
     title: "Channel section discharge",

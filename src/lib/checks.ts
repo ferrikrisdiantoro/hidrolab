@@ -2938,7 +2938,7 @@ export function checksHydrograph(
   return [
     {
       label: {
-        id: "Simpanan maksimum sesuai rumus bilangan kurva",
+        id: "Simpanan maksimum sesuai rumus Curve Number",
         en: "The maximum storage follows the curve-number formula",
       },
       source: "USDA NRCS, S = 25400/CN − 254 dalam milimeter",
@@ -2951,7 +2951,7 @@ export function checksHydrograph(
     },
     {
       label: {
-        id: "Pada bilangan kurva seratus seluruh hujan menjadi limpasan",
+        id: "Pada Curve Number seratus seluruh hujan menjadi limpasan",
         en: "At a curve number of one hundred all the rain becomes runoff",
       },
       source: "Sifat yang harus berlaku: simpanan nol berarti tidak ada kehilangan",
@@ -3015,7 +3015,7 @@ export function checksHydrograph(
         id: "Daerah aliran yang lebih kedap memberi puncak lebih tinggi",
         en: "A more impervious catchment gives a higher peak",
       },
-      source: "Perilaku yang harus berlaku pada bilangan kurva",
+      source: "Perilaku yang harus berlaku pada Curve Number",
       kind: "perilaku",
       expected: 1,
       actual:
@@ -3188,7 +3188,7 @@ export function checksSwim(bodyLength: number, flowVelocity: number): Check[] {
     {
       label: {
         id: "Pada kecepatan jelajah daya tahannya tidak terbatas",
-        en: "At the sustained speed the endurance is unlimited",
+        en: "At the cruising speed the endurance is unlimited",
       },
       source: "Definisi kecepatan jelajah",
       kind: "sifat",
@@ -3200,7 +3200,7 @@ export function checksSwim(bodyLength: number, flowVelocity: number): Check[] {
     {
       label: {
         id: "Kecepatan jelajah dan sentak sebanding dengan panjang tubuh",
-        en: "Sustained and burst speeds scale with body length",
+        en: "Cruising and burst speeds scale with body length",
       },
       source: "Kecepatan berenang dinyatakan dalam panjang tubuh per detik",
       kind: "sifat",
@@ -4316,7 +4316,7 @@ export function checksRiprap(
       },
       /*
        * Akibat langsung pangkat dua pada kecepatan, dan angka yang paling
-       * berguna diingat dari seluruh lembar ini: empat kali garis tengah
+       * berguna diingat dari seluruh lembar ini: empat kali diameter
        * berarti enam puluh empat kali berat.
        */
       source: "Pangkat dua pada kecepatan di rumus Isbash",
@@ -4331,7 +4331,7 @@ export function checksRiprap(
         id: "Batu yang menonjol sendirian menuntut ukuran lebih besar",
         en: "An exposed stone demands a larger size",
       },
-      source: "Perbedaan tetapan Isbash tertanam terhadap menonjol",
+      source: "Perbedaan koefisien Isbash tertanam terhadap menonjol",
       kind: "perilaku",
       expected: 1,
       actual:
@@ -4344,10 +4344,10 @@ export function checksRiprap(
     },
     {
       label: {
-        id: "Massa batu sebanding dengan pangkat tiga garis tengahnya",
+        id: "Massa batu sebanding dengan pangkat tiga diameternya",
         en: "The stone mass scales with the cube of its diameter",
       },
-      source: "Bola berjari-jari setengah garis tengah",
+      source: "Bola berjari-jari setengah diameter",
       kind: "sifat",
       expected: 8,
       actual:
@@ -5439,7 +5439,7 @@ export function checksFilter(
       },
       /*
        * Akibat langsung Hazen, yang memberi permeabilitas sebanding dengan
-       * kuadrat garis tengah butiran, bersama syarat D15 empat kali lipat.
+       * kuadrat diameter butiran, bersama syarat D15 empat kali lipat.
        * Filter bukan lapisan yang sedikit lebih kasar.
        */
       source: "Hazen (1892) bersama syarat aliran Terzaghi",
@@ -5494,7 +5494,7 @@ export function checksRockfill(
   const kozeny = (n * n * n * G * d * d) / (150 * (1 - n) * (1 - n) * nu);
   /*
    * Simpangan dari hukum Darcy sebanding dengan gradiennya sendiri dan
-   * tumbuh seperti pangkat tiga garis tengah butirannya, jadi gradien yang
+   * tumbuh seperti pangkat tiga diameter butirannya, jadi gradien yang
    * dipakai memeriksa batasnya harus benar-benar kecil untuk butiran
    * terbesar yang masih dapat dipilih di lembar ini.
    */
@@ -6003,7 +6003,7 @@ export function checksMomentum(
       },
       /*
        * Bukan selisih kuadratnya. Keduanya sering tertukar dan selisihnya
-       * besar: pada pembesaran dua kali garis tengah, yang satu memberi
+       * besar: pada pembesaran dua kali diameter, yang satu memberi
        * empat kali yang lain.
        */
       source: "Borda (1766) dan Carnot (1783), hL = (V1 − V2)²/2g",
@@ -6072,7 +6072,7 @@ export function checksMomentum(
         en: "The pressure term dominates the momentum term in a pressurised water pipe",
       },
       /*
-       * Pipa garis tengah setengah meter bertekanan sepuluh bar
+       * Pipa diameter setengah meter bertekanan sepuluh bar
        * mengalirkan air pada tiga meter per detik: gaya tekanannya seratus
        * sembilan puluh enam kilonewton, gaya momentumnya lima koma tiga
        * kilonewton. Angkur belokan pipa karena itu ditentukan tekanannya,
@@ -6222,7 +6222,7 @@ export function checksFlowLines(
        * garis arus. Seluruh foto aliran tak tunak yang pernah diambil
        * adalah garis jejak, bukan garis arus.
        */
-      source: "Batas kekerapan ayunan menuju nol",
+      source: "Batas frekuensi ayunan menuju nol",
       kind: "silang",
       expected: 0,
       actual: tunak.separation,
@@ -6932,14 +6932,14 @@ export function checksVortexStreet(
     },
     {
       label: {
-        id: "Kekerapan lepasnya berbanding lurus dengan kecepatan datangnya",
+        id: "Frekuensi lepasnya berbanding lurus dengan kecepatan datangnya",
         en: "The shedding frequency is proportional to the approach velocity",
       },
       /*
        * Kesebandingan ini milik pita Reynolds yang bilangan Strouhalnya
        * sudah mendatar. Di bawah Reynolds dua ratus, Strouhal masih naik
        * tajam bersama Reynolds, dan melipatduakan kecepatannya menaikkan
-       * kekerapannya lebih daripada dua kali. Menuntutnya di situ akan
+       * frekuensinya lebih daripada dua kali. Menuntutnya di situ akan
        * menuntut sifat yang memang belum dimilikinya.
        */
       source: "Batasan bilangan Strouhal, f = St U / d, pada pita Strouhal yang mendatar",
@@ -6958,7 +6958,7 @@ export function checksVortexStreet(
     },
     {
       label: {
-        id: "Dan berbanding kebalikan dengan garis tengah silindernya",
+        id: "Dan berbanding kebalikan dengan diameter silindernya",
         en: "And inversely proportional to the cylinder diameter",
       },
       source: "Batasan bilangan Strouhal, f = St U / d, pada pita Strouhal yang mendatar",
@@ -6989,10 +6989,10 @@ export function checksVortexStreet(
     },
     {
       label: {
-        id: "Penguncian ditandai tepat ketika kekerapannya mendekati getar alaminya",
+        id: "Penguncian ditandai tepat ketika frekuensinya mendekati getar alaminya",
         en: "Lock in is flagged exactly when the frequency nears the natural one",
       },
-      source: "Jendela penguncian dua puluh persen di sekitar kekerapan alaminya",
+      source: "Jendela penguncian dua puluh persen di sekitar frekuensi alaminya",
       kind: "perilaku",
       expected: 1,
       actual:
@@ -7055,12 +7055,12 @@ export function checksVortexPair(
     },
     {
       label: {
-        id: "Pasangan yang jumlah sirkulasinya tidak nol berputar dengan perioda bentuk tertutupnya",
+        id: "Pasangan yang jumlah sirkulasinya tidak nol berputar dengan periode bentuk tertutupnya",
         en: "A pair whose circulations do not sum to zero orbits with its closed form period",
       },
       /*
        * Pasangan yang berlawanan arah tidak mengelilingi apa pun, jadi
-       * periodanya tak hingga dan tidak ada yang dapat dibandingkan.
+       * periodenya tak hingga dan tidak ada yang dapat dibandingkan.
        * Membandingkan tak hingga dengan tak hingga memberi selisih yang
        * bukan bilangan, dan pemeriksaan yang hasilnya bukan bilangan selalu
        * gagal. Cacat berjenis sama sudah terjadi sekali pada lembar
@@ -7161,7 +7161,7 @@ export function checksWave(
     },
     {
       label: {
-        id: "Air dalam menyebar: kecepatannya hanya bergantung pada periodanya",
+        id: "Air dalam menyebar: kecepatannya hanya bergantung pada periodenya",
         en: "Deep water disperses: its celerity depends only on the period",
       },
       source: "Batas kh menuju tak hingga, c = gT/2π",

@@ -36,7 +36,7 @@ const TXT = {
     sheetTitle: "Garis arus, garis jejak, dan lintasan partikel pada medan berayun",
     dU: "Kecepatan mendatar",
     dV: "Simpangan kecepatan tegak",
-    dW: "Kekerapan ayunan",
+    dW: "Frekuensi ayunan",
     dT: "Saat pengamatan",
     pTunak: "Aliran tunak, ketiganya berimpit",
     pAyun: "Medan berayun perlahan",
@@ -44,7 +44,7 @@ const TXT = {
     rPisah: "Jarak terjauh garis arus terhadap lintasan",
     rMiring: "Kemiringan garis arus pada saat ini",
     rAmp: "Simpangan terbesar lintasan partikel",
-    rPeriode: "Perioda ayunan",
+    rPeriode: "Periode ayunan",
     tunak: "Aliran tunak, ketiga garisnya berimpit",
     takTunak: "Aliran tak tunak, ketiga garisnya berbeda",
     note:
@@ -354,5 +354,5 @@ function notice(U: number, V: number, omega: number, t: number, lang: Lang) {
 
   if (lang === "en")
     return `At this setting the streamline and the pathline stand ${fmt(a.separation, 2)} metres apart at their widest. Drag the vertical amplitude to zero and the gap closes to ${fmt(diam.separation, 2)} metres: the field stops changing with time, and a single line does the work of three. Now triple the frequency instead and the gap becomes ${fmt(cepat.separation, 2)} metres. Nothing about the water changed; only how fast the field changed while a particle travelled through it.`;
-  return `Pada setelan ini garis arus dan lintasan partikel terpisah sejauh ${fmt(a.separation, 2)} meter di tempat terlebarnya. Tarik simpangan tegaknya ke nol dan jaraknya menutup ke ${fmt(diam.separation, 2)} meter: medannya berhenti berubah terhadap waktu, dan satu garis mengerjakan tugas tiga garis. Sekarang tigakalikan kekerapannya dan jaraknya menjadi ${fmt(cepat.separation, 2)} meter. Tidak ada yang berubah pada airnya, yang berubah hanya seberapa cepat medannya berubah selama satu partikel menempuhnya.`;
+  return `Pada setelan ini garis arus dan lintasan partikel terpisah sejauh ${fmt(a.separation, 2)} meter di tempat terlebarnya. Tarik simpangan tegaknya ke nol dan jaraknya menutup ke ${fmt(diam.separation, 2)} meter: medannya berhenti berubah terhadap waktu, dan satu garis mengerjakan tugas tiga garis. Sekarang tigakalikan frekuensinya dan jaraknya menjadi ${fmt(cepat.separation, 2)} meter. Tidak ada yang berubah pada airnya, yang berubah hanya seberapa cepat medannya berubah selama satu partikel menempuhnya.`;
 }

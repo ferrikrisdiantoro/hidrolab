@@ -4,7 +4,7 @@ import { GelombangLinearClient } from "./GelombangLinearClient";
 export const metadata: Metadata = {
   title: "Gelombang linear — HidroLab",
   description:
-    "Kecepatan rambat gelombang terhadap perioda dan kedalaman, beserta batas air dangkal dan air dalam.",
+    "Kecepatan rambat gelombang terhadap periode dan kedalaman, beserta batas air dangkal dan air dalam.",
 };
 
 export default function Page() {

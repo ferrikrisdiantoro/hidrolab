@@ -38,7 +38,7 @@ const TXT = {
     title: "Gorong-gorong",
     sheetTitle: "Gorong-gorong bulat — kendali sisi masuk dibanding kendali sisi keluar",
     dQ: "Debit rancangan",
-    dD: "Garis tengah gorong-gorong",
+    dD: "Diameter gorong-gorong",
     dL: "Panjang gorong-gorong",
     dS: "Kemiringan dasar",
     dN: "Angka kekasaran Manning",
@@ -59,12 +59,12 @@ const TXT = {
     limpas: "Air melampaui permukaan jalan",
     takMuat: "Gorong-gorong tidak muat di bawah jalannya",
     takMuatNote:
-      "Garis tengah gorong-gorongnya menyisakan kurang dari tiga ratus milimeter timbunan antara punggungnya dan permukaan jalan, jadi ia tidak dapat ditanam di situ sama sekali. Pipa yang timbunannya terlalu tipis hancur oleh beban roda, bukan oleh tanah di atasnya, karena timbunan itulah yang menyebarkan beban roda sebelum sampai ke punggung pipa; di bawah kira-kira sepertiga meter, bebannya sampai hampir utuh. Artinya pada perancangan: gorong-gorong tidak dapat begitu saja diperbesar sampai muka air hulunya cukup rendah. Melewati titik ini pilihannya menaikkan jalan, memakai beberapa pipa kecil berdampingan, atau berpindah ke gorong-gorong kotak yang atapnya datar sehingga bebannya ditahan sebagai lenturan dan bukan sebagai tekan cincin.",
+      "Diameter gorong-gorongnya menyisakan kurang dari tiga ratus milimeter timbunan antara punggungnya dan permukaan jalan, jadi ia tidak dapat ditanam di situ sama sekali. Pipa yang timbunannya terlalu tipis hancur oleh beban roda, bukan oleh tanah di atasnya, karena timbunan itulah yang menyebarkan beban roda sebelum sampai ke punggung pipa; di bawah kira-kira sepertiga meter, bebannya sampai hampir utuh. Artinya pada perancangan: gorong-gorong tidak dapat begitu saja diperbesar sampai muka air hulunya cukup rendah. Melewati titik ini pilihannya menaikkan jalan, memakai beberapa pipa kecil berdampingan, atau berpindah ke gorong-gorong kotak yang atapnya datar sehingga bebannya ditahan sebagai lenturan dan bukan sebagai tekan cincin.",
     limpasNote:
       "Tinggi muka air hulu yang dibutuhkan melampaui tinggi timbunan jalan, artinya air melimpah di atas jalan dan sebagian debit lewat di sana alih-alih lewat gorong-gorong. Hitungan di lembar ini tidak berlaku sejak titik itu karena seluruhnya mengandaikan seluruh debit lewat pipanya. Yang lebih penting untuk perancangan: jalan yang dilimpasi tidak sekadar terputus, badan jalannya tergerus dari sisi hilir dan dapat runtuh dalam hitungan jam. Perbesar gorong-gorongnya, tambah jumlahnya, atau tinggikan jalannya.",
     penghalang: "Penghalang bagi ikan",
     penghalangNote:
-      "Kecepatan di dalam gorong-gorong melampaui 1,2 meter per detik, batas yang lazim dipakai sebagai syarat lintasan ikan pada sungai kecil. Gorong-gorong yang terlalu cepat memutus sungai menjadi dua bagi ikan yang harus naik untuk memijah, dan akibatnya tidak terlihat sampai bertahun-tahun kemudian ketika bagian hulu kehilangan jenis ikannya. Perbesar garis tengahnya, landaikan dasarnya, atau tanam dasarnya di bawah dasar sungai sehingga terisi sedimen dan kekasarannya menjadi kekasaran sungai.",
+      "Kecepatan di dalam gorong-gorong melampaui 1,2 meter per detik, batas yang lazim dipakai sebagai syarat lintasan ikan pada sungai kecil. Gorong-gorong yang terlalu cepat memutus sungai menjadi dua bagi ikan yang harus naik untuk memijah, dan akibatnya tidak terlihat sampai bertahun-tahun kemudian ketika bagian hulu kehilangan jenis ikannya. Perbesar diameternya, landaikan dasarnya, atau tanam dasarnya di bawah dasar sungai sehingga terisi sedimen dan kekasarannya menjadi kekasaran sungai.",
     tidakPenuh: "Pipa mengalir sebagian",
     tidakPenuhNote:
       "Debitnya belum cukup untuk mengisi penuh pipanya. Hitungan kendali sisi keluar di lembar ini memakai kecepatan pipa penuh dan mengandaikan muka air di ujung keluar setengah tinggi pipa, dan keduanya tidak berlaku pada aliran sebagian. Angka kendali sisi keluarnya karena itu taksiran kasar yang cenderung terlalu besar, dan HDS-5 sendiri menyatakan caranya hanya pendekatan di daerah ini. Angka kendali sisi masuk tetap berlaku.",
@@ -142,7 +142,7 @@ export function GorongGorongClient() {
   const r = culvert(Q, D, L, S, n, tw, road);
   const controlName = r.control === "masuk" ? x.cMasuk : x.cKeluar;
   /*
-   * Dua penggeser yang terikat satu sama lain: garis tengah pipanya dan
+   * Dua penggeser yang terikat satu sama lain: diameter pipanya dan
    * tinggi timbunan jalannya. Gorong-gorong yang lebih tinggi daripada
    * timbunan di atasnya tidak dapat ditanam, dan gambarnya memang
    * memperlihatkan pipa yang menonjol di atas jalan. Yang kurang sebelumnya
@@ -163,7 +163,7 @@ export function GorongGorongClient() {
        * Batas atas bidang DITAHAN, tidak mengikuti muka air hulu.
        *
        * Muka air hulu yang dibutuhkan tumbuh sangat cepat pada gorong-gorong
-       * yang terlalu kecil: pada garis tengah tiga puluh sentimeter dengan
+       * yang terlalu kecil: pada diameter tiga puluh sentimeter dengan
        * debit dua meter kubik tiap detik ia mencapai seratus empat puluh
        * tujuh meter. Membiarkan bidangnya memanjang sampai ke sana membuat
        * jalan setinggi dua setengah meter tinggal segaris dan seluruh

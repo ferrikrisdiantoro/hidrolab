@@ -425,7 +425,7 @@ describe("Gradasi dan kriteria filter", () => {
     }
   });
 
-  it("persen lolos pulang pergi lewat garis tengahnya", () => {
+  it("persen lolos pulang pergi lewat diameternya", () => {
     const g = gradation(0.5, 6);
     for (const p of [10, 15, 50, 60, 85, 90]) {
       const d = sizeAt(g, p);

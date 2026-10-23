@@ -158,7 +158,7 @@ describe("Tombol kondisi contoh pekan keempat menepati namanya", () => {
     assert.ok(p.usableArea >= p.bestUsableArea * 0.9, "di puncak");
   });
 
-  it("FP-01 kekerapan terkunci", () => {
+  it("FP-01 frekuensi terkunci", () => {
     assert.ok(vortexStreet(12, 1.2, 1.5e-5, 2.7).lockIn);
   });
 

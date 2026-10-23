@@ -39,11 +39,11 @@ const TXT = {
   id: {
     title: "Profil Rouse",
     sheetTitle: "Profil Rouse — sebaran sedimen melayang sepanjang kedalaman",
-    dD: "Garis tengah butir",
+    dD: "Diameter butir",
     dUstar: "Kecepatan gesek",
     dH: "Kedalaman aliran",
     dA: "Ketinggian acuan di atas dasar",
-    dRho: "Rapat massa jenis butir terhadap air",
+    dRho: "Berat jenis relatif butir (Gs)",
     dT: "Suhu air",
     pLanau: "Lanau di sungai besar",
     pPasirHalus: "Pasir halus, arus sedang",
@@ -72,7 +72,7 @@ const TXT = {
     dUstar: "Friction velocity",
     dH: "Flow depth",
     dA: "Reference height above the bed",
-    dRho: "Grain density relative to water",
+    dRho: "Specific gravity of the grains (Gs)",
     dT: "Water temperature",
     pLanau: "Silt in a large river",
     pPasirHalus: "Fine sand, moderate current",
@@ -251,7 +251,7 @@ export function ProfilRouseClient() {
               <InputRow symbol="u*" label={x.dUstar} value={uStar} min={0.002} max={0.4} step={0.002} digits={3} unit="m/s" onChange={setUStar} tint={C.water} />
               <InputRow symbol="h" label={x.dH} value={h} min={0.1} max={20} step={0.1} digits={1} unit="m" onChange={setH} />
               <InputRow symbol="a/h" label={x.dA} value={aFrac} min={0.005} max={0.2} step={0.005} digits={3} onChange={setAFrac} />
-              <InputRow symbol="s" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />
+              <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>
 

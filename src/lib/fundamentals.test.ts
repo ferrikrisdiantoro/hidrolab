@@ -95,8 +95,8 @@ describe("Garis energi pada saluran tertutup", () => {
     assert.equal(kecil.gradeRises, false);
   });
 
-  it("tinggi kecepatan berbanding pangkat empat kebalikan garis tengahnya", () => {
-    /* Luas berbanding kuadrat garis tengah, kecepatan kebalikan luas,
+  it("tinggi kecepatan berbanding pangkat empat kebalikan diameternya", () => {
+    /* Luas berbanding kuadrat diameter, kecepatan kebalikan luas,
        tinggi kecepatan kuadrat kecepatan: pangkat empat seluruhnya. */
     const a = ductEnergy(0.2, pipa(0.3), 25, 0).points[1];
     const b = ductEnergy(0.2, pipa(0.15), 25, 0).points[1];
@@ -309,7 +309,7 @@ describe("Tiga garis pada medan tak tunak", () => {
   });
 
   it("garis jejak dan lintasan partikel berbeda fase, bukan berbeda bentuk", () => {
-    /* Keduanya sinus berperioda sama, tetapi bukan garis yang sama. */
+    /* Keduanya sinus berperiode sama, tetapi bukan garis yang sama. */
     const r = flowLines(2, 1, 1, 6);
     let beda = 0;
     for (let i = 0; i < r.pathline.length; i++)
@@ -672,7 +672,7 @@ describe("Deret vorteks Karman", () => {
       }
   });
 
-  it("nada siulnya berbanding lurus dengan kecepatan dan kebalikan garis tengahnya", () => {
+  it("nada siulnya berbanding lurus dengan kecepatan dan kebalikan diameternya", () => {
     const a = vortexStreet(10, 0.001, 1.5e-5);
     const b = vortexStreet(20, 0.001, 1.5e-5);
     const c = vortexStreet(10, 0.002, 1.5e-5);
@@ -691,7 +691,7 @@ describe("Deret vorteks Karman", () => {
     assert.equal(r.frequency, 0);
   });
 
-  it("menandai penguncian ketika kekerapan lepasnya mendekati getar alaminya", () => {
+  it("menandai penguncian ketika frekuensi lepasnya mendekati getar alaminya", () => {
     const r = vortexStreet(10, 0.001, 1.5e-5);
     assert.equal(vortexStreet(10, 0.001, 1.5e-5, r.frequency).lockIn, true);
     assert.equal(vortexStreet(10, 0.001, 1.5e-5, r.frequency * 3).lockIn, false);
@@ -715,7 +715,7 @@ describe("Kinematika vorteks", () => {
       }
   });
 
-  it("pasangan searah saling mengelilingi dengan perioda bentuk tertutupnya", () => {
+  it("pasangan searah saling mengelilingi dengan periode bentuk tertutupnya", () => {
     for (const G0 of [5, 20])
       for (const d of [1, 3]) {
         const r = vortexPair(G0, G0, d, 5);
@@ -786,7 +786,7 @@ describe("Gelombang linear", () => {
     assert.ok(r.groupRatio > 0.99, "tenaganya merambat secepat puncaknya");
   });
 
-  it("air dalam menyebar: kecepatannya hanya bergantung pada periodanya", () => {
+  it("air dalam menyebar: kecepatannya hanya bergantung pada periodenya", () => {
     const r = linearWave(10, 2000);
     assert.equal(r.regime, "dalam");
     assert.ok(Math.abs(r.celerity / r.deepCelerity - 1) < 0.001);

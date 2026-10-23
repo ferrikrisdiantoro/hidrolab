@@ -36,8 +36,8 @@ const REZIM = {
 const TXT = {
   id: {
     title: "Gelombang linear",
-    sheetTitle: "Kecepatan rambat terhadap perioda, pada kedalaman yang dipilih",
-    dT: "Perioda gelombang",
+    sheetTitle: "Kecepatan rambat terhadap periode, pada kedalaman yang dipilih",
+    dT: "Periode gelombang",
     dH: "Kedalaman air",
     dA: "Tinggi gelombang",
     pPantai: "Gelombang pantai, air dangkal",
@@ -54,7 +54,7 @@ const TXT = {
     rasa: "Gerak airnya masih terasa sampai dasar",
     takRasa: "Dasarnya tidak merasakan gelombang ini",
     note:
-      "Satu hubungan sebaran mengatur seluruh gelombang permukaan, dan seluruh hampiran yang dipakai sehari-hari adalah potongan darinya. Di air dalam, tangen hiperbolik mendekati satu dan kecepatan rambatnya hanya bergantung pada perioda; gelombang yang periodanya panjang melaju lebih cepat, dan itulah sebabnya alun dari badai yang jauh tiba lebih dulu daripada gelombang pendeknya, berhari-hari lebih dulu. Di air dangkal, tangen hiperbolik mendekati sudutnya sendiri dan kecepatannya hanya bergantung pada kedalaman; seluruh perioda melaju sama cepat, gelombangnya berhenti tersebar, dan bentuk yang datang bertahan sebagai bentuk. Itulah sebabnya tsunami, yang periodanya menit dan bukan detik, selalu berada dalam air dangkal bahkan di tengah samudra, dan sampai ke pantai masih berbentuk seperti saat berangkat. Satu hal lagi yang pantas diperhatikan adalah kecepatan tenaganya. Di air dalam tenaganya bergerak setengah kecepatan puncaknya, sehingga puncak-puncak gelombang muncul di belakang sekelompok gelombang, berjalan maju melewatinya, dan lenyap di depannya. Di air dangkal keduanya sama, dan gejala itu hilang sama sekali.",
+      "Satu hubungan sebaran mengatur seluruh gelombang permukaan, dan seluruh hampiran yang dipakai sehari-hari adalah potongan darinya. Di air dalam, tangen hiperbolik mendekati satu dan kecepatan rambatnya hanya bergantung pada periode; gelombang yang periodenya panjang melaju lebih cepat, dan itulah sebabnya alun dari badai yang jauh tiba lebih dulu daripada gelombang pendeknya, berhari-hari lebih dulu. Di air dangkal, tangen hiperbolik mendekati sudutnya sendiri dan kecepatannya hanya bergantung pada kedalaman; seluruh periode melaju sama cepat, gelombangnya berhenti tersebar, dan bentuk yang datang bertahan sebagai bentuk. Itulah sebabnya tsunami, yang periodenya menit dan bukan detik, selalu berada dalam air dangkal bahkan di tengah samudra, dan sampai ke pantai masih berbentuk seperti saat berangkat. Satu hal lagi yang pantas diperhatikan adalah kecepatan tenaganya. Di air dalam tenaganya bergerak setengah kecepatan puncaknya, sehingga puncak-puncak gelombang muncul di belakang sekelompok gelombang, berjalan maju melewatinya, dan lenyap di depannya. Di air dangkal keduanya sama, dan gejala itu hilang sama sekali.",
   },
   en: {
     title: "Linear wave",
@@ -109,7 +109,7 @@ export function GelombangLinearClient() {
 
   const ref = useCanvas(
     (ctx, w, ch) => {
-      /* Lengkung sebarannya, dipetakan pada rentang perioda satu sampai enam
+      /* Lengkung sebarannya, dipetakan pada rentang periode satu sampai enam
          puluh detik supaya alun panjang ikut masuk ke dalam bidangnya. */
       const tMin = 1;
       const tMax = 60;
@@ -151,7 +151,7 @@ export function GelombangLinearClient() {
           color: C.water,
           weight: W.bold,
           dash: DASH.solid,
-          /* Kurva ini kecepatan rambat terhadap perioda, bukan muka air. */
+          /* Kurva ini kecepatan rambat terhadap periode, bukan muka air. */
           label: T.celerityCurve,
           labelAt: 0.62,
           labelDy: -12,
@@ -212,9 +212,9 @@ export function GelombangLinearClient() {
         lang === "id" ? (
           <p>
             Di <Term tint={C.water}>air dalam</Term> kecepatannya hanya
-            bergantung pada perioda; di{" "}
+            bergantung pada periode; di{" "}
             <Term tint={C.critical}>air dangkal</Term> hanya pada kedalaman, dan
-            seluruh perioda melaju sama cepat.
+            seluruh periode melaju sama cepat.
           </p>
         ) : (
           <p>
@@ -329,5 +329,5 @@ function notice(perioda: number, dalam: number, tinggi: number, lang: Lang) {
 
   if (lang === "en")
     return `At a period of ${fmt(perioda, 1)} seconds in ${fmt(dalam, 1)} metres of water the crest travels at ${fmt(a.celerity, 2)} metres a second while its energy travels at ${fmt(a.groupVelocity, 2)}, a ratio of ${fmt(a.groupRatio, 2)}. Lengthen the period to ${fmt(perioda * 2.5, 1)} seconds and the celerity becomes ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "it has stopped growing, because in shallow water the depth alone decides it" : "it keeps growing, because the wave is still deep enough to disperse"}. Take the same period into 500 metres of water and it reaches ${fmt(laut.celerity, 2)} metres a second, the deep-water limit, beyond which more depth changes nothing at all.`;
-  return `Pada perioda ${fmt(perioda, 1)} detik di air sedalam ${fmt(dalam, 1)} meter, puncaknya melaju ${fmt(a.celerity, 2)} meter tiap detik sementara tenaganya melaju ${fmt(a.groupVelocity, 2)}, yaitu nisbah ${fmt(a.groupRatio, 2)}. Panjangkan periodanya menjadi ${fmt(perioda * 2.5, 1)} detik dan kecepatannya menjadi ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "ia berhenti bertambah, karena di air dangkal kedalamannya sendiri yang menentukan" : "ia terus bertambah, karena gelombangnya masih cukup dalam untuk tersebar"}. Bawa perioda yang sama ke air sedalam 500 meter dan ia mencapai ${fmt(laut.celerity, 2)} meter tiap detik, yaitu batas air dalam, dan lebih dalam daripada itu tidak mengubah apa pun lagi.`;
+  return `Pada periode ${fmt(perioda, 1)} detik di air sedalam ${fmt(dalam, 1)} meter, puncaknya melaju ${fmt(a.celerity, 2)} meter tiap detik sementara tenaganya melaju ${fmt(a.groupVelocity, 2)}, yaitu nisbah ${fmt(a.groupRatio, 2)}. Panjangkan periodenya menjadi ${fmt(perioda * 2.5, 1)} detik dan kecepatannya menjadi ${fmt(panjang.celerity, 2)}: ${panjang.regime === "dangkal" ? "ia berhenti bertambah, karena di air dangkal kedalamannya sendiri yang menentukan" : "ia terus bertambah, karena gelombangnya masih cukup dalam untuk tersebar"}. Bawa periode yang sama ke air sedalam 500 meter dan ia mencapai ${fmt(laut.celerity, 2)} meter tiap detik, yaitu batas air dalam, dan lebih dalam daripada itu tidak mengubah apa pun lagi.`;
 }

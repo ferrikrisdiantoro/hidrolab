@@ -35,7 +35,7 @@ const TXT = {
     title: "Tabung Pitot",
     sheetTitle: "Tabung Pitot statik di dalam pipa — potongan dan profil kecepatan",
     ddh: "Beda tinggi tekan terbaca di sumbu",
-    dD: "Garis tengah pipa",
+    dD: "Diameter pipa",
     dn: "Pangkat pada hukum pangkat",
     dr: "Jarak ujung tabung dari sumbu",
     pSumbu: "Bacaan di sumbu",

@@ -23,7 +23,7 @@ import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksAcceleration } from "@/lib/checks";
 
-/** Garis tengah pangkal dan panjang saluran mengerucutnya, tetap. */
+/** Diameter pangkal dan panjang saluran mengerucutnya, tetap. */
 const D1 = 0.2;
 const L = 0.5;
 
@@ -33,8 +33,8 @@ const TXT = {
     sheetTitle: "Percepatan lokal dan konvektif di sepanjang saluran mengerucut",
     dQ: "Debit rata-rata",
     dS: "Simpangan debit terhadap rata-ratanya",
-    dW: "Kekerapan ayunan debit",
-    dD2: "Garis tengah di ujung",
+    dW: "Frekuensi ayunan debit",
+    dD2: "Diameter di ujung",
     dX: "Penampang yang ditinjau",
     dT: "Saat yang ditinjau",
     pTunak: "Debit tetap, hanya percepatan konvektif",
@@ -49,7 +49,7 @@ const TXT = {
     tunak: "Aliran tunak, suku lokalnya nol",
     takTunak: "Aliran tak tunak, kedua suku bekerja",
     note:
-      "Kekeliruan yang paling sering terjadi pada persoalan percepatan adalah menyamakan aliran tunak dengan aliran tanpa percepatan. Keduanya sama sekali bukan hal yang sama. Aliran tunak berarti kecepatan di satu titik tetap tidak berubah terhadap waktu; ia tidak berarti butiran airnya tidak dipercepat. Butiran air yang melewati saluran mengerucut ini dipercepat dengan keras meskipun tidak ada satu pun besaran di lembar ini yang berubah terhadap waktu, karena butiran itu berpindah ke tempat yang kecepatannya lebih besar. Percepatan yang dirasakannya itulah suku konvektif, dan pada nosel pemadam kebakaran ia sanggup mencapai ratusan kali percepatan gravitasi. Dua akibat langsung. Pertama, gaya yang menahan nosel itu bukan lahir dari alirannya berubah, melainkan dari alirannya berpindah ke penampang yang lebih sempit. Kedua, suku konvektif berbanding lurus dengan kuadrat debit sementara suku lokal berbanding lurus dengan debit dan kekerapannya, sehingga pada debit besar yang berayun perlahan hampir seluruh percepatannya konvektif, dan pada debit kecil yang dihidupmatikan dengan cepat hampir seluruhnya lokal. Alat ukur yang sama pada dua keadaan itu mengukur dua hal yang berlainan.",
+      "Kekeliruan yang paling sering terjadi pada persoalan percepatan adalah menyamakan aliran tunak dengan aliran tanpa percepatan. Keduanya sama sekali bukan hal yang sama. Aliran tunak berarti kecepatan di satu titik tetap tidak berubah terhadap waktu; ia tidak berarti butiran airnya tidak dipercepat. Butiran air yang melewati saluran mengerucut ini dipercepat dengan keras meskipun tidak ada satu pun besaran di lembar ini yang berubah terhadap waktu, karena butiran itu berpindah ke tempat yang kecepatannya lebih besar. Percepatan yang dirasakannya itulah suku konvektif, dan pada nosel pemadam kebakaran ia sanggup mencapai ratusan kali percepatan gravitasi. Dua akibat langsung. Pertama, gaya yang menahan nosel itu bukan lahir dari alirannya berubah, melainkan dari alirannya berpindah ke penampang yang lebih sempit. Kedua, suku konvektif berbanding lurus dengan kuadrat debit sementara suku lokal berbanding lurus dengan debit dan frekuensinya, sehingga pada debit besar yang berayun perlahan hampir seluruh percepatannya konvektif, dan pada debit kecil yang dihidupmatikan dengan cepat hampir seluruhnya lokal. Alat ukur yang sama pada dua keadaan itu mengukur dua hal yang berlainan.",
   },
   en: {
     title: "Flow acceleration",

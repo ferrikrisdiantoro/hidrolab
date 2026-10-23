@@ -35,8 +35,8 @@ const TXT = {
     title: "Perlindungan erosi",
     sheetTitle: "Ukuran batu terhadap kecepatan aliran — rumus Isbash",
     dV: "Kecepatan rata-rata aliran",
-    dS: "Rapat massa jenis batu terhadap air",
-    dC: "Tetapan Isbash",
+    dS: "Berat jenis relatif batu (Gs)",
+    dC: "Koefisien Isbash (C)",
     dChosen: "Ukuran batu yang direncanakan",
     pTertanam: "Batu tertanam rapat",
     pMenonjol: "Batu menonjol sendirian",
@@ -54,14 +54,14 @@ const TXT = {
     goyahNote:
       "Ukuran batu yang direncanakan lebih kecil daripada yang dituntut kecepatan aliran ini, jadi batunya akan bergerak. Yang perlu diperhatikan tentang kegagalan lapisan batu: ia tidak pernah bertahap. Begitu beberapa batu terangkat, lubang yang ditinggalkannya memperbesar kecepatan setempat, batu tetangganya ikut terangkat, dan seluruh lapisan terbuka dalam satu banjir yang sama. Itu sebabnya perlindungan batu dirancang dengan cadangan ukuran, bukan dengan cadangan luas.",
     note:
-      "Dua hal pada lembar ini yang paling berguna diingat, dan keduanya berasal dari pangkat pada rumusnya. Pertama, kecepatan muncul berpangkat dua pada ukuran batu, sehingga menggandakan kecepatan menuntut batu empat kali lebih besar garis tengahnya. Karena massa sebanding dengan pangkat tiga garis tengah, itu berarti enam puluh empat kali lebih berat. Perbedaan antara aliran dua meter per detik dan empat meter per detik karena itu bukan perbedaan derajat melainkan perbedaan antara batu yang dapat diangkat dua orang dan batu yang menuntut alat berat. Kedua, tetapan Isbash menyatakan seberapa terlindung sebuah batu oleh tetangganya, dan perbedaan antara batu yang tertanam rapat dengan batu yang menonjol sendirian hampir dua kali lipat pada ukurannya. Itu sebabnya mutu pemasangan lapisan batu sama menentukannya dengan ukuran batunya sendiri: lapisan yang dipasang asal tumpuk membuat sebagian batunya menonjol, dan batu yang menonjol itulah yang lepas lebih dulu lalu membuka seluruh lapisan.",
+      "Dua hal pada lembar ini yang paling berguna diingat, dan keduanya berasal dari pangkat pada rumusnya. Pertama, kecepatan muncul berpangkat dua pada ukuran batu, sehingga menggandakan kecepatan menuntut batu empat kali lebih besar diameternya. Karena massa sebanding dengan pangkat tiga diameter, itu berarti enam puluh empat kali lebih berat. Perbedaan antara aliran dua meter per detik dan empat meter per detik karena itu bukan perbedaan derajat melainkan perbedaan antara batu yang dapat diangkat dua orang dan batu yang menuntut alat berat. Kedua, koefisien Isbash menyatakan seberapa terlindung sebuah batu oleh tetangganya, dan perbedaan antara batu yang tertanam rapat dengan batu yang menonjol sendirian hampir dua kali lipat pada ukurannya. Itu sebabnya mutu pemasangan lapisan batu sama menentukannya dengan ukuran batunya sendiri: lapisan yang dipasang asal tumpuk membuat sebagian batunya menonjol, dan batu yang menonjol itulah yang lepas lebih dulu lalu membuka seluruh lapisan.",
   },
   en: {
     title: "Erosion protection",
     sheetTitle: "Stone size against flow velocity — the Isbash formula",
     dV: "Mean flow velocity",
-    dS: "Stone density relative to water",
-    dC: "Isbash constant",
+    dS: "Specific gravity of the stone (Gs)",
+    dC: "Isbash coefficient (C)",
     dChosen: "Stone size planned",
     pTertanam: "Stone embedded tightly",
     pMenonjol: "Stone standing proud alone",
@@ -79,7 +79,7 @@ const TXT = {
     goyahNote:
       "The planned stone is smaller than this velocity demands, so it will move. What is worth knowing about riprap failure: it is never gradual. Once a few stones lift, the hole they leave raises the local velocity, their neighbours lift too, and the whole layer opens in the same flood. That is why rock protection is designed with a margin on size rather than a margin on area.",
     note:
-      "Two things on this sheet are the most useful to remember, and both come from the exponents in the formula. First, velocity enters the stone size squared, so doubling the velocity demands a stone four times larger in diameter. Since mass scales with the cube of diameter, that is sixty-four times heavier. The difference between a two metre per second flow and a four metre per second flow is therefore not a difference of degree but the difference between a stone two people can lift and a stone that needs machinery. Second, the Isbash constant states how sheltered a stone is by its neighbours, and the difference between a tightly embedded stone and one standing proud alone is nearly a factor of two in size. That is why the quality of placement matters as much as the size of the stone: a layer tipped rather than placed leaves some stones proud, and it is those proud stones that go first and then open the whole layer.",
+      "Two things on this sheet are the most useful to remember, and both come from the exponents in the formula. First, velocity enters the stone size squared, so doubling the velocity demands a stone four times larger in diameter. Since mass scales with the cube of diameter, that is sixty-four times heavier. The difference between a two metre per second flow and a four metre per second flow is therefore not a difference of degree but the difference between a stone two people can lift and a stone that needs machinery. Second, the Isbash coefficient states how sheltered a stone is by its neighbours, and the difference between a tightly embedded stone and one standing proud alone is nearly a factor of two in size. That is why the quality of placement matters as much as the size of the stone: a layer tipped rather than placed leaves some stones proud, and it is those proud stones that go first and then open the whole layer.",
   },
 } as const;
 
@@ -135,10 +135,10 @@ export function PerlindunganErosiClient() {
           weight: W.hair,
           dash: DASH.hidden,
           /*
-           * Namanya tetapan Isbash-nya sendiri, sejajar dengan kurva yang
+           * Namanya koefisien Isbash-nya sendiri, sejajar dengan kurva yang
            * satu lagi. Sebelumnya terpasang nama SUMBU-nya, dipotong dari
-           * "garis tengah butiran, mm", sehingga di tengah bidang melayang
-           * tulisan "garis tengah butir" yang tidak menyatakan kurva yang
+           * "diameter butiran, mm", sehingga di tengah bidang melayang
+           * tulisan "diameter butir" yang tidak menyatakan kurva yang
            * mana dan terbaca seperti judul sumbu yang tersesat.
            */
           label: `C ${fmtPlain(ISBASH_EXPOSED, 2)}`,
@@ -238,7 +238,7 @@ export function PerlindunganErosiClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="V" label={x.dV} value={V} min={0.2} max={8} step={0.05} digits={2} unit="m/s" onChange={setV} tint={C.water} />
-              <InputRow symbol="s" label={x.dS} value={s} min={2} max={3.2} step={0.05} digits={2} onChange={setS} />
+              <InputRow symbol="Gs" label={x.dS} value={s} min={2} max={3.2} step={0.05} digits={2} onChange={setS} />
               <InputRow symbol="C" label={x.dC} value={Cis} min={0.7} max={1.4} step={0.02} digits={2} onChange={setCis} tint={C.critical} />
               <InputRow symbol="d" label={x.dChosen} value={chosenMm} min={0} max={2000} step={10} digits={0} unit="mm" onChange={setChosenMm} tint={C.critical} />
             </InputTable>
@@ -329,6 +329,6 @@ function notice(
   const pas = riprapSize(V, s, Cis);
 
   if (lang === "en")
-    return `At ${fmt(V, 2)} m/s the stone must be ${fmt(d50 * 1000, 0)} mm and weighs ${fmt(pas.stoneMass, 1)} kg. Double the velocity and it becomes ${fmt(dua.d50 * 1000, 0)} mm weighing ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} times the mass for twice the speed. Now set the Isbash constant to the exposed value and the same flow demands ${fmt(menonjol.d50 * 1000, 0)} mm instead. The flow did not change; only how well the stone is held by its neighbours did.`;
-  return `Pada ${fmt(V, 2)} m/s batunya harus ${fmt(d50 * 1000, 0)} mm dan beratnya ${fmt(pas.stoneMass, 1)} kg. Lipatduakan kecepatannya dan ia menjadi ${fmt(dua.d50 * 1000, 0)} mm seberat ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} kali massanya untuk dua kali lajunya. Sekarang setel tetapan Isbash ke nilai batu menonjol, dan aliran yang sama menuntut ${fmt(menonjol.d50 * 1000, 0)} mm. Alirannya tidak berubah; yang berubah hanya seberapa baik batunya ditahan tetangganya.`;
+    return `At ${fmt(V, 2)} m/s the stone must be ${fmt(d50 * 1000, 0)} mm and weighs ${fmt(pas.stoneMass, 1)} kg. Double the velocity and it becomes ${fmt(dua.d50 * 1000, 0)} mm weighing ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} times the mass for twice the speed. Now set the Isbash coefficient to the exposed value and the same flow demands ${fmt(menonjol.d50 * 1000, 0)} mm instead. The flow did not change; only how well the stone is held by its neighbours did.`;
+  return `Pada ${fmt(V, 2)} m/s batunya harus ${fmt(d50 * 1000, 0)} mm dan beratnya ${fmt(pas.stoneMass, 1)} kg. Lipatduakan kecepatannya dan ia menjadi ${fmt(dua.d50 * 1000, 0)} mm seberat ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} kali massanya untuk dua kali lajunya. Sekarang setel koefisien Isbash ke nilai batu menonjol, dan aliran yang sama menuntut ${fmt(menonjol.d50 * 1000, 0)} mm. Alirannya tidak berubah; yang berubah hanya seberapa baik batunya ditahan tetangganya.`;
 }

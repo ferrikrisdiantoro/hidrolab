@@ -19,7 +19,7 @@ import { cl } from "./strings";
 import type { Lang } from "./i18n";
 
 export type PitotDrawState = {
-  /** Garis tengah pipa, meter */
+  /** Diameter pipa, meter */
   D: number;
   /** Kecepatan di sumbu pipa */
   uMax: number;

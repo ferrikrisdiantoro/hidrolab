@@ -36,7 +36,7 @@ const TXT = {
     sheetTitle: "Hidrograf banjir SCS — dari hujan daerah aliran menjadi debit sungai",
     dP: "Hujan total",
     dDur: "Lama hujan",
-    dCN: "Bilangan kurva",
+    dCN: "Curve Number (CN)",
     dA: "Luas daerah aliran",
     dTc: "Waktu tempuh terpanjang",
     pSawah: "Daerah persawahan, hujan sedang",
@@ -55,14 +55,14 @@ const TXT = {
     pendekNote:
       "Lama hujannya kurang dari seperlima waktu naik hidrograf satuan. Pada keadaan itu pembagian hujan menjadi pias sejam yang dipakai lembar ini sudah terlalu kasar: seluruh hujan jatuh ke dalam satu pias, dan bentuk hidrografnya menjadi bentuk hidrograf satuan itu sendiri, bukan hasil penjumlahan beberapa pias. Puncaknya masih masuk akal sebagai taksiran, tetapi bentuk sisi naiknya tidak. Perpanjang hujannya, atau pakai daerah aliran yang waktu tempuhnya lebih pendek.",
     note:
-      "Dua andaian besar berdiri di balik lembar ini, dan keduanya perlu dilihat jelas sebelum angkanya dipakai. Pertama, bilangan kurva menyatukan jenis tanah, tutupan lahan, dan kelembapan sebelumnya ke dalam satu angka antara 30 dan 100. Angka itu tidak punya makna fisis tersendiri; ia pengenal baris pada tabel yang disusun dari ribuan petak percobaan di Amerika Serikat pada pertengahan abad lalu, dan memindahkannya ke daerah tropis adalah langkah yang harus dibenarkan, bukan diandaikan. Kedua, hidrograf satuan mengandaikan tanggapan daerah aliran itu linear: hujan dua kali lipat memberi debit dua kali lipat, dan hidrograf dari beberapa pias hujan boleh dijumlahkan begitu saja. Andaian itu cukup baik untuk banjir sedang dan meleset pada banjir besar, tempat jalur aliran berubah karena limpasannya sendiri. Yang tetap berlaku apa pun andaiannya adalah kekekalan isi: luas di bawah hidrograf harus sama dengan hujan efektif dikali luas daerah aliran, dan pemeriksaan di bawah menguji justru hal itu.",
+      "Dua andaian besar berdiri di balik lembar ini, dan keduanya perlu dilihat jelas sebelum angkanya dipakai. Pertama, Curve Number (CN) menyatukan jenis tanah, tutupan lahan, dan kelembapan sebelumnya ke dalam satu angka antara 30 dan 100. Angka itu tidak punya makna fisis tersendiri; ia pengenal baris pada tabel yang disusun dari ribuan petak percobaan di Amerika Serikat pada pertengahan abad lalu, dan memindahkannya ke daerah tropis adalah langkah yang harus dibenarkan, bukan diandaikan. Kedua, hidrograf satuan mengandaikan tanggapan daerah aliran itu linear: hujan dua kali lipat memberi debit dua kali lipat, dan hidrograf dari beberapa pias hujan boleh dijumlahkan begitu saja. Andaian itu cukup baik untuk banjir sedang dan meleset pada banjir besar, tempat jalur aliran berubah karena limpasannya sendiri. Yang tetap berlaku apa pun andaiannya adalah kekekalan isi: luas di bawah hidrograf harus sama dengan hujan efektif dikali luas daerah aliran, dan pemeriksaan di bawah menguji justru hal itu.",
   },
   en: {
     title: "Flood hydrograph",
     sheetTitle: "SCS flood hydrograph — from catchment rainfall to river discharge",
     dP: "Total rainfall",
     dDur: "Rain duration",
-    dCN: "Curve number",
+    dCN: "Curve Number (CN)",
     dA: "Catchment area",
     dTc: "Time of concentration",
     pSawah: "Paddy landscape, moderate rain",
@@ -333,5 +333,5 @@ function notice(
 
   if (lang === "en")
     return `Raise the curve number by ${fmtPlain(bedaHujan, 0)}, from ${fmtPlain(CN, 0)} to ${fmtPlain(Math.min(CN + 10, 100), 0)}, and the peak rises by ${fmt(bedaPuncak, 0)} per cent while the rainfall is untouched. That is the whole weight the curve number carries, and it is why arguments over catchment design so often turn out to be arguments over a single table lookup. Note also how little of the rain becomes runoff at low curve numbers: at ${fmtPlain(CN, 0)} only ${fmt((Pe / P) * 100, 0)} per cent of ${fmtPlain(P, 0)} mm reaches the river at all.`;
-  return `Naikkan bilangan kurvanya ${fmtPlain(bedaHujan, 0)} angka, dari ${fmtPlain(CN, 0)} ke ${fmtPlain(Math.min(CN + 10, 100), 0)}, dan puncaknya naik ${fmt(bedaPuncak, 0)} persen tanpa satu milimeter pun hujan ditambahkan. Itulah seluruh beban yang dipikul satu bilangan kurva, dan itu sebabnya perdebatan tentang rancangan daerah aliran sering berujung menjadi perdebatan tentang satu baris pada tabel. Perhatikan juga betapa sedikit hujan yang menjadi limpasan pada bilangan kurva rendah: pada ${fmtPlain(CN, 0)} hanya ${fmt((Pe / P) * 100, 0)} persen dari ${fmtPlain(P, 0)} mm yang sampai ke sungai sama sekali.`;
+  return `Naikkan nilai CN sebesar ${fmtPlain(bedaHujan, 0)} angka, dari ${fmtPlain(CN, 0)} ke ${fmtPlain(Math.min(CN + 10, 100), 0)}, dan puncaknya naik ${fmt(bedaPuncak, 0)} persen tanpa satu milimeter pun hujan ditambahkan. Itulah seluruh beban yang dipikul satu nilai CN, dan itu sebabnya perdebatan tentang rancangan daerah aliran sering berujung menjadi perdebatan tentang satu baris pada tabel. Perhatikan juga betapa sedikit hujan yang menjadi limpasan pada CN rendah: pada ${fmtPlain(CN, 0)} hanya ${fmt((Pe / P) * 100, 0)} persen dari ${fmtPlain(P, 0)} mm yang sampai ke sungai sama sekali.`;
 }

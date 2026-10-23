@@ -33,7 +33,7 @@ const TXT = {
     sheetTitle: "Ke mana tinggi energi pergi di sepanjang pipa penghubung",
     dH: "Beda muka air kedua kolam",
     dL: "Panjang pipa",
-    dD: "Garis tengah pipa",
+    dD: "Diameter pipa",
     dF: "Faktor gesekan Darcy",
     dK: "Koefisien kehilangan katup",
     pPendek: "Pipa pendek, kehilangan setempat berkuasa",

@@ -995,7 +995,7 @@ describe("Venturi", () => {
     }
   });
 
-  it("rentang perbandingan garis tengah dinyatakan, bukan didiamkan", () => {
+  it("rentang perbandingan diameter dinyatakan, bukan didiamkan", () => {
     assert.equal(venturiDischarge(0.2, 0.05, 0.5, 0.995).reason, "beta-kecil");
     assert.equal(venturiDischarge(0.2, 0.16, 0.5, 0.995).reason, "beta-besar");
     assert.equal(venturiDischarge(0.2, 0.1, 0.5, 0.995).reason, "");

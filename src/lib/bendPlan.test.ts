@@ -34,7 +34,7 @@ describe("Belokan pipa tampak atas", () => {
       }
   });
 
-  it("lebar penampang masuknya tepat garis tengah yang diminta", () => {
+  it("lebar penampang masuknya tepat diameter yang diminta", () => {
     for (const th of sudutUji) {
       const pts = bendPlan(0.4, 0.9, th, 2, 2);
       const awal = pts[0];
@@ -45,7 +45,7 @@ describe("Belokan pipa tampak atas", () => {
     }
   });
 
-  it("penampang keluarnya selebar garis tengah keluar, tegak lurus arahnya", () => {
+  it("penampang keluarnya selebar diameter keluar, tegak lurus arahnya", () => {
     for (const th of sudutUji.filter((s) => s > 0)) {
       const D2 = 0.9;
       const pts = bendPlan(0.4, D2, th, 2, 2);

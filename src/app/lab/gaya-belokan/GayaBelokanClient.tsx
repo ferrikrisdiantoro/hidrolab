@@ -43,7 +43,7 @@ const TXT = {
     title: "Gaya pada belokan pipa",
     sheetTitle: "Blok angkur pada belokan pipa tekan, dilihat dari atas",
     dQ: "Debit",
-    dD: "Garis tengah pipa",
+    dD: "Diameter pipa",
     dH: "Tinggi tekan uji",
     dSudut: "Sudut belokan",
     dQt: "Daya dukung tanah yang diizinkan",

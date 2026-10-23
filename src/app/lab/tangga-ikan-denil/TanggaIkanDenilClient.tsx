@@ -38,7 +38,7 @@ const TXT = {
     dY: "Kedalaman aliran tegak lurus dasar",
     dS: "Kemiringan palung",
     dRise: "Beda tinggi seluruhnya",
-    dU: "Kecepatan sentak ikan rancangan",
+    dU: "Kecepatan sentak (burst) ikan rancangan",
     pBaku: "Rancangan baku",
     pCuram: "Terlalu curam",
     pLebar: "Palung lebar, debit besar",

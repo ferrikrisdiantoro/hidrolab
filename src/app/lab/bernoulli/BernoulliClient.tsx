@@ -35,8 +35,8 @@ const TXT = {
     sheetTitle: "Pertukaran tiga tinggi tekan di sepanjang saluran tanpa gesekan",
     dQ: "Debit",
     dH: "Tinggi energi di hulu",
-    dD1: "Garis tengah di hulu",
-    dD2: "Garis tengah di leher",
+    dD1: "Diameter di hulu",
+    dD2: "Diameter di leher",
     dZ: "Kenaikan sumbu pipa di leher",
     pDatar: "Pipa datar, leher menyempit",
     pNaik: "Pipa naik enam meter",
@@ -53,7 +53,7 @@ const TXT = {
     kavitasiNote:
       "Tekanan mutlak di leher sudah turun ke tekanan uap air, jadi airnya mendidih pada suhu ruang dan gelembung terbentuk di dalam alirannya. Yang merusak bukan gelembungnya melainkan pecahnya: begitu alirannya melambat kembali dan tekanannya pulih, gelembung itu runtuh ke dalam dirinya sendiri dalam waktu sepersejuta detik, dan tumbukan yang dihasilkannya cukup keras untuk mengelupas baja. Itu sebabnya kavitasi tidak pernah diterima sebagai keadaan kerja, betapa pun kecil gelembungnya.",
     note:
-      "Yang paling berguna dilihat pada lembar ini bukan rumusnya melainkan pertukarannya. Tinggi energi seluruhnya tidak berubah sedikit pun di sepanjang saluran ini, dan yang berubah hanya pembagiannya ke tiga suku. Naikkan sumbu pipanya satu meter dan tinggi tekannya turun tepat satu meter, ditukar satu lawan satu, sementara garis energinya tidak bergerak. Sempitkan lehernya dan tinggi kecepatannya naik menurut pangkat empat kebalikan garis tengahnya, sedangkan tinggi tekannya turun sebanyak itu juga. Dua hal yang mengikutinya langsung. Pertama, pipa yang naik terlalu tinggi kehabisan tekanan, bukan kehabisan tenaga, dan batasnya sepuluh koma tiga meter di atas garis energinya karena itulah seluruh tinggi tekan atmosfer. Kedua, leher yang terlalu sempit dapat menurunkan tekanan sampai di bawah tekanan uap meskipun tenaganya berlimpah. Keduanya kegagalan tekanan pada aliran yang tenaganya sama sekali tidak kurang, dan keduanya tidak akan pernah terlihat oleh orang yang hanya memeriksa neraca tenaganya.",
+      "Yang paling berguna dilihat pada lembar ini bukan rumusnya melainkan pertukarannya. Tinggi energi seluruhnya tidak berubah sedikit pun di sepanjang saluran ini, dan yang berubah hanya pembagiannya ke tiga suku. Naikkan sumbu pipanya satu meter dan tinggi tekannya turun tepat satu meter, ditukar satu lawan satu, sementara garis energinya tidak bergerak. Sempitkan lehernya dan tinggi kecepatannya naik menurut pangkat empat kebalikan diameternya, sedangkan tinggi tekannya turun sebanyak itu juga. Dua hal yang mengikutinya langsung. Pertama, pipa yang naik terlalu tinggi kehabisan tekanan, bukan kehabisan tenaga, dan batasnya sepuluh koma tiga meter di atas garis energinya karena itulah seluruh tinggi tekan atmosfer. Kedua, leher yang terlalu sempit dapat menurunkan tekanan sampai di bawah tekanan uap meskipun tenaganya berlimpah. Keduanya kegagalan tekanan pada aliran yang tenaganya sama sekali tidak kurang, dan keduanya tidak akan pernah terlihat oleh orang yang hanya memeriksa neraca tenaganya.",
   },
   en: {
     title: "Bernoulli",
@@ -133,7 +133,7 @@ export function BernoulliClient() {
       const rentang = Math.max(zAtasAsli - zMin, 1);
 
       /*
-       * Garis tengah pipa DILEBIHKAN pada gambarnya, dan besarnya
+       * Diameter pipa DILEBIHKAN pada gambarnya, dan besarnya
        * pelebihan ditulis di nama dindingnya.
        *
        * Pipa empat puluh sentimeter pada sumbu setinggi dua puluh dua meter
@@ -422,5 +422,5 @@ function notice(
 
   if (lang === "en")
     return `At the throat the pressure head is ${fmt(asli.pressureHead, 2)} metres. Raise the pipe axis one metre and it becomes ${fmt(naik.pressureHead, 2)}: exactly one metre less, traded one for one, while the energy line has not moved at all. Now halve the throat diameter instead. The velocity head goes from ${fmt(asli.velocityHead, 2)} to ${fmt(sempit.velocityHead, 2)} metres, sixteen times over, because velocity head follows the fourth power of the inverse diameter. The pressure head pays for every metre of it.`;
-  return `Di leher, tinggi tekannya ${fmt(asli.pressureHead, 2)} meter. Naikkan sumbu pipanya satu meter dan ia menjadi ${fmt(naik.pressureHead, 2)}: tepat satu meter lebih rendah, ditukar satu lawan satu, sementara garis energinya tidak bergerak sama sekali. Sekarang separuhkan garis tengah lehernya. Tinggi kecepatannya berpindah dari ${fmt(asli.velocityHead, 2)} ke ${fmt(sempit.velocityHead, 2)} meter, enam belas kali lipat, karena tinggi kecepatan mengikuti pangkat empat kebalikan garis tengahnya. Tinggi tekannya yang membayar setiap meternya.`;
+  return `Di leher, tinggi tekannya ${fmt(asli.pressureHead, 2)} meter. Naikkan sumbu pipanya satu meter dan ia menjadi ${fmt(naik.pressureHead, 2)}: tepat satu meter lebih rendah, ditukar satu lawan satu, sementara garis energinya tidak bergerak sama sekali. Sekarang separuhkan diameter lehernya. Tinggi kecepatannya berpindah dari ${fmt(asli.velocityHead, 2)} ke ${fmt(sempit.velocityHead, 2)} meter, enam belas kali lipat, karena tinggi kecepatan mengikuti pangkat empat kebalikan diameternya. Tinggi tekannya yang membayar setiap meternya.`;
 }

@@ -384,7 +384,7 @@ export function hatchSoil(
 }
 
 /**
- * Arsiran urugan batu: bulatan bergaris tengah tetap, bukan titik.
+ * Arsiran urugan batu: bulatan berdiameter tetap, bukan titik.
  *
  * Bedanya dengan arsiran tanah bukan hiasan. Pada lembar urugan batu yang
  * dipersoalkan justru UKURAN butirannya, jadi butirannya digambar sebagai

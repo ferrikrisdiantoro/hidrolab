@@ -40,7 +40,7 @@ const TXT = {
     sheetTitle: "Aliran melalui urugan batu — persamaan Ergun",
     dHead: "Beda tinggi muka air",
     dLength: "Panjang lintasan aliran",
-    dD: "Garis tengah butiran setara",
+    dD: "Diameter butiran setara",
     dN: "Porositas urugan",
     dT: "Tebal lapisan tembus air",
     pKerikil: "Kerikil kasar, gradien kecil",

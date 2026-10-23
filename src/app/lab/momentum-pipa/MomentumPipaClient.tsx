@@ -34,8 +34,8 @@ const TXT = {
     title: "Momentum dalam pipa",
     sheetTitle: "Perubahan penampang mendadak: tekanan naik, energi hilang",
     dQ: "Debit",
-    dD1: "Garis tengah sebelum perubahan",
-    dD2: "Garis tengah sesudah perubahan",
+    dD1: "Diameter sebelum perubahan",
+    dD2: "Diameter sesudah perubahan",
     dH: "Tinggi tekan sebelum perubahan",
     pBesar: "Pembesaran mendadak",
     pBesarSekali: "Pembesaran ke penampang jauh lebih besar",
@@ -404,5 +404,5 @@ function notice(
 
   if (lang === "en")
     return `The water gives up ${fmt(hv1 - hv2, 3)} metres of velocity head here and gets back ${fmt(naik, 3)} metres of pressure head, so ${fmt(a.expansionLoss, 3)} metres are simply gone. Computing the loss as the difference of the squares rather than the square of the difference would have given ${fmt(salah, 3)} metres, which is the whole of what was given up, and would have left no pressure rise at all. Now push the downstream diameter to eight times the upstream one: the recovered head falls to ${fmt(besar.head2 - head, 4)} metres while the loss climbs to ${fmt(besar.expansionLoss, 3)}, that is the full velocity head of ${fmt(hvBesar, 3)} metres. That limit is the reason a pipe ending in a reservoir loses one whole velocity head.`;
-  return `Airnya melepas ${fmt(hv1 - hv2, 3)} meter tinggi kecepatan di sini dan mendapat kembali ${fmt(naik, 3)} meter tinggi tekan, jadi ${fmt(a.expansionLoss, 3)} meter memang hilang. Menghitung kehilangannya sebagai selisih kuadrat dan bukan kuadrat selisih akan memberi ${fmt(salah, 3)} meter, yaitu seluruh yang dilepas, dan tidak akan menyisakan kenaikan tekanan sama sekali. Sekarang dorong garis tengah hilirnya sampai delapan kali garis tengah hulunya: tinggi yang dipulihkan turun ke ${fmt(besar.head2 - head, 4)} meter sementara kehilangannya naik ke ${fmt(besar.expansionLoss, 3)}, yaitu tinggi kecepatan penuh sebesar ${fmt(hvBesar, 3)} meter. Batas itulah sebabnya pipa yang bermuara ke waduk kehilangan satu tinggi kecepatan utuh.`;
+  return `Airnya melepas ${fmt(hv1 - hv2, 3)} meter tinggi kecepatan di sini dan mendapat kembali ${fmt(naik, 3)} meter tinggi tekan, jadi ${fmt(a.expansionLoss, 3)} meter memang hilang. Menghitung kehilangannya sebagai selisih kuadrat dan bukan kuadrat selisih akan memberi ${fmt(salah, 3)} meter, yaitu seluruh yang dilepas, dan tidak akan menyisakan kenaikan tekanan sama sekali. Sekarang dorong diameter hilirnya sampai delapan kali diameter hulunya: tinggi yang dipulihkan turun ke ${fmt(besar.head2 - head, 4)} meter sementara kehilangannya naik ke ${fmt(besar.expansionLoss, 3)}, yaitu tinggi kecepatan penuh sebesar ${fmt(hvBesar, 3)} meter. Batas itulah sebabnya pipa yang bermuara ke waduk kehilangan satu tinggi kecepatan utuh.`;
 }

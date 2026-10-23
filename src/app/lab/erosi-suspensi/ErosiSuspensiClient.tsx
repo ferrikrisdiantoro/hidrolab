@@ -36,11 +36,11 @@ const TXT = {
   id: {
     title: "Erosi dan suspensi",
     sheetTitle: "Diagram Hjulstrom — erosi, angkutan, dan pengendapan",
-    dD: "Garis tengah butir",
+    dD: "Diameter butir",
     dV: "Kecepatan rata-rata aliran",
     dH: "Kedalaman aliran",
     dN: "Angka kekasaran dasar",
-    dRho: "Rapat massa jenis butir terhadap air",
+    dRho: "Berat jenis relatif butir (Gs)",
     dT: "Suhu air",
     pSungai: "Sungai dataran, pasir halus",
     pBanjir: "Banjir bandang, kerikil",
@@ -67,7 +67,7 @@ const TXT = {
     dV: "Mean flow velocity",
     dH: "Flow depth",
     dN: "Bed roughness coefficient",
-    dRho: "Grain density relative to water",
+    dRho: "Specific gravity of the grains (Gs)",
     dT: "Water temperature",
     pSungai: "Lowland river, fine sand",
     pBanjir: "Flash flood, gravel",
@@ -267,7 +267,7 @@ export function ErosiSuspensiClient() {
               <InputRow symbol="V" label={x.dV} value={V} min={0.005} max={8} step={0.005} digits={3} unit="m/s" onChange={setV} tint={C.water} />
               <InputRow symbol="h" label={x.dH} value={h} min={0.05} max={15} step={0.05} digits={2} unit="m" onChange={setH} />
               <InputRow symbol="n" label={x.dN} value={n} min={0.011} max={0.07} step={0.001} digits={3} onChange={setN} />
-              <InputRow symbol="s" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />
+              <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>
 
