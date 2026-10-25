@@ -4,25 +4,27 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawTracer } from "@/lib/drawTracer";
 import {
   TRACER_MIX_WIDTHS,
+  TRACER_PECLET_MIN,
   dilutionDischarge,
   fmt,
   tracerCurve,
   type TracerResult,
 } from "@/lib/hydraulics";
-import { C } from "@/lib/theme";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
@@ -53,9 +55,19 @@ const TXT = {
     rU: "Kecepatan rata-rata",
     rMix: "Panjang pencampuran yang disyaratkan",
     kurang: "Pencampuran belum cukup",
+    tercampur: "Tercampur, angkutan menguasai",
+    bandSebar: "Penyebaran menguasai",
+    bandAngkut: "Angkutan menguasai",
+    bandBelum: "Belum tercampur, patokan 25 B",
+    bandCampur: "Tercampur",
+    hU: "Kecepatan dan waktu tempuh",
+    hPe: "Bilangan Peclet",
+    hPuncak: "Kepekatan puncak, dibaca dari kurva",
+    hQ: "Luas kurva dan debit",
+    hLaju: "Cara laju tetap: c₂ disusun dari Q yang dimasukkan, jadi Q′ = Q dengan sendirinya",
     sebar: "Penyebaran menguasai angkutan",
     sebarNote:
-      "Bilangan Peclet, yaitu kecepatan dikali jarak dibagi koefisien sebaran, turun di bawah sepuluh. Pada keadaan itu awan garam menyebar lebih cepat daripada ia terbawa arus: sebagian massanya menjalar ke hulu titik suntik dan tidak pernah lewat di penampang ukur. Penyelesaian satu dimensi yang dipakai untuk menggambar kurva ini tidak lagi berlaku, dan debit yang dihitung balik dari luas kurva akan meleset jauh. Perpanjang jaraknya, atau pakai bagian sungai yang arusnya lebih deras.",
+      "Bilangan Peclet, yaitu kecepatan dikali jarak dibagi koefisien sebaran, turun di bawah sepuluh. Pada keadaan itu awan garam menyebar hampir secepat ia terbawa arus, dan model sebaran satu dimensi (Fick) yang dipakai untuk menggambar kurva ini belum berlaku sedekat itu dengan titik suntik (Fischer dkk. 1979). Kurvanya juga berekor panjang, dan lembar ini memotong hitungan luasnya pada jendela waktu tetap, jadi bagian ekor yang terpotong ikut membuat debit dari luas kurva meleset. Perpanjang jaraknya, atau pakai bagian sungai yang arusnya lebih deras.",
     kurangNote:
       "Jarak dari titik suntik ke penampang ukur lebih pendek daripada patokan pencampuran. Bila garam belum bercampur merata di seluruh penampang, kepekatan yang terbaca bergantung pada di mana tepatnya alat ukur dicelupkan, dan luas kurvanya kehilangan artinya. Ini bukan kesalahan yang tampak pada hasil: angkanya tetap keluar, hanya saja salah. Perpanjang jaraknya, atau suntikkan garam di beberapa titik melintang sekaligus.",
     note:
@@ -84,9 +96,19 @@ const TXT = {
     rU: "Mean velocity",
     rMix: "Mixing length required",
     kurang: "Mixing not yet complete",
+    tercampur: "Mixed, advection dominates",
+    bandSebar: "Dispersion dominates",
+    bandAngkut: "Advection dominates",
+    bandBelum: "Not yet mixed, 25 B rule",
+    bandCampur: "Mixed",
+    hU: "Velocity and travel time",
+    hPe: "Peclet number",
+    hPuncak: "Peak concentration, read from the curve",
+    hQ: "Area under the curve and discharge",
+    hLaju: "Constant-rate method: c₂ is built from the Q entered, so Q′ = Q by construction",
     sebar: "Dispersion dominates transport",
     sebarNote:
-      "The Peclet number, velocity times distance divided by the dispersion coefficient, has fallen below ten. The tracer cloud then spreads faster than it travels: part of its mass migrates upstream of the injection point and never passes the measuring section. The one-dimensional solution used to draw this curve no longer holds, and the discharge recovered from the area under it will be far out. Lengthen the reach, or use a stretch with a faster current.",
+      "The Peclet number, velocity times distance divided by the dispersion coefficient, has fallen below ten. The tracer cloud then spreads almost as fast as it travels, and the one-dimensional (Fickian) dispersion model used to draw this curve does not yet hold that close to the injection point (Fischer et al. 1979). The curve also has a long tail, and this sheet cuts the area integral off at a fixed time window, so the truncated tail adds to the error in the discharge recovered from the area. Lengthen the reach, or use a stretch with a faster current.",
     kurangNote:
       "The distance from injection to the measuring section is shorter than the mixing rule of thumb. If the salt has not spread evenly across the section, the concentration read depends on exactly where the probe was dipped, and the area under the curve loses its meaning. This is not an error that shows in the result: a number still comes out, it is simply wrong. Lengthen the reach, or inject at several points across the width at once.",
     note:
@@ -158,8 +180,88 @@ export function PengenceranGaramClient() {
     [Q, M, L, A, D, B, lang]
   );
 
+  /* Galat debit dari luas kurva terhadap debit yang dimasukkan, ditulis
+     sebagai angka, bukan "meleset jauh": pada Pe 9,6 galatnya 0,15 %. */
+  const galat = Q > 0 ? ((r.Qgulp - Q) / Q) * 100 : 0;
+  const rasioCampur = panjangCampur > 0 ? L / panjangCampur : 0;
+  /* Belum tercampur adalah patokan praktik (lib menyebutnya penanda
+     kelayakan), bukan batas berlaku rumus: oker, bukan merah sinyal. */
+  const nada: Tone = sebar ? "invalid" : kurang ? "caution" : "pass";
+  const badge = sebar ? x.sebar : kurang ? x.kurang : x.tercampur;
+  const sejuta = fmt(1e6, 0);
+
+  const langkah = [
+    {
+      judul: x.hU,
+      rumus: <span>u = Q / A ;  L / u</span>,
+      isi: `${fmt(Q, 2)} / ${fmt(A, 1)} = ${fmt(u, 4)} m/s ;  ${fmt(L, 0)} / ${fmt(u, 4)}`,
+      hasil: fmt(r.tTravel, 0),
+      satuan: "s",
+      tint: C.critical,
+    },
+    {
+      judul: x.hPe,
+      rumus: (<><span>Pe =</span><Frac num="u L" den="D" /></>),
+      isi: `${fmt(u, 4)} · ${fmt(L, 0)} / ${fmt(D, 1)}`,
+      hasil: fmt(r.peclet, 1),
+      tint: sebar ? C.signal : undefined,
+    },
+    {
+      judul: x.hPuncak,
+      rumus: <span>c_maks = maks c( L, t )</span>,
+      isi: `t_p = ${fmt(r.tPeak, 0)} s`,
+      hasil: fmt(r.cPeak, 2),
+      satuan: "mg/l",
+    },
+    {
+      judul: x.hQ,
+      rumus: (<><span>Q =</span><Frac num={`M · ${sejuta}`} den="∫ c dt" /><span>/ 1000</span></>),
+      isi: `∫ c dt = ${fmt(r.area, 1)} mg·s/l ;  ${fmt(M, 1)} · ${sejuta} / ${fmt(r.area, 1)} / 1000`,
+      hasil: fmt(r.Qgulp, 4),
+      satuan: "m³/s",
+      tint: sebar ? C.signal : C.water,
+    },
+    {
+      judul: x.hLaju,
+      rumus: (<><span>c₂ =</span><Frac num="q c₁ + Q c₀" den="q + Q" /><span className="ml-3">Q′ = q</span><Frac num="c₁ − c₂" den="c₂ − c₀" /></>),
+      isi: `c₂ = ( ${fmt(qSuntik, 1)} · ${fmt(c1, 0)} + ${fmt(Q * 1000, 0)} · ${fmt(c0, 0)} ) / ( ${fmt(qSuntik, 1)} + ${fmt(Q * 1000, 0)} ) = ${fmt(c2, 3)} mg/l ;  ${fmt(qSuntik, 1)} · ( ${fmt(c1, 0)} − ${fmt(c2, 3)} ) / ( ${fmt(c2, 3)} − ${fmt(c0, 0)} ) / 1000`,
+      hasil: fmt(Qlaju, 4),
+      satuan: "m³/s",
+      tint: C.energy,
+    },
+  ];
+
   return (
     <LabShell
+      status={
+        /* Batas pita dari TRACER_PECLET_MIN (10) dan TRACER_MIX_WIDTHS (25
+           lebar sungai; Day 1977, Moore 2005). Sumbu Pe 10⁻⁴ sampai 10⁶ dan
+           L/L* 0,01 sampai 50 memuat rentang penggeser (Pe 8,3·10⁻⁴ sampai
+           3,0·10⁵; L/L* 0,013 sampai 48). */
+        <div className="flex flex-col gap-2">
+          <RegimeScale
+            symbol="Pe"
+            value={r.peclet}
+            invalid={sebar}
+            scale="log"
+            digits={1}
+            bands={[
+              { from: 1e-4, to: TRACER_PECLET_MIN, label: x.bandSebar, tone: "invalid" },
+              { from: TRACER_PECLET_MIN, to: 1e6, label: x.bandAngkut, tone: "pass" },
+            ]}
+          />
+          <RegimeScale
+            symbol="L/L*"
+            value={rasioCampur}
+            scale="log"
+            digits={2}
+            bands={[
+              { from: 0.01, to: 1, label: x.bandBelum, tone: "caution" },
+              { from: 1, to: 50, label: x.bandCampur, tone: "pass" },
+            ]}
+          />
+        </div>
+      }
       sheet="FM-05"
       subject={SUBJECTS.FM[lang]}
       title={x.title}
@@ -196,7 +298,7 @@ export function PengenceranGaramClient() {
             {
               label: x.rMix,
               value: `${fmt(panjangCampur, 0)} m`,
-              tint: kurang ? C.signal : undefined,
+              tint: kurang ? C.caution : undefined,
             },
           ]}
         >
@@ -212,7 +314,7 @@ export function PengenceranGaramClient() {
               <InputRow symbol="L" label={x.dL} value={L} min={10} max={600} step={5} digits={0} unit="m" onChange={setL} />
               <InputRow symbol="A" label={x.dA} value={A} min={0.2} max={20} step={0.1} digits={1} unit="m²" onChange={setA} />
               <InputRow symbol="D" label={x.dD} value={D} min={0.2} max={30} step={0.2} digits={1} unit="m²/s" onChange={setD} />
-              <InputRow symbol="B" label={x.dB} value={B} min={0.5} max={30} step={0.5} digits={1} unit="m" onChange={setB} tint={C.signal} />
+              <InputRow symbol="B" label={x.dB} value={B} min={0.5} max={30} step={0.5} digits={1} unit="m" onChange={setB} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -228,40 +330,37 @@ export function PengenceranGaramClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={sebar ? undefined : C.water} alert={sebar}>{`${fmt(r.Qgulp, 3)} m³/s`}</Flag>
-              {kurang && <Flag alert>{x.kurang}</Flag>}
-              {sebar && <Flag alert>{x.sebar}</Flag>}
-            </div>
-            {kurang && (
-              <div className="mb-2.5">
-                <Note>{x.kurangNote}</Note>
-              </div>
-            )}
-            {sebar && (
-              <div className="mb-2.5">
-                <Note>{x.sebarNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Q", label: x.rQgulp, value: fmt(r.Qgulp, 4), unit: "m³/s", tint: sebar ? C.signal : C.water, strong: true },
-                { symbol: "Q′", label: x.rQlaju, value: fmt(Qlaju, 4), unit: "m³/s", tint: C.energy, strong: true },
+                /* Q′ selalu sama dengan Q masukan (c₂ disusun dari Q), jadi
+                   bukan angka utama; Pe yang ditulis besar. */
+                { symbol: "Pe", label: x.rPe, value: fmt(r.peclet, 1), tint: sebar ? C.signal : undefined, strong: true },
+                { symbol: "Q′", label: x.rQlaju, value: fmt(Qlaju, 4), unit: "m³/s", tint: C.energy },
                 { symbol: "∫c dt", label: x.rArea, value: fmt(r.area, 1), unit: "mg·s/l" },
-                { symbol: "c_max", label: x.rPeak, value: fmt(r.cPeak, 2), unit: "mg/l", tint: C.signal },
+                { symbol: "c_max", label: x.rPeak, value: fmt(r.cPeak, 2), unit: "mg/l" },
                 { symbol: "t_p", label: x.rTpeak, value: fmt(r.tPeak, 0), unit: "s" },
                 { symbol: "L/u", label: x.rTtravel, value: fmt(r.tTravel, 0), unit: "s", tint: C.critical },
                 { symbol: "Δt", label: x.rDur, value: fmt(r.duration, 0), unit: "s" },
                 { symbol: "u", label: x.rU, value: fmt(u, 3), unit: "m/s" },
-                { symbol: "L*", label: x.rMix, value: fmt(panjangCampur, 0), unit: "m", tint: kurang ? C.signal : undefined },
-                { symbol: "Pe", label: x.rPe, value: fmt(r.peclet, 1), tint: sebar ? C.signal : undefined },
+                { symbol: "L*", label: x.rMix, value: fmt(panjangCampur, 0), unit: "m", tint: kurang ? C.caution : undefined },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan langkah={langkah} />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r, rLebar, kurang, sebar, panjangCampur, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={badge}
+            state={
+              lang === "id"
+                ? `Luas kurva ${fmt(r.area, 1)} mg·s/l memberi Q ${fmt(r.Qgulp, 3)} m³/s.`
+                : `A curve area of ${fmt(r.area, 1)} mg·s/l gives Q ${fmt(r.Qgulp, 3)} m³/s.`
+            }
+            notice={butir(r, rLebar, kurang, sebar, panjangCampur, galat, x, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksTracer(Q, M, L, A, D)} />}
@@ -291,29 +390,50 @@ export function PengenceranGaramClient() {
   );
 }
 
-function notice(
+/*
+ * Butir yang perlu diperhatikan. Kalimat Peclet tidak lagi menulis "jauh
+ * di bawah sepuluh … meleset jauh": pada Pe 9,6 debitnya hanya meleset
+ * 0,15 %. Galatnya ditulis dari angka hasil model.
+ */
+function butir(
   r: TracerResult,
   rLebar: TracerResult,
   kurang: boolean,
   sebar: boolean,
   panjangCampur: number,
+  galat: number,
+  x: (typeof TXT)[Lang],
   lang: Lang
-): string {
+): string[] {
+  const en = lang === "en";
+  const out: string[] = [];
   if (sebar) {
-    return lang === "id"
-      ? `Bilangan Peclet-nya ${fmt(r.peclet, 1)}, jauh di bawah sepuluh, sehingga penyebaran menguasai angkutan dan penyelesaian yang dipakai di sini tidak berlaku. Perpanjang jaraknya, atau perbesar kecepatannya dengan memperkecil luas penampang, lalu perhatikan Peclet naik dan kurvanya kembali berbentuk lonceng yang rapi.`
-      : `The Peclet number is ${fmt(r.peclet, 1)}, far below ten, so dispersion dominates transport and the solution used here does not hold. Lengthen the reach, or raise the velocity by reducing the cross-section, and watch the Peclet number climb and the curve return to a clean bell.`;
+    out.push(x.sebarNote);
+    out.push(
+      en
+        ? `The Peclet number is ${fmt(r.peclet, 1)}, below ten; here the discharge from the area differs from the true discharge by ${fmt(galat, 2)} per cent. Lengthen the reach, or raise the velocity by reducing the cross-section, and watch the Peclet number climb and the curve return to a clean bell.`
+        : `Bilangan Peclet-nya ${fmt(r.peclet, 1)}, di bawah sepuluh; di sini debit dari luas kurva berselisih ${fmt(galat, 2)} persen dari debit sebenarnya. Perpanjang jaraknya, atau perbesar kecepatannya dengan memperkecil luas penampang, lalu perhatikan Peclet naik dan kurvanya kembali berbentuk lonceng yang rapi.`
+    );
   }
   if (kurang) {
-    return lang === "id"
-      ? `Perpanjang jaraknya sampai melewati ${fmt(panjangCampur, 0)} m, atau perkecil lebar sungainya. Selama syarat pencampuran belum terpenuhi, angka pada tabel di atas tetap keluar tetapi tidak berarti apa-apa, dan kurvanya digambar titik rapat untuk menyatakan hal itu.`
-      : `Lengthen the reach past ${fmt(panjangCampur, 0)} m, or narrow the river. While the mixing condition is unmet the numbers in the table still appear but mean nothing, and the curve is drawn with fine dots to say so.`;
+    out.push(x.kurangNote);
+    out.push(
+      en
+        ? `Lengthen the reach past ${fmt(panjangCampur, 0)} m, or narrow the river. While the mixing condition is unmet the numbers still appear but mean nothing, and the curve is drawn with fine dots to say so.`
+        : `Perpanjang jaraknya sampai melewati ${fmt(panjangCampur, 0)} m, atau perkecil lebar sungainya. Selama syarat pencampuran belum terpenuhi, angkanya tetap keluar tetapi tidak berarti apa-apa, dan kurvanya digambar titik rapat untuk menyatakan hal itu.`
+    );
   }
+  if (sebar || kurang) return out;
 
   const bedaPuncak = ((r.cPeak - rLebar.cPeak) / r.cPeak) * 100;
   const bedaLuas = ((r.Qgulp - rLebar.Qgulp) / r.Qgulp) * 100;
-
-  if (lang === "en")
-    return `Compare the two curves. Tripling the dispersion drops the peak by ${fmt(bedaPuncak, 0)} per cent and stretches the cloud out over a much longer time, yet the discharge computed from the two areas differs by only ${fmt(Math.abs(bedaLuas), 3)} per cent. That is the whole method in one comparison: the peak is the part that catches the eye and the part that does not matter, while the area is the part that is easy to overlook and the part that holds the answer.`;
-  return `Bandingkan kedua kurvanya. Melipattigakan sebarannya menurunkan puncak sebesar ${fmt(bedaPuncak, 0)} persen dan menjulurkan awannya jauh lebih lama, tetapi debit yang dihitung dari kedua luasnya hanya berbeda ${fmt(Math.abs(bedaLuas), 3)} persen. Itulah seluruh isi cara ini dalam satu perbandingan: puncak adalah bagian yang menarik perhatian mata dan tidak menentukan apa pun, sedangkan luas adalah bagian yang mudah terlewat dan justru menyimpan jawabannya.`;
+  out.push(
+    en
+      ? `Compare the two curves. Tripling the dispersion drops the peak by ${fmt(bedaPuncak, 0)} per cent and stretches the cloud out over a much longer time, yet the discharge computed from the two areas differs by only ${fmt(Math.abs(bedaLuas), 3)} per cent.`
+      : `Bandingkan kedua kurvanya. Melipattigakan sebarannya menurunkan puncak sebesar ${fmt(bedaPuncak, 0)} persen dan menjulurkan awannya jauh lebih lama, tetapi debit yang dihitung dari kedua luasnya hanya berbeda ${fmt(Math.abs(bedaLuas), 3)} persen.`,
+    en
+      ? "That is the whole method in one comparison: the peak catches the eye and does not matter, while the area is easy to overlook and holds the answer."
+      : "Itulah seluruh isi cara ini dalam satu perbandingan: puncak menarik perhatian mata dan tidak menentukan apa pun, sedangkan luas mudah terlewat dan justru menyimpan jawabannya."
+  );
+  return out;
 }

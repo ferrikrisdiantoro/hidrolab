@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,11 +20,13 @@ import {
   DENIL_RUN_MAX,
   DENIL_SLOPE_MAX,
   DENIL_SLOPE_MIN,
+  FISHWAY_POWER_GENERAL,
+  G,
   denilFishway,
   fmt,
   fmtPlain,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -50,6 +53,19 @@ const TXT = {
     rLength: "Panjang palung",
     rIstirahat: "Panjang terpanjang tanpa kolam istirahat",
     curam: "Kemiringan di luar rentang rancangan",
+    sBawah: "Di bawah kurva Denil",
+    sRancang: "Rentang rancangan",
+    sAtas: "Di atas kurva Denil",
+    vDapat: "Dapat dilawan",
+    vTak: "Tak terlawan",
+    lebihL: "L > 10 m",
+    aman: "Dapat dilewati",
+    hRasio: "Kedalaman nisbi dan debit tak berdimensi",
+    hQ: "Debit",
+    hV: "Kecepatan rata-rata dan di sumbu",
+    hEps: "Lesapan daya per isi palung",
+    hL: "Panjang palung",
+    banding: "dibanding",
     curamNote:
       "Kemiringan palung di luar rentang sepersepuluh sampai seperempat. Di bawahnya sirip penahan tidak lagi menimbulkan putaran balik yang cukup dan palungnya berperilaku seperti saluran biasa, sehingga tidak ada gunanya memasang sirip sama sekali. Di atasnya kecepatan di sumbu palung naik melampaui yang sanggup dilawan hampir semua jenis ikan sungai, dan tangga ikannya menjadi penghalang alih-alih lintasan. Kurva rancangan Denil yang dipakai di sini pun hanya diterbitkan pada rentang itu.",
     lambat: "Ikan tidak sanggup melawan arus di sumbu palung",
@@ -80,6 +96,19 @@ const TXT = {
     rLength: "Trough length",
     rIstirahat: "Longest run without a resting pool",
     curam: "Slope outside the design range",
+    sBawah: "Below the Denil curves",
+    sRancang: "Design range",
+    sAtas: "Above the Denil curves",
+    vDapat: "Can be beaten",
+    vTak: "Cannot be beaten",
+    lebihL: "L > 10 m",
+    aman: "Passable",
+    hRasio: "Relative depth and dimensionless discharge",
+    hQ: "Discharge",
+    hV: "Mean and axial velocity",
+    hEps: "Dissipation per trough volume",
+    hL: "Trough length",
+    banding: "against",
     curamNote:
       "The trough slope lies outside one tenth to one quarter. Below it the baffles no longer set up enough reverse rotation and the trough behaves like an ordinary channel, so fitting baffles at all serves no purpose. Above it the axial velocity rises past what almost any river species can beat, and the fishway becomes a barrier rather than a passage. The Denil design curves used here are only published within that range in any case.",
     lambat: "The fish cannot beat the axial velocity",
@@ -122,6 +151,12 @@ export function TanggaIkanDenilClient() {
 
   const r = denilFishway(b, y, S, rise);
   const tidakMampu = r.maxVelocity > burst;
+  // Q* ditulis ulang hanya untuk baris Hitungan; rumusnya sama persis dengan
+  // denilFishway (hydraulics.ts), dan Q di tabel tetap r.Q.
+  const yb = b > 0 ? y / b : 0;
+  const Qstar = 0.94 * yb * Math.sqrt(S) + 0.16 * yb * yb;
+  const nada: Tone = r.slopeOutOfRange ? "invalid" : tidakMampu || r.needsRestPool ? "caution" : "pass";
+  const badge = r.slopeOutOfRange ? x.curam : tidakMampu ? x.lambat : r.needsRestPool ? x.istirahat : x.aman;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -183,7 +218,7 @@ export function TanggaIkanDenilClient() {
               { x: panjang, z: dasarDi(panjang) },
               { x: 0, z: dasarDi(0) },
             ],
-            invalid: r.slopeOutOfRange || tidakMampu,
+            invalid: r.slopeOutOfRange,
           },
         ],
         dims: [
@@ -211,7 +246,7 @@ export function TanggaIkanDenilClient() {
             x: panjang * 0.25,
             z: dasarDi(panjang * 0.25) + y * 0.82,
             length: -28,
-            color: tidakMampu ? C.signal : C.water,
+            color: tidakMampu ? C.caution : C.water,
           },
         ],
         heading: r.slopeOutOfRange
@@ -219,7 +254,7 @@ export function TanggaIkanDenilClient() {
           : tidakMampu
             ? x.lambat
             : undefined,
-        headingColor: C.signal,
+        headingColor: r.slopeOutOfRange ? C.signal : C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
       };
@@ -231,6 +266,31 @@ export function TanggaIkanDenilClient() {
 
   return (
     <LabShell
+      status={
+        <div className="flex flex-col gap-2">
+          <RegimeScale
+            symbol="S (%)"
+            value={S * 100}
+            invalid={r.slopeOutOfRange}
+            digits={0}
+            bands={[
+              { from: 4, to: DENIL_SLOPE_MIN * 100 - 1e-9, label: x.sBawah, tone: "invalid" },
+              { from: DENIL_SLOPE_MIN * 100, to: DENIL_SLOPE_MAX * 100, label: x.sRancang, tone: "pass" },
+              { from: DENIL_SLOPE_MAX * 100, to: 40, label: x.sAtas, tone: "invalid" },
+            ]}
+          />
+          <RegimeScale
+            symbol="Vmaks/Ub"
+            value={r.maxVelocity / burst}
+            scale="log"
+            digits={2}
+            bands={[
+              { from: 0.1, to: 1, label: x.vDapat, tone: "pass" },
+              { from: 1, to: 10, label: x.vTak, tone: "caution" },
+            ]}
+          />
+        </div>
+      }
       sheet="EH-02"
       subject={SUBJECTS.EH[lang]}
       title={x.title}
@@ -258,9 +318,9 @@ export function TanggaIkanDenilClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "S", value: fmt(S, 3), tint: r.slopeOutOfRange ? C.signal : undefined },
+            { label: "S", value: `${fmt(S * 100, 0)} %`, tint: r.slopeOutOfRange ? C.signal : undefined },
             { label: "Q", value: `${fmt(r.Q, 3)} m³/s`, tint: C.water },
-            { label: "Vmaks", value: `${fmt(r.maxVelocity, 2)} m/s`, tint: tidakMampu ? C.signal : C.energy },
+            { label: "Vmaks", value: `${fmt(r.maxVelocity, 2)} m/s`, tint: tidakMampu ? C.caution : C.energy },
             { label: "L", value: `${fmt(r.runLength, 1)} m` },
           ]}
         >
@@ -291,45 +351,69 @@ export function TanggaIkanDenilClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={tidakMampu || r.slopeOutOfRange ? undefined : C.water} alert={tidakMampu || r.slopeOutOfRange}>
-                {`${fmt(r.maxVelocity, 2)} m/s`}
-              </Flag>
-              {r.slopeOutOfRange && <Flag alert>{x.curam}</Flag>}
-              {tidakMampu && <Flag alert>{x.lambat}</Flag>}
-              {r.needsRestPool && <Flag alert>{x.istirahat}</Flag>}
-            </div>
-            {r.slopeOutOfRange && (
-              <div className="mb-2.5">
-                <Note>{x.curamNote}</Note>
-              </div>
-            )}
-            {tidakMampu && (
-              <div className="mb-2.5">
-                <Note>{x.lambatNote}</Note>
-              </div>
-            )}
-            {r.needsRestPool && (
-              <div className="mb-2.5">
-                <Note>{x.istirahatNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "Vmaks", label: x.rVmax, value: fmt(r.maxVelocity, 3), unit: "m/s", tint: tidakMampu ? C.signal : C.energy, strong: true },
+                { symbol: "Vmaks", label: x.rVmax, value: fmt(r.maxVelocity, 3), unit: "m/s", tint: tidakMampu ? C.caution : C.energy, strong: true },
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water, strong: true },
                 { symbol: "Vrata", label: x.rVmean, value: fmt(r.meanVelocity, 3), unit: "m/s" },
                 { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 0), unit: "W/m³", tint: C.energy },
                 { symbol: "—", label: x.rRasio, value: fmt(r.powerRatioToPool, 1), unit: "×", tint: C.critical },
                 { symbol: "L", label: x.rLength, value: fmt(r.runLength, 2), unit: "m" },
-                { symbol: "Lmax", label: x.rIstirahat, value: fmt(DENIL_RUN_MAX, 0), unit: "m", tint: r.needsRestPool ? C.signal : undefined },
+                r.needsRestPool
+                  ? { symbol: "Lmax", label: x.rIstirahat, value: x.lebihL, tint: C.caution }
+                  : { symbol: "Lmax", label: x.rIstirahat, value: fmt(DENIL_RUN_MAX, 0), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hRasio,
+                    rumus: <span>Q* = {fmt(0.94, 2)} · (y/b) · √S + {fmt(0.16, 2)} · (y/b)²</span>,
+                    isi: `y/b = ${fmt(y, 2)} / ${fmt(b, 2)} = ${fmt(yb, 4)} ;  ${fmt(0.94, 2)} · ${fmt(yb, 4)} · √${fmt(S, 2)} + ${fmt(0.16, 2)} · ${fmt(yb, 4)}²`,
+                    hasil: fmt(Qstar, 4),
+                  },
+                  {
+                    judul: x.hQ,
+                    rumus: <span>Q = Q* · b^{fmt(2.5, 1)} · √g</span>,
+                    isi: `${fmt(Qstar, 4)} · ${fmt(b, 2)}^${fmt(2.5, 1)} · √${fmt(G, 2)}`,
+                    hasil: fmt(r.Q, 4),
+                    satuan: "m³/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hV,
+                    rumus: <span>Vrata = Q / (b · y) ;  Vmaks = {fmt(1.5, 1)} · Vrata</span>,
+                    isi: `${fmt(r.Q, 4)} / ( ${fmt(b, 2)} · ${fmt(y, 2)} ) = ${fmt(r.meanVelocity, 3)} ;  ${fmt(1.5, 1)} · ${fmt(r.meanVelocity, 4)}  (${x.banding} Ub ${fmt(burst, 1)})`,
+                    hasil: fmt(r.maxVelocity, 3),
+                    satuan: "m/s",
+                    tint: tidakMampu ? C.caution : C.energy,
+                  },
+                  {
+                    judul: x.hEps,
+                    rumus: (<><span>ε =</span><Frac num="ρ · g · Q · S" den="b · y" /></>),
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(r.Q, 4)} · ${fmt(S, 2)} / ( ${fmt(b, 2)} · ${fmt(y, 2)} ) = ${fmt(r.powerRatioToPool, 1)} × ${fmt(FISHWAY_POWER_GENERAL, 0)}`,
+                    hasil: fmt(r.powerDensity, 0),
+                    satuan: "W/m³",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hL,
+                    rumus: <span>L = H / S</span>,
+                    isi: `${fmt(rise, 1)} / ${fmt(S, 2)}  (${x.banding} Lmax ${fmt(DENIL_RUN_MAX, 0)} m)`,
+                    hasil: fmt(r.runLength, 2),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(b, y, S, rise, r.powerRatioToPool, r.runLength, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={badge}
+            {...notice(b, y, S, rise, burst, r, tidakMampu, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksDenil(b, y, S, rise)} />}
@@ -338,10 +422,10 @@ export function TanggaIkanDenilClient() {
           equations={
             <>
               <Eq>
-                <Frac num="Q" den="b^2,5 √g" />
-                <span>= 0,94</span>
+                <Frac num="Q" den={`b^${fmt(2.5, 1)} √g`} />
+                <span>= {fmt(0.94, 2)}</span>
                 <Frac num="y" den="b" />
-                <span>√S + 0,16</span>
+                <span>√S + {fmt(0.16, 2)}</span>
                 <span className="ml-1">(</span>
                 <Frac num="y" den="b" />
                 <span>)²</span>
@@ -349,7 +433,7 @@ export function TanggaIkanDenilClient() {
               <Eq>
                 <span>ε =</span>
                 <Frac num="ρ g Q S" den="b y" />
-                <span className="ml-5">Vmaks = 1,5 Vrata</span>
+                <span className="ml-5">Vmaks = {fmt(1.5, 1)} Vrata</span>
               </Eq>
               <Eq>
                 <span className="text-ink-3">
@@ -373,13 +457,33 @@ function notice(
   y: number,
   S: number,
   rise: number,
-  powerRatio: number,
-  runLength: number,
+  burst: number,
+  r: ReturnType<typeof denilFishway>,
+  tidakMampu: boolean,
   lang: Lang
-): string {
-  const landai = denilFishway(b, y, Math.max(S / 2, 0.02), rise);
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
+  const landai = denilFishway(b, y, S / 2, rise);
+  const landaiLuar = S / 2 < DENIL_SLOPE_MIN;
+  const en = lang === "en";
 
-  if (lang === "en")
-    return `The dissipation in this trough is ${fmt(powerRatio, 1)} times what a pool fishway is allowed, and that is the trade this device makes: it climbs ${fmt(rise, 1)} m in ${fmt(runLength, 1)} m of length, where a pool fishway at the same rise would need several times that. Halve the slope and the run becomes ${fmt(landai.runLength, 1)} m long while the axial velocity falls from ${fmt(1.5 * (denilFishway(b, y, S, rise).meanVelocity), 2)} to ${fmt(landai.maxVelocity, 2)} m/s. Length bought, velocity saved: there is no setting that gives both.`;
-  return `Lesapan daya di palung ini ${fmt(powerRatio, 1)} kali yang diizinkan pada tangga berkolam, dan itulah pertukaran yang dilakukan alat ini: ia menaiki ${fmt(rise, 1)} m dalam ${fmt(runLength, 1)} m panjang, sementara tangga berkolam pada beda tinggi yang sama menuntut beberapa kali lipat. Landaikan kemiringannya menjadi separuh dan panjangnya menjadi ${fmt(landai.runLength, 1)} m sementara kecepatan di sumbunya turun dari ${fmt(1.5 * denilFishway(b, y, S, rise).meanVelocity, 2)} ke ${fmt(landai.maxVelocity, 2)} m/s. Panjang dibeli, kecepatan dihemat: tidak ada setelan yang memberi keduanya sekaligus.`;
+  const state = en
+    ? `Vmax = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; trough length ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", needs a resting pool" : ""}.`
+    : `Vmaks = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; panjang palung ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", perlu kolam istirahat" : ""}.`;
+
+  const butir: string[] = [];
+  if (r.slopeOutOfRange) butir.push(x.curamNote);
+  if (tidakMampu) butir.push(x.lambatNote);
+  if (r.needsRestPool) butir.push(x.istirahatNote);
+  butir.push(
+    en
+      ? `The dissipation in this trough is ${fmt(r.powerRatioToPool, 1)} times what a pool fishway is allowed, and that is the trade this device makes: it climbs ${fmt(rise, 1)} m in ${fmt(r.runLength, 1)} m of length.`
+      : `Lesapan daya di palung ini ${fmt(r.powerRatioToPool, 1)} kali yang diizinkan pada tangga berkolam, dan itulah pertukaran yang dilakukan alat ini: ia menaiki ${fmt(rise, 1)} m dalam ${fmt(r.runLength, 1)} m panjang.`
+  );
+  butir.push(
+    en
+      ? `Halve the slope and the run becomes ${fmt(landai.runLength, 1)} m long while the axial velocity falls from ${fmt(r.maxVelocity, 2)} to ${fmt(landai.maxVelocity, 2)} m/s.${landaiLuar ? " That halved slope lies outside the Denil range." : ""}`
+      : `Landaikan kemiringannya menjadi separuh dan panjangnya menjadi ${fmt(landai.runLength, 1)} m sementara kecepatan di sumbunya turun dari ${fmt(r.maxVelocity, 2)} ke ${fmt(landai.maxVelocity, 2)} m/s.${landaiLuar ? " Kemiringan separuh itu di luar rentang Denil." : ""}`
+  );
+  return { state, notice: butir };
 }

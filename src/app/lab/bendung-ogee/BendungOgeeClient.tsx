@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type RegimeBand,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import {
@@ -20,14 +22,17 @@ import {
   type StructureSpec,
 } from "@/lib/drawStructure";
 import {
+  G,
   OGEE_CAVITATION_LIMIT,
   OGEE_CD_DESIGN,
+  OGEE_RATIO_MAX,
+  OGEE_RATIO_MIN,
   fmt,
   fmtPlain,
   ogeeWeir,
   wesCrest,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -63,6 +68,21 @@ const TXT = {
       "Tinggi energi kurang dari seperlima tinggi rancangan. Pada tinggi serendah itu tirai menempel erat ke muka mercu dan tegangan permukaan mulai berperan, sehingga koefisien debit yang dihitung dari bagan tidak lagi dapat dipercaya.",
     luarBesar:
       "Tinggi energi lebih dari tiga kali tinggi rancangan. Bagan koefisien debit tidak diterbitkan sejauh itu, dan tekanan negatif di mercu sudah jauh melewati batas yang biasa diterima dalam perancangan.",
+    bBawahBagan: "Di bawah rentang bagan",
+    bBawahRancang: "Di bawah rancangan, tirai menekan mercu",
+    bAtasRancang: "Di atas rancangan, tekanan negatif",
+    bKavitasi: "Risiko kavitasi",
+    bLuarBagan: "Di luar rentang bagan",
+    bRancang: "Pada rancangan",
+    sKendali: (ratio: string, pita: string, Q: string, p: string) =>
+      `He/Hd = ${ratio}: ${pita}; Q = ${Q} m³/s, p = ${p} m.`,
+    sTakKendali: "Mercu tidak mengendalikan aliran: tinggi muka air terlalu besar terhadap P.",
+    ekstrapolasi: "Ini ekstrapolasi di luar bagan; angkanya tetap ditulis tetapi tidak dijamin.",
+    syaratEnergi: "Syarat tekanan nol berlaku pada tinggi ENERGI, bukan tinggi muka air.",
+    hHe: "Tinggi energi dan kecepatan datang (bagi dua)",
+    hHeTak: "Tidak ada He yang memenuhi: mercu tidak mengendalikan aliran",
+    hRatio: "Perbandingan tinggi energi terhadap rancangan",
+    hP: "Tekanan di mercu, dibandingkan dengan batas kavitasi",
     note:
       "Bentuk mercu ogee bukan pilihan gaya melainkan jawaban atas satu pertanyaan yang sangat khusus: bentuk apa yang, bila dialiri air, tidak menekan maupun mengangkat airnya sendiri. Jawabannya ditemukan dengan cara yang mengejutkan sederhana, yaitu mengukur bentuk permukaan bawah tirai luapan bebas dari ambang tajam, lalu mencetak beton persis mengikuti bentuk itu. Karena mercunya menjadi tempat air memang ingin lewat, pada tinggi rancangan tekanan di seluruh permukaannya sama dengan tekanan udara. Yang perlu diingat: syarat itu berlaku pada tinggi ENERGI, bukan pada tinggi muka air. Keduanya berbeda sebesar tinggi kecepatan datang, dan pada bendung rendah dengan tinggi rancangan besar selisihnya sama sekali tidak kecil. Perhatikan pula apa yang terjadi di luar tinggi rancangan: di bawahnya tirai menekan dan koefisien debitnya turun, di atasnya tirai terangkat, tekanan menjadi negatif, dan koefisien debitnya naik. Kenaikan itu tampak menguntungkan dan justru merupakan tanda bahaya.",
   },
@@ -94,6 +114,21 @@ const TXT = {
       "The energy head is less than one fifth of the design head. At heads that low the nappe clings tightly to the crest face and surface tension begins to matter, so the discharge coefficient read from the chart can no longer be trusted.",
     luarBesar:
       "The energy head exceeds three times the design head. The discharge coefficient chart is not published that far, and the negative crest pressure is already well past what design practice accepts.",
+    bBawahBagan: "Below chart range",
+    bBawahRancang: "Below design, nappe presses on crest",
+    bAtasRancang: "Above design, negative pressure",
+    bKavitasi: "Cavitation risk",
+    bLuarBagan: "Beyond chart range",
+    bRancang: "At design",
+    sKendali: (ratio: string, pita: string, Q: string, p: string) =>
+      `He/Hd = ${ratio}: ${pita}; Q = ${Q} m³/s, p = ${p} m.`,
+    sTakKendali: "The crest does not control the flow: the water level is too large relative to P.",
+    ekstrapolasi: "This is an extrapolation beyond the chart; the figures are still shown but not guaranteed.",
+    syaratEnergi: "The zero-pressure condition applies to the ENERGY head, not the water level.",
+    hHe: "Energy head and approach velocity (bisection)",
+    hHeTak: "No He satisfies the equation: the crest does not control the flow",
+    hRatio: "Ratio of energy head to design head",
+    hP: "Crest pressure, compared with the cavitation limit",
     note:
       "The ogee crest shape is not a matter of style but the answer to one very specific question: what shape, when water flows over it, neither presses on nor lifts away from its own flow. The answer was found in a surprisingly simple way, by measuring the underside of the nappe falling freely from a sharp-crested weir and then casting concrete to exactly that shape. Because the crest becomes the place the water wanted to go anyway, at the design head the pressure over its whole surface equals atmospheric. Keep this in mind: that condition applies to the ENERGY head, not the water level. The two differ by the approach velocity head, and on a low weir with a large design head that difference is not small at all. Notice too what happens either side of the design head: below it the nappe presses down and the discharge coefficient falls; above it the nappe lifts, the pressure goes negative, and the coefficient rises. That rise looks like a gain and is in fact a warning.",
   },
@@ -274,7 +309,9 @@ export function BendungOgeeClient() {
           : r.cavitationRisk
             ? T.cavitation
             : undefined,
-        headingColor: C.signal,
+        // Merah sinyal hanya untuk mercu tak terkendali; kavitasi adalah
+        // batas rancangan pada hasil yang sah, jadi oker.
+        headingColor: takKendali ? C.signal : C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
       };
@@ -284,15 +321,19 @@ export function BendungOgeeClient() {
     [h, Hd, L, P, lang]
   );
 
-  const alasan =
-    r.reason === "He-kecil"
-      ? x.luarKecil
-      : r.reason === "He-besar"
-        ? x.luarBesar
-        : "";
-
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="He/Hd"
+          value={r.ratio}
+          scale="log"
+          digits={2}
+          invalid={takKendali || r.outOfRange}
+          pesan={takKendali ? x.takKendali : undefined}
+          bands={takKendali ? [{ from: 0.005, to: 50, label: x.takKendali, tone: "invalid" }] : pitaRasio(Hd, lang)}
+        />
+      }
       sheet="HS-01"
       subject={SUBJECTS.HS[lang]}
       title={x.title}
@@ -326,7 +367,7 @@ export function BendungOgeeClient() {
             {
               label: "p",
               value: takKendali ? "—" : `${fmt(r.crestPressure, 2)} m`,
-              tint: r.cavitationRisk ? C.signal : undefined,
+              tint: r.cavitationRisk ? C.caution : undefined,
             },
           ]}
         >
@@ -356,45 +397,85 @@ export function BendungOgeeClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              {!takKendali && (
-                <Flag tint={C.water}>{`${fmt(r.Q, 1)} m³/s`}</Flag>
-              )}
-              {takKendali && <Flag alert>{x.takKendali}</Flag>}
-              {r.cavitationRisk && <Flag alert>{x.kavitasi}</Flag>}
-              {r.outOfRange && !takKendali && <Flag alert>{x.luar}</Flag>}
-            </div>
-            {takKendali && (
-              <div className="mb-2.5">
-                <Note>{x.takKendaliNote}</Note>
-              </div>
-            )}
-            {r.cavitationRisk && (
-              <div className="mb-2.5">
-                <Note>{x.kavitasiNote}</Note>
-              </div>
-            )}
-            {alasan && !takKendali && (
-              <div className="mb-2.5">
-                <Note>{alasan}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Q", label: x.rQ, value: takKendali ? "—" : fmt(r.Q, 2), unit: takKendali ? undefined : "m³/s", tint: C.water, strong: true },
-                { symbol: "He", label: x.rHe, value: takKendali ? "—" : fmt(r.He, 4), unit: takKendali ? undefined : "m", tint: C.energy, strong: true },
-                { symbol: "Cd", label: x.rCd, value: takKendali ? "—" : fmt(r.Cd, 4), tint: C.energy },
+                { symbol: "p", label: x.rP, value: takKendali ? "—" : fmt(r.crestPressure, 3), unit: takKendali ? undefined : "m", tint: r.cavitationRisk ? C.caution : undefined, strong: true },
+                { symbol: "He", label: x.rHe, value: takKendali ? "—" : fmt(r.He, 4), unit: takKendali ? undefined : "m", tint: C.energy },
+                { symbol: "Cd", label: x.rCd, value: takKendali ? "—" : fmt(r.Cd, 4), unit: takKendali ? undefined : "m^½/s", tint: C.energy },
                 { symbol: "He/Hd", label: x.rRatio, value: fmt(r.ratio, 4), tint: r.outOfRange ? C.signal : undefined },
-                { symbol: "p", label: x.rP, value: takKendali ? "—" : fmt(r.crestPressure, 3), unit: takKendali ? undefined : "m", tint: r.cavitationRisk ? C.signal : undefined },
                 { symbol: "Va", label: x.rVa, value: takKendali ? "—" : fmt(r.Va, 4), unit: takKendali ? undefined : "m/s" },
                 { symbol: "q", label: x.rQperM, value: takKendali ? "—" : fmt(r.Q / L, 3), unit: takKendali ? undefined : "m³/s·m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={
+                  takKendali
+                    ? [
+                        {
+                          judul: x.hHeTak,
+                          rumus: (<><span>He = h +</span><Frac num="Va²" den="2g" /><span className="ml-3">Va =</span><Frac num="Q" den="L · ( h + P )" /></>),
+                          isi: `h = ${fmt(h, 2)} m, P = ${fmt(P, 1)} m, L = ${fmt(L, 0)} m`,
+                          hasil: "—",
+                        },
+                      ]
+                    : [
+                        {
+                          judul: x.hHe,
+                          rumus: (<><span>He = h +</span><Frac num="Va²" den="2g" /><span className="ml-3">Va =</span><Frac num="Q" den="L · ( h + P )" /></>),
+                          isi: `Va = ${fmt(r.Q, 3)} / ( ${fmt(L, 0)} · ( ${fmt(h, 2)} + ${fmt(P, 1)} ) ) = ${fmt(r.Va, 5)} m/s; He = ${fmt(h, 2)} + ${fmt(r.Va, 5)}² / ( 2 · ${fmt(G, 2)} )`,
+                          hasil: fmt(r.He, 4),
+                          satuan: "m",
+                          tint: C.energy,
+                        },
+                        {
+                          judul: x.hRatio,
+                          rumus: (<><span>He/Hd =</span><Frac num="He" den="Hd" /></>),
+                          isi: `${fmt(r.He, 5)} / ${fmt(Hd, 1)}`,
+                          hasil: fmt(r.ratio, 4),
+                          tint: r.outOfRange ? C.signal : undefined,
+                        },
+                        {
+                          judul: x.rCd,
+                          rumus: <span>Cd = {fmt(OGEE_CD_DESIGN, 1)} · ( He/Hd )^{fmt(0.12, 2)}</span>,
+                          isi: `${fmt(OGEE_CD_DESIGN, 1)} · ${fmt(r.ratio, 5)}^${fmt(0.12, 2)}`,
+                          hasil: fmt(r.Cd, 4),
+                          satuan: "m^½/s",
+                          tint: C.energy,
+                        },
+                        {
+                          judul: x.rQ,
+                          rumus: <span>Q = Cd · L · He^{fmt(1.5, 1)}; q = Q / L</span>,
+                          isi: `${fmt(r.Cd, 5)} · ${fmt(L, 0)} · ${fmt(r.He, 5)}^${fmt(1.5, 1)} ; q = ${fmt(r.Q / L, 4)} m³/s·m`,
+                          hasil: fmt(r.Q, 2),
+                          satuan: "m³/s",
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.hP,
+                          rumus:
+                            r.He > Hd ? (
+                              <span>p = −{fmt(1.4, 1)} · ( He − Hd )</span>
+                            ) : (
+                              <span>p = {fmt(0.35, 2)} · ( Hd − He )</span>
+                            ),
+                          isi:
+                            (r.He > Hd
+                              ? `−${fmt(1.4, 1)} · ( ${fmt(r.He, 5)} − ${fmt(Hd, 1)} )`
+                              : `${fmt(0.35, 2)} · ( ${fmt(Hd, 1)} − ${fmt(r.He, 5)} )`) +
+                            ` ; ${r.cavitationRisk ? "<" : "≥"} ${fmt(OGEE_CAVITATION_LIMIT, 0)} m`,
+                          hasil: fmt(r.crestPressure, 3),
+                          satuan: "m",
+                          tint: r.cavitationRisk ? C.caution : undefined,
+                        },
+                      ]
+                }
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(h, Hd, L, P, r.Cd, r.crestPressure, takKendali, lang)}</Note>
-          </Block>
+          <StateCard {...keadaan(r, Hd, lang)} />
         </>
       }
       verification={<Verification checks={checksOgee(h, Hd, L, P)} />}
@@ -404,16 +485,16 @@ export function BendungOgeeClient() {
             <>
               <Eq>
                 <Frac num="y" den="Hd" />
-                <span>= −0,5</span>
+                <span>= −{fmt(0.5, 1)}</span>
                 <span className="ml-1">(</span>
                 <Frac num="x" den="Hd" />
-                <span>)^1,85</span>
+                <span>)^{fmt(1.85, 2)}</span>
                 <span className="ml-4 text-ink-3">
                   {lang === "id" ? "bentuk WES" : "the WES profile"}
                 </span>
               </Eq>
               <Eq>
-                <span>Q = Cd L He^1,5</span>
+                <span>Q = Cd L He^{fmt(1.5, 1)}</span>
                 <span className="ml-5">He = h +</span>
                 <Frac num="Va²" den="2g" />
                 <span className="ml-5">Cd₀ = {fmtPlain(OGEE_CD_DESIGN, 1)}</span>
@@ -435,26 +516,85 @@ export function BendungOgeeClient() {
   );
 }
 
-function notice(
-  h: number,
+/*
+ * Pita He/Hd dari batas yang dipakai ogeeWeir: OGEE_RATIO_MIN dan
+ * OGEE_RATIO_MAX (bagan), He = Hd (tekanan nol), dan rasio kavitasi
+ * Rk = 1 + |plim| / (1,4 Hd), tempat p = −1,4 (He − Hd) mencapai
+ * OGEE_CAVITATION_LIMIT. Pita kavitasi hanya ada bila Rk < 3, yaitu
+ * Hd > 2,14 m. Sumber: USACE HDC 111-1..18; USBR 1987 Bab 9.
+ */
+function rasioKavitasi(Hd: number) {
+  return 1 + -OGEE_CAVITATION_LIMIT / (1.4 * Hd);
+}
+
+function pitaRasio(Hd: number, lang: Lang): RegimeBand[] {
+  const x = TXT[lang];
+  const Rk = rasioKavitasi(Hd);
+  const pita: RegimeBand[] = [
+    { from: 0.005, to: OGEE_RATIO_MIN, label: x.bBawahBagan, tone: "invalid" },
+    { from: OGEE_RATIO_MIN, to: 1, label: x.bBawahRancang, tone: "water" },
+  ];
+  if (Rk < OGEE_RATIO_MAX) {
+    pita.push({ from: 1, to: Rk, label: x.bAtasRancang, tone: "neutral" });
+    pita.push({ from: Rk, to: OGEE_RATIO_MAX, label: x.bKavitasi, tone: "caution" });
+  } else {
+    pita.push({ from: 1, to: OGEE_RATIO_MAX, label: x.bAtasRancang, tone: "neutral" });
+  }
+  pita.push({ from: OGEE_RATIO_MAX, to: 50, label: x.bLuarBagan, tone: "invalid" });
+  return pita;
+}
+
+function keadaan(
+  r: ReturnType<typeof ogeeWeir>,
   Hd: number,
-  L: number,
-  P: number,
-  Cd: number,
-  pressure: number,
-  takKendali: boolean,
   lang: Lang
-): string {
-  if (takKendali) {
-    return lang === "id"
-      ? "Selama mercunya tidak mengendalikan aliran, tidak ada kapasitas luapan untuk dibaca. Tinggikan mercunya sampai kecepatan datang kembali kecil dibanding kecepatan di mercu."
-      : "While the crest does not control the flow there is no spillway capacity to read. Raise the crest until the approach velocity is again small compared with the velocity over it.";
+): { tone: Tone; badge: string; state: string; notice: string[] } {
+  const x = TXT[lang];
+  const en = lang === "en";
+  if (!r.controlled) {
+    return {
+      tone: "invalid",
+      badge: x.takKendali,
+      state: x.sTakKendali,
+      notice: [
+        x.takKendaliNote,
+        en
+          ? "While the crest does not control the flow there is no spillway capacity to read. Raise the crest until the approach velocity is again small compared with the velocity over it."
+          : "Selama mercunya tidak mengendalikan aliran, tidak ada kapasitas luapan untuk dibaca. Tinggikan mercunya sampai kecepatan datang kembali kecil dibanding kecepatan di mercu.",
+      ],
+    };
   }
 
-  const rancang = ogeeWeir(Hd, Hd, L, P);
-  const bedaCd = rancang.Cd > 0 ? ((Cd - rancang.Cd) / rancang.Cd) * 100 : 0;
+  const pita = pitaRasio(Hd, lang).find((b) => r.ratio >= b.from && r.ratio <= b.to);
+  const namaPita = pita?.label ?? x.bLuarBagan;
+  const tone: Tone = r.outOfRange
+    ? "invalid"
+    : r.cavitationRisk
+      ? "caution"
+      : r.ratio <= 1
+        ? "water"
+        : "neutral";
+  const badge = r.outOfRange ? x.luar : r.cavitationRisk ? x.kavitasi : namaPita;
 
-  if (lang === "en")
-    return `The discharge coefficient here is ${fmt(Cd, 3)}, which is ${fmt(bedaCd, 1)} per cent away from its value at the design head, while the crest pressure sits at ${fmt(pressure, 2)} m of water. Sweep the water level from one end to the other and watch the two move in opposite senses: the coefficient climbs steadily while the pressure falls steadily. There is no head at which both improve. A spillway designed for a head it will rarely see is a spillway that spends most of its life with the nappe pressing on the crest and passing less water than the concrete could carry.`;
-  return `Koefisien debitnya di sini ${fmt(Cd, 3)}, terpaut ${fmt(bedaCd, 1)} persen dari nilainya pada tinggi rancangan, sementara tekanan mercunya berada pada ${fmt(pressure, 2)} m kolom air. Geser tinggi muka airnya dari ujung ke ujung lalu perhatikan keduanya bergerak berlawanan arah: koefisiennya naik terus sementara tekanannya turun terus. Tidak ada satu tinggi pun yang membuat keduanya membaik. Pelimpah yang dirancang untuk tinggi yang jarang terjadi adalah pelimpah yang menghabiskan sebagian besar umurnya dengan tirai menekan mercu dan melewatkan air lebih sedikit daripada yang sanggup dipikul betonnya.`;
+  /* Pembanding "nilai pada tinggi rancangan" adalah Cd pada He = Hd, yaitu
+     CdDesign. Versi lama memanggil ogeeWeir(Hd, Hd, ...), yang memberi
+     h = Hd, bukan He = Hd (spesifikasi B2, HS-01 CACAT 1). */
+  const bedaCd = r.CdDesign > 0 ? ((r.Cd - r.CdDesign) / r.CdDesign) * 100 : 0;
+  const lawan = en
+    ? `The discharge coefficient here is ${fmt(r.Cd, 3)} m^½/s, ${fmt(bedaCd, 1)} per cent away from its design-head value of ${fmt(r.CdDesign, 1)}, while the crest pressure sits at ${fmt(r.crestPressure, 2)} m of water. Sweep the water level from one end to the other and watch the two move in opposite senses: the coefficient climbs steadily while the pressure falls steadily. There is no head at which both improve.`
+    : `Koefisien debitnya di sini ${fmt(r.Cd, 3)} m^½/s, terpaut ${fmt(bedaCd, 1)} persen dari nilainya pada tinggi rancangan (${fmt(r.CdDesign, 1)}), sementara tekanan mercunya ${fmt(r.crestPressure, 2)} m kolom air. Geser tinggi muka airnya dari ujung ke ujung lalu perhatikan keduanya bergerak berlawanan arah: koefisiennya naik terus sementara tekanannya turun terus. Tidak ada satu tinggi pun yang membuat keduanya membaik.`;
+
+  const alasan = r.reason === "He-kecil" ? x.luarKecil : r.reason === "He-besar" ? x.luarBesar : null;
+
+  return {
+    tone,
+    badge,
+    state: x.sKendali(fmt(r.ratio, 3), namaPita.toLowerCase(), fmt(r.Q, 2), fmt(r.crestPressure, 2)),
+    notice: [
+      ...(alasan ? [alasan, x.ekstrapolasi] : []),
+      ...(r.cavitationRisk ? [x.kavitasiNote] : []),
+      lawan,
+      x.syaratEnergi,
+    ],
+  };
 }

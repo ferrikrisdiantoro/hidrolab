@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -18,11 +19,12 @@ import { drawStructure, type StructureBody, type StructureSpec } from "@/lib/dra
 import {
   CASCADE_POOL_RATIO,
   FISHWAY_POWER_GENERAL,
+  G,
   cascadePassage,
   fmt,
   fmtPlain,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -49,6 +51,16 @@ const TXT = {
     rBurst45: "Bila melompat pada sudut 45 derajat",
     rEps: "Lesapan daya per satuan isi kolam",
     rPanjang: "Panjang lintasan seluruhnya",
+    b45: "Terlewati juga pada lompatan 45°",
+    bTegak: "Hanya lompatan tegak",
+    bTinggi: "Terlalu tinggi",
+    aman: "Dapat dilewati",
+    hDz: "Beda tinggi tiap undakan",
+    hU: "Kecepatan lompat tegak dan pada 45°",
+    hY: "Kedalaman kolam yang disyaratkan",
+    hEps: "Lesapan daya per isi kolam",
+    hL: "Panjang lintasan",
+    banding: "dibanding",
     tinggi: "Undakan terlalu tinggi untuk dilompati",
     tinggiNote:
       "Kecepatan lompat yang dituntut melampaui kecepatan sentak ikan rancangan, bahkan pada lompatan tegak yang merupakan batas fisis terkecil. Ikan tidak akan melewatinya, dan menambah debit tidak menolong karena yang menghalangi tinggi undakannya, bukan alirannya. Perbanyak undakannya sehingga tiap undakan menjadi lebih rendah. Perhatikan bahwa memperbanyak undakan memperpanjang seluruh lintasan dalam perbandingan yang sama, dan panjang itulah yang biasanya menjadi batas lahan dan anggaran.",
@@ -80,6 +92,16 @@ const TXT = {
     rBurst45: "If jumping at forty-five degrees",
     rEps: "Power dissipated per unit pool volume",
     rPanjang: "Total passage length",
+    b45: "Passable at 45° too",
+    bTegak: "Vertical jump only",
+    bTinggi: "Too tall",
+    aman: "Passable",
+    hDz: "Drop per step",
+    hU: "Jump speed, vertical and at 45°",
+    hY: "Pool depth required",
+    hEps: "Dissipation per pool volume",
+    hL: "Passage length",
+    banding: "against",
     tinggi: "Step too tall to jump",
     tinggiNote:
       "The jump speed demanded exceeds the burst speed of the design fish, even for a vertical jump, which is the smallest physically possible. The fish will not pass, and adding discharge does not help because what blocks it is the height of the step, not the flow. Add steps so that each becomes lower. Note that adding steps lengthens the whole passage in the same proportion, and that length is usually what limits land and budget.",
@@ -125,6 +147,21 @@ export function LintasanBertingkatClient() {
 
   const r = cascadePassage(rise, steps, L, B, D, Q, burst);
   const teraduk = r.powerDensity > FISHWAY_POWER_GENERAL;
+  /* Semua keadaan buruk di lembar ini hasil rancangan (undakan terlalu
+     tinggi, kolam dangkal, teraduk), bukan masukan di luar rentang berlaku:
+     nadanya caution, bukan merah sinyal. */
+  const gagal = r.tooHigh || r.poolTooShallow || teraduk;
+  const rasioU = r.requiredBurst / burst;
+  const nada: Tone = gagal ? "caution" : rasioU > Math.SQRT1_2 ? "critical" : "pass";
+  const badge = r.tooHigh
+    ? x.tinggi
+    : r.poolTooShallow
+      ? x.dangkal
+      : teraduk
+        ? x.teraduk
+        : rasioU > Math.SQRT1_2
+          ? x.bTegak
+          : x.aman;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -174,7 +211,6 @@ export function LintasanBertingkatClient() {
           {
             surface: muka,
             bed: [...dasar].reverse(),
-            invalid: r.tooHigh || r.poolTooShallow,
           },
         ],
         lines: [
@@ -183,7 +219,7 @@ export function LintasanBertingkatClient() {
               { x: L * 0.1, z: (tampil - 1) * r.stepDrop - r.requiredPoolDepth },
               { x: L * 0.95, z: (tampil - 1) * r.stepDrop - r.requiredPoolDepth },
             ],
-            color: r.poolTooShallow ? C.signal : C.critical,
+            color: r.poolTooShallow ? C.caution : C.critical,
             weight: W.thin,
             dash: DASH.phantom,
             label: `${fmtPlain(r.requiredPoolDepth, 2)} m`,
@@ -226,7 +262,7 @@ export function LintasanBertingkatClient() {
             : teraduk
               ? x.teraduk
               : undefined,
-        headingColor: C.signal,
+        headingColor: C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
       };
@@ -238,6 +274,19 @@ export function LintasanBertingkatClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="u/Ub"
+          value={rasioU}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: 0.05, to: Math.SQRT1_2, label: x.b45, tone: "pass" },
+            { from: Math.SQRT1_2, to: 1, label: x.bTegak, tone: "critical" },
+            { from: 1, to: 25, label: x.bTinggi, tone: "caution" },
+          ]}
+        />
+      }
       sheet="EH-03"
       subject={SUBJECTS.EH[lang]}
       title={x.title}
@@ -265,10 +314,10 @@ export function LintasanBertingkatClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "Δz", value: `${fmt(r.stepDrop, 3)} m`, tint: r.tooHigh ? C.signal : C.energy },
-            { label: "ymin", value: `${fmt(r.requiredPoolDepth, 2)} m`, tint: r.poolTooShallow ? C.signal : C.critical },
-            { label: "u", value: `${fmt(r.requiredBurst, 2)} m/s`, tint: r.tooHigh ? C.signal : undefined },
-            { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: teraduk ? C.signal : undefined },
+            { label: "Δz", value: `${fmt(r.stepDrop, 3)} m`, tint: r.tooHigh ? C.caution : C.energy },
+            { label: "ymin", value: `${fmt(r.requiredPoolDepth, 2)} m`, tint: r.poolTooShallow ? C.caution : C.critical },
+            { label: "u", value: `${fmt(r.requiredBurst, 2)} m/s`, tint: r.tooHigh ? C.caution : undefined },
+            { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: teraduk ? C.caution : undefined },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -291,7 +340,7 @@ export function LintasanBertingkatClient() {
               <PresetRow
                 label={t.presetExample}
                 presets={[
-                  { label: x.pLandai, apply: () => { setRise(3); setSteps(20); setL(3); setB(2); setD(0.5); setQ(0.5); setBurst(2.5); } },
+                  { label: x.pLandai, apply: () => { setRise(3); setSteps(20); setL(3); setB(2); setD(1); setQ(0.5); setBurst(2.5); } },
                   { label: x.pCuram, apply: () => { setRise(3); setSteps(6); setL(3); setB(2); setD(1); setQ(0.5); setBurst(2.5); } },
                   { label: x.pDangkal, apply: () => { setRise(3); setSteps(10); setL(3); setB(2); setD(0.2); setQ(0.5); setBurst(2.5); } },
                 ]}
@@ -300,44 +349,68 @@ export function LintasanBertingkatClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.tooHigh ? undefined : C.water} alert={r.tooHigh}>
-                {`${fmt(r.stepDrop * 1000, 0)} mm`}
-              </Flag>
-              {r.tooHigh && <Flag alert>{x.tinggi}</Flag>}
-              {r.poolTooShallow && <Flag alert>{x.dangkal}</Flag>}
-              {teraduk && <Flag alert>{x.teraduk}</Flag>}
-            </div>
-            {r.tooHigh && (
-              <div className="mb-2.5">
-                <Note>{x.tinggiNote}</Note>
-              </div>
-            )}
-            {r.poolTooShallow && (
-              <div className="mb-2.5">
-                <Note>{x.dangkalNote}</Note>
-              </div>
-            )}
-            {teraduk && (
-              <div className="mb-2.5">
-                <Note>{x.teradukNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "Δz", label: x.rDrop, value: fmt(r.stepDrop, 4), unit: "m", tint: r.tooHigh ? C.signal : C.energy, strong: true },
-                { symbol: "u", label: x.rBurst, value: fmt(r.requiredBurst, 3), unit: "m/s", tint: r.tooHigh ? C.signal : undefined, strong: true },
-                { symbol: "u45", label: x.rBurst45, value: fmt(r.requiredBurst45, 3), unit: "m/s", tint: r.requiredBurst45 > burst ? C.signal : undefined },
-                { symbol: "ymin", label: x.rPerlu, value: fmt(r.requiredPoolDepth, 3), unit: "m", tint: r.poolTooShallow ? C.signal : C.critical },
-                { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 1), unit: "W/m³", tint: teraduk ? C.signal : undefined },
+                { symbol: "Δz", label: x.rDrop, value: fmt(r.stepDrop, 4), unit: "m", tint: r.tooHigh ? C.caution : C.energy, strong: true },
+                { symbol: "u", label: x.rBurst, value: fmt(r.requiredBurst, 3), unit: "m/s", tint: r.tooHigh ? C.caution : undefined, strong: true },
+                { symbol: "u45", label: x.rBurst45, value: fmt(r.requiredBurst45, 3), unit: "m/s", tint: r.requiredBurst45 > burst ? C.critical : undefined },
+                { symbol: "ymin", label: x.rPerlu, value: fmt(r.requiredPoolDepth, 3), unit: "m", tint: r.poolTooShallow ? C.caution : C.critical },
+                { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 1), unit: "W/m³", tint: teraduk ? C.caution : undefined },
                 { symbol: "Ltot", label: x.rPanjang, value: fmt(steps * L, 1), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hDz,
+                    rumus: (<><span>Δz =</span><Frac num="H" den="N" /></>),
+                    isi: `${fmt(rise, 1)} / ${fmt(steps, 0)}`,
+                    hasil: fmt(r.stepDrop, 4),
+                    satuan: "m",
+                    tint: r.tooHigh ? C.caution : C.energy,
+                  },
+                  {
+                    judul: x.hU,
+                    rumus: <span>u = √( 2 · g · Δz ) ;  u₄₅ = √2 · u</span>,
+                    isi: `√( 2 · ${fmt(G, 2)} · ${fmt(r.stepDrop, 5)} ) = ${fmt(r.requiredBurst, 3)} ;  √2 · ${fmt(r.requiredBurst, 4)}  (${x.banding} Ub ${fmt(burst, 1)})`,
+                    hasil: `${fmt(r.requiredBurst, 3)} ; ${fmt(r.requiredBurst45, 3)}`,
+                    satuan: "m/s",
+                    tint: r.tooHigh ? C.caution : undefined,
+                  },
+                  {
+                    judul: x.hY,
+                    rumus: <span>ymin = {fmtPlain(CASCADE_POOL_RATIO, 2)} · Δz</span>,
+                    isi: `${fmt(CASCADE_POOL_RATIO, 2)} · ${fmt(r.stepDrop, 5)}  (${x.banding} y ${fmt(D, 2)})`,
+                    hasil: fmt(r.requiredPoolDepth, 3),
+                    satuan: "m",
+                    tint: r.poolTooShallow ? C.caution : C.critical,
+                  },
+                  {
+                    judul: x.hEps,
+                    rumus: (<><span>ε =</span><Frac num="ρ · g · Q · Δz" den="L · B · y" /></>),
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(Q, 2)} · ${fmt(r.stepDrop, 5)} / ( ${fmt(L, 1)} · ${fmt(B, 1)} · ${fmt(D, 2)} )  (${x.banding} ${fmt(FISHWAY_POWER_GENERAL, 0)})`,
+                    hasil: fmt(r.powerDensity, 1),
+                    satuan: "W/m³",
+                    tint: teraduk ? C.caution : undefined,
+                  },
+                  {
+                    judul: x.hL,
+                    rumus: <span>Ltot = N · L</span>,
+                    isi: `${fmt(steps, 0)} · ${fmt(L, 1)}`,
+                    hasil: fmt(steps * L, 1),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(rise, steps, L, B, D, Q, burst, r.stepDrop, r.requiredBurst, r.requiredBurst45, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={badge}
+            {...notice(rise, L, burst, r, teraduk, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksCascade(rise, steps, L, B, D, Q, burst)} />}
@@ -375,22 +448,47 @@ export function LintasanBertingkatClient() {
 
 function notice(
   rise: number,
-  steps: number,
   L: number,
-  B: number,
-  D: number,
-  Q: number,
   burst: number,
-  stepDrop: number,
-  u: number,
-  u45: number,
+  r: ReturnType<typeof cascadePassage>,
+  teraduk: boolean,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
+  const en = lang === "en";
   // Jumlah undakan terkecil yang masih memenuhi tuntutan lompat tegak.
-  const dzMampu = (burst * burst) / (2 * 9.81);
-  const perlu = Math.ceil(rise / Math.max(dzMampu, 1e-9));
+  // Penggeser N mulai 2, jadi angka di bawahnya tidak pernah dianjurkan.
+  const dzMampu = (burst * burst) / (2 * G);
+  const perluMurni = Math.ceil(rise / Math.max(dzMampu, 1e-9));
+  const perlu = Math.max(perluMurni, 2);
+  const mm = fmt(r.stepDrop * 1000, 0);
 
-  if (lang === "en")
-    return `A step of ${fmt(stepDrop * 1000, 0)} mm demands ${fmt(u, 2)} m/s for a vertical jump and ${fmt(u45, 2)} m/s at forty-five degrees, against a design burst of ${fmt(burst, 2)} m/s. For the vertical figure alone this rise needs at least ${fmtPlain(perlu, 0)} steps, which is ${fmt(perlu * L, 0)} m of passage at the present pool length. Sweep the number of steps and watch the length and the jump demand move in opposite directions: there is no setting that shortens the passage and lowers the jump at the same time, and choosing between them is the whole design decision.`;
-  return `Undakan setinggi ${fmt(stepDrop * 1000, 0)} mm menuntut ${fmt(u, 2)} m/s untuk lompatan tegak dan ${fmt(u45, 2)} m/s pada sudut empat puluh lima derajat, berbanding kecepatan sentak rancangan ${fmt(burst, 2)} m/s. Untuk angka lompatan tegak saja, beda tinggi ini menuntut sedikitnya ${fmtPlain(perlu, 0)} undakan, yaitu ${fmt(perlu * L, 0)} m lintasan pada panjang kolam yang sekarang. Geser jumlah undakannya lalu perhatikan panjang dan tuntutan lompat bergerak berlawanan arah: tidak ada setelan yang memendekkan lintasan sekaligus merendahkan lompatannya, dan memilih di antara keduanya adalah seluruh keputusan perancangannya.`;
+  const state = en
+    ? `A ${mm} mm step demands ${fmt(r.requiredBurst, 2)} m/s; ${r.tooHigh ? "the design fish cannot pass it" : "the design fish can pass it"}. The pool is ${r.poolTooShallow ? "too shallow" : "deep enough"}, ε ${fmt(r.powerDensity, 0)} W/m³${teraduk ? ", too turbulent" : ""}.`
+    : `Undakan ${mm} mm menuntut ${fmt(r.requiredBurst, 2)} m/s; ${r.tooHigh ? "ikan rancangan tidak dapat melewatinya" : "ikan rancangan dapat melewatinya"}. Kolam ${r.poolTooShallow ? "terlalu dangkal" : "cukup dalam"}, ε ${fmt(r.powerDensity, 0)} W/m³${teraduk ? ", terlalu teraduk" : ""}.`;
+
+  const butir: string[] = [];
+  if (r.tooHigh) butir.push(x.tinggiNote);
+  if (r.poolTooShallow) butir.push(x.dangkalNote);
+  if (teraduk) butir.push(x.teradukNote);
+  butir.push(
+    en
+      ? `A vertical jump needs ${fmt(r.requiredBurst, 2)} m/s and a jump at forty-five degrees ${fmt(r.requiredBurst45, 2)} m/s, against a design burst of ${fmt(burst, 2)} m/s.`
+      : `Lompatan tegak menuntut ${fmt(r.requiredBurst, 2)} m/s dan lompatan pada sudut empat puluh lima derajat ${fmt(r.requiredBurst45, 2)} m/s, berbanding kecepatan sentak rancangan ${fmt(burst, 2)} m/s.`
+  );
+  butir.push(
+    perluMurni < 2
+      ? en
+        ? `For the vertical figure alone a single step would already do; the fewest the slider allows is 2, which is ${fmt(2 * L, 0)} m of passage at the present pool length.`
+        : `Untuk angka lompatan tegak saja, satu undakan pun sudah cukup; paling sedikit yang dapat dipilih penggeser 2 undakan, yaitu ${fmt(2 * L, 0)} m lintasan pada panjang kolam yang sekarang.`
+      : en
+        ? `For the vertical figure alone this rise needs at least ${fmtPlain(perlu, 0)} steps, which is ${fmt(perlu * L, 0)} m of passage at the present pool length.`
+        : `Untuk angka lompatan tegak saja, beda tinggi ini menuntut sedikitnya ${fmtPlain(perlu, 0)} undakan, yaitu ${fmt(perlu * L, 0)} m lintasan pada panjang kolam yang sekarang.`
+  );
+  butir.push(
+    en
+      ? "Length and jump demand move in opposite directions: no setting shortens the passage and lowers the jump at the same time."
+      : "Panjang dan tuntutan lompat bergerak berlawanan arah: tidak ada setelan yang memendekkan lintasan sekaligus merendahkan lompatannya."
+  );
+  return { state, notice: butir };
 }

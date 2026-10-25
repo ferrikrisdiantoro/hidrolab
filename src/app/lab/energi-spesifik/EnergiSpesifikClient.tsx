@@ -60,7 +60,13 @@ const TXT = {
     rR: "Jari-jari hidraulik",
     rq: "Debit satuan",
     tak: "Melampaui kapasitas saluran",
-    takNote: "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi angka y₀ di atas hanyalah batas atas pencarian, bukan hasil yang berlaku. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
+    takNote: "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi y₀, E₀, Fr, dan besaran penampangnya ditulis “—”. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
+    bSub: "Subkritis (landai)",
+    bKr: "Kritis",
+    bSup: "Superkritis (curam)",
+    hY0: "Kedalaman normal, Manning dibalik: debit pada y₀",
+    hY0Tak: "Kedalaman normal: tidak ada y yang memenuhi Manning",
+    hV: "Kecepatan pada kedalaman normal",
     note: "Kedalaman normal dicari dengan membalik persamaan Manning: nilai y yang membuat debit hitung sama dengan debit yang diberikan. Karena fungsi itu naik monoton terhadap y, dipakai metode bagi dua yang selalu konvergen — lebih andal daripada Newton-Raphson, yang pada kemiringan sangat kecil bisa melompat ke nilai negatif dan gagal. Kurva di sebelah kiri dan penampang di sebelah kanan memakai skala kedalaman yang sama, sehingga garis kedalaman kritis menyeberang di ketinggian yang persis sama pada keduanya.",
   },
   en: {
@@ -85,7 +91,13 @@ const TXT = {
     rR: "Hydraulic radius",
     rq: "Unit discharge",
     tak: "Exceeds channel capacity",
-    takNote: "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so the y₀ shown above is only the upper bound of the search, not a valid result. Widen the bed, steepen the slope, or reduce the discharge.",
+    takNote: "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so y₀, E₀, Fr and the section properties are shown as “—”. Widen the bed, steepen the slope, or reduce the discharge.",
+    bSub: "Subcritical (mild)",
+    bKr: "Critical",
+    bSup: "Supercritical (steep)",
+    hY0: "Normal depth, Manning inverted: discharge at y₀",
+    hY0Tak: "Normal depth: no y satisfies Manning",
+    hV: "Velocity at normal depth",
     note: "Normal depth is found by inverting Manning's equation: the depth y at which the computed discharge equals the given one. Because that function rises monotonically with y, bisection is used and always converges — more dependable than Newton-Raphson, which on very flat slopes can jump to a negative value and fail. The curve on the left and the section on the right share the same depth scale, so the critical depth line crosses at exactly the same height on both.",
   },
 } as const;
@@ -125,7 +137,7 @@ const FR_SUPER = Math.pow(0.98, -1.5);
 const NADA_REZIM: Record<string, Tone> = {
   subkritis: "water",
   kritis: "critical",
-  superkritis: "energy",
+  superkritis: "neutral",
 };
 
 export function EnergiSpesifikClient() {
@@ -149,10 +161,18 @@ export function EnergiSpesifikClient() {
   const Emin = 1.5 * yc;
   const regime = classifyRegime(y0, yc);
   const slope = slopeType(y0, yc);
+  /* Tanpa kedalaman normal, y0 dari normalDepth hanyalah batas atas
+     pencarian (50 m). Semua besaran turunannya ditulis "—" lewat NaN
+     (fmt menulis "—" untuk nilai tak hingga), bukan angka dari 50 m. */
+  const tampil = (v: number) => (terjangkau ? v : NaN);
+  const satuan = (u: string) => (terjangkau ? u : undefined);
+  const Qcek = (1 / n) * geo.A * Math.pow(geo.R, 2 / 3) * Math.sqrt(S);
 
   const ref = useCanvas(
-    (ctx, w, h) => drawEnergy(ctx, w, h, { q, b, yc, y0 }, lang),
-    [q, b, yc, y0, lang]
+    /* Tanpa kedalaman normal, y0 = 50 m hanyalah batas atas pencarian:
+       jangan digambar sebagai muka air, dan jangan ikut menentukan skala. */
+    (ctx, w, h) => drawEnergy(ctx, w, h, { q, b, yc, y0: terjangkau ? y0 : NaN }, lang),
+    [q, b, yc, y0, terjangkau, lang]
   );
 
   return (
@@ -165,11 +185,15 @@ export function EnergiSpesifikClient() {
           pesan={terjangkau ? undefined : x.tak}
           scale="log"
           digits={2}
-          bands={[
-            { from: 0.002, to: FR_SUB, label: REGIME_LABEL.subkritis[lang], tone: "water" },
-            { from: FR_SUB, to: FR_SUPER, label: REGIME_LABEL.kritis[lang], tone: "critical" },
-            { from: FR_SUPER, to: 10, label: REGIME_LABEL.superkritis[lang], tone: "energy" },
-          ]}
+          bands={
+            terjangkau
+              ? [
+                  { from: 0.002, to: FR_SUB, label: x.bSub, tone: "water" },
+                  { from: FR_SUB, to: FR_SUPER, label: x.bKr, tone: "critical" },
+                  { from: FR_SUPER, to: 10, label: x.bSup, tone: "neutral" },
+                ]
+              : [{ from: 0.002, to: 10, label: x.tak, tone: "invalid" }]
+          }
         />
       }
       sheet="OC-02"
@@ -203,8 +227,8 @@ export function EnergiSpesifikClient() {
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "q", value: `${fmt(q, 3)} m²/s` },
             { label: "yc", value: `${fmt(yc, 3)} m`, tint: C.critical },
-            { label: "y₀", value: `${fmt(y0, 3)} m`, tint: C.water },
-            { label: t.tbSlope, value: slope[lang] },
+            { label: "y₀", value: terjangkau ? `${fmt(y0, 3)} m` : "—", tint: C.water },
+            { label: t.tbSlope, value: terjangkau ? slope[lang] : "—" },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -260,14 +284,14 @@ export function EnergiSpesifikClient() {
             <ResultTable
               rows={[
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical, strong: true },
-                { symbol: "y₀", label: x.rY0, value: fmt(y0, 3), unit: "m", tint: C.water, strong: true },
+                { symbol: "y₀", label: x.rY0, value: fmt(tampil(y0), 3), unit: satuan("m"), tint: C.water, strong: true },
                 { symbol: "Emin", label: x.rEmin, value: fmt(Emin, 3), unit: "m", tint: C.critical },
-                { symbol: "E₀", label: x.rE0, value: fmt(E0, 3), unit: "m", tint: C.energy },
-                { symbol: "Fr", label: x.rFr, value: fmt(Fr0) },
-                { symbol: "V", label: x.rV, value: fmt(V0), unit: "m/s" },
-                { symbol: "A", label: x.rA, value: fmt(geo.A, 3), unit: "m²" },
-                { symbol: "P", label: x.rP, value: fmt(geo.P, 3), unit: "m" },
-                { symbol: "R", label: x.rR, value: fmt(geo.R, 3), unit: "m" },
+                { symbol: "E₀", label: x.rE0, value: fmt(tampil(E0), 3), unit: satuan("m"), tint: C.energy },
+                { symbol: "Fr", label: x.rFr, value: fmt(tampil(Fr0)) },
+                { symbol: "V", label: x.rV, value: fmt(tampil(V0)), unit: satuan("m/s") },
+                { symbol: "A", label: x.rA, value: fmt(tampil(geo.A), 3), unit: satuan("m²") },
+                { symbol: "P", label: x.rP, value: fmt(tampil(geo.P), 3), unit: satuan("m") },
+                { symbol: "R", label: x.rR, value: fmt(tampil(geo.R), 3), unit: satuan("m") },
                 { symbol: "q", label: x.rq, value: fmt(q, 3), unit: "m²/s" },
               ]}
             />
@@ -284,29 +308,54 @@ export function EnergiSpesifikClient() {
                   {
                     judul: x.rYc,
                     rumus: (<><span>yc =</span><Frac num="∛( q² )" den="∛g" /></>),
-                    isi: `∛( ${fmt(q, 3)}² / ${fmt(G, 2)} )`,
+                    isi: `∛( ${fmt(q, 4)}² / ${fmt(G, 2)} )`,
                     hasil: fmt(yc, 3),
                     satuan: "m",
                     tint: C.critical,
+                  },
+                  {
+                    judul: x.rEmin,
+                    rumus: <span>Emin = {fmt(1.5, 1)} · yc</span>,
+                    isi: `${fmt(1.5, 1)} · ${fmt(yc, 4)}`,
+                    hasil: fmt(Emin, 3),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    /* Manning dibalik dengan bagi dua; langkah ini memeriksa
+                       bahwa debit pada y0 yang ditemukan memang sama dengan Q. */
+                    judul: terjangkau ? `${x.hY0} = ${fmt(y0, 3)} m` : x.hY0Tak,
+                    rumus: (<><span>Q =</span><Frac num="1" den="n" /><span>· ( b · y₀ ) · R^⅔ · S^½</span></>),
+                    isi: terjangkau
+                      ? `( 1 / ${fmt(n, 3)} ) · ( ${fmt(b, 1)} · ${fmt(y0, 4)} ) · ${fmt(geo.R, 4)}^⅔ · ${fmt(S, 5)}^½`
+                      : "—",
+                    hasil: fmt(tampil(Qcek), 2),
+                    satuan: satuan("m³/s"),
+                    tint: C.water,
                   },
                   {
                     judul: x.rE0,
                     rumus: (<><span>E₀ = y₀ +</span><Frac num="q²" den="2 · g · y₀²" /></>),
                     // Tanpa kedalaman normal, y₀ hanya batas atas pencarian.
                     isi: terjangkau
-                      ? `${fmt(y0, 3)} + ${fmt(q, 3)}² / ( 2 · ${fmt(G, 2)} · ${fmt(y0, 3)}² )`
+                      ? `${fmt(y0, 4)} + ${fmt(q, 4)}² / ( 2 · ${fmt(G, 2)} · ${fmt(y0, 4)}² )`
                       : "—",
-                    hasil: terjangkau ? fmt(E0, 3) : "—",
-                    satuan: "m",
+                    hasil: fmt(tampil(E0), 3),
+                    satuan: satuan("m"),
                     tint: C.energy,
                   },
                   {
-                    judul: x.rEmin,
-                    rumus: <span>Emin = {fmt(1.5, 1)} · yc</span>,
-                    isi: `${fmt(1.5, 1)} · ${fmt(yc, 3)}`,
-                    hasil: fmt(Emin, 3),
-                    satuan: "m",
-                    tint: C.critical,
+                    judul: x.hV,
+                    rumus: (<><span>V =</span><Frac num="Q" den="b · y₀" /></>),
+                    isi: terjangkau ? `${fmt(Q, 1)} / ( ${fmt(b, 1)} · ${fmt(y0, 4)} )` : "—",
+                    hasil: fmt(tampil(V0)),
+                    satuan: satuan("m/s"),
+                  },
+                  {
+                    judul: x.rFr,
+                    rumus: (<><span>Fr =</span><Frac num="V" den="√( g · y₀ )" /></>),
+                    isi: terjangkau ? `${fmt(V0, 3)} / √( ${fmt(G, 2)} · ${fmt(y0, 4)} )` : "—",
+                    hasil: fmt(tampil(Fr0)),
                   },
                 ]}
               />

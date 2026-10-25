@@ -4,18 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
+  G,
   SEDIMENT_S,
   SHIELDS_PLATEAU,
   fmt,
@@ -54,6 +56,9 @@ const TXT = {
     bergerak: "Butir bergerak",
     diam: "Butir diam",
     halus: "Butir sehalus ini tidak lagi lepas satu per satu",
+    kohesifPita: "Butir kohesif, kurva Shields tidak berlaku",
+    kohesifIsi: "d < 0,06 mm: ambang butir lepas tidak berlaku",
+    hTheta: "Tegangan tak berdimensi dan perbandingannya",
     halusNote:
       "Di bawah kira-kira 0,06 mm butirnya masuk golongan lanau dan lempung, dan yang menahannya di dasar bukan lagi beratnya sendiri melainkan gaya tarik antar butir. Kurva Shields diturunkan untuk butir yang lepas, jadi ambang yang ditampilkan di sini tidak berlaku: lempung padat dapat bertahan pada tegangan berkali lipat dari yang diramalkan, sedangkan lumpur yang baru mengendap justru lepas jauh lebih awal. Yang menentukan di daerah ini sejarah pengendapannya, bukan ukuran butirnya.",
     note:
@@ -80,6 +85,9 @@ const TXT = {
     bergerak: "Grain moves",
     diam: "Grain at rest",
     halus: "Grains this fine no longer come loose one by one",
+    kohesifPita: "Cohesive grain, Shields curve does not apply",
+    kohesifIsi: "d < 0.06 mm: loose-grain threshold does not apply",
+    hTheta: "Dimensionless stress and its ratio",
     halusNote:
       "Below about 0.06 mm the grains fall into the silt and clay class, and what holds them on the bed is no longer their own weight but cohesion between grains. The Shields curve was derived for loose grains, so the threshold shown here does not apply: firm clay can survive stresses many times the predicted value, while freshly settled mud comes loose far earlier. What decides in this region is the deposition history, not the grain size.",
     note:
@@ -199,8 +207,43 @@ export function KurvaShieldsClient() {
     [dMm, R, S, s, suhu, lang]
   );
 
+  /* D* jatuh sampai sekitar 0,02 pada butir terhalus, air dingin, dan Gs
+     kecil; dua desimal menulisnya "0,02" dan satu desimal "0,0". Di bawah
+     0,1 ditulis berpangkat, sama di kop dan di tabel. */
+  const fDstar = (v: number) => (v > 0 && v < 0.1 ? fmtSci(v) : fmt(v, 2));
+  const fCadangan = (v: number) => (v > 0 && v < 1e-3 ? fmtSci(v) : fmt(v, 3));
+  const RcrAda = !kohesif && Number.isFinite(r.RCritical);
+  const kosong = "—";
+
   return (
     <LabShell
+      status={
+        kohesif ? (
+          <RegimeScale
+            symbol="τ/τcr"
+            value={NaN}
+            invalid
+            pesan={x.kohesifPita}
+            scale="log"
+            digits={3}
+            bands={[{ from: 0.001, to: 1000, label: x.kohesifPita, tone: "invalid" }]}
+          />
+        ) : (
+          /* Batas 1 dari shieldsState: moving = τ > τcr. Rentang penggeser
+             memberi τ/τcr 8·10⁻⁶ sampai 10⁷, jadi kedua ujung bisa lewat
+             skala; itu bukan keadaan tidak berlaku, penandanya netral. */
+          <RegimeScale
+            symbol="τ/τcr"
+            value={cadangan}
+            scale="log"
+            digits={3}
+            bands={[
+              { from: 0.001, to: 1, label: x.diam, tone: "water" },
+              { from: 1, to: 1000, label: x.bergerak, tone: "critical" },
+            ]}
+          />
+        )
+      }
       sheet="SD-01"
       subject={SUBJECTS.SD[lang]}
       title={x.title}
@@ -209,7 +252,7 @@ export function KurvaShieldsClient() {
           <p>
             Satu butir di dasar sungai bertahan selama{" "}
             <Term tint={C.critical}>beratnya</Term> masih melebihi{" "}
-            <Term tint={C.signal}>seretan aliran</Term>. Perbandingan keduanya
+            <Term tint={C.energy}>seretan aliran</Term>. Perbandingan keduanya
             tidak bersatuan, dan itulah yang membuat satu kurva berlaku untuk
             pasir maupun bongkah.
           </p>
@@ -217,7 +260,7 @@ export function KurvaShieldsClient() {
           <p>
             A grain on a river bed holds while its{" "}
             <Term tint={C.critical}>weight</Term> still exceeds the{" "}
-            <Term tint={C.signal}>drag of the flow</Term>. The ratio of the two
+            <Term tint={C.energy}>drag of the flow</Term>. The ratio of the two
             has no units, and that is what lets one curve serve both sand and
             boulders.
           </p>
@@ -231,9 +274,9 @@ export function KurvaShieldsClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, Pa)" },
             { label: "d", value: `${fmt(dMm, 2)} mm`, tint: kohesif ? C.signal : undefined },
-            { label: "D*", value: fmt(r.dStar, 1) },
-            { label: "θ", value: fTheta(r.theta), tint: kohesif ? C.signal : C.critical },
-            { label: "θcr", value: fmt(r.thetaCritical, 4), tint: C.critical },
+            { label: "D*", value: fDstar(r.dStar) },
+            { label: "θ", value: fTheta(r.theta), tint: kohesif ? undefined : C.critical },
+            { label: "θcr", value: kohesif ? kosong : fmt(r.thetaCritical, 4), tint: C.critical },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -263,42 +306,93 @@ export function KurvaShieldsClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              {/* Merah sinyal disimpan untuk satu penanda saja di lembar ini,
-                  yaitu butir kohesif yang membuat kurva Shields tidak berlaku.
-                  Butir yang bergerak adalah keadaan yang sah dan diberi warna
-                  ungu, sama dengan kurva ambangnya. */}
-              <Flag tint={r.moving ? C.critical : C.water}>
-                {r.moving ? x.bergerak : x.diam}
-              </Flag>
-              {kohesif && <Flag alert>{x.halus}</Flag>}
-            </div>
-            {kohesif && (
-              <div className="mb-2.5">
-                <Note>{x.halusNote}</Note>
-              </div>
-            )}
+            {/* Keadaan diam/bergerak dan catatan kohesif kini satu tempat
+                saja, di kartu keadaan. Saat kohesif, angka ambang ditulis
+                "—": kurva Shields tidak berlaku, jadi θcr, τcr, Rcr, dan
+                τ/τcr bukan hasil yang sah. */}
             <ResultTable
               rows={[
-                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 3), unit: "Pa", tint: C.signal, strong: true },
-                { symbol: "τcr", label: x.rTauCr, value: fmt(r.tauCritical, 3), unit: "Pa", tint: C.critical, strong: true },
-                { symbol: "θ", label: x.rTheta, value: fTheta(r.theta), tint: kohesif ? C.signal : C.critical },
-                { symbol: "θcr", label: x.rThetaCr, value: fmt(r.thetaCritical, 5), tint: C.critical },
-                { symbol: "D*", label: x.rDstar, value: fmt(r.dStar, 2) },
-                { symbol: "Rcr", label: x.rRcr, value: Number.isFinite(r.RCritical) ? fmt(r.RCritical, 3) : "—", unit: Number.isFinite(r.RCritical) ? "m" : undefined, tint: C.water },
                 {
                   symbol: "τ/τcr",
                   label: x.rCadangan,
-                  value: cadangan > 0 && cadangan < 1e-3 ? fmtSci(cadangan) : fmt(cadangan, 3),
-                  tint: r.moving ? C.critical : undefined,
+                  value: kohesif ? kosong : fCadangan(cadangan),
+                  tint: !kohesif && r.moving ? C.critical : undefined,
+                  strong: true,
                 },
+                /* θ tetap terhitung saat kohesif (hanya ambangnya yang
+                   gugur), jadi angka besarnya tidak bernada sinyal. */
+                { symbol: "θ", label: x.rTheta, value: fTheta(r.theta), tint: kohesif ? undefined : C.critical, strong: true },
+                { symbol: "τcr", label: x.rTauCr, value: kohesif ? kosong : fmt(r.tauCritical, 3), unit: kohesif ? undefined : "Pa", tint: C.critical, strong: true },
+                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 3), unit: "Pa", tint: C.energy },
+                { symbol: "θcr", label: x.rThetaCr, value: kohesif ? kosong : fmt(r.thetaCritical, 5), tint: C.critical },
+                { symbol: "D*", label: x.rDstar, value: fDstar(r.dStar) },
+                { symbol: "Rcr", label: x.rRcr, value: RcrAda ? fmt(r.RCritical, 3) : kosong, unit: RcrAda ? "m" : undefined, tint: C.water },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.rTau,
+                    rumus: <span>τ = ρ · g · R · S</span>,
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(R, 2)} · ${fmt(S, 5)}`,
+                    hasil: fmt(r.tau, 3),
+                    satuan: "Pa",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rDstar,
+                    rumus: (<><span>D* = d · [</span><Frac num="(Gs − 1) · g" den="ν²" /><span>]^(1/3)</span></>),
+                    isi: `${fmtSci(d)} · [ (${fmt(s, 2)} − 1) · ${fmt(G, 2)} / (${fmtSci(nu)})² ]^(1/3)`,
+                    hasil: fDstar(r.dStar),
+                  },
+                  {
+                    judul: x.rTauCr,
+                    rumus: (<><span>θcr =</span><Frac num="0,30" den="1 + 1,2 D*" /><span>+ 0,055 [1 − e^(−0,02 D*)] ; τcr = θcr (Gs − 1) ρ g d</span></>),
+                    isi: kohesif
+                      ? x.kohesifIsi
+                      : `θcr = ${fmt(r.thetaCritical, 5)} ; ${fmt(r.thetaCritical, 5)} · (${fmt(s, 2)} − 1) · 1000 · ${fmt(G, 2)} · ${fmtSci(d)}`,
+                    hasil: kohesif ? kosong : fmt(r.tauCritical, 3),
+                    satuan: kohesif ? undefined : "Pa",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hTheta,
+                    rumus: (<><span>θ =</span><Frac num="τ" den="(Gs − 1) ρ g d" /><span>; τ/τcr</span></>),
+                    isi: kohesif
+                      ? x.kohesifIsi
+                      : `θ = ${fmt(r.tau, 3)} / [ (${fmt(s, 2)} − 1) · 1000 · ${fmt(G, 2)} · ${fmtSci(d)} ] = ${fTheta(r.theta)} ; ${fmt(r.tau, 3)} / ${fmt(r.tauCritical, 3)}`,
+                    hasil: kohesif ? kosong : fCadangan(cadangan),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.rRcr,
+                    rumus: (<><span>Rcr =</span><Frac num="τcr" den="ρ · g · S" /></>),
+                    isi: kohesif
+                      ? x.kohesifIsi
+                      : `${fmt(r.tauCritical, 3)} / ( 1000 · ${fmt(G, 2)} · ${fmt(S, 5)} )`,
+                    hasil: RcrAda ? fmt(r.RCritical, 3) : kosong,
+                    satuan: RcrAda ? "m" : undefined,
+                    tint: C.water,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r.dStar, r.thetaCritical, cadangan, r.RCritical, kohesif, lang)}</Note>
-          </Block>
+          {kohesif ? (
+            <StateCard
+              tone="invalid"
+              badge={x.halus}
+              {...notice(r.dStar, r.theta, r.thetaCritical, cadangan, r.RCritical, true, dMm, lang)}
+            />
+          ) : (
+            <StateCard
+              tone={r.moving ? "critical" : "water"}
+              badge={r.moving ? x.bergerak : x.diam}
+              {...notice(r.dStar, r.theta, r.thetaCritical, cadangan, r.RCritical, false, dMm, lang)}
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksShields(R, S, d, s, nu)} />}
@@ -332,21 +426,57 @@ export function KurvaShieldsClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama satu paragraf, dipecah: kalimat
+ * keadaan, lalu butir. Cabang "kemiringannya nol" dibuang karena S paling
+ * kecil di penggeser 0,02 ‰, jadi Rcr selalu terhingga.
+ */
 function notice(
   dStar: number,
+  theta: number,
   thetaCr: number,
   cadangan: number,
   Rcr: number,
   kohesif: boolean,
+  dMm: number,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const fTh = (v: number) => (v > 0 && v < 1e-3 ? fmtSci(v) : fmt(v, 4));
+  const fD = (v: number) => (v > 0 && v < 0.1 ? fmtSci(v) : fmt(v, 2));
   if (kohesif) {
     return lang === "id"
-      ? "Pada butir sehalus ini kurvanya tidak lagi menjawab pertanyaannya. Perbesar butirnya melewati 0,06 mm, dan ambang yang digambar kembali berarti."
-      : "At grains this fine the curve no longer answers the question. Raise the grain size past 0.06 mm and the threshold drawn becomes meaningful again.";
+      ? {
+          state: `d = ${fmt(dMm, 3)} mm < 0,06 mm: butir kohesif, ambang Shields tidak berlaku.`,
+          notice: [
+            "Di bawah kira-kira 0,06 mm butirnya masuk golongan lanau dan lempung, dan yang menahannya di dasar bukan lagi beratnya sendiri melainkan gaya tarik antar butir.",
+            "Kurva Shields diturunkan untuk butir yang lepas: lempung padat dapat bertahan pada tegangan berkali lipat dari yang diramalkan, sedangkan lumpur yang baru mengendap justru lepas jauh lebih awal. Yang menentukan sejarah pengendapannya, bukan ukuran butirnya.",
+            "Perbesar butirnya melewati 0,06 mm, dan ambang yang digambar kembali berarti.",
+          ],
+        }
+      : {
+          state: `d = ${fmt(dMm, 3)} mm < 0.06 mm: cohesive grain, the Shields threshold does not apply.`,
+          notice: [
+            "Below about 0.06 mm the grains fall into the silt and clay class, and what holds them on the bed is no longer their own weight but cohesion between grains.",
+            "The Shields curve was derived for loose grains: firm clay can survive stresses many times the predicted value, while freshly settled mud comes loose far earlier. What decides is the deposition history, not the grain size.",
+            "Raise the grain size past 0.06 mm and the threshold drawn becomes meaningful again.",
+          ],
+        };
   }
 
+  const rasio = cadangan > 0 && cadangan < 1e-3 ? fmtSci(cadangan) : fmt(cadangan, 3);
   if (lang === "en")
-    return `The threshold here is ${fmtPlain(thetaCr, 4)}, against the coarse-grain plateau of ${fmtPlain(SHIELDS_PLATEAU, 3)}, and the flow sits at ${fmt(cadangan, 2)} times that threshold. Notice what the curve does at its left end: fine grains need a *larger* dimensionless stress, not a smaller one, because they hide inside the viscous sublayer where the flow barely reaches them. That upturn is the part of the diagram that surprises people, and it is why a bed of fine sand can be harder to start than one of coarse sand. The depth that would just start motion at this slope is ${Number.isFinite(Rcr) ? `${fmt(Rcr, 3)} m` : "unbounded, because the slope is zero"}.`;
-  return `Ambangnya di sini ${fmtPlain(thetaCr, 4)}, berbanding dataran butir kasar ${fmtPlain(SHIELDS_PLATEAU, 3)}, dan alirannya berada pada ${fmt(cadangan, 2)} kali ambang itu. Perhatikan apa yang dilakukan kurvanya di ujung kiri: butir halus justru menuntut tegangan tak berdimensi yang LEBIH BESAR, bukan lebih kecil, karena ia bersembunyi di dalam lapisan kental tempat aliran hampir tidak menjangkaunya. Kenaikan di ujung kiri itulah bagian diagram yang paling mengejutkan orang, dan itu sebabnya dasar berpasir halus dapat lebih sulit digerakkan daripada dasar berpasir kasar. Kedalaman yang baru menggerakkan butir pada kemiringan ini ${Number.isFinite(Rcr) ? `${fmt(Rcr, 3)} m` : "tidak terhingga, karena kemiringannya nol"}.`;
+    return {
+      state: `τ/τcr = ${rasio}: ${cadangan > 1 ? "the grain moves" : "the grain is at rest"}; θ = ${fTh(theta)} against the threshold θcr = ${fmt(thetaCr, 4)} at D* = ${fD(dStar)}.`,
+      notice: [
+        `The threshold here is ${fmt(thetaCr, 4)}, against the coarse-grain plateau of ${fmtPlain(SHIELDS_PLATEAU, 3)}. At its left end the curve rises: fine grains need a larger dimensionless stress, not a smaller one, because they hide inside the viscous sublayer where the flow barely reaches them. That is why a bed of fine sand can be harder to start than one of coarse sand.`,
+        `The depth that would just start motion at this slope is ${fmt(Rcr, 3)} m.`,
+      ],
+    };
+  return {
+    state: `τ/τcr = ${rasio}: ${cadangan > 1 ? "butir bergerak" : "butir diam"}; θ = ${fTh(theta)} terhadap ambang θcr = ${fmt(thetaCr, 4)} pada D* = ${fD(dStar)}.`,
+    notice: [
+      `Ambangnya di sini ${fmt(thetaCr, 4)}, berbanding dataran butir kasar ${fmtPlain(SHIELDS_PLATEAU, 3)}. Di ujung kirinya kurva naik: butir halus justru menuntut tegangan tak berdimensi yang lebih besar, bukan lebih kecil, karena ia bersembunyi di dalam lapisan kental tempat aliran hampir tidak menjangkaunya. Itu sebabnya dasar berpasir halus dapat lebih sulit digerakkan daripada dasar berpasir kasar.`,
+      `Kedalaman yang baru menggerakkan butir pada kemiringan ini ${fmt(Rcr, 3)} m.`,
+    ],
+  };
 }

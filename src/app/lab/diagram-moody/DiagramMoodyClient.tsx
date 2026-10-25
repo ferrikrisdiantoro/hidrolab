@@ -4,19 +4,31 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type LangkahHitung,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawMoody } from "@/lib/drawMoody";
-import { fmt, fmtSci, frictionFactor, headLoss, reynolds } from "@/lib/hydraulics";
-import { C } from "@/lib/theme";
+import {
+  G,
+  RE_LAMINAR_MAX,
+  RE_TURBULENT_MIN,
+  colebrookFriction,
+  fmt,
+  fmtSci,
+  frictionFactor,
+  headLoss,
+  reynolds,
+} from "@/lib/hydraulics";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
@@ -42,10 +54,20 @@ const TXT = {
     rHf: "Kehilangan tinggi tekan",
     rS: "Kemiringan hidraulik",
     rVh: "Tinggi kecepatan",
-    fullyRough: "turbulen penuh",
     lam: "Laminar",
-    trans: "Zona transisi",
-    turb: "Turbulen",
+    trans: "Zona kritis",
+    bandLam: "Laminar, f = 64/Re",
+    bandKritis: "Zona kritis, nilai tidak pasti",
+    bandTrans: "Turbulen transisi",
+    bandKasar: "Kasar penuh",
+    hNu: "Viskositas kinematik dari suhu",
+    hRe: "Bilangan Reynolds dan kekasaran relatif",
+    hF0: "Tebakan awal Swamee-Jain",
+    hF: "Faktor gesekan",
+    hFKritis: "Faktor gesekan: interpolasi 64/2000 ke Colebrook(4000), tidak dapat diandalkan",
+    hRes: "Colebrook terselesaikan (Newton-Raphson): sisa persamaan",
+    hHf: "Kehilangan tinggi tekan",
+    hS: "Kemiringan hidraulik",
     note: "Persamaan Colebrook-White bersifat implisit — f muncul di kedua sisi. Di sini diselesaikan dengan iterasi Newton-Raphson pada peubah 1/√f, memakai pendekatan eksplisit Swamee-Jain sebagai tebakan awal; biasanya tiga sampai empat putaran sudah mencapai ketelitian mesin. Pita di antara Re 2.000 dan 4.000 sengaja dibiarkan kosong tanpa kurva, sebagaimana pada diagram aslinya: di rentang itu aliran dapat berbalik-balik antara laminar dan turbulen tergantung gangguan di hulu, sehingga tidak ada satu nilai yang bisa dipertanggungjawabkan.",
   },
   en: {
@@ -66,10 +88,20 @@ const TXT = {
     rHf: "Head loss",
     rS: "Hydraulic gradient",
     rVh: "Velocity head",
-    fullyRough: "fully rough",
     lam: "Laminar",
     trans: "Critical zone",
-    turb: "Turbulent",
+    bandLam: "Laminar, f = 64/Re",
+    bandKritis: "Critical zone, value uncertain",
+    bandTrans: "Transitional turbulent",
+    bandKasar: "Fully rough",
+    hNu: "Kinematic viscosity from temperature",
+    hRe: "Reynolds number and relative roughness",
+    hF0: "Swamee-Jain starting guess",
+    hF: "Friction factor",
+    hFKritis: "Friction factor: interpolation 64/2000 to Colebrook(4000), not reliable",
+    hRes: "Colebrook solved (Newton-Raphson): equation residual",
+    hHf: "Head loss",
+    hS: "Hydraulic gradient",
     note: "The Colebrook-White equation is implicit — f appears on both sides. Here it is solved by Newton-Raphson iteration on the variable 1/√f, using the explicit Swamee-Jain approximation as a starting guess; three or four passes usually reach machine precision. The band between Re 2,000 and 4,000 is deliberately left empty of curves, as on the original chart: in that range the flow can switch back and forth between laminar and turbulent depending on upstream disturbance, so no single value can be defended.",
   },
 } as const;
@@ -94,6 +126,45 @@ function nuWater(T: number): number {
   return 1.79e-6 / (1 + 0.03368 * T + 0.000221 * T * T);
 }
 
+/* Sumbu pita Re 10²–10⁸ memuat seluruh penggeser (Re 254 pada V 0,02,
+   D 0,02, T 4; 2,41·10⁷ pada V 8, D 2, T 40). */
+const RE_AXIS_MIN = 1e2;
+const RE_AXIS_MAX = 1e8;
+/** Kurva kekasaran terbesar pada diagram Moody (1944) dan drawMoody (FAMILY). */
+const RR_MAX_MOODY = 0.05;
+
+/*
+ * Re awal kasar penuh: Re yang membuat Re·(ε/D)·√f = 200 dengan f Colebrook
+ * pada Re itu. Kriteria ini SAMA dengan garis putus ungu drawMoody dan
+ * penanda `fullyRough`, jadi penanda pita tidak pernah berada di pita
+ * "transisi" sementara kartu menulis "kasar penuh". (Rumus f∞ di spesifikasi
+ * memberi Re sedikit lebih besar karena f∞ < f.) Fungsinya naik monoton
+ * terhadap Re, jadi bagi dua pada log Re. ε = 0: tidak ada.
+ */
+function reKasarPenuh(rr: number): number {
+  if (rr <= 0) return Infinity;
+  const g = (lg: number) => {
+    const Re = 10 ** lg;
+    return Re * rr * Math.sqrt(colebrookFriction(Re, rr)) - 200;
+  };
+  let lo = Math.log10(RE_TURBULENT_MIN);
+  let hi = Math.log10(RE_AXIS_MAX);
+  if (g(lo) >= 0) return RE_TURBULENT_MIN;
+  if (g(hi) < 0) return Infinity;
+  for (let i = 0; i < 60; i++) {
+    const m = (lo + hi) / 2;
+    if (g(m) >= 0) hi = m;
+    else lo = m;
+  }
+  return 10 ** hi;
+}
+
+/** Tebakan awal Swamee-Jain, rumus yang sama dengan hydraulics.ts (tidak diekspor). */
+function swameeJain(Re: number, rr: number): number {
+  const inner = rr / 3.7 + 5.74 / Math.pow(Re, 0.9);
+  return 0.25 / Math.pow(Math.log10(inner), 2);
+}
+
 export function DiagramMoodyClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -111,10 +182,77 @@ export function DiagramMoodyClient() {
   const { f, regime } = frictionFactor(Re, relRough);
   const hf = headLoss(f, L, D, V);
   const Q = V * Math.PI * 0.25 * D * D;
-  const fullyRough = Re * relRough * Math.sqrt(f) >= 200;
+  const kritis = regime === "transisi";
+  // Kasar penuh hanya bermakna untuk aliran turbulen (Colebrook); di zona
+  // kritis f hanya interpolasi. Dulu V 0,20, D 0,020, ε 3 (Re 3 937) memberi
+  // "turbulen penuh" bersamaan dengan "zona kritis".
+  const fullyRough = regime === "turbulen" && Re * relRough * Math.sqrt(f) >= 200;
+  const diLuarMoody = relRough > RR_MAX_MOODY;
+  const vh = (V * V) / (2 * G);
+  const S = (hf / L) * 1000;
 
   const regimeLabel =
-    regime === "laminar" ? x.lam : regime === "transisi" ? x.trans : x.turb;
+    regime === "laminar" ? x.lam : kritis ? x.trans : fullyRough ? x.bandKasar : x.bandTrans;
+  const nada: Tone =
+    regime === "laminar" ? "water" : kritis ? "invalid" : fullyRough ? "critical" : "neutral";
+
+  /* Pita Re: batas laminar dan zona kritis dari frictionFactor (2000, 4000);
+     batas kasar penuh dinamis. Pita yang lebarnya nol (ε = 0, atau kasar
+     penuh sudah dimulai di Re 4000 pada ε/D besar) dibuang. */
+  const reKp = Math.min(Math.max(reKasarPenuh(relRough), RE_TURBULENT_MIN), RE_AXIS_MAX);
+  const bands = [
+    { from: RE_AXIS_MIN, to: RE_LAMINAR_MAX, label: x.bandLam, tone: "water" as Tone },
+    { from: RE_LAMINAR_MAX, to: RE_TURBULENT_MIN, label: x.bandKritis, tone: "invalid" as Tone },
+    { from: RE_TURBULENT_MIN, to: reKp, label: x.bandTrans, tone: "neutral" as Tone },
+    { from: reKp, to: RE_AXIS_MAX, label: x.bandKasar, tone: "critical" as Tone },
+  ].filter((b) => b.to > b.from);
+
+  // Di zona kritis tabel menulis "≈" (interpolasi), Hitungan menulis "—".
+  const kira = (s: string) => (kritis ? `≈ ${s}` : s);
+
+  /* Langkah faktor gesekan bergantung rezim. Nilai antara satu digit lebih
+     banyak dari tabel. */
+  const langkahF: LangkahHitung[] =
+    regime === "laminar"
+      ? [
+          {
+            judul: x.hF,
+            rumus: (<><span>f =</span><Frac num="64" den="Re" /></>),
+            isi: `64 / ${fmtSci(Re)}`,
+            hasil: fmt(f, 4),
+            tint: C.water,
+          },
+        ]
+      : kritis
+        ? [
+            {
+              judul: x.hFKritis,
+              rumus: <span>f ≈ 64/2000 + t · ( f(4000) − 64/2000 )</span>,
+              isi: "—",
+              hasil: "—",
+            },
+          ]
+        : (() => {
+            const f0 = swameeJain(Re, relRough);
+            const sisa =
+              1 / Math.sqrt(f) + 2 * Math.log10(relRough / 3.7 + 2.51 / (Re * Math.sqrt(f)));
+            const teksSisa = Math.abs(sisa) < 1e-9 ? fmt(0, 0) : fmtSci(sisa);
+            return [
+              {
+                judul: x.hF0,
+                rumus: (<><span>f₀ =</span><Frac num={fmt(0.25, 2)} den={`[ log₁₀( ε/D / ${fmt(3.7, 1)} + ${fmt(5.74, 2)} / Re^${fmt(0.9, 1)} ) ]²`} /></>),
+                isi: `${fmt(0.25, 2)} / [ log₁₀( ${fmtSci(relRough)} / ${fmt(3.7, 1)} + ${fmt(5.74, 2)} / ( ${fmtSci(Re)} )^${fmt(0.9, 1)} ) ]²`,
+                hasil: fmt(f0, 5),
+              },
+              {
+                judul: x.hRes,
+                rumus: (<><Frac num="1" den="√f" /><span>+ 2 log₁₀(</span><Frac num="ε/D" den={fmt(3.7, 1)} /><span>+</span><Frac num={fmt(2.51, 2)} den="Re · √f" /><span>) ≈ 0</span></>),
+                isi: `1/√${fmt(f, 5)} + 2 log₁₀( ${fmtSci(relRough)} / ${fmt(3.7, 1)} + ${fmt(2.51, 2)} / ( ${fmtSci(Re)} · √${fmt(f, 5)} ) ) = ${teksSisa}`,
+                hasil: fmt(f, 4),
+                tint: C.water,
+              },
+            ];
+          })();
 
   const ref = useCanvas(
     (ctx, w, h) => drawMoody(ctx, w, h, { Re, relRough, f, regime }, lang),
@@ -123,6 +261,16 @@ export function DiagramMoodyClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Re"
+          value={Re}
+          scale="log"
+          digits={0}
+          invalid={kritis}
+          bands={bands}
+        />
+      }
       sheet="PI-01"
       subject={SUBJECTS.PI[lang]}
       title={x.title}
@@ -131,7 +279,7 @@ export function DiagramMoodyClient() {
           <p>
             Faktor gesekan pipa tidak bisa dibaca dari satu rumus tunggal.
             Diagram ini menyelesaikannya secara grafis: masuk dari sumbu bawah
-            pada <Term tint={C.signal}>Re</Term>, naik sampai menyentuh kurva{" "}
+            pada <Term tint={C.ink}>Re</Term>, naik sampai menyentuh kurva{" "}
             <Term tint={C.water}>kekasaran</Term> yang sesuai, lalu belok kiri
             untuk membaca f. Jalur baca itu digambar mengikuti masukan Anda.
           </p>
@@ -139,7 +287,7 @@ export function DiagramMoodyClient() {
           <p>
             The pipe friction factor cannot be read from a single formula. This
             chart solves it graphically: enter on the bottom axis at{" "}
-            <Term tint={C.signal}>Re</Term>, rise until you meet the matching{" "}
+            <Term tint={C.ink}>Re</Term>, rise until you meet the matching{" "}
             <Term tint={C.water}>roughness</Term> curve, then turn left to read
             f. That reading path is drawn to follow your input.
           </p>
@@ -187,27 +335,63 @@ export function DiagramMoodyClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag alert={regime === "transisi"}>{regimeLabel}</Flag>
-              {fullyRough && <Flag tint={C.critical}>{x.fullyRough}</Flag>}
-            </div>
+            {/* Rezim kini di pita Re dan kartu keadaan. Re sudah di pita, jadi
+                angka besar pindah ke f dan hf. */}
             <ResultTable
               rows={[
-                { symbol: "Re", label: x.rRe, value: fmtSci(Re), strong: true },
-                { symbol: "f", label: x.rf, value: fmt(f, 4), tint: C.water, strong: true },
+                { symbol: "f", label: x.rf, value: kira(fmt(f, 4)), tint: C.water, strong: true },
+                { symbol: "hf", label: x.rHf, value: kira(fmt(hf, 3)), unit: "m", tint: C.energy, strong: true },
+                { symbol: "Re", label: x.rRe, value: fmtSci(Re) },
                 { symbol: "ε/D", label: x.rRR, value: fmtSci(relRough), tint: C.water },
                 { symbol: "ν", label: x.rNu, value: fmtSci(nu), unit: "m²/s" },
                 { symbol: "Q", label: x.rQ, value: Q < 0.01 ? fmtSci(Q) : fmt(Q, 4), unit: "m³/s" },
-                { symbol: "hf", label: x.rHf, value: fmt(hf, 3), unit: "m", tint: C.energy },
-                { symbol: "S", label: x.rS, value: fmt((hf / L) * 1000, 2), unit: "‰", tint: C.energy },
-                { symbol: "—", label: x.rVh, value: (V * V) / 19.62 < 0.001 ? fmtSci((V * V) / 19.62) : fmt((V * V) / 19.62, 4), unit: "m" },
+                { symbol: "S", label: x.rS, value: kira(fmt(S, 2)), unit: "‰", tint: C.energy },
+                { symbol: "—", label: x.rVh, value: vh < 0.001 ? fmtSci(vh) : fmt(vh, 4), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hNu,
+                    rumus: (<><span>ν =</span><Frac num={`${fmt(1.79, 2)} · 10⁻⁶`} den={`1 + ${fmt(0.03368, 5)} T + ${fmt(0.000221, 6)} T²`} /></>),
+                    isi: `${fmt(1.79, 2)} · 10⁻⁶ / ( 1 + ${fmt(0.03368, 5)} · ${fmt(T, 1)} + ${fmt(0.000221, 6)} · ${fmt(T, 1)}² )`,
+                    hasil: fmtSci(nu),
+                    satuan: "m²/s",
+                  },
+                  {
+                    judul: x.hRe,
+                    rumus: (<><span>Re =</span><Frac num="V · D" den="ν" /><span className="ml-4">ε/D =</span><Frac num="ε" den="D" /></>),
+                    isi: `${fmt(V, 2)} · ${fmt(D, 3)} / ${fmtSci(nu)};  ε/D = ${fmt(epsMm / 1000, 7)} / ${fmt(D, 3)} = ${fmtSci(relRough)}`,
+                    hasil: fmtSci(Re),
+                  },
+                  ...langkahF,
+                  {
+                    judul: x.hHf,
+                    rumus: (<><span>hf = f ·</span><Frac num="L" den="D" /><span>·</span><Frac num="V²" den="2g" /></>),
+                    isi: kritis ? "—" : `${fmt(f, 5)} · ${fmt(L, 0)} / ${fmt(D, 3)} · ${fmt(V, 2)}² / ( 2 · ${fmt(G, 2)} )`,
+                    hasil: kritis ? "—" : fmt(hf, 3),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hS,
+                    rumus: (<><span>S =</span><Frac num="hf" den="L" /><span>· 1000</span></>),
+                    isi: kritis ? "—" : `${fmt(hf, 4)} / ${fmt(L, 0)} · 1000`,
+                    hasil: kritis ? "—" : fmt(S, 2),
+                    satuan: "‰",
+                    tint: C.energy,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice({ f, regime, hf, L, fullyRough }, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={regimeLabel}
+            {...notice({ Re, f, regime, hf, L, fullyRough, diLuarMoody, relRough }, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksMoody(Re, relRough)} />}
@@ -245,27 +429,100 @@ export function DiagramMoodyClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama satu paragraf; kalimat pertama
+ * menyatakan keadaan, sisanya menjadi butir.
+ */
 function notice(
-  s: { f: number; regime: string; hf: number; L: number; fullyRough: boolean },
+  s: {
+    Re: number;
+    f: number;
+    regime: string;
+    hf: number;
+    L: number;
+    fullyRough: boolean;
+    diLuarMoody: boolean;
+    relRough: number;
+  },
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
   const L0 = fmt(s.L, 0);
+  const Re = fmtSci(s.Re);
+  const rr = fmtSci(s.relRough);
 
   if (lang === "en") {
+    const luar = s.diLuarMoody
+      ? `ε/D = ${rr} is above 0.05, outside the range of the Colebrook data and Moody's largest curve; the operating point may fall outside the chart.`
+      : "";
     if (s.regime === "laminar")
-      return `Below Re 2,000 the flow is still laminar, and wall roughness has no effect at all — f depends on Re alone. Try moving the roughness now: the operating point does not budge. Head loss over ${L0} m is only ${fmt(s.hf, 3)} m.`;
+      return {
+        state: `Re = ${Re}: laminar; f = ${fmt(s.f, 4)} and a loss of ${fmt(s.hf, 3)} m over ${L0} m.`,
+        notice: [
+          "Wall roughness has no effect at all: f = 64/Re depends on Re alone. Move the roughness now and the operating point does not budge.",
+          luar,
+        ],
+      };
     if (s.regime === "transisi")
-      return "The operating point sits inside the empty band on the chart. Values here cannot be relied on: the flow may switch between laminar and turbulent depending on upstream disturbance. In design this range is best avoided — choose a diameter that moves the point clear of the band.";
+      return {
+        state: `Re = ${Re} lies in the critical zone between 2,000 and 4,000: f and hf are only an interpolation, marked ≈.`,
+        notice: [
+          "Values in this band cannot be relied on: the flow may switch between laminar and turbulent depending on upstream disturbance.",
+          "In design this range is best avoided. Choose a diameter that moves the point clear of the band.",
+          luar,
+        ],
+      };
     if (s.fullyRough)
-      return "The operating point has passed the fully rough boundary and the curve has flattened. Raising Re further barely lowers f, meaning more velocity no longer buys efficiency. From here the only way to cut head loss is a larger diameter or a smoother wall.";
-    return `Turbulent, but not yet fully rough: a friction factor of ${fmt(s.f, 4)} still falls as Re rises. Head loss is ${fmt(s.hf, 2)} m over ${L0} m of pipe. Move the roughness and watch the point travel between curves — the further right, the less Re matters and the more roughness dominates.`;
+      return {
+        state: `Re = ${Re}: fully rough; f = ${fmt(s.f, 4)} and a loss of ${fmt(s.hf, 3)} m over ${L0} m.`,
+        notice: [
+          "The curve has flattened: raising Re further barely lowers f, so more velocity no longer buys efficiency.",
+          "From here the only way to cut head loss is a larger diameter or a smoother wall.",
+          luar,
+        ],
+      };
+    return {
+      state: `Re = ${Re}: transitional turbulent; f = ${fmt(s.f, 4)} and a loss of ${fmt(s.hf, 3)} m over ${L0} m.`,
+      notice: [
+        "f still falls as Re rises. Move the roughness and watch the point travel between curves: the further right, the less Re matters and the more roughness dominates.",
+        luar,
+      ],
+    };
   }
 
+  const luar = s.diLuarMoody
+    ? `ε/D = ${rr} di atas 0,05, di luar rentang data Colebrook dan kurva terbesar Moody; titik operasi bisa jatuh di luar diagram.`
+    : "";
   if (s.regime === "laminar")
-    return `Pada Re di bawah 2.000 aliran masih laminar, dan kekasaran dinding sama sekali tidak berpengaruh — f hanya bergantung pada Re. Coba geser kekasaran sekarang: titik operasi tidak bergerak. Kehilangan tekan sepanjang ${L0} m hanya ${fmt(s.hf, 3)} m.`;
+    return {
+      state: `Re = ${Re}: laminar; f = ${fmt(s.f, 4)} dan kehilangan ${fmt(s.hf, 3)} m sepanjang ${L0} m.`,
+      notice: [
+        "Kekasaran dinding sama sekali tidak berpengaruh: f = 64/Re hanya bergantung pada Re. Geser kekasaran sekarang, titik operasi tidak bergerak.",
+        luar,
+      ],
+    };
   if (s.regime === "transisi")
-    return "Titik operasi berada di dalam pita kosong pada diagram. Nilai di sini tidak dapat diandalkan: aliran bisa berbalik-balik antara laminar dan turbulen tergantung gangguan di hulu. Dalam desain, rentang ini sebaiknya dihindari — pilih diameter yang menggeser titik operasi keluar dari pita.";
+    return {
+      state: `Re = ${Re} berada di zona kritis antara 2.000 dan 4.000: f dan hf hanya interpolasi, ditandai ≈.`,
+      notice: [
+        "Nilai di pita ini tidak dapat diandalkan: aliran bisa berbalik-balik antara laminar dan turbulen tergantung gangguan di hulu.",
+        "Dalam desain rentang ini sebaiknya dihindari. Pilih diameter yang menggeser titik keluar dari pita.",
+        luar,
+      ],
+    };
   if (s.fullyRough)
-    return "Titik operasi sudah melewati batas turbulen penuh, dan kurvanya mendatar. Menaikkan Re lagi hampir tidak menurunkan f — artinya menambah kecepatan tidak lagi memperbaiki efisiensi. Pada tahap ini satu-satunya cara menurunkan kehilangan tekan adalah memperbesar diameter atau memperhalus dinding.";
-  return `Aliran turbulen, tetapi belum sepenuhnya kasar: faktor gesekan ${fmt(s.f, 4)} masih ikut turun bila Re dinaikkan. Kehilangan tekan ${fmt(s.hf, 2)} m sepanjang ${L0} m pipa. Geser kekasaran dan perhatikan titik operasi berpindah antar kurva — semakin ke kanan, semakin kecil pengaruh Re dan semakin dominan pengaruh kekasaran.`;
+    return {
+      state: `Re = ${Re}: kasar penuh; f = ${fmt(s.f, 4)} dan kehilangan ${fmt(s.hf, 3)} m sepanjang ${L0} m.`,
+      notice: [
+        "Kurvanya sudah mendatar: menaikkan Re hampir tidak menurunkan f, jadi menambah kecepatan tidak lagi memperbaiki efisiensi.",
+        "Pada tahap ini satu-satunya cara menurunkan kehilangan tekan adalah memperbesar diameter atau memperhalus dinding.",
+        luar,
+      ],
+    };
+  return {
+    state: `Re = ${Re}: turbulen transisi; f = ${fmt(s.f, 4)} dan kehilangan ${fmt(s.hf, 3)} m sepanjang ${L0} m.`,
+    notice: [
+      "f masih turun bila Re naik. Geser kekasaran dan perhatikan titik operasi berpindah antarkurva: semakin ke kanan, semakin kecil pengaruh Re dan semakin dominan pengaruh kekasaran.",
+      luar,
+    ],
+  };
 }

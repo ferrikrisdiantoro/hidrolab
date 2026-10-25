@@ -4,18 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
+  G,
   KARMAN,
   ROUSE_BEDLOAD,
   ROUSE_FULL,
@@ -28,7 +30,7 @@ import {
   rouseState,
   waterViscosity,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -55,13 +57,14 @@ const TXT = {
     rBawah: "Bagian muatan di separuh bawah",
     rA: "Tinggi acuan di atas dasar",
     rNu: "Kekentalan kinematik",
+    mWash: "Muatan bilas",
     mFull: "Melayang penuh",
     mPartial: "Melayang sebagian",
     mBed: "Angkutan dasar",
-    mNone: "Tidak terangkut melayang",
-    tak: "Tidak terangkut melayang",
-    takNote:
-      "Bilangan Rouse di atas 2,5, jadi butirnya kalah jauh cepat mengendap dibanding kemampuan pusaran mengangkatnya. Yang terjadi angkutan dasar, yaitu butir menggelinding dan meloncat di sepanjang dasar, dan sebaran melayang yang digambar di sini praktis nol di mana pun kecuali tepat di ketinggian acuan. Kurvanya tetap digambar karena persamaannya tetap berlaku, tetapi yang ia gambarkan adalah muatan yang jumlahnya dapat diabaikan. Perkecil butirnya atau perbesar kecepatan geseknya.",
+    hA: "Tinggi acuan",
+    hMid: "Kepekatan di setengah kedalaman, y = h/2 sehingga (h − y)/y = 1",
+    hBawah: "Bagian di separuh bawah, trapesium 200 pias",
+    hBawahIsi: "∫ₐ^(h/2) c dy / ∫ₐ^h c dy",
     note:
       "Satu angka menentukan seluruh bentuk kurva ini, dan angka itu perbandingan dua kecepatan: seberapa cepat butir jatuh terhadap seberapa kuat pusaran mengangkatnya. Karena keduanya sama-sama berdimensi kecepatan, perbandingannya tak bersatuan, dan satu bilangan itu berlaku untuk lanau di sungai besar maupun pasir di parit kecil. Perhatikan bentuk kurvanya pada bilangan Rouse kecil: hampir tegak, artinya muatannya tersebar merata dari dasar sampai permukaan. Pada bilangan besar kurvanya menempel ke sumbu, artinya seluruh muatan berdesakan di lapisan tipis dekat dasar. Yang tidak dikatakan kurva ini adalah berapa banyak sedimen yang ada; ia hanya menyatakan sebarannya terhadap satu nilai acuan yang harus diukur atau ditaksir tersendiri. Itulah keterbatasan terpenting yang perlu diingat saat memakainya.",
   },
@@ -84,13 +87,14 @@ const TXT = {
     rBawah: "Share of the load in the lower half",
     rA: "Reference height above the bed",
     rNu: "Kinematic viscosity",
+    mWash: "Wash load",
     mFull: "Fully suspended",
     mPartial: "Partly suspended",
     mBed: "Bed load",
-    mNone: "Not carried in suspension",
-    tak: "Not carried in suspension",
-    takNote:
-      "The Rouse number is above 2.5, so the grain settles far faster than the eddies can lift it. What happens is bed load: grains rolling and hopping along the bed, and the suspended distribution drawn here is effectively zero everywhere except right at the reference height. The curve is still drawn because the equation still holds, but what it describes is a load of negligible amount. Reduce the grain size or raise the friction velocity.",
+    hA: "Reference height",
+    hMid: "Concentration at mid depth, y = h/2 so (h − y)/y = 1",
+    hBawah: "Share in the lower half, trapezoid rule on 200 strips",
+    hBawahIsi: "∫ₐ^(h/2) c dy / ∫ₐ^h c dy",
     note:
       "One number sets the whole shape of this curve, and that number is a ratio of two velocities: how fast the grain falls against how strongly the eddies lift it. Because both have the dimensions of velocity, the ratio carries no units, and the single number serves silt in a great river as well as sand in a small ditch. Notice the curve shape at small Rouse numbers: almost vertical, meaning the load is spread evenly from bed to surface. At large numbers the curve hugs the axis, meaning the whole load crowds into a thin layer near the bed. What this curve does not say is how much sediment there is; it only states the distribution relative to one reference value that must be measured or estimated separately. That is the most important limitation to keep in mind when using it.",
   },
@@ -131,16 +135,29 @@ export function ProfilRouseClient() {
   const d = dMm / 1000;
   const a = aFrac * h;
   const r = rouseState(d, s, nu, uStar, h, a);
-  const tak = r.mode === "tidak-terangkut";
+  /*
+   * Cara angkut dari field `transport` (gelombang 1), bukan `mode` lama yang
+   * namanya bergeser satu golongan. Z ≥ 2,5 adalah angkutan dasar: keadaan
+   * yang sah, persamaannya tetap berlaku, jadi nadanya hati-hati (caution),
+   * bukan merah sinyal.
+   */
+  const dasar = r.transport === "dasar";
 
-  const modeNama =
-    r.mode === "melayang-penuh"
-      ? x.mFull
-      : r.mode === "melayang-sebagian"
-        ? x.mPartial
-        : r.mode === "dasar"
-          ? x.mBed
-          : x.mNone;
+  const NAMA: Record<typeof r.transport, string> = {
+    "muatan-bilas": x.mWash,
+    "melayang-penuh": x.mFull,
+    "melayang-sebagian": x.mPartial,
+    dasar: x.mBed,
+  };
+  const NADA: Record<typeof r.transport, Tone> = {
+    "muatan-bilas": "water",
+    "melayang-penuh": "water",
+    "melayang-sebagian": "neutral",
+    dasar: "caution",
+  };
+  const modeNama = NAMA[r.transport];
+  const aTeks = a >= 1 ? fmt(a, 3) : fmt(a * 1000, 1);
+  const aSatuan = a >= 1 ? "m" : "mm";
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -164,9 +181,9 @@ export function ProfilRouseClient() {
 
       deret.push({
         pts: kurva(r.Z),
-        color: tak ? C.signal : C.water,
+        color: dasar ? C.caution : C.water,
         weight: W.bold,
-        dash: tak ? DASH.invalid : DASH.solid,
+        dash: DASH.solid,
       });
 
       drawChart(
@@ -195,7 +212,6 @@ export function ProfilRouseClient() {
             x: r.midRatio,
             y: 0.5,
             label: `Z ${fmtPlain(r.Z, 2)}`,
-            invalid: tak,
           },
         },
         lang
@@ -206,6 +222,24 @@ export function ProfilRouseClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas ROUSE_FULL, ROUSE_PARTIAL, ROUSE_BEDLOAD dari rouseState.
+           Rentang penggeser memberi Z 1,7·10⁻⁶ sampai 478, jadi kedua ujung
+           bisa lewat skala. Tidak ada pita invalid: persamaan Rouse berlaku
+           di seluruh rentang. */
+        <RegimeScale
+          symbol="Z"
+          value={r.Z}
+          scale="log"
+          digits={3}
+          bands={[
+            { from: 0.001, to: ROUSE_FULL, label: x.mWash, tone: "water" },
+            { from: ROUSE_FULL, to: ROUSE_PARTIAL, label: x.mFull, tone: "water" },
+            { from: ROUSE_PARTIAL, to: ROUSE_BEDLOAD, label: x.mPartial, tone: "neutral" },
+            { from: ROUSE_BEDLOAD, to: 100, label: x.mBed, tone: "caution" },
+          ]}
+        />
+      }
       sheet="SD-02"
       subject={SUBJECTS.SD[lang]}
       title={x.title}
@@ -236,7 +270,7 @@ export function ProfilRouseClient() {
             { label: t.tbUnit, value: "SI (m, m/s)" },
             { label: "d", value: `${fmt(dMm, 3)} mm` },
             { label: "ws", value: `${fmtSci(r.ws)} m/s`, tint: C.critical },
-            { label: "Z", value: fmt(r.Z, 3), tint: tak ? C.signal : C.water },
+            { label: "Z", value: fmt(r.Z, 3), tint: dasar ? C.caution : C.water },
             { label: "h", value: `${fmt(h, 2)} m` },
           ]}
         >
@@ -268,19 +302,9 @@ export function ProfilRouseClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={tak ? undefined : C.water} alert={tak}>
-                {modeNama}
-              </Flag>
-            </div>
-            {tak && (
-              <div className="mb-2.5">
-                <Note>{x.takNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "Z", label: x.rZ, value: fmt(r.Z, 4), tint: tak ? C.signal : C.water, strong: true },
+                { symbol: "Z", label: x.rZ, value: fmt(r.Z, 4), tint: dasar ? C.caution : C.water, strong: true },
                 { symbol: "ws", label: x.rWs, value: fmtSci(r.ws), unit: "m/s", tint: C.critical, strong: true },
                 { symbol: "—", label: x.rMode, value: modeNama },
                 { symbol: "c½/ca", label: x.rMid, value: fmt(r.midRatio, 5) },
@@ -291,22 +315,60 @@ export function ProfilRouseClient() {
                  * sepersepuluh meter ke dua puluh meter tidak mengubah apa
                  * pun selain angka di kop, dan pembaca berhak menyimpulkan
                  * lembarnya rusak. Yang sebenarnya terjadi justru pokok
-                 * lembar ini, dan sekarang dikatakan di catatan bawah.
+                 * lembar ini, dan dikatakan di kartu keadaan.
                  */
-                {
-                  symbol: "a",
-                  label: x.rA,
-                  value: a >= 1 ? fmt(a, 3) : fmt(a * 1000, 1),
-                  unit: a >= 1 ? "m" : "mm",
-                },
+                { symbol: "a", label: x.rA, value: aTeks, unit: aSatuan },
                 { symbol: "ν", label: x.rNu, value: fmtSci(nu), unit: "m²/s" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.rWs,
+                    rumus: (<><span>ws =</span><Frac num="(Gs − 1) g d²" den="18 ν + √(0,75 (Gs − 1) g d³)" /></>),
+                    isi: `(${fmt(s, 2)} − 1) · ${fmt(G, 2)} · (${fmtSci(d)})² / [ 18 · ${fmtSci(nu)} + √( 0,75 · (${fmt(s, 2)} − 1) · ${fmt(G, 2)} · (${fmtSci(d)})³ ) ]`,
+                    hasil: fmtSci(r.ws),
+                    satuan: "m/s",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.rZ,
+                    rumus: (<><span>Z =</span><Frac num="ws" den="β · κ · u*" /></>),
+                    isi: `${fmtSci(r.ws)} / ( 1 · ${fmt(KARMAN, 2)} · ${fmt(uStar, 3)} )`,
+                    hasil: fmt(r.Z, 4),
+                    tint: dasar ? C.caution : C.water,
+                  },
+                  {
+                    judul: x.hA,
+                    rumus: <span>a = (a/h) · h</span>,
+                    isi: `${fmt(aFrac, 3)} · ${fmt(h, 1)}`,
+                    hasil: aTeks,
+                    satuan: aSatuan,
+                  },
+                  {
+                    judul: x.hMid,
+                    rumus: (<><span>c½/ca = [</span><Frac num="a" den="h − a" /><span>]^Z</span></>),
+                    isi: `[ ${fmt(a, 4)} / ( ${fmt(h, 1)} − ${fmt(a, 4)} ) ]^${fmt(r.Z, 4)}`,
+                    hasil: fmt(r.midRatio, 5),
+                  },
+                  {
+                    judul: x.hBawah,
+                    rumus: <span>{x.hBawahIsi}</span>,
+                    isi: `Z = ${fmt(r.Z, 4)} ; a/h = ${fmt(aFrac, 3)}`,
+                    hasil: fmt(r.lowerHalf * 100, 1),
+                    satuan: "%",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r.Z, r.lowerHalf, r.midRatio, h, a, tak, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={NADA[r.transport]}
+            badge={modeNama}
+            {...notice(r.Z, r.lowerHalf, r.midRatio, a, modeNama, dasar, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksRouse(d, s, nu, uStar, h, a)} />}
@@ -332,9 +394,7 @@ export function ProfilRouseClient() {
               <Eq>
                 <span>ws =</span>
                 <Frac num="(s − 1) g d²" den="18 ν + √(0,75 (s−1) g d³)" />
-                <span className="ml-3 text-ink-3">
-                  {lang === "id" ? "Ferguson-Church" : "Ferguson-Church"}
-                </span>
+                <span className="ml-3 text-ink-3">Ferguson-Church</span>
               </Eq>
             </>
           }
@@ -346,32 +406,36 @@ export function ProfilRouseClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) contoh rata-rata kedalaman hanya
+ * mewakili di bawah 0,8; (b) kedalaman tidak menggerakkan kurva (pokok
+ * lembar); (c) untuk Z ≥ 2,5 muatannya angkutan dasar.
+ */
 function notice(
   Z: number,
   lowerHalf: number,
   mid: number,
-  h: number,
   a: number,
-  tak: boolean,
+  modeNama: string,
+  dasar: boolean,
   lang: Lang
-): string {
-  /*
-   * Kalimat yang menjelaskan mengapa menggeser kedalaman tidak menggerakkan
-   * kurvanya. Bukan penambal melainkan pokok lembarnya: pada sumbu nisbi,
-   * kedalaman benar-benar lenyap dari persamaannya.
-   */
-  const kedalaman =
-    lang === "id"
-      ? ` Geser kedalamannya dari sepersepuluh meter ke dua puluh meter dan kurvanya tidak bergerak sedikit pun. Itu bukan kerusakan melainkan pokok lembar ini: pada sumbu nisbi, bilangan Rouse tidak mengandung kedalaman sama sekali, jadi flum sedalam sepuluh sentimeter dan sungai sedalam dua puluh meter yang kecepatan geseknya sama membawa sebaran nisbi yang sama persis. Yang diubah kedalaman hanya letak sebenarnya tinggi acuan itu, sekarang ${a >= 1 ? `${fmt(a, 2)} meter` : `${fmt(a * 1000, 0)} milimeter`} di atas dasar, dan itulah satu-satunya baris di tabel yang ikut bergerak.`
-      : ` Drag the depth from a tenth of a metre to twenty metres and the curve does not move at all. That is not a fault but the point of this sheet: in relative coordinates the Rouse number contains no depth whatever, so a ten centimetre flume and a twenty metre river at the same friction velocity carry exactly the same relative distribution. All the depth changes is where that reference height actually sits, now ${a >= 1 ? `${fmt(a, 2)} metres` : `${fmt(a * 1000, 0)} millimetres`} above the bed, and that is the only row in the table that moves with it.`;
+): { state: string; notice: string[] } {
+  const en = lang === "en";
+  const kedalaman = en
+    ? `Drag the depth from a tenth of a metre to twenty metres and the curve does not move at all. That is not a fault but the point of this sheet: in relative coordinates the Rouse number contains no depth whatever, so a ten centimetre flume and a twenty metre river at the same friction velocity carry exactly the same relative distribution. All the depth changes is where the reference height actually sits, now ${a >= 1 ? `${fmt(a, 2)} metres` : `${fmt(a * 1000, 0)} millimetres`} above the bed.`
+    : `Geser kedalamannya dari sepersepuluh meter ke dua puluh meter dan kurvanya tidak bergerak sedikit pun. Itu bukan kerusakan melainkan pokok lembar ini: pada sumbu nisbi, bilangan Rouse tidak mengandung kedalaman sama sekali, jadi flum sedalam sepuluh sentimeter dan sungai sedalam dua puluh meter yang kecepatan geseknya sama membawa sebaran nisbi yang sama persis. Yang diubah kedalaman hanya letak sebenarnya tinggi acuan, sekarang ${a >= 1 ? `${fmt(a, 2)} meter` : `${fmt(a * 1000, 0)} milimeter`} di atas dasar.`;
 
-  if (tak) {
-    return lang === "id"
-      ? `Bilangan Rouse ${fmt(Z, 2)} sudah melewati ${fmtPlain(ROUSE_BEDLOAD, 1)}, dan di atas itu sebaran melayang tidak lagi menggambarkan apa yang sebenarnya terjadi. Perkecil butirnya atau perbesar kecepatan geseknya sampai bilangan Rouse turun di bawah ${fmtPlain(ROUSE_PARTIAL, 1)}.${kedalaman}`
-      : `The Rouse number ${fmt(Z, 2)} has passed ${fmtPlain(ROUSE_BEDLOAD, 1)}, and above that the suspended distribution no longer describes what actually happens. Reduce the grain size or raise the friction velocity until the Rouse number falls below ${fmtPlain(ROUSE_PARTIAL, 1)}.${kedalaman}`;
-  }
+  const state = en
+    ? `Z = ${fmt(Z, 3)}: ${modeNama.toLowerCase()}; ${fmt(lowerHalf * 100, 1)} % of the suspended load sits in the lower half.`
+    : `Z = ${fmt(Z, 3)}: ${modeNama.toLowerCase()}; ${fmt(lowerHalf * 100, 1)} % muatan melayang di separuh bawah.`;
 
-  if (lang === "en")
-    return `At a Rouse number of ${fmt(Z, 2)}, ${fmt(lowerHalf * 100, 0)} per cent of the suspended load sits in the lower half of the depth, and the concentration at mid depth has fallen to ${fmt(mid, 3)} of the reference value. Below ${fmtPlain(ROUSE_FULL, 1)} the load is essentially uniform and a single depth-averaged sample represents the whole column; above it a sample taken near the surface will understate the load by whatever factor this curve says. That is why sediment sampling protocols specify the sampling height rather than leaving it to the field crew.${kedalaman}`;
-  return `Pada bilangan Rouse ${fmt(Z, 2)}, sebanyak ${fmt(lowerHalf * 100, 0)} persen muatan melayangnya berada di separuh bawah kedalaman, dan kepekatan di setengah kedalaman sudah turun ke ${fmt(mid, 3)} dari nilai acuannya. Di bawah ${fmtPlain(ROUSE_FULL, 1)} muatannya praktis merata dan satu contoh rata-rata kedalaman mewakili seluruh kolom; di atasnya, contoh yang diambil dekat permukaan akan mengecilkan muatannya sebesar apa pun yang dikatakan kurva ini. Itulah sebabnya tata cara pengambilan contoh sedimen menetapkan ketinggian pengambilannya, bukan menyerahkannya kepada petugas lapangan.${kedalaman}`;
+  const contoh = en
+    ? `The concentration at mid depth is ${fmt(mid, 3)} of the reference value. Below ${fmtPlain(ROUSE_FULL, 1)} the load is essentially uniform and a single depth-averaged sample represents the whole column; above it a sample taken near the surface understates the load by whatever factor this curve says. That is why sediment sampling protocols specify the sampling height.`
+    : `Kepekatan di setengah kedalaman ${fmt(mid, 3)} dari nilai acuannya. Di bawah ${fmtPlain(ROUSE_FULL, 1)} muatannya praktis merata dan satu contoh rata-rata kedalaman mewakili seluruh kolom; di atasnya, contoh yang diambil dekat permukaan mengecilkan muatannya sebesar yang dikatakan kurva ini. Itulah sebabnya tata cara pengambilan contoh sedimen menetapkan ketinggian pengambilannya.`;
+
+  const dasarNote = en
+    ? `Above ${fmtPlain(ROUSE_BEDLOAD, 1)} the suspended distribution is negligible; the load is bed load, grains rolling and hopping along the bed. The curve is still drawn because the equation still holds. Reduce the grain size or raise the friction velocity to bring Z below ${fmtPlain(ROUSE_BEDLOAD, 1)}.`
+    : `Di atas ${fmtPlain(ROUSE_BEDLOAD, 1)} sebaran melayang dapat diabaikan; muatannya angkutan dasar, butir menggelinding dan meloncat di sepanjang dasar. Kurvanya tetap digambar karena persamaannya tetap berlaku. Perkecil butirnya atau perbesar kecepatan geseknya sampai Z turun di bawah ${fmtPlain(ROUSE_BEDLOAD, 1)}.`;
+
+  return { state, notice: dasar ? [dasarNote, kedalaman] : [contoh, kedalaman] };
 }

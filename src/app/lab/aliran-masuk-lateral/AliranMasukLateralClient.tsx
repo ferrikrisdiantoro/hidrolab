@@ -5,12 +5,14 @@ import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
   Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -24,10 +26,11 @@ import {
 import {
   criticalDepth,
   fmt,
+  G,
   svfProfile,
   type SvfResult,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -62,6 +65,20 @@ const TXT = {
     lintasNote:
       "Profilnya melintasi kondisi kritis di tengah bentang. Di titik itu penyebut persamaan menuju nol dan kemiringan muka air menjadi tegak, sehingga hasil di sekitarnya digambar titik rapat dan tidak boleh dibaca sebagai angka. Keadaan nyata di situ adalah loncatan air atau penampang kendali, yang penanganannya berbeda. Perkecil aliran masuk, perbesar lebar dasar, atau naikkan kedalaman di ujung hilir.",
     exagg: "pelebihan tegak",
+    bSub: "Subkritis, kendali hilir berlaku",
+    bKr: "Mendekati kritis",
+    bSup: "Superkritis, penelusuran tidak berlaku",
+    tak: "Tidak berlaku: hilir superkritis",
+    subkritis: "Subkritis",
+    tanpaQ: "Tanpa aliran masuk",
+    hQL: "Debit di ujung hilir",
+    hYc: "Kedalaman kritis di ujung hilir",
+    hSuku: "Suku percepatan di ujung hilir",
+    hInteg: "Penelusuran ke hulu",
+    hIntegIsi: (n: number) => `Runge-Kutta orde 4 dari x = L ke x = 0, ${n} langkah`,
+    hBeda: "Selisih karena suku percepatan",
+    hBedaRumus: "Δy = y(0) − y(0) tanpa suku percepatan",
+    hTak: "Hilir superkritis: penelusuran dari hilir tidak berlaku",
     note:
       "Persamaannya sama dengan aliran berubah lambat kecuali satu suku tambahan di pembilang, dan suku itulah seluruh isi lembar ini. Air yang masuk dari samping datang tanpa membawa momentum searah saluran, sehingga ia harus dipercepat oleh aliran yang sudah ada, dan biaya percepatan itu diambil dari tinggi tekan. Akibatnya muka air selalu lebih tinggi daripada seandainya debit yang sama mengalir tanpa penambahan di sepanjang jalan. Garis putus panjang pada gambar memperlihatkan perbandingannya: itulah profil yang keluar bila debit di setiap penampang dihitung dengan benar tetapi suku percepatannya dilupakan, yaitu hitungan yang paling lazim dikerjakan orang. Debit di kedua profil sama persis di setiap penampang, sehingga selisih di antara keduanya bukan pengaruh gesekan dan bukan pula pengaruh bertambahnya debit, melainkan murni biaya mempercepat air yang baru masuk. Dalam perancangan saluran drainase tepi jalan dan saluran pembuang, selisih itulah yang menentukan tinggi jagaan, dan mengabaikannya membuat saluran tampak cukup di atas kertas tetapi melimpah di lapangan.",
   },
@@ -92,6 +109,20 @@ const TXT = {
     lintasNote:
       "The profile crosses critical conditions in mid reach. There the denominator of the equation tends to zero and the surface slope becomes vertical, so results around that point are drawn with fine dots and must not be read as numbers. What really happens there is a hydraulic jump or a control section, which is handled differently. Reduce the inflow, widen the bed, or raise the depth at the downstream end.",
     exagg: "vertical exaggeration",
+    bSub: "Subcritical, downstream control holds",
+    bKr: "Near critical",
+    bSup: "Supercritical, traverse not valid",
+    tak: "Not valid: supercritical outlet",
+    subkritis: "Subcritical",
+    tanpaQ: "No lateral inflow",
+    hQL: "Discharge at the downstream end",
+    hYc: "Critical depth at the downstream end",
+    hSuku: "Acceleration term at the downstream end",
+    hInteg: "Traverse upstream",
+    hIntegIsi: (n: number) => `Fourth-order Runge-Kutta from x = L to x = 0, ${n} steps`,
+    hBeda: "Difference due to the acceleration term",
+    hBedaRumus: "Δy = y(0) − y(0) without the acceleration term",
+    hTak: "Supercritical outlet: a traverse from downstream does not apply",
     note:
       "The equation is the same as for gradually varied flow except for one extra term in the numerator, and that term is the whole content of this sheet. Water entering from the side arrives with no momentum along the channel, so it has to be accelerated by the flow already there, and the cost of that acceleration is taken from head. The water surface therefore always sits higher than it would if the same discharge flowed without being added along the way. The long dashed line on the drawing shows the comparison: it is the profile that comes out when the discharge at each section is computed correctly but the acceleration term is forgotten, which is the calculation people most often make. The discharge in both profiles is identical at every section, so the gap between them is neither friction nor the growth of discharge, but purely the cost of accelerating the newly arrived water. In designing roadside drains and field drainage channels, that gap is what sets the freeboard, and ignoring it makes a channel look adequate on paper while it overtops in the field.",
   },
@@ -149,9 +180,37 @@ export function AliranMasukLateralClient() {
   const exagg = L / zSpan / 1.9;
   const frMax = r.points.reduce((m, p) => Math.max(m, p.Fr), 0);
   const beda = r.points[0].y - tanpa.points[0].y;
+  /* Hilir superkritis: kendali tidak di hilir, kedalaman hulu hanyalah
+     jepitan 0,01 m dari integrasi, jadi semua angka turunan ditekan. */
+  const tak = r.outletSupercritical;
+  const tampil = (v: number) => (tak ? NaN : v);
+  const satuan = (u: string) => (tak ? undefined : u);
+  const yHulu = r.points[0].y;
+  const yHuluTanpa = tanpa.points[0].y;
+  const AL = b * yEnd;
+  const suku = (2 * r.Qend * qStar) / (G * AL * AL);
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Fr"
+          value={tak ? NaN : frMax}
+          invalid={tak || frMax > 1}
+          pesan={tak ? x.tak : undefined}
+          scale="log"
+          digits={2}
+          bands={
+            tak
+              ? [{ from: 0.01, to: 10, label: x.tak, tone: "invalid" }]
+              : [
+                  { from: 0.01, to: FR_DEKAT, label: x.bSub, tone: "water" },
+                  { from: FR_DEKAT, to: 1, label: x.bKr, tone: "critical" },
+                  { from: 1, to: 10, label: x.bSup, tone: "invalid" },
+                ]
+          }
+        />
+      }
       sheet="OC-12"
       subject={SUBJECTS.OC[lang]}
       title={x.title}
@@ -200,7 +259,7 @@ export function AliranMasukLateralClient() {
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.1} max={20} step={0.1} digits={1} unit="‰" onChange={(v) => setS0(v / 1000)} />
               <InputRow symbol="L" label={x.dL} value={L} min={50} max={1500} step={10} digits={0} unit="m" onChange={setL} />
-              <InputRow symbol="y_L" label={x.dy} value={yEnd} min={0.2} max={6} step={0.05} unit="m" onChange={setYEnd} tint={C.signal} />
+              <InputRow symbol="y_L" label={x.dy} value={yEnd} min={0.2} max={6} step={0.05} unit="m" onChange={setYEnd} tint={C.water} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -218,37 +277,69 @@ export function AliranMasukLateralClient() {
           <Block heading={t.blkResult}>
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <Flag tint={C.water}>{`${fmt(Q0, 1)} → ${fmt(r.Qend, 1)} m³/s`}</Flag>
-              {r.outletSupercritical && <Flag alert>{x.hilirSuper}</Flag>}
-              {r.crossesCritical && !r.outletSupercritical && (
-                <Flag alert>{x.lintas}</Flag>
-              )}
             </div>
-            {r.outletSupercritical && (
-              <div className="mb-2.5">
-                <Note>{x.hilirSuperNote}</Note>
-              </div>
-            )}
-            {r.crossesCritical && !r.outletSupercritical && (
-              <div className="mb-2.5">
-                <Note>{x.lintasNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Q₀", label: x.rQ0, value: fmt(Q0, 2), unit: "m³/s", tint: C.water },
                 { symbol: "Q_L", label: x.rQend, value: fmt(r.Qend, 2), unit: "m³/s", tint: C.water, strong: true },
-                { symbol: "y₀", label: x.rYup, value: fmt(r.points[0].y, 3), unit: "m", strong: true },
+                { symbol: "y(0)", label: x.rYup, value: fmt(tampil(yHulu), 3), unit: satuan("m"), tint: C.water, strong: true },
                 { symbol: "y_L", label: x.rYdn, value: fmt(yEnd, 3), unit: "m" },
-                { symbol: "Δy", label: x.rBeda, value: fmt(beda, 3), unit: "m", tint: C.signal },
-                { symbol: "Fr", label: x.rFrMax, value: fmt(frMax, 3), tint: frMax > 1 ? C.signal : undefined },
+                { symbol: "Δy", label: x.rBeda, value: fmt(tampil(beda), 3), unit: satuan("m"), tint: C.water },
+                { symbol: "Fr", label: x.rFrMax, value: fmt(tampil(frMax), 3) },
                 { symbol: "yc", label: x.rYc, value: fmt(ycEnd, 3), unit: "m", tint: C.critical },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hQL,
+                    rumus: <span>Q_L = Q₀ + q* · L</span>,
+                    isi: `${fmt(Q0, 1)} + ${fmt(qStar, 3)} · ${fmt(L, 0)}`,
+                    hasil: fmt(r.Qend, 2),
+                    satuan: "m³/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hYc,
+                    rumus: (<><span>yc =</span><Frac num="∛( ( Q_L / b )² )" den="∛g" /></>),
+                    isi: `∛( ( ${fmt(r.Qend, 3)} / ${fmt(b, 1)} )² / ${fmt(G, 2)} )`,
+                    hasil: fmt(ycEnd, 3),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    /* Ditulis dalam ‰ supaya langsung terbanding dengan S₀. */
+                    judul: x.hSuku,
+                    rumus: <Frac num="2 · Q_L · q*" den="g · ( b · y_L )²" />,
+                    isi: tak
+                      ? "—"
+                      : `2 · ${fmt(r.Qend, 3)} · ${fmt(qStar, 3)} / ( ${fmt(G, 2)} · ( ${fmt(b, 1)} · ${fmt(yEnd, 2)} )² ) · 1000`,
+                    hasil: fmt(tampil(suku * 1000), 4),
+                    satuan: satuan("‰"),
+                  },
+                  {
+                    judul: tak ? x.hTak : x.hInteg,
+                    rumus: (<><span>dy/dx =</span><Frac num="S₀ − Sf − 2 Q q* / ( g A² )" den="1 − Fr²" /></>),
+                    isi: tak ? "—" : x.hIntegIsi(400),
+                    hasil: tak ? "—" : `y(0) = ${fmt(yHulu, 3)}`,
+                    satuan: satuan("m"),
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hBeda,
+                    rumus: <span>{x.hBedaRumus}</span>,
+                    isi: tak ? "—" : `${fmt(yHulu, 4)} − ${fmt(yHuluTanpa, 4)}`,
+                    hasil: fmt(tampil(beda), 3),
+                    satuan: satuan("m"),
+                    tint: C.water,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(beda, qStar, L, r, lang)}</Note>
-          </Block>
+          <StateCard {...kartu(beda, qStar, L, r, frMax, lang)} />
         </>
       }
       verification={
@@ -335,7 +426,7 @@ function susun(
     {
       x: L,
       label: T.control,
-      color: C.signal,
+      color: C.ink,
       zBottom: 0,
       dim: {
         zTop: r.points[r.points.length - 1].y,
@@ -352,7 +443,8 @@ function susun(
       dim: {
         zTop: zb(0) + r.points[0].y,
         zBottom: zb(0),
-        text: `${fmt(r.points[0].y, 2)} m`,
+        // Hilir superkritis: kedalaman hulu hanyalah jepitan integrasi.
+        text: r.outletSupercritical ? "—" : `${fmt(r.points[0].y, 2)} m`,
         side: 1,
       },
     },
@@ -379,22 +471,71 @@ function susun(
   };
 }
 
-function notice(
+/** Batas pita "mendekati kritis", sama dengan nearCritical di svfProfile. */
+const FR_DEKAT = 0.94;
+
+function kartu(
   beda: number,
   qStar: number,
   L: number,
   r: SvfResult,
+  frMax: number,
   lang: Lang
-): string {
+): { tone: Tone; badge: string; state: string; notice?: string[] } {
+  const x = TXT[lang];
+  const id = lang === "id";
+
+  if (r.outletSupercritical) {
+    return { tone: "invalid", badge: x.hilirSuper, state: x.hilirSuperNote };
+  }
+  if (r.crossesCritical) {
+    return { tone: "invalid", badge: x.lintas, state: x.lintasNote };
+  }
+
+  const dekat = frMax >= FR_DEKAT;
+  const tone: Tone = dekat ? "critical" : "water";
+  const keadaan = id
+    ? `Fr terbesar ${fmt(frMax, 3)}: aliran subkritis di seluruh bentang, jadi kendali di ujung hilir berlaku dan muka air ditelusuri ke hulu sampai y(0) = ${fmt(r.points[0].y, 3)} m.`
+    : `Largest Fr ${fmt(frMax, 3)}: the flow is subcritical over the whole reach, so the control at the downstream end holds and the surface is traced upstream to y(0) = ${fmt(r.points[0].y, 3)} m.`;
+  const dekatTeks = dekat
+    ? id
+      ? "Fr sudah mendekati 1. Di sekitar kondisi kritis penyebut persamaan menuju nol, jadi muka air sangat peka terhadap masukan; titik rapat pada gambar menandai bagian itu."
+      : "Fr is already close to 1. Near critical conditions the denominator of the equation tends to zero, so the surface is very sensitive to the inputs; fine dots on the drawing mark that part."
+    : null;
+
   if (qStar <= 0) {
-    return lang === "id"
-      ? "Aliran masuk lateral dimatikan, jadi suku tambahannya hilang dan yang tersisa adalah persamaan aliran berubah lambat biasa. Profil menerus dan garis putus panjang berimpit tepat, dan memang harus berimpit: keduanya menyelesaikan persamaan yang sama persis. Itu pemeriksaan paling murah yang tersedia untuk model ini, dan blok verifikasi di bawah melakukannya dengan angka."
-      : "The lateral inflow is switched off, so the extra term vanishes and what remains is the ordinary gradually varied flow equation. The solid profile and the long dashed line coincide, and they must: that is the cheapest check available for this model, and the verification block below performs it numerically.";
+    return {
+      tone,
+      badge: x.tanpaQ,
+      state: keadaan,
+      notice: [
+        id
+          ? "Aliran masuk lateral dimatikan, jadi suku tambahannya hilang dan yang tersisa adalah persamaan aliran berubah lambat biasa."
+          : "The lateral inflow is switched off, so the extra term vanishes and what remains is the ordinary gradually varied flow equation.",
+        id
+          ? "Profil menerus dan garis putus panjang berimpit tepat, dan memang harus berimpit: keduanya menyelesaikan persamaan yang sama persis. Blok verifikasi di bawah memeriksanya dengan angka."
+          : "The solid profile and the long dashed line coincide, and they must: both solve exactly the same equation. The verification block below checks this numerically.",
+        dekatTeks,
+      ].filter((b): b is string => !!b),
+    };
   }
 
   const persen = r.points[0].y > 0 ? (beda / r.points[0].y) * 100 : 0;
-
-  if (lang === "en")
-    return `Over ${L} m the channel picks up ${fmt((qStar * L), 2)} m³/s along its length. At the upstream end the surface stands ${fmt(beda, 3)} m higher than the same calculation gives when the acceleration term is left out, which is ${fmt(persen, 1)} per cent of the depth there. That difference is the price of accelerating water that entered sideways, and it is the part most often left out of a hand calculation.`;
-  return `Sepanjang ${L} m, saluran ini memungut ${fmt((qStar * L), 2)} m³/s di sepanjang jalannya. Di ujung hulu, muka airnya berdiri ${fmt(beda, 3)} m lebih tinggi daripada hitungan yang sama tanpa suku percepatan, yaitu ${fmt(persen, 1)} persen dari kedalaman di situ. Selisih itu adalah harga mempercepat air yang masuk dari samping, dan justru bagian itulah yang paling sering tertinggal dalam hitungan tangan.`;
+  return {
+    tone,
+    badge: dekat ? x.bKr : x.subkritis,
+    state: keadaan,
+    notice: [
+      id
+        ? `Sepanjang ${fmt(L, 0)} m, saluran ini memungut ${fmt(qStar * L, 2)} m³/s dari samping.`
+        : `Over ${fmt(L, 0)} m the channel picks up ${fmt(qStar * L, 2)} m³/s from the side.`,
+      id
+        ? `Di ujung hulu muka air berdiri ${fmt(beda, 3)} m lebih tinggi daripada hitungan yang sama tanpa suku percepatan, yaitu ${fmt(persen, 1)} persen dari kedalaman di situ.`
+        : `At the upstream end the surface stands ${fmt(beda, 3)} m higher than the same calculation without the acceleration term, which is ${fmt(persen, 1)} per cent of the depth there.`,
+      id
+        ? "Selisih itu adalah harga mempercepat air yang masuk dari samping, dan justru bagian itulah yang paling sering tertinggal dalam hitungan tangan."
+        : "That difference is the price of accelerating water that entered sideways, and it is the part most often left out of a hand calculation.",
+      dekatTeks,
+    ].filter((b): b is string => !!b),
+  };
 }

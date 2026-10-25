@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -27,7 +28,7 @@ import {
   fmtPlain,
   gravityDam,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, F, W, stencilWidth, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -69,8 +70,28 @@ const TXT = {
     rFsO: "Faktor keamanan guling",
     rFsS: "Faktor keamanan geser",
     rBase: "Lebar dasar terkecil yang bebas tarik",
-    aman: "Memenuhi ketiganya",
+    aman: "Memenuhi ketiga syarat lembar ini",
     dipotong: "Muka air melampaui tinggi bendungan",
+    mercu: "Lebar mercu dipotong ke lebar dasar",
+    mercuNote:
+      "Lebar mercu yang dipilih tidak lebih kecil daripada lebar dasarnya, jadi penampangnya tidak lagi segitiga bermercu. Model memotong lebar mercu ke lebar dasar sebelum menghitung, dan seluruh angka di bawah ini menyatakan penampang persegi itu, bukan yang sedang dipilih penggesernya. Perlebar dasarnya atau persempit mercunya.",
+    luarDasar: "Resultan di luar dasar",
+    luarDasarNote:
+      "Resultan gaya tegak jatuh di luar lebar dasarnya sendiri. Rumus tegangan σ = ΣV/B (1 ± 6e/B) mengandaikan seluruh dasar menekan, dan di sini tidak ada bagian dasar yang dapat menahan resultan itu: bendungannya terguling, jadi tegangan tumit dan ujung kaki ditulis “—”.",
+    bKakiT: "Ujung kaki tertarik",
+    bTengah: "Sepertiga tengah",
+    bTumitT: "Tumit tertarik",
+    luarRentang: "Di luar rentang lembar",
+    tarikKaki: "Ujung kaki tertarik, resultan keluar dari sepertiga tengah",
+    fsJujur:
+      "Syarat FSs ≥ 1,5 di lembar ini dipakai untuk faktor geser yang sudah memasukkan kohesi. Pedoman yang dirujuk menuntut faktor geser-gesek yang lebih tinggi untuk beban biasa (USBR 1976 dikutip 3,0, USACE EM 1110-2-2200 dikutip 2,0); angka itu belum diperiksa ke halaman sumbernya, jadi “memenuhi” di sini berarti memenuhi syarat lembar ini, bukan putusan rancangan.",
+    kNm: "kN per m",
+    hW: "Berat badan bendungan",
+    hWRumus: "W = γc · luas penampang ; x̄w dari poligon",
+    hGaya: "Dorongan air dan gaya angkat",
+    hResultan: "Jumlah gaya dan letak resultan",
+    hSigma: "Tegangan di tumit dan ujung kaki",
+    hFs: "Faktor keamanan guling dan geser",
     dipotongNote:
       "Kedalaman air yang dipilih melewati tinggi bendungannya, atau muka air hilirnya melewati muka air hulunya. Keduanya keadaan yang tidak dihitung lembar ini, jadi angkanya dipotong pada batas yang masuk akal sebelum dipakai: air hulu setinggi mercu, dan air hilir setinggi air hulu. Yang tertulis di tabel karena itu bukan keadaan yang sedang dipilih penggesernya. Bendungan beton gravitasi memang boleh dilimpasi pada bagian pelimpahnya, tetapi tekanan air pada bagian yang tidak melimpas tetap berhenti di mercu, dan lembar ini menghitung bagian yang tidak melimpas.",
     tarik: "Tumit tertarik, resultan keluar dari sepertiga tengah",
@@ -79,7 +100,7 @@ const TXT = {
     tarikNote:
       "Resultan jatuh di luar sepertiga tengah dasar, jadi tumitnya tertarik. Yang perlu diperhatikan tentang keadaan ini bukan besarnya tegangan tarik itu melainkan umpan balik yang dimulainya. Beton tidak menahan tarik, jadi tumitnya retak. Retakan itu terhubung dengan waduk, jadi ia terisi air bertekanan penuh. Tekanan angkat karena itu bekerja penuh sepanjang retakan, bukan lagi menurun landai dari tumit ke kaki. Gaya angkat yang naik menggeser resultan lebih jauh lagi ke arah kaki, yang memperpanjang retakan, yang menaikkan angkat lagi. Itu sebabnya aturan sepertiga tengah tidak diperlakukan sebagai batas kenyamanan melainkan sebagai batas mutlak: di sebelah luarnya, kegagalannya memberi makan dirinya sendiri.",
     note:
-      "Dua hal pada lembar ini yang paling sering mengejutkan orang yang baru pertama menghitungnya. Pertama, yang paling sering menjatuhkan hitungan ini bukan dorongan airnya melainkan tekanan angkat di bawah dasarnya. Air yang mendorong muka hulu terlihat dan terasa berbahaya; air yang mengangkat dari bawah tidak terlihat sama sekali, dan pada bendungan tinggi ia menghapus seperempat sampai sepertiga berat betonnya. Matikan tekanan angkatnya di lembar ini dan lihat kedua faktor keamanannya melompat. Itu sebabnya tirisan di dekat tumit, yang biayanya kecil dibandingkan beton, sering menaikkan faktor geser lebih banyak daripada melebarkan dasarnya satu meter. Kedua, menaikkan air hilir tidak selalu menolong, dan sering justru merugikan. Air hilir memang mendorong balik dan mengurangi dorongan mendatar bersihnya, tetapi ia juga menaikkan tekanan angkat di sepanjang dasar. Pada dasar tanpa kohesi, perlawanan gesek yang hilang karena gaya tegak berkurang lebih besar daripada dorongan yang dihemat, sehingga faktor gesernya turun. Yang membalik arahnya adalah kohesi, karena kohesi memberi perlawanan yang tidak bergantung pada gaya tegak sama sekali. Jadi jawaban atas pertanyaan apakah air hilir menolong bukan ya atau tidak, melainkan tergantung pada apa yang menahan dasarnya.",
+      "Dua hal pada lembar ini yang paling sering mengejutkan orang yang baru pertama menghitungnya. Pertama, yang paling sering menjatuhkan hitungan ini bukan dorongan airnya melainkan tekanan angkat di bawah dasarnya. Air yang mendorong muka hulu terlihat dan terasa berbahaya; air yang mengangkat dari bawah tidak terlihat sama sekali, dan pada bendungan tinggi ia menghapus seperempat sampai sepertiga berat betonnya. Matikan tekanan angkatnya di lembar ini dan lihat kedua faktor keamanannya melompat. Itu sebabnya tirisan di dekat tumit, yang biayanya kecil dibandingkan beton, sering menaikkan faktor geser lebih banyak daripada melebarkan dasarnya satu meter. Kedua, menaikkan air hilir tidak selalu menolong, dan sering justru merugikan. Air hilir memang mendorong balik dan mengurangi dorongan mendatar bersihnya, tetapi ia juga menaikkan tekanan angkat di sepanjang dasar. Faktor gesernya naik hanya bila gesekan yang hilang karena tambahan angkat, μ kali tambahan angkat itu, lebih kecil daripada dorongan yang dihemat dikali faktor geser yang sedang berlaku. Pada dasar tanpa kohesi syarat itu sama dengan tambahan angkat yang lebih kecil daripada dorongan yang dihemat dikali ΣV/ΣH, jadi hasilnya bergantung pada bentuk diagram angkat dan tinggi air hilirnya, bukan hanya pada ada tidaknya kohesi. Jadi jawaban atas pertanyaan apakah air hilir menolong bukan ya atau tidak; lembar ini menghitungnya untuk keadaan yang sedang dipilih.",
   },
   en: {
     title: "Dam stability",
@@ -111,8 +132,28 @@ const TXT = {
     rFsO: "Factor of safety against overturning",
     rFsS: "Factor of safety against sliding",
     rBase: "Smallest tension free base width",
-    aman: "All three are satisfied",
+    aman: "Meets the three requirements of this sheet",
     dipotong: "The water level exceeds the dam height",
+    mercu: "Crest width clipped to the base width",
+    mercuNote:
+      "The chosen crest width is not smaller than the base width, so the section is no longer a crested triangle. The model clips the crest width to the base width before computing, and every figure below describes that rectangular section, not the one the sliders are set to. Widen the base or narrow the crest.",
+    luarDasar: "Resultant outside the base",
+    luarDasarNote:
+      "The resultant of the vertical forces falls outside the base itself. The stress formula σ = ΣV/B (1 ± 6e/B) assumes the whole base is in compression, and here no part of the base can carry that resultant: the dam overturns, so the heel and toe stresses are shown as “—”.",
+    bKakiT: "Toe in tension",
+    bTengah: "Middle third",
+    bTumitT: "Heel in tension",
+    luarRentang: "Outside the range of this sheet",
+    tarikKaki: "The toe is in tension, the resultant leaves the middle third",
+    fsJujur:
+      "The FSs ≥ 1.5 requirement on this sheet is applied to a sliding factor that already includes cohesion. The guidelines cited ask for a higher shear-friction factor under usual loading (USBR 1976 quoted as 3.0, USACE EM 1110-2-2200 quoted as 2.0); those figures have not been checked against the source pages, so “meets” here means meets this sheet's requirement, not a design verdict.",
+    kNm: "kN per m",
+    hW: "Weight of the dam body",
+    hWRumus: "W = γc · section area ; x̄w from the polygon",
+    hGaya: "Water thrust and uplift",
+    hResultan: "Force sums and resultant position",
+    hSigma: "Stress at heel and toe",
+    hFs: "Factors of safety against overturning and sliding",
     dipotongNote:
       "The chosen water depth passes the height of the dam, or the tailwater passes the headwater. Neither state is computed on this sheet, so the figures are clipped to sensible limits before use: headwater at crest level, tailwater at headwater level. What the table shows is therefore not the state the sliders are set to. A concrete gravity dam may indeed be overtopped across its spillway section, but the water load on a non-spillway section still stops at the crest, and this sheet computes a non-spillway section.",
     tarik: "The heel is in tension, the resultant leaves the middle third",
@@ -121,7 +162,7 @@ const TXT = {
     tarikNote:
       "The resultant falls outside the middle third of the base, so the heel is in tension. What matters about this state is not the size of that tensile stress but the feedback it starts. Concrete does not take tension, so the heel cracks. The crack connects to the reservoir, so it fills with water at full pressure. Uplift therefore acts in full along the crack rather than tapering from heel to toe. The increased uplift pushes the resultant further towards the toe, which lengthens the crack, which raises the uplift again. That is why the middle third rule is treated not as a comfort margin but as an absolute limit: beyond it, the failure feeds itself.",
     note:
-      "Two things on this sheet most often surprise someone computing it for the first time. First, what most often fails this calculation is not the water pushing on the face but the uplift beneath the base. Water pushing on the upstream face is visible and feels dangerous; water lifting from below is not visible at all, and on a tall dam it cancels a quarter to a third of the concrete weight. Switch the uplift off on this sheet and watch both factors of safety jump. That is why drains near the heel, cheap compared with concrete, often raise the sliding factor more than widening the base by a metre. Second, raising the tailwater does not always help, and often hurts. Tailwater does push back and reduce the net horizontal thrust, but it also raises the uplift along the whole base. On a base without cohesion, the frictional resistance lost to the reduced vertical force exceeds the thrust saved, so the sliding factor falls. What reverses the direction is cohesion, because cohesion supplies resistance that does not depend on the vertical force at all. So the answer to whether tailwater helps is not yes or no but depends on what holds the base.",
+      "Two things on this sheet most often surprise someone computing it for the first time. First, what most often fails this calculation is not the water pushing on the face but the uplift beneath the base. Water pushing on the upstream face is visible and feels dangerous; water lifting from below is not visible at all, and on a tall dam it cancels a quarter to a third of the concrete weight. Switch the uplift off on this sheet and watch both factors of safety jump. That is why drains near the heel, cheap compared with concrete, often raise the sliding factor more than widening the base by a metre. Second, raising the tailwater does not always help, and often hurts. Tailwater does push back and reduce the net horizontal thrust, but it also raises the uplift along the whole base. The sliding factor rises only when the friction lost to the extra uplift, μ times that extra uplift, is smaller than the thrust saved times the sliding factor in force. On a base without cohesion that condition is the extra uplift being smaller than the thrust saved times ΣV/ΣH, so the outcome depends on the shape of the uplift diagram and the tailwater height, not only on whether there is cohesion. So the answer to whether tailwater helps is not yes or no; this sheet computes it for the state chosen.",
   },
 } as const;
 
@@ -167,11 +208,87 @@ export function StabilitasBendunganClient() {
   const dipotong = H > Hd || Ht > Hp;
   const r = gravityDam(Hd, crest, B, Hp, Htp, mu, coh, residual, DRAIN_AT, upliftOn);
 
-  const gagal = r.tension || r.fsSliding < FS_SLIDE_MIN || r.fsOverturning < FS_OVER_MIN;
+  /* Mercu dipotong ke dasar oleh model (a = min(a, B)) bila B ≤ a; r.valid
+     salah. Ditandai, bukan dipotong diam-diam. */
+  const mercuDipotong = !r.valid && B <= crest;
+  /* |e| > B/2: resultan di luar dasar, rumus σ tidak berlaku. */
+  const luarDasar = Math.abs(r.eccentricity) > B / 2 || !Number.isFinite(r.eccentricity);
+  const tidakSah = dipotong || mercuDipotong || luarDasar;
+  const kurangGeser = r.fsSliding < FS_SLIDE_MIN;
+  const kurangGuling = r.fsOverturning < FS_OVER_MIN;
+  const tarikTumit = r.tension && r.eccentricity > 0;
+  const gagal = r.tension || kurangGeser || kurangGuling;
+  const kosong = "—";
+  const eB = r.eccentricity / B;
+  /* Nilai antara untuk langkah hitungan, dari hasil model yang sama. */
+  const luasBadan = r.weight / CONCRETE_UNIT_WEIGHT;
+  /* Tinggi tekan angkat di garis tirisan, sama dengan damCore: tanpa
+     tirisan (ku ≥ 1) diagramnya lurus dari H ke Ht. */
+  const hTiris = residual >= 1 ? Hp - DRAIN_AT * (Hp - Htp) : Htp + residual * (Hp - Htp);
+  const badgeGagal = r.tension
+    ? tarikTumit
+      ? x.tarik
+      : x.tarikKaki
+    : kurangGeser
+      ? x.geser
+      : kurangGuling
+        ? x.guling
+        : x.aman;
+  const nada: Tone = tidakSah ? "invalid" : gagal ? "caution" : "pass";
 
   const ref = useCanvas(
     (ctx, w, ch) => {
-      const pinggir = Math.max(B * 0.42, 8);
+      /*
+       * Ruang kiri dan kanan dihitung dari lebar tulisan "tumit" dan
+       * "ujung kaki" yang sebenarnya. Pada layar 390 piksel ruang tetap
+       * 0,42 B memotong "ujung kaki" di tepi kanan. Pemetaannya meniru
+       * drawStructure (bantalan 58/26/26/52, skala sama kedua sumbu).
+       */
+      ctx.font = F.label;
+      const perlu = (teks: string) => 24 + 14 + 4 + stencilWidth(ctx, teks) + 6;
+      const perluKiri = perlu(T.heelLabel);
+      const perluKanan = perlu(T.toeLabelDam);
+      const judul = dipotong
+        ? x.dipotong
+        : mercuDipotong
+          ? x.mercu
+          : luarDasar
+            ? x.luarDasar
+            : r.tension
+              ? tarikTumit
+                ? x.tarik
+                : x.tarikKaki
+              : undefined;
+      const zMinG = -Hd * 0.2 * 2;
+      /* Di HP judul keadaan dipecah dua baris; ruang di atas mercu
+         ditambah supaya judul itu tidak menutup mercunya. */
+      const zMaxG = Hd * (w < 600 && judul ? 1.45 : 1.16);
+      const plotW = Math.max(10, w - 58 - 26);
+      const plotH = Math.max(10, ch - 26 - 52);
+      const ruang = (pL: number, pR: number) => {
+        const spanX = B + pL + pR;
+        const s = Math.min(plotW / spanX, plotH / (zMaxG - zMinG));
+        const ox = 58 + (plotW - spanX * s) / 2;
+        return { kiri: ox + pL * s - 58, kanan: 58 + plotW - (ox + (pL + B) * s) };
+      };
+      /*
+       * Layar sempit (HP): ruang mendatar untuk "tumit" dan "ujung kaki"
+       * TIDAK dicadangkan. Di bidang selebar dua ratus lima puluh piksel
+       * keduanya menuntut seratus dua puluh piksel tiap sisi, dan pinggir
+       * yang dilebarkan sampai muat menyusutkan bendungannya menjadi
+       * gambar kecil di sudut dengan seluruh label bertumpuk di atasnya.
+       * Di HP kedua nama itu ditulis lewat penempat label di bawah dasar,
+       * dengan alas kertas, jadi tidak perlu ruang di luar badan.
+       */
+      const sempit = w < 600;
+      let pinggir = Math.max(B * (sempit ? 0.3 : 0.42), sempit ? 6 : 8);
+      let pinggirKanan = pinggir;
+      for (let i = 0; i < (sempit ? 0 : 40); i++) {
+        const rr = ruang(pinggir, pinggirKanan);
+        if (rr.kiri >= perluKiri && rr.kanan >= perluKanan) break;
+        if (rr.kiri < perluKiri) pinggir *= 1.08;
+        if (rr.kanan < perluKanan) pinggirKanan *= 1.08;
+      }
 
       /* Panah gaya diskalakan terhadap gaya terbesar di lembar ini, supaya
          panjangnya membawa data dan bukan hiasan. */
@@ -204,17 +321,22 @@ export function StabilitasBendunganClient() {
           z: Htp / 3,
           dx: -px(r.thrustDown),
           dy: 0,
-          text: `Pd ${fmtPlain(r.thrustDown, 0)} kN`,
+          /* Nama Pd ditulis sebagai label garis di atas air hilir, bukan
+             di ujung panahnya: panahnya pendek sekali, sehingga namanya
+             jatuh tepat di ujung kaki dan menyentuh penunjuk "ujung kaki". */
           color: C.water,
           root: true,
         });
+      /* Panah U tanpa teks: teks panah tegak ditulis di ujungnya, dan
+         pada setelan bawaan ujung panah W jatuh hampir di atasnya, jadi
+         penempat label mendorong teks U turun menimpa panahnya sendiri.
+         Namanya ditulis sebagai label garis di sebelah kanan batangnya. */
       if (upliftOn)
         vektor.push({
           x: r.upliftArm,
           z: 0,
           dx: 0,
           dy: -px(r.uplift),
-          text: `U ${fmtPlain(r.uplift, 0)} kN`,
           color: C.critical,
           root: true,
         });
@@ -243,8 +365,39 @@ export function StabilitasBendunganClient() {
           ]
         : [];
 
+      const titikU = { x: r.upliftArm + B * 0.035, z: 0 };
+      /* Ordinat diagram tekanan angkat (sudah diskalakan) di absis x:
+         sisi bawah poligonnya, tanpa dua titik alas di z = 0. */
+      const zDiagram = (xx: number) => {
+        if (!upliftOn) return 0;
+        const pts = r.upliftShape.slice(1, -1);
+        let z = 0;
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[i + 1];
+          if (b.x - a.x < 1e-9 || xx < a.x || xx > b.x) continue;
+          const zz = a.z + ((b.z - a.z) * (xx - a.x)) / (b.x - a.x);
+          z = Math.min(z, (zz / angkatMaks) * tinggiDiagram);
+        }
+        return z;
+      };
+      const zSepertiga = Math.min(zDiagram((2 * B) / 3), -tinggiDiagram * 0.35);
       const garis: StructureLine[] = [
         ...diagram,
+        ...(upliftOn
+          ? [
+              {
+                pts: [titikU, titikU],
+                color: C.critical,
+                weight: W.thin,
+                dash: DASH.solid,
+                label: `U ${fmtPlain(r.uplift, 0)} kN`,
+                labelAt: 0,
+                labelDy: -Math.max(px(r.uplift) / 2, 8),
+                labelAlign: "left" as const,
+              },
+            ]
+          : []),
         {
           /* Sepertiga tengah dasar, batas yang menentukan segalanya */
           pts: [
@@ -258,11 +411,17 @@ export function StabilitasBendunganClient() {
         {
           pts: [
             { x: (2 * B) / 3, z: 0 },
-            { x: (2 * B) / 3, z: -tinggiDiagram * 0.35 },
+            { x: (2 * B) / 3, z: zSepertiga },
           ],
           color: C.critical,
           weight: W.hair,
           dash: DASH.axis,
+          /*
+           * Nama ditulis di BAWAH diagram tekanan angkat, rata kiri dari
+           * garisnya (ke arah ujung kaki, tempat diagramnya makin dangkal).
+           * Sebelumnya rata tengah enam belas piksel di bawah ujung garis
+           * yang pendek, dan tulisannya menimpa garis diagram itu.
+           */
           /*
            * Namanya diangkat mendekat ke garisnya sendiri, dari tiga puluh
            * empat piksel menjadi enam belas.
@@ -273,9 +432,13 @@ export function StabilitasBendunganClient() {
            * belas piksel bukan jarak, itu tulisan setinggi dua belas piksel
            * yang kebetulan belum bertindih.
            */
-          label: T.middleThird,
+          /* Di HP namanya tidak ditulis: satu-satunya ruang yang tersisa
+             menimpa diagram tekanan angkat, dan pita "sepertiga tengah"
+             di skala rezim di atas gambar sudah menamainya. */
+          label: sempit ? undefined : T.middleThird,
           labelAt: 1,
-          labelDy: 16,
+          labelDy: 12,
+          labelAlign: "left",
         },
         {
           /* Garis kerja resultan pada dasarnya */
@@ -283,7 +446,10 @@ export function StabilitasBendunganClient() {
             { x: r.resultantAt, z: Hd * 0.34 },
             { x: r.resultantAt, z: -tinggiDiagram * 0.55 },
           ],
-          color: r.tension ? C.signal : C.energy,
+          /* Merah sinyal hanya bila resultannya di luar dasar (rumus σ
+             gugur); tumit tertarik adalah kegagalan syarat, bukan di luar
+             rentang. */
+          color: luarDasar ? C.signal : C.energy,
           weight: W.thin,
           dash: DASH.phantom,
           label: `${T.resultantLabel} ${fmtPlain(r.resultantAt, 2)} m`,
@@ -291,6 +457,52 @@ export function StabilitasBendunganClient() {
           labelDy: -12,
         },
       ];
+      if (Htp > 0)
+        garis.push({
+          pts: [
+            { x: B, z: Htp },
+            { x: B, z: Htp },
+          ],
+          color: C.water,
+          weight: W.thin,
+          dash: DASH.solid,
+          label: `Pd ${fmtPlain(r.thrustDown, 0)} kN`,
+          labelAt: 0,
+          labelDy: -10,
+          labelAlign: "left",
+        });
+      /* Di HP nama tumit dan ujung kaki ditulis sebagai label (lihat
+         catatan pinggir di atas): tumit rata kanan di sebelah hulu, ujung
+         kaki rata kiri di sebelah hilir, keduanya tepat di bawah dasar. */
+      if (sempit)
+        garis.push(
+          {
+            pts: [
+              { x: 0, z: 0 },
+              { x: 0, z: 0 },
+            ],
+            color: C.ink2,
+            weight: W.hair,
+            dash: DASH.solid,
+            label: T.heelLabel,
+            labelAt: 0,
+            labelDy: 12,
+            labelAlign: "right",
+          },
+          {
+            pts: [
+              { x: B, z: 0 },
+              { x: B, z: 0 },
+            ],
+            color: C.ink2,
+            weight: W.hair,
+            dash: DASH.solid,
+            label: T.toeLabelDam,
+            labelAt: 0,
+            labelDy: 12,
+            labelAlign: "left",
+          }
+        );
       if (residual < 1 && upliftOn)
         garis.push({
           pts: [
@@ -300,9 +512,16 @@ export function StabilitasBendunganClient() {
           color: C.ink3,
           weight: W.hair,
           dash: DASH.axis,
-          label: T.drainLine,
+          /* Rata kiri dari garisnya, ke arah badan: dulu rata tengah dan
+             bertabrakan dengan teks Pu, lalu didorong turun sampai
+             menempel nama "tumit". */
+          /* Di HP penempat label mendorong nama ini jauh dari garisnya
+             (ruang di atasnya dipakai U dan W), jadi tidak ditulis; nama
+             garis tirisan ada di baris masukan ku. */
+          label: sempit ? undefined : T.drainLine,
           labelAt: 0,
-          labelDy: -26,
+          labelDy: -8,
+          labelAlign: "left",
         });
 
       drawStructure(
@@ -311,7 +530,7 @@ export function StabilitasBendunganClient() {
         ch,
         {
           xMin: -pinggir,
-          xMax: B + pinggir,
+          xMax: B + pinggirKanan,
           /*
            * Ruang di bawah dasar dilebarkan dari satu setengah kali tinggi
            * diagram menjadi dua kali.
@@ -324,8 +543,8 @@ export function StabilitasBendunganClient() {
            * bersentuhan dan terbaca sebagai satu kalimat panjang. Yang
            * kurang bukan aturan penempatannya melainkan ruangnya.
            */
-          zMin: -tinggiDiagram * 2,
-          zMax: Hd * 1.16,
+          zMin: zMinG,
+          zMax: zMaxG,
           bodies: [{ pts: r.section, hatch: "concrete" }],
           waters: [
             {
@@ -339,7 +558,7 @@ export function StabilitasBendunganClient() {
                   {
                     surface: [
                       { x: B, z: Htp },
-                      { x: B + pinggir, z: Htp },
+                      { x: B + pinggirKanan, z: Htp },
                     ],
                   },
                 ]
@@ -350,12 +569,14 @@ export function StabilitasBendunganClient() {
           dims: [
             { axis: "h", at: 0, from: 0, to: B, text: `B ${fmtPlain(B, 1)} m`, offset: 66 },
           ],
-          callouts: [
-            { x: 0, z: 0, dx: -24, dy: 16, text: T.heelLabel },
-            { x: B, z: 0, dx: 22, dy: 16, text: T.toeLabelDam },
-          ],
-          heading: dipotong ? x.dipotong : r.tension ? x.tarik : undefined,
-          headingColor: C.signal,
+          callouts: sempit
+            ? []
+            : [
+                { x: 0, z: 0, dx: -24, dy: 16, text: T.heelLabel },
+                { x: B, z: 0, dx: 22, dy: 16, text: T.toeLabelDam },
+              ],
+          heading: judul,
+          headingColor: tidakSah ? C.signal : C.caution,
           axisX: T.axSection,
           axisZ: T.elevation,
         },
@@ -367,6 +588,34 @@ export function StabilitasBendunganClient() {
 
   return (
     <LabShell
+      status={
+        dipotong || mercuDipotong ? (
+          <RegimeScale
+            symbol="e/B"
+            value={NaN}
+            invalid
+            pesan={dipotong ? x.dipotong : x.mercu}
+            digits={3}
+            bands={[{ from: -0.5, to: 0.5, label: x.luarRentang, tone: "invalid" }]}
+          />
+        ) : (
+          /* Batas ±1/6 dari tension: |e| > B/6 (aturan sepertiga tengah,
+             USBR 1976). |e| > B/2 lewat ujung skala = resultan di luar
+             dasar, satu-satunya keadaan merah sinyal di skala ini. */
+          <RegimeScale
+            symbol="e/B"
+            value={eB}
+            invalid={luarDasar}
+            pesan={luarDasar ? x.luarDasar : undefined}
+            digits={3}
+            bands={[
+              { from: -0.5, to: -1 / 6, label: x.bKakiT, tone: "caution" },
+              { from: -1 / 6, to: 1 / 6, label: x.bTengah, tone: "pass" },
+              { from: 1 / 6, to: 0.5, label: x.bTumitT, tone: "caution" },
+            ]}
+          />
+        )
+      }
       sheet="DM-01"
       subject={SUBJECTS.DM[lang]}
       title={x.title}
@@ -398,11 +647,14 @@ export function StabilitasBendunganClient() {
           number="DM-01"
           title={x.sheetTitle}
           rev="A"
+          /* Di HP bingkai 56vh lebih tinggi daripada gambarnya; dibatasi
+             118vw. Di layar lebar 56vh tetap yang menentukan. */
+          height="clamp(360px, min(56vh, 118vw), 620px)"
           cells={[
             { label: t.tbUnit, value: "SI (m, kN, kPa)" },
-            { label: "e", value: `${fmt(r.eccentricity, 2)} m`, tint: r.tension ? C.signal : C.critical },
-            { label: "FSg", value: fmt(r.fsOverturning, 2) },
-            { label: "FSs", value: fmt(r.fsSliding, 2), tint: r.fsSliding < FS_SLIDE_MIN ? C.signal : undefined },
+            { label: "e", value: `${fmt(r.eccentricity, 2)} m`, tint: luarDasar ? C.signal : r.tension ? C.caution : C.critical },
+            { label: "FSg", value: fmt(r.fsOverturning, 2), tint: kurangGuling ? C.caution : undefined },
+            { label: "FSs", value: fmt(r.fsSliding, 2), tint: kurangGeser ? C.caution : undefined },
             { label: "γc", value: `${fmtPlain(CONCRETE_UNIT_WEIGHT, 0)} kN/m³` },
           ]}
         >
@@ -446,50 +698,76 @@ export function StabilitasBendunganClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={gagal ? undefined : C.water} alert={gagal}>
-                {r.tension
-                  ? x.tarik
-                  : r.fsSliding < FS_SLIDE_MIN
-                    ? x.geser
-                    : r.fsOverturning < FS_OVER_MIN
-                      ? x.guling
-                      : x.aman}
-              </Flag>
-              {dipotong && <Flag alert>{x.dipotong}</Flag>}
-            </div>
-            {dipotong && (
-              <div className="mb-2.5">
-                <Note>{x.dipotongNote}</Note>
-              </div>
-            )}
-            {r.tension && (
-              <div className="mb-2.5">
-                <Note>{x.tarikNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "W", label: x.rW, value: fmt(r.weight, 0), unit: "kN per m" },
-                { symbol: "U", label: x.rU, value: fmt(r.uplift, 0), unit: "kN per m", tint: upliftOn ? C.critical : undefined },
-                { symbol: "Pu", label: x.rPu, value: fmt(r.thrustUp, 0), unit: "kN per m", tint: C.water },
-                { symbol: "Pd", label: x.rPd, value: fmt(r.thrustDown, 0), unit: "kN per m", tint: C.water },
-                { symbol: "ΣV", label: x.rV, value: fmt(r.sumV, 0), unit: "kN per m", strong: true },
-                { symbol: "ΣH", label: x.rHh, value: fmt(r.sumH, 0), unit: "kN per m", strong: true },
+                { symbol: "FSg", label: x.rFsO, value: fmt(r.fsOverturning, 3), tint: kurangGuling ? C.caution : undefined, strong: true },
+                { symbol: "FSs", label: x.rFsS, value: fmt(r.fsSliding, 3), tint: kurangGeser ? C.caution : undefined, strong: true },
+                { symbol: "e", label: x.rE, value: fmt(r.eccentricity, 3), unit: "m", tint: luarDasar ? C.signal : r.tension ? C.caution : C.critical, strong: true },
+                { symbol: "W", label: x.rW, value: fmt(r.weight, 0), unit: x.kNm },
+                { symbol: "U", label: x.rU, value: fmt(r.uplift, 0), unit: x.kNm, tint: upliftOn ? C.critical : undefined },
+                { symbol: "Pu", label: x.rPu, value: fmt(r.thrustUp, 0), unit: x.kNm, tint: C.water },
+                { symbol: "Pd", label: x.rPd, value: fmt(r.thrustDown, 0), unit: x.kNm, tint: C.water },
+                { symbol: "ΣV", label: x.rV, value: fmt(r.sumV, 0), unit: x.kNm },
+                { symbol: "ΣH", label: x.rHh, value: fmt(r.sumH, 0), unit: x.kNm },
                 { symbol: "x̄", label: x.rX, value: fmt(r.resultantAt, 3), unit: "m" },
-                { symbol: "e", label: x.rE, value: fmt(r.eccentricity, 3), unit: "m", tint: r.tension ? C.signal : C.critical },
-                { symbol: "σt", label: x.rHeel, value: fmt(r.heelStress, 1), unit: "kPa", tint: r.heelStress < 0 ? C.signal : undefined },
-                { symbol: "σk", label: x.rToe, value: fmt(r.toeStress, 1), unit: "kPa" },
-                { symbol: "FSg", label: x.rFsO, value: fmt(r.fsOverturning, 3), tint: r.fsOverturning < FS_OVER_MIN ? C.signal : undefined, strong: true },
-                { symbol: "FSs", label: x.rFsS, value: fmt(r.fsSliding, 3), tint: r.fsSliding < FS_SLIDE_MIN ? C.signal : undefined, strong: true },
+                { symbol: "σt", label: x.rHeel, value: luarDasar ? kosong : fmt(r.heelStress, 1), unit: luarDasar ? undefined : "kPa", tint: !luarDasar && r.heelStress < 0 ? C.caution : undefined },
+                { symbol: "σk", label: x.rToe, value: luarDasar ? kosong : fmt(r.toeStress, 1), unit: luarDasar ? undefined : "kPa", tint: !luarDasar && r.toeStress < 0 ? C.caution : undefined },
                 { symbol: "Bmin", label: x.rBase, value: fmt(r.baseNoTension, 2), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hW,
+                    rumus: <span>{x.hWRumus}</span>,
+                    isi: `${fmt(CONCRETE_UNIT_WEIGHT, 0)} · ${fmt(luasBadan, 1)} ; x̄w = ${fmt(r.weightArm, 3)} m`,
+                    hasil: fmt(r.weight, 0),
+                    satuan: x.kNm,
+                  },
+                  {
+                    judul: x.hGaya,
+                    rumus: (<><span>Pu =</span><Frac num="γw · H²" den="2" /><span>; Pd =</span><Frac num="γw · Ht²" den="2" /><span>; U = luas diagram angkat</span></>),
+                    isi: upliftOn
+                      ? `Pu = ½ · ${fmt(WATER_UNIT_WEIGHT, 2)} · ${fmt(Hp, 1)}² = ${fmt(r.thrustUp, 0)} ; Pd = ½ · ${fmt(WATER_UNIT_WEIGHT, 2)} · ${fmt(Htp, 1)}² = ${fmt(r.thrustDown, 0)} ; U: ${fmt(Hp, 1)} m (${T.heelLabel}), ${fmt(hTiris, 2)} m (${fmtPlain(DRAIN_AT, 1)} B), ${fmt(Htp, 1)} m (${T.toeLabelDam}) · ${fmt(WATER_UNIT_WEIGHT, 2)} ; x̄u = ${fmt(r.upliftArm, 3)} m`
+                      : `Pu = ½ · ${fmt(WATER_UNIT_WEIGHT, 2)} · ${fmt(Hp, 1)}² = ${fmt(r.thrustUp, 0)} ; Pd = ½ · ${fmt(WATER_UNIT_WEIGHT, 2)} · ${fmt(Htp, 1)}² = ${fmt(r.thrustDown, 0)} ; U = 0`,
+                    hasil: fmt(r.uplift, 0),
+                    satuan: x.kNm,
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hResultan,
+                    rumus: (<><span>ΣV = W − U ; ΣH = Pu − Pd ; x̄ =</span><Frac num="W x̄w − U x̄u + Pu H/3 − Pd Ht/3" den="ΣV" /><span>; e = x̄ − B/2</span></>),
+                    isi: `ΣV = ${fmt(r.weight, 0)} − ${fmt(r.uplift, 0)} = ${fmt(r.sumV, 0)} ; ΣH = ${fmt(r.thrustUp, 0)} − ${fmt(r.thrustDown, 0)} = ${fmt(r.sumH, 0)} ; x̄ = ${fmt(r.resultantAt, 3)} ; e = ${fmt(r.resultantAt, 3)} − ${fmt(B / 2, 2)}`,
+                    hasil: fmt(r.eccentricity, 3),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hSigma,
+                    rumus: (<><span>σ =</span><Frac num="ΣV" den="B" /><span>( 1 ∓ 6e/B )</span></>),
+                    isi: luarDasar
+                      ? x.luarDasar
+                      : `${fmt(r.sumV, 0)} / ${fmt(B, 1)} · ( 1 − 6 · ${fmt(r.eccentricity, 3)} / ${fmt(B, 1)} ) = ${fmt(r.heelStress, 1)} ; ( 1 + … ) = ${fmt(r.toeStress, 1)}`,
+                    hasil: luarDasar ? kosong : `${fmt(r.heelStress, 1)} ; ${fmt(r.toeStress, 1)}`,
+                    satuan: luarDasar ? undefined : "kPa",
+                  },
+                  {
+                    judul: x.hFs,
+                    rumus: (<><span>FSg =</span><Frac num="W (B − x̄w) + Pd Ht/3" den="Pu H/3 + U (B − x̄u)" /><span>; FSs =</span><Frac num="μ ΣV + c B" den="ΣH" /></>),
+                    isi: `FSg = ${fmt(r.fsOverturning, 3)} ; FSs = ( ${fmt(mu, 2)} · ${fmt(r.sumV, 0)} + ${fmt(coh, 0)} · ${fmt(B, 1)} ) / ${fmt(r.sumH, 0)}`,
+                    hasil: `${fmt(r.fsOverturning, 3)} ; ${fmt(r.fsSliding, 3)}`,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Hd, crest, B, Hp, Htp, mu, coh, residual, upliftOn, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={dipotong ? x.dipotong : mercuDipotong ? x.mercu : luarDasar ? x.luarDasar : badgeGagal}
+            {...notice(Hd, crest, B, Hp, Htp, mu, coh, residual, upliftOn, { dipotong, mercuDipotong, luarDasar }, x, lang)}
+          />
         </>
       }
       verification={
@@ -529,6 +807,12 @@ export function StabilitasBendunganClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) angkat menghapus … % berat (cabang bila
+ * angkat ditiadakan); (b) lebarkan 1 m vs tirisan; (c) air hilir naik 6 m,
+ * alasannya dari perbandingan yang dihitung; (d) catatan di luar rentang,
+ * tarik, dan kejujuran syarat FS.
+ */
 function notice(
   Hd: number,
   crest: number,
@@ -539,21 +823,80 @@ function notice(
   coh: number,
   residual: number,
   upliftOn: boolean,
+  luar: { dipotong: boolean; mercuDipotong: boolean; luarDasar: boolean },
+  x: { dipotongNote: string; mercuNote: string; luarDasarNote: string; tarikNote: string; fsJujur: string },
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const en = lang === "en";
   const r = gravityDam(Hd, crest, B, H, Ht, mu, coh, residual, DRAIN_AT, upliftOn);
-  const tanpa = gravityDam(Hd, crest, B, H, Ht, mu, coh, residual, DRAIN_AT, false);
-  const hilirNaik = gravityDam(
-    Hd, crest, B, H, Math.min(Ht + 6, H), mu, coh, residual, DRAIN_AT, upliftOn
-  );
+  const eB = r.eccentricity / B;
+  const tengah = Math.abs(eB) <= 1 / 6;
+
+  const state = luar.luarDasar
+    ? en
+      ? `e/B = ${fmt(eB, 3)}: the resultant falls outside the base; FSg ${fmt(r.fsOverturning, 2)}, FSs ${fmt(r.fsSliding, 2)}.`
+      : `e/B = ${fmt(eB, 3)}: resultan jatuh di luar dasar; FSg ${fmt(r.fsOverturning, 2)}, FSs ${fmt(r.fsSliding, 2)}.`
+    : en
+      ? `e/B = ${fmt(eB, 3)}: the resultant is ${tengah ? "inside" : "outside"} the middle third; FSg ${fmt(r.fsOverturning, 2)}, FSs ${fmt(r.fsSliding, 2)}.`
+      : `e/B = ${fmt(eB, 3)}: resultan ${tengah ? "di dalam" : "di luar"} sepertiga tengah; FSg ${fmt(r.fsOverturning, 2)}, FSs ${fmt(r.fsSliding, 2)}.`;
+
+  const butir: string[] = [];
+  if (luar.dipotong) butir.push(x.dipotongNote);
+  if (luar.mercuDipotong) butir.push(x.mercuNote);
+  if (luar.luarDasar) {
+    butir.push(x.luarDasarNote);
+    return { state, notice: butir };
+  }
+  if (r.tension) butir.push(x.tarikNote);
+
+  const persen = fmt((r.uplift / Math.max(r.weight, 1e-9)) * 100, 0);
+  if (upliftOn) {
+    const tanpa = gravityDam(Hd, crest, B, H, Ht, mu, coh, residual, DRAIN_AT, false);
+    butir.push(
+      en
+        ? `Uplift removes ${fmt(r.uplift, 0)} kN per metre, ${persen} per cent of the concrete weight. Switch it off and the sliding factor goes from ${fmt(r.fsSliding, 2)} to ${fmt(tanpa.fsSliding, 2)}.`
+        : `Tekanan angkat menghapus ${fmt(r.uplift, 0)} kN tiap meter, ${persen} persen berat betonnya. Tiadakan ia dan faktor gesernya berpindah dari ${fmt(r.fsSliding, 2)} ke ${fmt(tanpa.fsSliding, 2)}.`
+    );
+  } else {
+    const dengan = gravityDam(Hd, crest, B, H, Ht, mu, coh, residual, DRAIN_AT, true);
+    butir.push(
+      en
+        ? `Uplift is left out, so these factors are an upper bound. Counting it would remove ${fmt(dengan.uplift, 0)} kN per metre and bring the sliding factor from ${fmt(r.fsSliding, 2)} down to ${fmt(dengan.fsSliding, 2)}.`
+        : `Tekanan angkat sedang ditiadakan, jadi faktor-faktor ini batas atas. Bila diperhitungkan, ia menghapus ${fmt(dengan.uplift, 0)} kN tiap meter dan faktor gesernya turun dari ${fmt(r.fsSliding, 2)} ke ${fmt(dengan.fsSliding, 2)}.`
+    );
+  }
+
   const lebar = gravityDam(Hd, crest, B + 1, H, Ht, mu, coh, residual, DRAIN_AT, upliftOn);
   const tiris = gravityDam(Hd, crest, B, H, Ht, mu, coh, UPLIFT_DRAIN_RESIDUAL, DRAIN_AT, upliftOn);
-
-  const naikTiris = tiris.fsSliding - r.fsSliding;
   const naikLebar = lebar.fsSliding - r.fsSliding;
-  const arah = hilirNaik.fsSliding > r.fsSliding;
+  const naikTiris = tiris.fsSliding - r.fsSliding;
+  const adaTiris = upliftOn && residual > UPLIFT_DRAIN_RESIDUAL;
+  butir.push(
+    en
+      ? `Widening the base by one metre buys ${fmt(naikLebar, 3)} on the sliding factor${adaTiris ? `, while making the drains work buys ${fmt(naikTiris, 3)} and costs far less concrete` : ""}.`
+      : `Melebarkan dasarnya satu meter menaikkan faktor gesernya ${fmt(naikLebar, 3)}${adaTiris ? `, sedangkan membuat tirisannya bekerja menaikkannya ${fmt(naikTiris, 3)} dengan beton jauh lebih sedikit` : ""}.`
+  );
 
-  if (lang === "en")
-    return `Uplift removes ${fmt(r.uplift, 0)} kilonewtons per metre, ${fmt((r.uplift / Math.max(r.weight, 1e-9)) * 100, 0)} per cent of the concrete weight. Switch it off and the sliding factor goes from ${fmt(r.fsSliding, 2)} to ${fmt(tanpa.fsSliding, 2)}. Widening the base by one metre buys ${fmt(naikLebar, 3)}${residual > UPLIFT_DRAIN_RESIDUAL ? `, while making the drains work buys ${fmt(naikTiris, 3)} and costs far less concrete` : ""}. Now raise the tailwater by six metres: the net thrust falls, yet the sliding factor ${arah ? `rises to ${fmt(hilirNaik.fsSliding, 2)}, because the cohesion on this base does not care about the vertical force` : `FALLS to ${fmt(hilirNaik.fsSliding, 2)}, because the friction lost to the extra uplift exceeds the thrust saved`}.`;
-  return `Tekanan angkat menghapus ${fmt(r.uplift, 0)} kilonewton tiap meter, ${fmt((r.uplift / Math.max(r.weight, 1e-9)) * 100, 0)} persen berat betonnya. Matikan ia dan faktor gesernya berpindah dari ${fmt(r.fsSliding, 2)} ke ${fmt(tanpa.fsSliding, 2)}. Melebarkan dasarnya satu meter membeli ${fmt(naikLebar, 3)}${residual > UPLIFT_DRAIN_RESIDUAL ? `, sedangkan membuat tirisannya bekerja membeli ${fmt(naikTiris, 3)} dan jauh lebih sedikit betonnya` : ""}. Sekarang naikkan air hilirnya enam meter: dorongan bersihnya turun, tetapi faktor gesernya ${arah ? `justru naik menjadi ${fmt(hilirNaik.fsSliding, 2)}, karena kohesi pada dasar ini tidak peduli pada gaya tegaknya` : `TURUN menjadi ${fmt(hilirNaik.fsSliding, 2)}, karena gesekan yang hilang akibat tambahan tekanan angkat lebih besar daripada dorongan yang dihemat`}.`;
+  /* Air hilir naik enam meter, dipotong pada air hulu. FSs naik tepat
+     bila μ·ΔU < FSs·ΔPd (dari FSs = (μΣV + cB)/ΣH); pada c = 0 setara
+     ΔU < ΔPd·ΣV/ΣH. Alasannya ditulis dari angka ini, bukan dari ada
+     tidaknya kohesi. */
+  const HtBaru = Math.min(Ht + 6, H);
+  const naik = HtBaru - Ht;
+  if (naik > 1e-9) {
+    const hilir = gravityDam(Hd, crest, B, H, HtBaru, mu, coh, residual, DRAIN_AT, upliftOn);
+    const dU = hilir.uplift - r.uplift;
+    const dPd = hilir.thrustDown - r.thrustDown;
+    const hilang = mu * dU;
+    const hemat = r.fsSliding * dPd;
+    const lebihBaik = hilir.fsSliding > r.fsSliding;
+    butir.push(
+      en
+        ? `Raise the tailwater by ${fmt(naik, 1)} m: the net thrust falls by ${fmt(dPd, 0)} kN and the uplift grows by ${fmt(dU, 0)} kN, so the sliding factor ${lebihBaik ? "rises" : "falls"} to ${fmt(hilir.fsSliding, 2)}. The friction lost, μ·ΔU = ${fmt(hilang, 0)} kN, is ${hilang < hemat ? "smaller" : "larger"} than the thrust saved times the sliding factor, FSs·ΔPd = ${fmt(hemat, 0)} kN.`
+        : `Naikkan air hilirnya ${fmt(naik, 1)} m: dorongan bersihnya turun ${fmt(dPd, 0)} kN dan gaya angkatnya bertambah ${fmt(dU, 0)} kN, jadi faktor gesernya ${lebihBaik ? "naik" : "turun"} menjadi ${fmt(hilir.fsSliding, 2)}. Gesekan yang hilang, μ·ΔU = ${fmt(hilang, 0)} kN, ${hilang < hemat ? "lebih kecil" : "lebih besar"} daripada dorongan yang dihemat dikali faktor gesernya, FSs·ΔPd = ${fmt(hemat, 0)} kN.`
+    );
+  }
+
+  butir.push(x.fsJujur);
+  return { state, notice: butir };
 }

@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Basis, Eq, LabShell } from "@/components/LabShell";
+import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -47,6 +47,20 @@ const TXT = {
     rPeriode: "Periode ayunan",
     tunak: "Aliran tunak, ketiga garisnya berimpit",
     takTunak: "Aliran tak tunak, ketiga garisnya berbeda",
+    rV: "Kecepatan tegak pada saat ini",
+    sState: (k: string, d: string) => `${k}: garis arus dan lintasan terpisah ${d} m.`,
+    sTunak: (k: string) =>
+      `${k}: medannya tidak berubah terhadap waktu, jadi garis arus, lintasan, dan garis jejak berimpit (Δ = 0).`,
+    nTunak: "Naikkan V dan ω di atas nol supaya medannya berubah terhadap waktu dan ketiga garisnya memisah.",
+    nNol: (d: string) =>
+      `Tarik V ke nol: jaraknya menutup dari ${d} m ke 0 m, karena medannya berhenti berubah terhadap waktu dan satu garis mengerjakan tugas tiga garis.`,
+    nCepat: (a: string, b: string) =>
+      `Tigakalikan ω: jaraknya berubah dari ${a} ke ${b} m. Airnya tidak berubah; yang berubah hanya seberapa cepat medannya berubah selama partikel menempuhnya.`,
+    jV: "Kecepatan tegak pada saat pengamatan",
+    jMiring: "Kemiringan garis arus pada saat itu",
+    jAmp: "Simpangan terbesar yang dicapai lintasan sampai saat t",
+    jPisah: "Jarak terjauh lintasan dari garis arus",
+    jT: "Periode ayunan",
     note:
       "Tiga garis ini berbeda meskipun dilahirkan satu medan kecepatan yang sama, dan perbedaannya bukan soal halus melainkan soal yang menentukan cara membaca setiap foto aliran yang pernah diambil. Garis arus menjawab pertanyaan ke mana air menuju pada satu saat, dan ia dibekukan pada saat itu. Lintasan partikel menjawab ke mana satu butir air pergi sepanjang waktu. Garis jejak menjawab di mana semua butir yang pernah lewat satu titik sekarang berada, dan itulah yang terlihat bila zat warna diteteskan terus-menerus dari satu jarum. Yang pertama milik satu saat dan seluruh ruang; yang kedua milik satu butir dan seluruh waktu; yang ketiga milik satu titik dan seluruh waktu. Ketiganya hanya berimpit bila medannya tidak berubah terhadap waktu, dan di situ pula satu-satunya tempat foto zat warna boleh dibaca sebagai garis arus. Setiap foto aliran tak tunak yang pernah dimuat buku teks adalah garis jejak, dan membacanya sebagai garis arus adalah kekeliruan yang jarang diucapkan tetapi sering dilakukan. Perhatikan pula bahwa garis jejak dan lintasan partikel di sini sama-sama sinus tetapi berbeda fase. Keduanya tampak serupa sekilas, dan justru keserupaan itulah yang membuat kekeliruannya bertahan.",
   },
@@ -66,6 +80,20 @@ const TXT = {
     rPeriode: "Period of the oscillation",
     tunak: "Steady flow, the three lines coincide",
     takTunak: "Unsteady flow, the three lines differ",
+    rV: "Vertical velocity at this instant",
+    sState: (k: string, d: string) => `${k}: streamline and pathline stand ${d} m apart.`,
+    sTunak: (k: string) =>
+      `${k}: the field does not change with time, so streamline, pathline and streakline coincide (Δ = 0).`,
+    nTunak: "Raise V and ω above zero so the field changes with time and the three lines separate.",
+    nNol: (d: string) =>
+      `Drag V to zero: the gap closes from ${d} m to 0 m, because the field stops changing with time and a single line does the work of three.`,
+    nCepat: (a: string, b: string) =>
+      `Triple ω: the gap changes from ${a} to ${b} m. Nothing about the water changed; only how fast the field changed while the particle travelled through it.`,
+    jV: "Vertical velocity at the time of observation",
+    jMiring: "Slope of the streamline at that instant",
+    jAmp: "Largest excursion the pathline reaches up to time t",
+    jPisah: "Greatest gap between pathline and streamline",
+    jT: "Period of the oscillation",
     note:
       "These three lines differ although one and the same velocity field gives birth to all of them, and the difference is not a fine point but the thing that decides how every flow photograph ever taken should be read. A streamline answers where the water is heading at one instant, frozen at that instant. A pathline answers where one grain of water went over time. A streakline answers where all the grains that once passed one point are now, and that is what is seen when dye is released continuously from a needle. The first belongs to one instant and all of space; the second to one grain and all of time; the third to one point and all of time. They coincide only when the field does not change with time, and that is also the only case in which a dye photograph may be read as a streamline. Every photograph of an unsteady flow ever printed in a textbook is a streakline, and reading it as a streamline is a mistake seldom spoken of and often made. Notice too that the streakline and the pathline here are both sine curves, differing only in phase. At a glance they look alike, and it is exactly that likeness that keeps the mistake alive.",
   },
@@ -108,7 +136,10 @@ export function GarisAliranClient() {
   const panjang = Math.max(SPAN, U * waktu);
   const r = flowLines(U, V, omega, waktu, panjang);
   const miring = U !== 0 ? (V * Math.cos(omega * waktu)) / U : 0;
-  const amplitudo = omega !== 0 ? Math.abs(V / omega) : Math.abs(V * waktu);
+  /* Simpangan yang BENAR-BENAR dicapai lintasan sampai saat t, bukan
+     |V/ω|: pada ω 0,05, V 1, t 0,5 bedanya 0,5 m lawan 20 m. */
+  const amplitudo = Math.max(0, ...r.pathline.map((p) => Math.abs(p.y)));
+  const vSaatIni = V * Math.cos(omega * waktu);
   const perioda = omega !== 0 ? (2 * Math.PI) / omega : Infinity;
 
   /*
@@ -118,7 +149,7 @@ export function GarisAliranClient() {
   const puncak = Math.max(
     ...[...r.streamline, ...r.pathline, ...r.streakline].map((p) => Math.abs(p.y))
   );
-  const batasGambar = Math.max(puncak * 1.25, amplitudo * 1.35, SPAN * 0.3);
+  const batasGambar = Math.max(puncak * 1.25, SPAN * 0.3);
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -282,14 +313,10 @@ export function GarisAliranClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag tint={r.steady ? C.water : C.critical}>
-                {r.steady ? x.tunak : x.takTunak}
-              </Flag>
-            </div>
             <ResultTable
               rows={[
                 { symbol: "Δ", label: x.rPisah, value: fmt(r.separation, 3), unit: "m", tint: r.steady ? undefined : C.critical, strong: true },
+                { symbol: "v(t)", label: x.rV, value: fmt(vSaatIni, 3), unit: "m/s" },
                 { symbol: "dy/dx", label: x.rMiring, value: fmt(miring, 4), tint: C.critical },
                 { symbol: "A", label: x.rAmp, value: fmt(amplitudo, 3), unit: "m", tint: C.water },
                 {
@@ -300,11 +327,65 @@ export function GarisAliranClient() {
                 },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jV,
+                    rumus: <span>v(t) = V · cos ωt</span>,
+                    isi: `${fmt(V, 1)} · cos( ${fmt(omega, 2)} · ${fmt(waktu, 1)} )`,
+                    hasil: fmt(vSaatIni, 3),
+                    satuan: "m/s",
+                  },
+                  {
+                    judul: x.jMiring,
+                    rumus: (<><span>dy/dx =</span><Frac num="v(t)" den="U" /></>),
+                    isi: `${fmt(vSaatIni, 4)} / ${fmt(U, 1)}`,
+                    hasil: fmt(miring, 4),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.jAmp,
+                    rumus:
+                      omega !== 0 ? (
+                        <span>A = maks | (V/ω) · sin ωτ |, 0 ≤ τ ≤ t</span>
+                      ) : (
+                        <span>A = maks | V · τ |, 0 ≤ τ ≤ t</span>
+                      ),
+                    isi:
+                      omega !== 0
+                        ? `maks | ( ${fmt(V, 1)} / ${fmt(omega, 2)} ) · sin( ${fmt(omega, 2)} · τ ) |, τ ≤ ${fmt(waktu, 1)}`
+                        : `${fmt(V, 1)} · ${fmt(waktu, 1)}`,
+                    hasil: fmt(amplitudo, 3),
+                    satuan: "m",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.jPisah,
+                    rumus: <span>Δ = maks | y_lintasan − (v(t)/U) · x |</span>,
+                    isi: `maks | y_lintasan − ${fmt(miring, 4)} · x |, 0 ≤ x ≤ ${fmt(U * waktu, 2)}`,
+                    hasil: fmt(r.separation, 3),
+                    satuan: "m",
+                    tint: r.steady ? undefined : C.critical,
+                  },
+                  {
+                    judul: x.jT,
+                    rumus: (<><span>T =</span><Frac num="2π" den="ω" /></>),
+                    isi: omega !== 0 ? `2π / ${fmt(omega, 2)}` : `2π / 0`,
+                    hasil: Number.isFinite(perioda) ? fmt(perioda, 2) : "∞",
+                    satuan: "s",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(U, V, omega, waktu, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.steady ? "water" : "neutral"}
+            badge={r.steady ? x.tunak : x.takTunak}
+            state={r.steady ? x.sTunak(x.tunak) : x.sState(x.takTunak, fmt(r.separation, 2))}
+            notice={notice(U, V, omega, waktu, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksFlowLines(U, V, omega, waktu)} />}
@@ -347,12 +428,19 @@ export function GarisAliranClient() {
   );
 }
 
-function notice(U: number, V: number, omega: number, t: number, lang: Lang) {
-  const a = flowLines(U, V, omega, t, SPAN);
-  const diam = flowLines(U, 0, omega, t, SPAN);
-  const cepat = flowLines(U, V, omega * 3, t, SPAN);
-
-  if (lang === "en")
-    return `At this setting the streamline and the pathline stand ${fmt(a.separation, 2)} metres apart at their widest. Drag the vertical amplitude to zero and the gap closes to ${fmt(diam.separation, 2)} metres: the field stops changing with time, and a single line does the work of three. Now triple the frequency instead and the gap becomes ${fmt(cepat.separation, 2)} metres. Nothing about the water changed; only how fast the field changed while a particle travelled through it.`;
-  return `Pada setelan ini garis arus dan lintasan partikel terpisah sejauh ${fmt(a.separation, 2)} meter di tempat terlebarnya. Tarik simpangan tegaknya ke nol dan jaraknya menutup ke ${fmt(diam.separation, 2)} meter: medannya berhenti berubah terhadap waktu, dan satu garis mengerjakan tugas tiga garis. Sekarang tigakalikan frekuensinya dan jaraknya menjadi ${fmt(cepat.separation, 2)} meter. Tidak ada yang berubah pada airnya, yang berubah hanya seberapa cepat medannya berubah selama satu partikel menempuhnya.`;
+/*
+ * Saat sudah tunak (V = 0 atau ω = 0) kedua butir pembanding tidak punya
+ * arti: tidak ada jarak yang dapat ditutup dan tidak ada frekuensi yang
+ * dapat ditigakalikan.
+ */
+function notice(U: number, V: number, omega: number, t: number, lang: Lang): string[] {
+  const x = TXT[lang];
+  const panjang = Math.max(SPAN, U * t);
+  const a = flowLines(U, V, omega, t, panjang);
+  if (a.steady) return [x.nTunak];
+  const cepat = flowLines(U, V, omega * 3, t, panjang);
+  return [
+    x.nNol(fmt(a.separation, 2)),
+    x.nCepat(fmt(a.separation, 2), fmt(cepat.separation, 2)),
+  ];
 }

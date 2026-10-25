@@ -754,18 +754,57 @@ export function createLabelPlacer(
     x: number,
     y: number,
     color: string,
-    opts: { spacing?: number; align?: CanvasTextAlign; big?: boolean } = {}
-  ) => {
+    opts: { spacing?: number; align?: CanvasTextAlign; big?: boolean } = {},
+    /** Dalam: fon judul yang sudah dipilih, dipakai baris-baris pecahan */
+    fonBaris?: string
+  ): Placed => {
     /*
      * Judul keadaan yang lebih lebar daripada bidangnya dikecilkan, tidak
      * dibiarkan terpotong di kedua tepi. FP-02 pernah menulis
      * "...ANAN TETAPI TIDAK SAMA KUAT..." dengan awal kalimat hilang.
      */
-    let fonJudul: string = F.heading;
-    if (opts.big) {
+    let fonJudul: string = fonBaris ?? F.heading;
+    if (opts.big && !fonBaris) {
       ctx.font = F.heading;
       if (stencilWidth(ctx, teks, 2) + 14 > plotW)
         fonJudul = F.heading.replace("15px", "12px");
+      /*
+       * Yang masih terlalu lebar sesudah dikecilkan (layar HP: DM-01 menulis
+       * "...LTAN KELUAR DARI SEPERTIGA TENGAH" terpotong di kedua tepi)
+       * dipecah menjadi dua baris pada spasi yang paling dekat ke tengah.
+       * Hanya mengenai judul yang sebelumnya terpotong; yang muat tidak
+       * berubah.
+       */
+      ctx.font = fonJudul;
+      const kata = teks.split(" ");
+      if (kata.length > 1 && stencilWidth(ctx, teks, 2) + 14 > plotW) {
+        let pecah = 1;
+        let selisih = Infinity;
+        for (let i = 1; i < kata.length; i++) {
+          const d = Math.abs(
+            stencilWidth(ctx, kata.slice(0, i).join(" "), 2) -
+              stencilWidth(ctx, kata.slice(i).join(" "), 2)
+          );
+          if (d < selisih) {
+            selisih = d;
+            pecah = i;
+          }
+        }
+        /* Baris terpanjang yang masih melewati bidang dikecilkan lagi,
+           paling kecil 10 piksel, supaya tidak menjulur keluar bingkai
+           menutupi angka sumbu. */
+        const terpanjang = Math.max(
+          stencilWidth(ctx, kata.slice(0, pecah).join(" "), 2),
+          stencilWidth(ctx, kata.slice(pecah).join(" "), 2)
+        );
+        if (terpanjang + 14 > plotW) {
+          const px = Math.max(10, Math.floor((12 * (plotW - 14)) / terpanjang));
+          fonJudul = F.heading.replace("15px", `${px}px`);
+        }
+        const atas = write(kata.slice(0, pecah).join(" "), x, y, color, opts, fonJudul);
+        const bawah = write(kata.slice(pecah).join(" "), x, atas.y + 15, color, opts, fonJudul);
+        return { ...atas, x0: Math.min(atas.x0, bawah.x0), x1: Math.max(atas.x1, bawah.x1), bawah: bawah.bawah };
+      }
     }
     const pos = opts.big
       ? place(teks, x, y, 2, opts.align ?? "center", fonJudul)

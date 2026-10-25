@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -21,7 +22,7 @@ import {
   type StructureBody,
   type StructureVector,
 } from "@/lib/drawStructure";
-import { fmt, fmtPlain, momentumForce } from "@/lib/hydraulics";
+import { G, fmt, fmtPlain, momentumForce } from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -37,6 +38,17 @@ const MU = 0.45;
 const TINGGI_BLOK = 1.2;
 /** Lebar muka tumpu yang masih pantas dibuat sebagai blok tunggal, meter. */
 const LEBAR_WAJAR = 6;
+/* Sumbu pita b 0,01–200 m (penggeser: 5,8·10⁻⁵ sampai 148,2 m; nilai di
+   bawah 0,01 tampil sebagai luapan bawah). */
+const B_AXIS_MIN = 0.01;
+const B_AXIS_MAX = 200;
+/*
+ * Ambang kecepatan untuk butir peringatan. BUKAN angka terbitan: hanya
+ * penanda bahwa kecepatan di atasnya jauh melampaui air di pipa tekan
+ * nyata (beberapa m/s). Rumusnya tetap berlaku, jadi nadanya caution.
+ * Ambang akhirnya menunggu keputusan sesi utama.
+ */
+const V_WASPADA = 10;
 
 const TXT = {
   id: {
@@ -62,6 +74,16 @@ const TXT = {
     takAda: "Pipa lurus, tidak ada gaya belokan",
     labelBlok: "blok angkur",
     labelGaya: "resultan",
+    bWajar: "Blok tunggal memadai",
+    bBesar: "Terlalu besar, pakai sambungan terkunci",
+    hAV: "Luas penampang, kecepatan, dan tekanan uji",
+    hR: "Resultan gaya belokan",
+    hTumpu: "Luas muka tumpu dan lebar blok",
+    hBerat: "Berat dan volume blok bila hanya gesekan",
+    hBagi: "Bagian resultan dari tekanan (debit nol)",
+    tanpaSf: "Berat blok di atas belum memakai faktor aman; dalam rancangan, gaya geser biasanya dikalikan faktor aman lebih dari satu sebelum dibandingkan dengan gesekan.",
+    tinggiTetap: "Tinggi muka tumpu dibuat tetap 1,2 m, padahal diameter pipa sampai 1,2 m. Pada pipa besar, muka setinggi itu hampir tidak lebih tinggi daripada pipanya sendiri.",
+    vCepat: (v: string) => `Kecepatan di pipa ${v} m/s jauh di atas air di pipa tekan nyata, yang umumnya beberapa meter per detik. Rumus momentumnya tetap berlaku, tetapi keadaan ini tidak dapat dibuat. Perbesar diameternya atau kurangi debitnya.`,
     takWajarNote:
       "Lebar muka tumpu yang dituntut sudah melewati enam meter, dan blok beton selebar itu bukan lagi pekerjaan biasa: penggaliannya memotong pipa lain, betonnya menyusut tidak merata, dan tanah di belakangnya harus dipadatkan ulang seluruhnya. Pada keadaan seperti ini belokan tidak diangkur, melainkan ditahan sendiri oleh pipanya dengan sambungan terkunci sepanjang beberapa puluh meter ke kedua arah, sehingga gaya belokannya dilawan gesekan tanah di sepanjang pipa itu, bukan dilawan satu blok di satu titik.",
     note:
@@ -90,6 +112,16 @@ const TXT = {
     takAda: "Straight pipe, no bend force at all",
     labelBlok: "thrust block",
     labelGaya: "resultant",
+    bWajar: "Single block adequate",
+    bBesar: "Too large, use restrained joints",
+    hAV: "Section area, velocity and test pressure",
+    hR: "Resultant bend force",
+    hTumpu: "Bearing area and block width",
+    hBerat: "Block weight and volume if friction alone",
+    hBagi: "Share of the resultant from pressure (zero discharge)",
+    tanpaSf: "The block weight above carries no safety factor; in design the sliding force is usually multiplied by a factor greater than one before it is compared with friction.",
+    tinggiTetap: "The bearing face height is fixed at 1.2 m, although the pipe diameter reaches 1.2 m. On a large pipe a face that high is hardly taller than the pipe itself.",
+    vCepat: (v: string) => `A pipe velocity of ${v} m/s is far above water in a real pressure main, which is usually a few metres per second. The momentum formula still holds, but this state cannot be built. Enlarge the diameter or reduce the discharge.`,
     takWajarNote:
       "The bearing width demanded has passed six metres, and a concrete block that wide is no longer ordinary work: its excavation cuts across other pipes, its concrete shrinks unevenly, and the ground behind it must be recompacted in full. In a case like this the bend is not anchored at all but restrained by the pipe itself, with locked joints running some tens of metres each way, so that the thrust is carried by soil friction along that length of pipe rather than by one block at one point.",
     note:
@@ -234,7 +266,9 @@ export function GayaBelokanClient() {
               ]
             : [],
           heading: !adaGaya ? x.takAda : wajar ? undefined : x.takWajar,
-          headingColor: adaGaya ? C.signal : C.ink2,
+          /* Blok terlalu besar adalah keputusan rancangan, bukan keadaan di
+             luar rentang berlaku rumus: oker, bukan merah sinyal. */
+          headingColor: adaGaya ? C.caution : C.ink2,
           axisX: T.planView,
           axisZ: T.planView,
         },
@@ -246,6 +280,19 @@ export function GayaBelokanClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="b"
+          value={adaGaya ? lebarBlok : NaN}
+          pesan={adaGaya ? undefined : x.takAda}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: B_AXIS_MIN, to: LEBAR_WAJAR, label: x.bWajar, tone: "pass" },
+            { from: LEBAR_WAJAR, to: B_AXIS_MAX, label: x.bBesar, tone: "caution" },
+          ]}
+        />
+      }
       sheet="PI-05"
       subject={SUBJECTS.PI[lang]}
       title={x.title}
@@ -278,7 +325,7 @@ export function GayaBelokanClient() {
             {
               label: "b",
               value: `${fmt(lebarBlok, 2)} m`,
-              tint: wajar ? undefined : C.signal,
+              tint: wajar ? undefined : C.caution,
             },
             { label: "pA/R", value: adaGaya ? `${fmt(r.pressureShare * 100, 1)} %` : "—" },
           ]}
@@ -310,35 +357,80 @@ export function GayaBelokanClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag
-                tint={!adaGaya ? C.ink2 : wajar ? C.water : undefined}
-                alert={!wajar}
-              >
-                {!adaGaya ? x.takAda : wajar ? x.wajar : x.takWajar}
-              </Flag>
-            </div>
-            {adaGaya && !wajar && (
-              <div className="mb-2.5">
-                <Note>{x.takWajarNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "R", label: x.rR, value: fmt(R / 1000, 2), unit: "kN", tint: C.energy, strong: true },
                 { symbol: "α", label: x.rArah, value: fmt(r.direction, 1), unit: "°" },
                 { symbol: "A", label: x.rLuas, value: fmt(luasTumpu, 3), unit: "m²", strong: true },
-                { symbol: "b", label: x.rLebar, value: fmt(lebarBlok, 3), unit: "m", tint: wajar ? undefined : C.signal, strong: true },
+                { symbol: "b", label: x.rLebar, value: fmt(lebarBlok, 3), unit: "m", tint: wajar ? undefined : C.caution, strong: true },
                 { symbol: "W", label: x.rBerat, value: fmt(beratGesek, 1), unit: "kN" },
-                { symbol: "V", label: x.rVolume, value: fmt(volumeGesek, 2), unit: "m³" },
+                { symbol: "Vb", label: x.rVolume, value: fmt(volumeGesek, 2), unit: "m³" },
                 { symbol: "—", label: x.rBagi, value: adaGaya ? fmt(r.pressureShare * 100, 2) : "—", unit: adaGaya ? "%" : undefined },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hAV,
+                    rumus: (<><span>A =</span><Frac num="π D²" den="4" /><span className="ml-2">V =</span><Frac num="Q" den="A" /><span className="ml-2">p = ρ g h</span></>),
+                    isi: `π · ${fmt(D, 3)}² / 4 = ${fmt(r.area1, 4)} m²;  ${fmt(Q, 3)} / ${fmt(r.area1, 4)} = ${fmt(r.velocity1, 3)} m/s;  ${fmt(1000, 0)} · ${fmt(G, 2)} · ${fmt(head, 0)} / 1000 = ${fmt((1000 * G * head) / 1000, 1)} kPa`,
+                    hasil: fmt(r.velocity1, 3),
+                    satuan: "m/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hR,
+                    rumus: (<><span>R = 2 ( p A + ρ Q V ) sin</span><Frac num="θ" den="2" /></>),
+                    isi: `2 · ( ${fmt(r.pressureForce1, 0)} + ${fmt(r.momentumIn, 0)} ) · sin( ${fmt(sudut, 0)}° / 2 ) / 1000;  α = ${fmt(r.direction, 1)}°`,
+                    hasil: fmt(R / 1000, 2),
+                    satuan: "kN",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hTumpu,
+                    rumus: (<><span>A_t =</span><Frac num="R" den="q" /><span className="ml-2">b =</span><Frac num="A_t" den={`${fmt(TINGGI_BLOK, 1)} m`} /></>),
+                    isi: `${fmt(R / 1000, 3)} / ${fmt(qTanah, 0)} = ${fmt(luasTumpu, 3)} m²;  ${fmt(luasTumpu, 4)} / ${fmt(TINGGI_BLOK, 1)}`,
+                    hasil: fmt(lebarBlok, 3),
+                    satuan: "m",
+                    tint: wajar ? undefined : C.caution,
+                  },
+                  {
+                    judul: x.hBerat,
+                    rumus: (<><span>W =</span><Frac num="R" den="μ" /><span className="ml-2">Vb =</span><Frac num="W" den="γ" /></>),
+                    isi: `${fmt(R / 1000, 3)} / ${fmt(MU, 2)} = ${fmt(beratGesek, 1)} kN;  ${fmt(beratGesek, 2)} / ${fmt(GAMMA_BETON, 0)}`,
+                    hasil: fmt(volumeGesek, 2),
+                    satuan: "m³",
+                  },
+                  {
+                    judul: x.hBagi,
+                    rumus: (<><Frac num="| R(Q = 0) |" den="R" /></>),
+                    isi: adaGaya ? `${fmt((r.pressureShare * R) / 1000, 3)} / ${fmt(R / 1000, 3)} · 100` : "—",
+                    hasil: adaGaya ? fmt(r.pressureShare * 100, 2) : "—",
+                    satuan: adaGaya ? "%" : undefined,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Q, D, head, sudut, qTanah, lang)}</Note>
-          </Block>
+          {adaGaya ? (
+            <StateCard
+              tone={wajar ? "pass" : "caution"}
+              badge={wajar ? x.wajar : x.takWajar}
+              {...notice(Q, D, head, sudut, qTanah, lang)}
+            />
+          ) : (
+            <StateCard
+              tone="neutral"
+              badge={x.takAda}
+              state={
+                lang === "id"
+                  ? "Pipa lurus, tidak ada gaya: yang masuk dan yang keluar sama besar dan searah, jadi tidak ada blok angkur yang perlu dirancang."
+                  : "Straight pipe, no force: what enters and what leaves are equal and in line, so there is no thrust block to design."
+              }
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksMomentum(Q, D, D, head, sudut)} />}
@@ -376,6 +468,12 @@ export function GayaBelokanClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama; kalimat pertama menyatakan
+ * keadaan, sisanya butir. Kalimat "debit nol, itulah seluruh keadaan
+ * rancangannya" hanya benar bila tekanan menguasai; bila bagian tekanan
+ * kurang dari separuh (misalnya h = 0), cabang momentum dipakai.
+ */
 function notice(
   Q: number,
   D: number,
@@ -383,12 +481,47 @@ function notice(
   sudut: number,
   qTanah: number,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
   const a = momentumForce(Q, D, D, head, sudut);
   const diam = momentumForce(0, D, D, head, sudut);
   const luas = (R: number) => (qTanah > 0 ? R / 1000 / qTanah : Infinity);
+  const lebar = luas(a.resultant) / TINGGI_BLOK;
+  const wajar = Number.isFinite(lebar) && lebar <= LEBAR_WAJAR;
+  const tekananMenguasai = a.pressureShare >= 0.5;
+  const persen = fmt(a.pressureShare * 100, 1);
+  const cepat = a.velocity1 > V_WASPADA ? x.vCepat(fmt(a.velocity1, 1)) : "";
 
-  if (lang === "en")
-    return `The bend carries ${fmt(a.resultant / 1000, 1)} kilonewtons and needs ${fmt(luas(a.resultant), 2)} square metres of bearing face. Drag the discharge all the way down to zero, leaving the pressure untouched, and the force settles at ${fmt(diam.resultant / 1000, 1)} kilonewtons and the face at ${fmt(luas(diam.resultant), 2)} square metres. That is the whole of the design condition reached with the water standing perfectly still. Then drag the test head instead and watch both numbers move proportionally, because pressure force is pA and nothing else.`;
-  return `Belokan ini memikul ${fmt(a.resultant / 1000, 1)} kilonewton dan menuntut muka tumpu seluas ${fmt(luas(a.resultant), 2)} meter persegi. Tarik debitnya sampai nol sama sekali, tanpa menyentuh tekanannya, dan gayanya menetap di ${fmt(diam.resultant / 1000, 1)} kilonewton dengan muka tumpu ${fmt(luas(diam.resultant), 2)} meter persegi. Itulah seluruh keadaan rancangannya, tercapai dengan air yang diam sempurna. Lalu tarik tinggi tekan ujinya dan perhatikan kedua angka itu bergerak sebanding, karena gaya tekanan memang pA dan bukan yang lain.`;
+  if (lang === "en") {
+    const state = `R = ${fmt(a.resultant / 1000, 1)} kN at ${fmt(a.direction, 1)}° to the inflow; bearing face ${fmt(luas(a.resultant), 2)} m², width ${fmt(lebar, 2)} m: ${wajar ? "a single block is adequate" : "too large for a single block"}.`;
+    const inti = tekananMenguasai
+      ? `${persen} % of the resultant comes from pressure. Drag the discharge all the way down to zero, leaving the pressure untouched, and the force settles at ${fmt(diam.resultant / 1000, 1)} kN and the face at ${fmt(luas(diam.resultant), 2)} m². That is almost the whole of the design condition, reached with the water standing still: the block is designed for the test pressure.`
+      : `Only ${persen} % of the resultant comes from pressure; the rest is the momentum of the moving water. Here, unlike an ordinary main, dragging the discharge to zero leaves only ${fmt(diam.resultant / 1000, 1)} kN, so the discharge does decide the block.`;
+    return {
+      state,
+      notice: [
+        inti,
+        "Drag the test head and watch the pressure part move proportionally, because pressure force is pA and nothing else.",
+        wajar ? "" : x.takWajarNote,
+        x.tanpaSf,
+        x.tinggiTetap,
+        cepat,
+      ],
+    };
+  }
+  const state = `R = ${fmt(a.resultant / 1000, 1)} kN ke arah ${fmt(a.direction, 1)}° terhadap aliran masuk; muka tumpu ${fmt(luas(a.resultant), 2)} m², lebar ${fmt(lebar, 2)} m: ${wajar ? "blok tunggal memadai" : "terlalu besar untuk blok tunggal"}.`;
+  const inti = tekananMenguasai
+    ? `${persen} % resultannya berasal dari tekanan. Tarik debitnya sampai nol sama sekali, tanpa menyentuh tekanannya, dan gayanya menetap di ${fmt(diam.resultant / 1000, 1)} kN dengan muka tumpu ${fmt(luas(diam.resultant), 2)} m². Itulah hampir seluruh keadaan rancangannya, tercapai dengan air yang diam: blok dirancang untuk tekanan uji.`
+    : `Hanya ${persen} % resultannya berasal dari tekanan; sisanya momentum air yang bergerak. Di sini, tidak seperti pipa induk biasa, menarik debit ke nol hanya menyisakan ${fmt(diam.resultant / 1000, 1)} kN, jadi debitnya ikut menentukan blok.`;
+  return {
+    state,
+    notice: [
+      inti,
+      "Tarik tinggi tekan ujinya dan perhatikan bagian tekanan bergerak sebanding, karena gaya tekanan memang pA dan bukan yang lain.",
+      wajar ? "" : x.takWajarNote,
+      x.tanpaSf,
+      x.tinggiTetap,
+      cepat,
+    ],
+  };
 }

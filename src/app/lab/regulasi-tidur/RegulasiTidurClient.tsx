@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type LangkahHitung,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartBand, type ChartSeries } from "@/lib/drawChart";
@@ -25,7 +27,7 @@ import {
   fmtPlain,
   sleepRegulation,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -71,6 +73,19 @@ const TXT = {
     bebasDaur: "Daurnya bebas, tidak terkunci ke hari",
     belumMantap: "Daurnya belum berulang sama",
     tidakTidur: "Pada jam tidurnya, tekanan tidurnya belum mencapai ambang",
+    bBebas: "Daur bebas, sekitar 17 jam",
+    bSetengah: "Belum berulang sama, setengah terkunci",
+    bKunci: "Terkunci 24 jam",
+    sKunci: "Terkunci",
+    sBebas: "Bebas",
+    sJadwal: "Jadwal dipaksakan",
+    kurangTidur: "Tidur lebih pendek daripada jadwal bebas",
+    hP0: "Panjang daur tanpa irama harian",
+    hSim: "Simulasi dua belas hari, langkah lima menit, daur terakhir",
+    hTutup: "Tekanan bangun menurut bentuk tertutup, dibandingkan dengan Sb hasil simulasi",
+    hTutupTak: "Bentuk tertutup tidak berlaku, daurnya belum berulang sama",
+    hJadwal: "Jadwal yang dipaksakan",
+    belumState: "Daurnya belum berulang sama: jam tidurnya bergeser dari hari ke hari, jadi panjang daur dan bentuk tertutupnya tidak ditulis.",
     latNote:
       "Pada jam tidur yang dipaksakan, tekanan tidurnya belum mencapai ambang atas, jadi yang terjadi bukan tidur melainkan berbaring. Inilah ramalan model ini yang paling mudah diuji sendiri dan paling sering diabaikan: memajukan jam tidur satu jam menghasilkan satu jam terjaga di tempat tidur, bukan satu jam tidur tambahan. Tekanan tidur hanya dapat ditumpuk dengan terjaga, dan tidak ada yang dapat mempercepatnya. Yang memperpendek waktu berbaring itu hanya dua: bangun lebih pagi sehari sebelumnya, atau menggeser iramanya dengan cahaya, dan keduanya bekerja lewat jalur yang sama sekali berbeda.",
     belumMantapNote:
@@ -105,6 +120,19 @@ const TXT = {
     bebasDaur: "The cycle runs free, not locked to the day",
     belumMantap: "The cycle does not yet repeat",
     tidakTidur: "At the imposed bedtime, sleep pressure has not reached the threshold",
+    bBebas: "Free running, about 17 h",
+    bSetengah: "Not yet repeating, partly entrained",
+    bKunci: "Entrained to 24 h",
+    sKunci: "Entrained",
+    sBebas: "Free running",
+    sJadwal: "Imposed schedule",
+    kurangTidur: "Sleep shorter than on the free schedule",
+    hP0: "Cycle length without the circadian rhythm",
+    hSim: "Twelve-day simulation, five-minute steps, last cycle",
+    hTutup: "Waking pressure from the closed form, compared with the simulated Sb",
+    hTutupTak: "The closed form does not apply, the cycle does not yet repeat",
+    hJadwal: "Imposed schedule",
+    belumState: "The cycle does not yet repeat: bedtime drifts from day to day, so the cycle length and its closed form are not written.",
     latNote:
       "At the imposed bedtime, sleep pressure has not reached the upper threshold, so what happens is not sleep but lying awake. This is the prediction of the model easiest to test on yourself and most often ignored: moving bedtime an hour earlier produces an hour awake in bed, not an hour of extra sleep. Sleep pressure can only be built by being awake, and nothing hurries it. Only two things shorten that waiting: getting up earlier the day before, or shifting the rhythm with light, and the two work through entirely different routes.",
     belumMantapNote:
@@ -142,6 +170,63 @@ export function RegulasiTidurClient() {
 
   const jadwal = paksa ? { bedtime: bed, wakeTime: wake } : null;
   const r = sleepRegulation(amp, SLEEP_H0, SLEEP_L0, jadwal, HARI);
+  /* Saat daurnya belum berulang sama, P dan bentuk tertutupnya tidak
+     bermakna (belumMantapNote berjanji tidak menampilkannya). */
+  const mantap = (v: string) => (r.steady ? v : "—");
+  const Dm = r.meanDuration;
+  const Pm = Math.max(r.cyclePeriod, Dm + 0.1);
+  const ef = Math.exp(-Dm / SLEEP_TAU_FALL);
+  const er = Math.exp(-(Pm - Dm) / SLEEP_TAU_RISE);
+  const nada: Tone = paksa
+    ? r.cannotSleepYet || r.restricted
+      ? "caution"
+      : "pass"
+    : !r.steady
+      ? "caution"
+      : r.entrained
+        ? "pass"
+        : "neutral";
+  const langkah: LangkahHitung[] = [
+    {
+      judul: x.hP0,
+      rumus: <span>P0 = τr · ln( (1 − L0)/(1 − H0) ) + τd · ln( H0/L0 )</span>,
+      isi: `${fmt(SLEEP_TAU_RISE, 1)} · ln( (1 − ${fmt(SLEEP_L0, 2)})/(1 − ${fmt(SLEEP_H0, 2)}) ) + ${fmt(SLEEP_TAU_FALL, 1)} · ln( ${fmt(SLEEP_H0, 2)}/${fmt(SLEEP_L0, 2)} )`,
+      hasil: fmt(r.freePeriod, 2),
+      satuan: "h",
+    },
+    {
+      judul: x.hSim,
+      rumus: <span>D = t(bangun) − t(tidur);  P = t(tidurₖ) − t(tidurₖ₋₁)</span>,
+      isi: `${jam(r.onsetClock)} → ${jam(r.wakeClock)}`,
+      hasil: `D = ${fmt(Dm, 2)};  P = ${mantap(fmt(r.cyclePeriod, 2))}`,
+      satuan: "h",
+    },
+    r.steady
+      ? {
+          judul: `${x.hTutup} ${fmt(r.Swake, 4)}`,
+          rumus: (<><span>Sb* =</span><Frac num="ef · (1 − er)" den="1 − ef · er" /><span>;  ef = e^(−D/τd), er = e^(−(P − D)/τr)</span></>),
+          isi: `ef = e^(−${fmt(Dm, 3)}/${fmt(SLEEP_TAU_FALL, 1)}) = ${fmt(ef, 5)};  er = e^(−(${fmt(Pm, 3)} − ${fmt(Dm, 3)})/${fmt(SLEEP_TAU_RISE, 1)}) = ${fmt(er, 5)}`,
+          hasil: fmt(r.SwakeSteady, 4),
+        }
+      : {
+          judul: x.hTutupTak,
+          rumus: (<><span>Sb* =</span><Frac num="ef · (1 − er)" den="1 − ef · er" /></>),
+          isi: "—",
+          hasil: "—",
+        },
+    ...(paksa
+      ? [
+          {
+            judul: `${x.hJadwal} ${jam(bed)}–${jam(wake)}`,
+            rumus: <span>tl = t(tertidur) − tb;  Δ = D bebas − D</span>,
+            isi: `Δ = ${fmt(Dm + r.debtHours, 2)} − ${fmt(Dm, 2)}`,
+            hasil: `tl = ${fmt(r.latency, 2)};  Δ = ${fmt(r.debtHours, 2)}`,
+            satuan: "h",
+            tint: r.cannotSleepYet || r.restricted ? C.caution : undefined,
+          },
+        ]
+      : []),
+  ];
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -219,7 +304,8 @@ export function RegulasiTidurClient() {
             : r.cannotSleepYet
               ? x.tidakTidur
               : undefined,
-          headingColor: C.signal,
+          /* Keduanya ramalan sah model, bukan di luar rentang berlaku. */
+          headingColor: C.caution,
           padRight: 40,
         },
         lang
@@ -230,6 +316,23 @@ export function RegulasiTidurClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas dari sapuan 12 hari langkah 0,0005 atas entrained/steady
+           (hydraulics.ts:6222-6234): 0,080 belum, 0,085 sudah terkunci.
+           Jadwal yang dipaksakan yang mengunci, jadi pitanya disembunyikan. */
+        paksa ? undefined : (
+          <RegimeScale
+            symbol="a"
+            value={amp}
+            digits={3}
+            bands={[
+              { from: 0, to: 0.0025, label: x.bBebas, tone: "neutral" },
+              { from: 0.0025, to: 0.0825, label: x.bSetengah, tone: "caution" },
+              { from: 0.0825, to: 0.18, label: x.bKunci, tone: "pass" },
+            ]}
+          />
+        )
+      }
       sheet="SY-01"
       subject={SUBJECTS.SY[lang]}
       title={x.title}
@@ -258,7 +361,7 @@ export function RegulasiTidurClient() {
           cells={[
             { label: t.tbUnit, value: lang === "id" ? "jam" : "hours" },
             { label: "D", value: `${fmt(r.meanDuration, 2)} h`, tint: C.water },
-            { label: "P", value: `${fmt(r.cyclePeriod, 2)} h`, tint: C.critical },
+            { label: "P", value: r.steady ? `${fmt(r.cyclePeriod, 2)} h` : "—", tint: C.critical },
             { label: "τr", value: `${fmtPlain(SLEEP_TAU_RISE, 1)} h` },
             { label: "τd", value: `${fmtPlain(SLEEP_TAU_FALL, 1)} h` },
           ]}
@@ -299,41 +402,57 @@ export function RegulasiTidurClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.entrained ? C.water : undefined} alert={!r.steady}>
-                {!r.steady ? x.belumMantap : r.entrained ? x.terkunci : x.bebasDaur}
-              </Flag>
-              {r.cannotSleepYet && <Flag alert>{x.tidakTidur}</Flag>}
-            </div>
-            {!r.steady && (
-              <div className="mb-2.5">
-                <Note>{x.belumMantapNote}</Note>
-              </div>
-            )}
-            {r.steady && r.cannotSleepYet && (
-              <div className="mb-2.5">
-                <Note>{x.latNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "t1", label: x.rOnset, value: jam(r.onsetClock), tint: C.water },
                 { symbol: "t2", label: x.rWake, value: jam(r.wakeClock), tint: C.water },
                 { symbol: "D", label: x.rDur, value: fmt(r.meanDuration, 2), unit: "h", strong: true },
-                { symbol: "tl", label: x.rLat, value: fmt(r.latency, 2), unit: "h", tint: r.cannotSleepYet ? C.signal : undefined },
-                { symbol: "P", label: x.rPeriod, value: fmt(r.cyclePeriod, 2), unit: "h", tint: C.critical, strong: true },
+                { symbol: "tl", label: x.rLat, value: fmt(r.latency, 2), unit: "h", tint: r.cannotSleepYet ? C.caution : undefined },
+                { symbol: "P", label: x.rPeriod, value: mantap(fmt(r.cyclePeriod, 2)), unit: "h", tint: C.critical, strong: true },
                 { symbol: "P0", label: x.rFree, value: fmt(r.freePeriod, 2), unit: "h" },
                 { symbol: "Sb", label: x.rSwake, value: fmt(r.Swake, 4) },
                 { symbol: "St", label: x.rSonset, value: fmt(r.Sonset, 4) },
-                { symbol: "Sb*", label: x.rSteady, value: fmt(r.SwakeSteady, 4), tint: r.steady ? undefined : C.ink3 },
-                { symbol: "Δ", label: x.rDebt, value: fmt(r.debtHours, 2), unit: "h", tint: r.restricted ? C.signal : undefined },
+                { symbol: "Sb*", label: x.rSteady, value: mantap(fmt(r.SwakeSteady, 4)) },
+                { symbol: "Δ", label: x.rDebt, value: fmt(r.debtHours, 2), unit: "h", tint: r.restricted ? C.caution : undefined },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan langkah={langkah} />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(amp, paksa, bed, wake, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={
+              paksa
+                ? r.cannotSleepYet
+                  ? x.tidakTidur
+                  : r.restricted
+                    ? x.kurangTidur
+                    : x.sJadwal
+                : !r.steady
+                  ? x.belumMantap
+                  : r.entrained
+                    ? x.terkunci
+                    : x.bebasDaur
+            }
+            state={
+              !r.steady && !paksa
+                ? x.belumState
+                : paksa && r.cannotSleepYet
+                  ? lang === "id"
+                    ? `${fmt(r.latency, 2)} jam berbaring sebelum tertidur; tidur ${jam(r.onsetClock)}–${jam(r.wakeClock)}, ${fmt(Dm, 2)} jam.`
+                    : `${fmt(r.latency, 2)} hours lying awake before sleep; asleep ${jam(r.onsetClock)}–${jam(r.wakeClock)}, ${fmt(Dm, 2)} hours.`
+                  : lang === "id"
+                    ? `${paksa ? x.sJadwal : r.entrained ? x.sKunci : x.sBebas}: tidur ${jam(r.onsetClock)}–${jam(r.wakeClock)}, ${fmt(Dm, 2)} jam per daur ${mantap(fmt(r.cyclePeriod, 2))} jam.`
+                    : `${paksa ? x.sJadwal : r.entrained ? x.sKunci : x.sBebas}: asleep ${jam(r.onsetClock)}–${jam(r.wakeClock)}, ${fmt(Dm, 2)} hours per ${mantap(fmt(r.cyclePeriod, 2))}-hour cycle.`
+            }
+            notice={[
+              !r.steady ? x.belumMantapNote : null,
+              r.steady && r.cannotSleepYet ? x.latNote : null,
+              ...notice(amp, paksa, bed, wake, lang),
+            ]}
+          />
         </>
       }
       verification={<Verification checks={checksSleep(amp, jadwal)} />}
@@ -384,12 +503,34 @@ function notice(
   bed: number,
   wake: number,
   lang: Lang
-): string {
+): string[] {
   const r = sleepRegulation(amp, SLEEP_H0, SLEEP_L0, paksa ? { bedtime: bed, wakeTime: wake } : null, HARI);
   const datar = sleepRegulation(0, SLEEP_H0, SLEEP_L0, null, HARI);
   const awal = sleepRegulation(amp, SLEEP_H0, SLEEP_L0, { bedtime: 20, wakeTime: 6 }, HARI);
+  const en = lang === "en";
+  const butir: string[] = [];
 
-  if (lang === "en")
-    return `The cycle here runs ${fmt(r.cyclePeriod, 2)} hours and sleep lasts ${fmt(r.meanDuration, 2)}. Now drag the circadian amplitude to zero: the cycle does not stop, it slows to ${fmt(datar.freePeriod, 2)} hours and stops matching the day, which is what a free running person in a cave actually does. Then take the imposed schedule and set bed at twenty hundred, waking at six. The window is ten hours long, yet only ${fmt(awal.meanDuration, 2)} of them are sleep: the other ${fmt(awal.latency, 2)} are spent awake in bed, because sleep pressure had not reached the threshold when the lights went out.`;
-  return `Daurnya di sini ${fmt(r.cyclePeriod, 2)} jam dan tidurnya ${fmt(r.meanDuration, 2)} jam. Sekarang geser simpangan irama hariannya ke nol: daurnya tidak berhenti, ia melambat menjadi ${fmt(datar.freePeriod, 2)} jam dan berhenti cocok dengan hari, dan itulah yang sebenarnya terjadi pada orang yang tinggal di gua tanpa penunjuk waktu. Lalu pakai jadwal yang dipaksakan dan setel tidur pukul dua puluh, bangun pukul enam. Jendelanya sepuluh jam, tetapi hanya ${fmt(awal.meanDuration, 2)} jam yang menjadi tidur: ${fmt(awal.latency, 2)} jam sisanya terjaga di tempat tidur, karena tekanan tidurnya belum mencapai ambang ketika lampunya dimatikan.`;
+  /* Daur yang lebih pendek berarti lebih CEPAT, jadi "memendek", bukan
+     "melambat". Daur 17 jam hanya ada di model tanpa proses C; pada
+     percobaan isolasi manusia irama hariannya tetap berjalan. */
+  if (amp > 0)
+    butir.push(
+      en
+        ? `${r.steady ? `The cycle here runs ${fmt(r.cyclePeriod, 2)} hours. ` : ""}Drag the circadian amplitude to zero: the cycle does not stop, it shortens to ${fmt(datar.freePeriod, 2)} hours and stops matching the day. That 17-hour cycle exists only in the model without process C.`
+        : `${r.steady ? `Daurnya di sini ${fmt(r.cyclePeriod, 2)} jam. ` : ""}Geser simpangan irama hariannya ke nol: daurnya tidak berhenti, ia memendek menjadi ${fmt(datar.freePeriod, 2)} jam dan berhenti cocok dengan hari. Daur 17 jam ini hanya ada di model tanpa proses C.`
+    );
+  else
+    butir.push(
+      en
+        ? `With the amplitude at zero the cycle is ${fmt(r.cyclePeriod, 2)} hours, close to the closed-form ${fmt(r.freePeriod, 2)}, and no longer matches the day. That 17-hour cycle exists only in the model without process C.`
+        : `Dengan simpangan nol daurnya ${fmt(r.cyclePeriod, 2)} jam, dekat dengan bentuk tertutup ${fmt(r.freePeriod, 2)} jam, dan tidak lagi cocok dengan hari. Daur 17 jam ini hanya ada di model tanpa proses C.`
+    );
+
+  butir.push(
+    en
+      ? `Take the imposed schedule and set bed at twenty hundred, waking at six. The window is ten hours long, yet only ${fmt(awal.meanDuration, 2)} of them are sleep: the other ${fmt(awal.latency, 2)} are spent awake in bed, because sleep pressure had not reached the threshold when the lights went out.`
+      : `Pakai jadwal yang dipaksakan dan setel tidur pukul dua puluh, bangun pukul enam. Jendelanya sepuluh jam, tetapi hanya ${fmt(awal.meanDuration, 2)} jam yang menjadi tidur: ${fmt(awal.latency, 2)} jam sisanya terjaga di tempat tidur, karena tekanan tidurnya belum mencapai ambang ketika lampunya dimatikan.`
+  );
+  return butir;
 }
+

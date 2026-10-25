@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -69,7 +70,27 @@ const TXT = {
     rJarak: "Jarak antar pusaran sebaris",
     rGap: "Jarak antar kedua baris",
     rNisbah: "Nisbah jarak baris terhadap jarak sebaris",
-    rNada: "Nada yang terdengar",
+    rSelisih: "Selisih f terhadap getar alami",
+    sLepas: (rz: string, f: string, st: string) => `${rz}: pusaran lepas pada f = ${f} Hz (St ${st}).`,
+    sTanpa: (re: string) => `Re = ${re} < 47: belum ada pusaran yang lepas.`,
+    sKunci: (fn: string) => ` Frekuensi itu terkunci pada getar alami batangnya (${fn} Hz).`,
+    sAman: (fn: string) => ` Getar alami batangnya ${fn} Hz, cukup jauh.`,
+    nRasio: (fu: string, ru: string, fd: string, rd: string) =>
+      `Lipatduakan U: f menjadi ${fu} Hz (${ru} kali). Lipatduakan d: f menjadi ${fd} Hz (${rd} kali). Nisbahnya hanya tepat 2 dan ½ bila St tetap; di dekat batas rezim St ikut berubah.`,
+    nBahaya: (fn: string, u: string) =>
+      `Untuk batang dengan getar alami ${fn} Hz, kecepatan datang yang berbahaya sekitar U = fn · d / St = ${u} m/s. Kecepatan itulah yang harus diperiksa, bukan kecepatan terbesarnya.`,
+    nKunci:
+      "Batang yang bergoyang menggeser titik lepasnya pusaran, dan titik lepas yang bergeser memperkuat goyangannya. Penangkalnya: sirip pemecah heliks di sepertiga atas batang supaya pusarannya tidak lepas serentak.",
+    nKritis:
+      "Di atas Re 2·10⁵ lapis batas silinder berubah dan pelepasannya tidak lagi teratur; model ini memakai St 0,27 tetap, jadi f di pita ini perkiraan kasar.",
+    nMulai: (u: string) =>
+      `Pusaran mulai lepas bila Re melewati 47: pada diameter dan fluida ini, U sekurangnya ${u} m/s.`,
+    jRe: "Bilangan Reynolds",
+    jSt: "Bilangan Strouhal (Roshko)",
+    jF: "Frekuensi lepasnya pusaran",
+    jA: "Jarak antar pusaran sebaris",
+    jH: "Jarak antar kedua baris",
+    jKunci: "Selisih terhadap getar alami, dibandingkan jendela 20 %",
     kunci: "Frekuensi lepasnya terkunci pada getar alami batangnya",
     aman: "Frekuensi lepasnya jauh dari getar alami batangnya",
     kunciNote:
@@ -95,7 +116,27 @@ const TXT = {
     rJarak: "Spacing along a row",
     rGap: "Gap between the two rows",
     rNisbah: "Ratio of row gap to spacing",
-    rNada: "Tone that is heard",
+    rSelisih: "Gap between f and the natural frequency",
+    sLepas: (rz: string, f: string, st: string) => `${rz}: vortices shed at f = ${f} Hz (St ${st}).`,
+    sTanpa: (re: string) => `Re = ${re} < 47: no vortices shed yet.`,
+    sKunci: (fn: string) => ` That frequency is locked to the natural frequency of the member (${fn} Hz).`,
+    sAman: (fn: string) => ` The member's natural frequency is ${fn} Hz, far enough away.`,
+    nRasio: (fu: string, ru: string, fd: string, rd: string) =>
+      `Double U: f becomes ${fu} Hz (${ru} times). Double d: f becomes ${fd} Hz (${rd} times). The ratios are exactly 2 and ½ only while St stays constant; near a regime boundary St changes too.`,
+    nBahaya: (fn: string, u: string) =>
+      `For a member with a natural frequency of ${fn} Hz, the dangerous approach velocity is about U = fn · d / St = ${u} m/s. That velocity, not the largest one, is the one to check.`,
+    nKunci:
+      "The swaying member moves the point where vortices leave, and the moved shedding point strengthens the sway. The remedy: helical strakes over the upper third so the vortices cannot shed in step.",
+    nKritis:
+      "Above Re 2·10⁵ the cylinder's boundary layer changes and shedding is no longer regular; this model uses a fixed St of 0.27, so f in this band is a rough estimate.",
+    nMulai: (u: string) =>
+      `Vortices start to shed once Re passes 47: for this diameter and fluid, U must be at least ${u} m/s.`,
+    jRe: "Reynolds number",
+    jSt: "Strouhal number (Roshko)",
+    jF: "Shedding frequency",
+    jA: "Spacing along a row",
+    jH: "Gap between the two rows",
+    jKunci: "Gap to the natural frequency, against the 20 % window",
     kunci: "The shedding frequency is locked to the natural frequency",
     aman: "The shedding frequency is far from the natural frequency",
     kunciNote:
@@ -135,6 +176,18 @@ export function VorteksKarmanClient() {
   const nu = fluida === 0 ? NU_AIR : NU_UDARA;
   const r = vortexStreet(U, d, nu, alam);
   const nisbah = r.spacing > 0 ? r.rowGap / r.spacing : 0;
+  /* Tanpa pelepasan (Re < 47) model memberi St, f, a, h nol; angka nol itu
+     bukan hasil, jadi ditulis "—" lewat NaN. */
+  const lepas = r.shedding;
+  const tampil = (v: number) => (lepas ? v : NaN);
+  const satuan = (u: string) => (lepas ? u : undefined);
+  const selisih = alam > 0 && lepas ? Math.abs(r.frequency - alam) / alam : NaN;
+  const rumusSt =
+    r.reynolds < 180
+      ? `St = ${fmt(0.212, 3)} − ${fmt(4.5, 1)} / Re`
+      : r.reynolds < 2e5
+        ? `St = ${fmt(0.212, 3)} − ${fmt(2.7, 1)} / Re`
+        : `St = ${fmt(0.27, 2)}`;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -230,7 +283,9 @@ export function VorteksKarmanClient() {
             },
           ],
           heading: r.lockIn ? x.kunci : REZIM[lang][r.regime],
-          headingColor: r.lockIn ? C.signal : C.ink2,
+          /* Resonansi ada di dalam rentang berlaku: nada waspada, bukan
+             merah sinyal. */
+          headingColor: r.lockIn ? C.caution : C.ink2,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
         },
@@ -242,6 +297,23 @@ export function VorteksKarmanClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas dari vortexStreet: 5, 47 (Williamson 1996), 200, 2e5
+           (Roshko 1954, 1961). Rentang hitung 1,33 sampai 7,02e7. */
+        <RegimeScale
+          symbol="Re"
+          value={r.reynolds}
+          scale="log"
+          digits={0}
+          bands={[
+            { from: 1, to: 5, label: REZIM[lang].merayap, tone: "neutral" },
+            { from: 5, to: 47, label: REZIM[lang]["sepasang-tetap"], tone: "neutral" },
+            { from: 47, to: 200, label: REZIM[lang]["deret-karman"], tone: "water" },
+            { from: 200, to: 2e5, label: REZIM[lang]["lapis-geser-turbulen"], tone: "water" },
+            { from: 2e5, to: 1e8, label: REZIM[lang].kritis, tone: "caution" },
+          ]}
+        />
+      }
       sheet="FP-01"
       subject={SUBJECTS.FP[lang]}
       title={x.title}
@@ -270,13 +342,13 @@ export function VorteksKarmanClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m/s, Hz)" },
             { label: "Re", value: fmtSci(r.reynolds) },
-            { label: "St", value: fmt(r.strouhal, 3), tint: C.water },
+            { label: "St", value: fmt(tampil(r.strouhal), 3), tint: C.water },
             {
               label: "f",
-              value: `${fmt(r.frequency, 2)} Hz`,
-              tint: r.lockIn ? C.signal : C.critical,
+              value: lepas ? `${fmt(r.frequency, 2)} Hz` : "—",
+              tint: r.lockIn ? C.caution : C.critical,
             },
-            { label: "h/a", value: fmt(nisbah, 3) },
+            { label: "h/a", value: fmt(tampil(nisbah), 3) },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -312,35 +384,89 @@ export function VorteksKarmanClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.ink2}>{REZIM[lang][r.regime]}</Flag>
-              {alam > 0 && (
-                <Flag tint={r.lockIn ? undefined : C.water} alert={r.lockIn}>
-                  {r.lockIn ? x.kunci : x.aman}
-                </Flag>
-              )}
-            </div>
-            {r.lockIn && (
-              <div className="mb-2.5">
-                <Note>{x.kunciNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Re", label: x.rRe, value: fmtSci(r.reynolds), strong: true },
-                { symbol: "St", label: x.rSt, value: fmt(r.strouhal, 4), tint: C.water, strong: true },
-                { symbol: "f", label: x.rF, value: fmt(r.frequency, 3), unit: "Hz", tint: r.lockIn ? C.signal : C.critical, strong: true },
-                { symbol: "a", label: x.rJarak, value: fmt(r.spacing, 3), unit: "m" },
-                { symbol: "h", label: x.rGap, value: fmt(r.rowGap, 3), unit: "m" },
-                { symbol: "h/a", label: x.rNisbah, value: fmt(nisbah, 4) },
-                { symbol: "fn", label: x.rNada, value: fmt(r.toneHz, 2), unit: "Hz" },
+                { symbol: "St", label: x.rSt, value: fmt(tampil(r.strouhal), 4), tint: C.water, strong: true },
+                { symbol: "f", label: x.rF, value: fmt(tampil(r.frequency), 3), unit: satuan("Hz"), tint: r.lockIn ? C.caution : C.critical, strong: true },
+                { symbol: "a", label: x.rJarak, value: fmt(tampil(r.spacing), 3), unit: satuan("m") },
+                { symbol: "h", label: x.rGap, value: fmt(tampil(r.rowGap), 3), unit: satuan("m") },
+                { symbol: "h/a", label: x.rNisbah, value: fmt(tampil(nisbah), 4) },
+                ...(alam > 0
+                  ? [{ symbol: "|f−fn|/fn", label: x.rSelisih, value: fmt(selisih * 100, 1), unit: lepas ? "%" : undefined, tint: r.lockIn ? C.caution : undefined }]
+                  : []),
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jRe,
+                    rumus: (<><span>Re =</span><Frac num="U · d" den="ν" /></>),
+                    isi: `${fmt(U, 2)} · ${fmt(d, 3)} / ${fmtSci(nu)}`,
+                    hasil: fmtSci(r.reynolds),
+                  },
+                  {
+                    judul: x.jSt,
+                    rumus: <span>{lepas ? rumusSt : "Re < 47"}</span>,
+                    isi: !lepas
+                      ? "—"
+                      : r.reynolds < 2e5
+                        ? `${fmt(0.212, 3)} − ${fmt(r.reynolds < 180 ? 4.5 : 2.7, 1)} / ${fmtSci(r.reynolds)}`
+                        : fmt(0.27, 2),
+                    hasil: fmt(tampil(r.strouhal), 4),
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.jF,
+                    rumus: (<><span>f =</span><Frac num="St · U" den="d" /></>),
+                    isi: lepas ? `${fmt(r.strouhal, 4)} · ${fmt(U, 2)} / ${fmt(d, 3)}` : "—",
+                    hasil: fmt(tampil(r.frequency), 3),
+                    satuan: satuan("Hz"),
+                    tint: r.lockIn ? C.caution : C.critical,
+                  },
+                  {
+                    judul: x.jA,
+                    rumus: (<><span>a =</span><Frac num={`${fmt(0.87, 2)} · U`} den="f" /></>),
+                    isi: lepas ? `${fmt(0.87, 2)} · ${fmt(U, 2)} / ${fmt(r.frequency, 4)}` : "—",
+                    hasil: fmt(tampil(r.spacing), 3),
+                    satuan: satuan("m"),
+                  },
+                  {
+                    judul: x.jH,
+                    rumus: <span>h = {fmt(KARMAN_SPACING, 3)} · a</span>,
+                    isi: lepas ? `${fmt(KARMAN_SPACING, 3)} · ${fmt(r.spacing, 4)}` : "—",
+                    hasil: fmt(tampil(r.rowGap), 3),
+                    satuan: satuan("m"),
+                  },
+                  ...(alam > 0
+                    ? [
+                        {
+                          judul: x.jKunci,
+                          rumus: <span>|f − fn| / fn · 100</span>,
+                          isi: lepas ? `| ${fmt(r.frequency, 4)} − ${fmt(alam, 1)} | / ${fmt(alam, 1)} · 100` : "—",
+                          hasil: fmt(selisih * 100, 1),
+                          satuan: lepas ? "%" : undefined,
+                          tint: r.lockIn ? C.caution : undefined,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(U, d, nu, alam, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={!lepas ? "neutral" : r.lockIn || r.regime === "kritis" ? "caution" : "water"}
+            badge={r.lockIn ? x.kunci : REZIM[lang][r.regime]}
+            state={
+              lepas
+                ? x.sLepas(REZIM[lang][r.regime], fmt(r.frequency, 2), fmt(r.strouhal, 3)) +
+                  (alam > 0 ? (r.lockIn ? x.sKunci(fmt(alam, 1)) : x.sAman(fmt(alam, 1))) : "")
+                : x.sTanpa(fmt(r.reynolds, 1))
+            }
+            notice={notice(U, d, nu, alam, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksVortexStreet(U, d, nu, alam)} />}
@@ -376,13 +502,27 @@ export function VorteksKarmanClient() {
   );
 }
 
-function notice(U: number, d: number, nu: number, alam: number, lang: Lang) {
+/*
+ * Nisbah f ditulis dari hasil hitung, bukan "berlipat dua": di dekat batas
+ * rezim St ikut berubah (Re 133 → ×2,27; Re 1,2·10⁵ → ×2,55 karena St
+ * meloncat ke 0,27 di 2·10⁵).
+ */
+function notice(U: number, d: number, nu: number, alam: number, lang: Lang): string[] {
+  const x = TXT[lang];
   const a = vortexStreet(U, d, nu, alam);
+  if (!a.shedding) return [x.nMulai(fmt((47 * nu) / d, 3))];
   const cepat = vortexStreet(U * 2, d, nu, alam);
   const besar = vortexStreet(U, d * 2, nu, alam);
-  const bahaya = alam > 0 && a.strouhal > 0 ? (alam * d) / a.strouhal : 0;
-
-  if (lang === "en")
-    return `The vortices leave at ${fmt(a.frequency, 2)} hertz. Double the velocity and the frequency doubles to ${fmt(cepat.frequency, 2)}; double the diameter instead and it halves to ${fmt(besar.frequency, 2)}. Both follow from one flat Strouhal number and nothing else.${alam > 0 ? ` For a member whose natural frequency is ${fmt(alam, 1)} hertz, the dangerous approach velocity is about ${fmt(bahaya, 2)} metres a second, and it is that velocity, not the largest one, that has to be checked.` : ""}`;
-  return `Pusarannya lepas pada ${fmt(a.frequency, 2)} hertz. Lipatduakan kecepatannya dan frekuensinya ikut berlipat dua menjadi ${fmt(cepat.frequency, 2)}; lipatduakan diameternya dan ia justru separuh, menjadi ${fmt(besar.frequency, 2)}. Keduanya mengikuti satu bilangan Strouhal yang mendatar dan bukan yang lain.${alam > 0 ? ` Untuk batang yang frekuensi getar alaminya ${fmt(alam, 1)} hertz, kecepatan datang yang berbahaya sekitar ${fmt(bahaya, 2)} meter tiap detik, dan kecepatan itulah yang harus diperiksa, bukan kecepatan terbesarnya.` : ""}`;
+  const out: string[] = [
+    x.nRasio(
+      fmt(cepat.frequency, 2),
+      fmt(cepat.frequency / a.frequency, 2),
+      fmt(besar.frequency, 2),
+      fmt(besar.frequency / a.frequency, 2)
+    ),
+  ];
+  if (alam > 0) out.push(x.nBahaya(fmt(alam, 1), fmt((alam * d) / a.strouhal, 2)));
+  if (a.lockIn) out.push(x.nKunci);
+  if (a.regime === "kritis") out.push(x.nKritis);
+  return out;
 }

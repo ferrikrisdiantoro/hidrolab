@@ -4,19 +4,26 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
-import { advectionDiffusion, fmt, fmtPlain, fmtSci } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import {
+  TRACER_PECLET_MIN,
+  advectionDiffusion,
+  fmt,
+  fmtPlain,
+  fmtSci,
+} from "@/lib/hydraulics";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -24,6 +31,17 @@ import { Verification } from "@/components/Verification";
 import { checksAdvection } from "@/lib/checks";
 
 const WAKTU = [60, 300, 900, 1800];
+/** Saat terakhir yang dipakai x̄, σ, dan cmaks, detik. */
+const T_AKHIR = WAKTU[WAKTU.length - 1];
+/* Sumbu pita Pe 0,02–3·10⁴ memuat penggeser (0,025 pada U 0,05, x 50,
+   D 100; 30 000 pada U 3, x 5000, D 0,5). */
+const PE_MIN = 0.02;
+const PE_MAX = 3e4;
+/** Jarak titik amat terjauh pada penggeser, meter. */
+const X_MAKS = 5000;
+
+/** Kepekatan kecil ditulis bentuk pangkat; fmt(…, 4) dulu menulis 0,0000. */
+const angkaC = (c: number, d: number) => (c > 0 && c < 1e-3 ? fmtSci(c) : fmt(c, d));
 
 const TXT = {
   id: {
@@ -40,7 +58,17 @@ const TXT = {
     rPusat: "Letak pusat awan pada saat terakhir",
     rSigma: "Simpangan baku awan pada saat terakhir",
     rPuncak: "Kepekatan puncak pada saat terakhir",
-    rPe: "Bilangan Peclet pada jarak pusatnya",
+    rPe: "Bilangan Peclet pada jarak titik amat",
+    bSebar: "Penyebaran berkuasa",
+    bSebanding: "Sebanding",
+    bAdveksi: "Adveksi berkuasa",
+    tpTak: "Waktu lewat tidak dihitung: awan berubah bentuk saat melintas",
+    hTt: "Waktu tempuh sampai titik amat",
+    hSigma: "Simpangan baku dan letak pusat pada 30 menit",
+    hC: "Kepekatan puncak pada 30 menit",
+    hPe: "Bilangan Peclet di titik amat",
+    hTp: "Waktu lewat, hampiran awan beku",
+    tpTakNote: `Waktu lewat 4σ/U menganggap awannya hampir tidak berubah selama melintasi titik amat (hampiran awan beku). Itu wajar bila adveksi berkuasa, Pe ≥ ${TRACER_PECLET_MIN}. Di sini awannya masih melebar banyak saat lewat, jadi tp tidak ditulis.`,
     rLebar: "Panjang awan yang memuat 95 persen massanya",
     rTempuh: "Waktu tempuh sampai titik amat",
     rLewat: "Selisih waktu datang tepi depan dan tepi belakang",
@@ -64,7 +92,17 @@ const TXT = {
     rPusat: "Position of the cloud centre at the last instant",
     rSigma: "Standard deviation of the cloud at the last instant",
     rPuncak: "Peak concentration at the last instant",
-    rPe: "Peclet number at the centre's distance",
+    rPe: "Peclet number at the observation point",
+    bSebar: "Dispersion dominates",
+    bSebanding: "Comparable",
+    bAdveksi: "Advection dominates",
+    tpTak: "Passage time not computed: the cloud changes shape as it passes",
+    hTt: "Travel time to the observation point",
+    hSigma: "Standard deviation and centre position at 30 minutes",
+    hC: "Peak concentration at 30 minutes",
+    hPe: "Peclet number at the observation point",
+    hTp: "Passage time, frozen-cloud approximation",
+    tpTakNote: `The passage time 4σ/U assumes the cloud barely changes while it crosses the observation point (the frozen-cloud approximation). That is reasonable when advection dominates, Pe ≥ ${TRACER_PECLET_MIN}. Here the cloud is still widening a lot as it passes, so tp is not written.`,
     rLebar: "Length of cloud holding 95 per cent of its mass",
     rTempuh: "Travel time to the observation point",
     rLewat: "Time between the arrival of the leading and trailing edges",
@@ -104,6 +142,15 @@ export function AdveksiDifusiClient() {
   const [titik, setTitik] = useState(800);
 
   const r = advectionDiffusion(massa, luas, U, D, titik, WAKTU);
+  /*
+   * Hampiran awan beku (tp = 4σ/U) hanya wajar bila adveksi berkuasa.
+   * Model belum punya field-nya (perbaikan model 6 di spesifikasi B5), jadi
+   * ambangnya dibaca dari tetapan yang sama dengan lembar pelacak.
+   */
+  const beku = r.peclet >= TRACER_PECLET_MIN;
+  const tp = beku ? r.passageTime : NaN;
+  const nada: Tone = r.advectionDominated ? "water" : r.balanced ? "neutral" : "caution";
+  const warnaKeadaan = r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.caution;
   const keadaan = r.advectionDominated
     ? x.adveksi
     : r.balanced
@@ -174,7 +221,7 @@ export function AdveksiDifusiClient() {
           lines: garis,
           markers: tanda,
           heading: keadaan,
-          headingColor: r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.critical,
+          headingColor: warnaKeadaan,
           axisX: T.axXMetre,
           axisY: T.axConcentration,
         },
@@ -186,6 +233,19 @@ export function AdveksiDifusiClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Pe"
+          value={r.peclet}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: PE_MIN, to: 1, label: x.bSebar, tone: "caution" },
+            { from: 1, to: TRACER_PECLET_MIN, label: x.bSebanding, tone: "neutral" },
+            { from: TRACER_PECLET_MIN, to: PE_MAX, label: x.bAdveksi, tone: "water" },
+          ]}
+        />
+      }
       sheet="FP-04"
       subject={SUBJECTS.FP[lang]}
       title={x.title}
@@ -211,10 +271,10 @@ export function AdveksiDifusiClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (kg, m, s)" },
-            { label: "Pe", value: fmtSci(r.peclet), tint: r.advectionDominated ? C.water : C.critical },
-            { label: "cmax", value: `${fmt(r.peak, 4)} kg/m³` },
+            { label: "Pe", value: fmtSci(r.peclet), tint: warnaKeadaan },
+            { label: "cmax", value: `${angkaC(r.peak, 4)} kg/m³` },
             { label: "σ", value: `${fmt(r.sigma, 1)} m` },
-            { label: "tp", value: `${fmt(r.passageTime / 60, 1)} min` },
+            { label: "tp", value: beku ? `${fmt(tp / 60, 1)} min` : "—" },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -244,27 +304,64 @@ export function AdveksiDifusiClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag tint={r.advectionDominated ? C.water : r.balanced ? C.ink2 : C.critical}>
-                {keadaan}
-              </Flag>
-            </div>
+            {/* Angka besar: jawaban di titik amat (tt, tp) dan cmaks. x̄ dan σ
+                saat 30 menit tidak bergantung pada titik amat. */}
             <ResultTable
               rows={[
-                { symbol: "x̄", label: x.rPusat, value: fmt(r.centre, 1), unit: "m", tint: C.water, strong: true },
-                { symbol: "σ", label: x.rSigma, value: fmt(r.sigma, 2), unit: "m", tint: C.critical, strong: true },
-                { symbol: "cmax", label: x.rPuncak, value: fmt(r.peak, 5), unit: "kg/m³", strong: true },
+                { symbol: "tt", label: x.rTempuh, value: fmt(r.travelTime / 60, 2), unit: "min", tint: C.water, strong: true },
+                { symbol: "tp", label: x.rLewat, value: fmt(tp / 60, 2), unit: beku ? "min" : undefined, strong: true },
+                { symbol: "cmax", label: x.rPuncak, value: angkaC(r.peak, 5), unit: "kg/m³", strong: true },
+                { symbol: "x̄", label: x.rPusat, value: fmt(r.centre, 1), unit: "m", tint: C.water },
+                { symbol: "σ", label: x.rSigma, value: fmt(r.sigma, 2), unit: "m", tint: C.critical },
                 { symbol: "Pe", label: x.rPe, value: fmtSci(r.peclet) },
                 { symbol: "Lc", label: x.rLebar, value: fmt(r.cloudLength, 1), unit: "m" },
-                { symbol: "tt", label: x.rTempuh, value: fmt(r.travelTime / 60, 2), unit: "min" },
-                { symbol: "tp", label: x.rLewat, value: fmt(r.passageTime / 60, 2), unit: "min" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hTt,
+                    rumus: (<><span>tt =</span><Frac num="x" den="U" /></>),
+                    isi: `${fmt(titik, 0)} / ${fmt(U, 2)} / 60`,
+                    hasil: fmt(r.travelTime / 60, 2),
+                    satuan: "min",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hSigma,
+                    rumus: (<><span>σ = √( 2 D t ),</span><span className="ml-2">x̄ = U t</span></>),
+                    isi: `√( 2 · ${fmt(D, 1)} · ${fmt(T_AKHIR, 0)} ) = ${fmt(r.sigma, 2)} m;  ${fmt(U, 2)} · ${fmt(T_AKHIR, 0)} = ${fmt(r.centre, 1)} m`,
+                    hasil: fmt(r.sigma, 2),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hC,
+                    rumus: (<><span>cmax =</span><Frac num="M" den="A σ √(2π)" /></>),
+                    isi: `${fmt(massa, 0)} / ( ${fmt(luas, 0)} · ${fmt(r.sigma, 3)} · √(2π) )`,
+                    hasil: angkaC(r.peak, 5),
+                    satuan: "kg/m³",
+                  },
+                  {
+                    judul: x.hPe,
+                    rumus: (<><span>Pe =</span><Frac num="U x" den="D" /></>),
+                    isi: `${fmt(U, 2)} · ${fmt(titik, 0)} / ${fmt(D, 1)}`,
+                    hasil: fmtSci(r.peclet),
+                  },
+                  {
+                    judul: beku ? x.hTp : x.tpTak,
+                    rumus: (<><span>tp =</span><Frac num="4 √( 2 D tt )" den="U" /></>),
+                    isi: beku ? `4 · √( 2 · ${fmt(D, 1)} · ${fmt(r.travelTime, 0)} ) / ${fmt(U, 2)} / 60` : "—",
+                    hasil: fmt(tp / 60, 2),
+                    satuan: beku ? "min" : undefined,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(massa, luas, U, D, titik, lang)}</Note>
-          </Block>
+          <StateCard tone={nada} badge={keadaan} {...notice(massa, luas, U, D, titik, lang)} />
         </>
       }
       verification={
@@ -306,6 +403,11 @@ export function AdveksiDifusiClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama; kalimat pertama menyatakan
+ * keadaan, sisanya butir. Butir "pindah titik 4×" hanya bila 4x masih di
+ * penggeser (≤ 5 000 m) dan waktu lewat berlaku di kedua titik.
+ */
 function notice(
   massa: number,
   luas: number,
@@ -313,11 +415,36 @@ function notice(
   D: number,
   titik: number,
   lang: Lang
-) {
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
   const a = advectionDiffusion(massa, luas, U, D, titik, WAKTU);
-  const jauh = advectionDiffusion(massa, luas, U, D, titik * 4, WAKTU);
+  const beku = a.peclet >= TRACER_PECLET_MIN;
+  const keadaan = a.advectionDominated ? x.adveksi : a.balanced ? x.seimbang : x.difusi;
+  const x4 = titik * 4;
+  const jauh = advectionDiffusion(massa, luas, U, D, x4, WAKTU);
+  const bisa4 = x4 <= X_MAKS && beku;
 
   if (lang === "en")
-    return `The cloud reaches the observation point ${fmt(a.travelTime / 60, 1)} minutes after the release and takes ${fmt(a.passageTime / 60, 1)} minutes to pass. Move the point four times farther out, to ${fmt(titik * 4, 0)} metres: the travel time grows fourfold to ${fmt(jauh.travelTime / 60, 1)} minutes, but the passage time only doubles, to ${fmt(jauh.passageTime / 60, 1)}, because the width follows the square root of time. That asymmetry is the whole of the practical difference between the two processes: one is proportional to distance and the other to its square root.`;
-  return `Awannya mencapai titik amat ${fmt(a.travelTime / 60, 1)} menit sesudah dilepas dan lewat selama ${fmt(a.passageTime / 60, 1)} menit. Pindahkan titik amatnya empat kali lebih jauh, ke ${fmt(titik * 4, 0)} meter: waktu tempuhnya berlipat empat menjadi ${fmt(jauh.travelTime / 60, 1)} menit, tetapi waktu lewatnya hanya berlipat dua, menjadi ${fmt(jauh.passageTime / 60, 1)}, karena lebarnya mengikuti akar waktu. Ketimpangan itulah seluruh beda praktis kedua proses ini: yang satu sebanding dengan jarak, yang lain sebanding dengan akarnya.`;
+    return {
+      state: beku
+        ? `Pe = ${fmt(a.peclet, 1)} at the observation point: ${keadaan.toLowerCase()}; arrives after ${fmt(a.travelTime / 60, 1)} minutes, passes in ${fmt(a.passageTime / 60, 1)} minutes.`
+        : `Pe = ${fmt(a.peclet, 2)} at the observation point: ${keadaan.toLowerCase()}; arrives after ${fmt(a.travelTime / 60, 1)} minutes.`,
+      notice: [
+        beku ? "" : x.tpTakNote,
+        bisa4
+          ? `Move the point four times farther out, to ${fmt(x4, 0)} m: the travel time grows fourfold to ${fmt(jauh.travelTime / 60, 1)} minutes, but the passage time only doubles, to ${fmt(jauh.passageTime / 60, 1)}, because the width follows the square root of time. That asymmetry is the whole of the practical difference between the two processes: one is proportional to distance and the other to its square root.`
+          : "",
+      ],
+    };
+  return {
+    state: beku
+      ? `Pe = ${fmt(a.peclet, 1)} di titik amat: ${keadaan.toLowerCase()}; tiba ${fmt(a.travelTime / 60, 1)} menit, lewat ${fmt(a.passageTime / 60, 1)} menit.`
+      : `Pe = ${fmt(a.peclet, 2)} di titik amat: ${keadaan.toLowerCase()}; tiba ${fmt(a.travelTime / 60, 1)} menit.`,
+    notice: [
+      beku ? "" : x.tpTakNote,
+      bisa4
+        ? `Pindahkan titik amatnya empat kali lebih jauh, ke ${fmt(x4, 0)} m: waktu tempuhnya berlipat empat menjadi ${fmt(jauh.travelTime / 60, 1)} menit, tetapi waktu lewatnya hanya berlipat dua, menjadi ${fmt(jauh.passageTime / 60, 1)}, karena lebarnya mengikuti akar waktu. Ketimpangan itulah seluruh beda praktis kedua proses ini: yang satu sebanding dengan jarak, yang lain sebanding dengan akarnya.`
+        : "",
+    ],
+  };
 }

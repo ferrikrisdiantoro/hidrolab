@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -45,6 +46,19 @@ const TXT = {
     rMin: "Muka air terendah setahun",
     rBase: "Aliran dasar rata-rata",
     aman: "Muka air bertahan di atas ambang keluaran",
+    bTanggap: "Tanggap, mengikuti imbuhan",
+    bLamban: "Lamban, meredam dan menunda",
+    tanggap: "Tanggap",
+    lamban: "Lamban",
+    negatif: "Imbuhan negatif pada sebagian musim",
+    negatifNote:
+      "Simpangan musiman lebih besar daripada imbuhan rata-ratanya, jadi pada sebagian musim imbuhannya bernilai negatif: tanah menyerahkan air ke atas, bukan menerimanya. Rumus sinus yang dipakai lembar ini tidak mengenal batas itu. Penguapan dari muka air tanah yang dangkal memang ada, tetapi besarnya tidak mengikuti sinus ini, jadi bagian musim itu dibaca sebagai batas model, bukan sebagai keadaan lapangan.",
+    hTau: "Tetapan waktu akuifer",
+    hMean: "Muka air rata-rata",
+    hAmp: "Peredaman dan simpangan",
+    hLag: "Tundaan puncak",
+    hBase: "Aliran dasar rata-rata",
+    keringIsi: "muka air di bawah ambang keluaran: tidak berlaku",
     kering: "Muka air turun di bawah ambang keluaran",
     keringNote:
       "Pemompaan melampaui imbuhan, jadi muka air tanah turun melewati ambang tempat akuifer ini mengalirkan airnya keluar. Yang terjadi sesudah itu tidak tergambar di lembar ini, dan sebabnya penting: begitu muka air turun di bawah ambang keluarannya, suku umpan balik yang menarik sistem kembali ke tempatnya berhenti bekerja. Akuifer yang kehilangan umpan baliknya tidak lagi punya keadaan tunak, dan penurunannya berjalan terus selama pemompaannya berjalan. Mata air mengering, sungai yang tadinya menerima air berbalik menyerahkannya, dan pemulihannya memakan waktu berkali-kali lipat tetapan waktu yang tertulis di tabel ini.",
@@ -72,6 +86,19 @@ const TXT = {
     rMin: "Lowest water table in the year",
     rBase: "Mean baseflow",
     aman: "The water table stays above the outflow threshold",
+    bTanggap: "Responsive, follows the recharge",
+    bLamban: "Sluggish, damps and delays",
+    tanggap: "Responsive",
+    lamban: "Sluggish",
+    negatif: "Negative recharge for part of the season",
+    negatifNote:
+      "The seasonal swing is larger than the mean recharge, so for part of the season the recharge is negative: the ground gives water up rather than receiving it. The sine law used on this sheet knows no such limit. Evaporation from a shallow water table does exist, but it does not follow this sine, so that part of the season should be read as a limit of the model, not as a field condition.",
+    hTau: "Aquifer time constant",
+    hMean: "Mean water table",
+    hAmp: "Damping and swing",
+    hLag: "Peak lag",
+    hBase: "Mean baseflow",
+    keringIsi: "water table below the outflow threshold: does not apply",
     kering: "The water table falls below the outflow threshold",
     keringNote:
       "Pumping exceeds recharge, so the water table falls past the level at which this aquifer discharges. What happens after that is not drawn on this sheet, and the reason matters: once the table falls below its outflow threshold, the feedback term that pulls the system back stops working. An aquifer that has lost its feedback no longer has a steady state, and the decline continues for as long as the pumping does. Springs dry, a river that used to receive water begins to give it up, and recovery takes many times the time constant in the table here.",
@@ -109,6 +136,17 @@ export function ResponsAirTanahClient() {
   const [alpha, setAlpha] = useState(0.01);
 
   const r = aquiferResponse(rata, ayun, pompa, Sy, alpha);
+  const hari = lang === "id" ? "hari" : "d";
+  /* Saat muka air turun di bawah ambang keluaran, suku keluaran linear
+     berbalik menjadi masukan (aliran dasar negatif), jadi h̄, q, Δh, dan
+     tundaannya bukan hasil yang sah: ditulis "—". */
+  const tampil = (v: number) => (r.runsDry ? NaN : v);
+  const satuan = (u: string) => (r.runsDry ? undefined : u);
+  /* A > R memberi imbuhan negatif pada sebagian musim; penggeser
+     membiarkannya (R min 0,1, A maks 6), jadi wajib ditandai. */
+  const imbuhanNegatif = ayun > rata;
+  const omega = (2 * Math.PI) / 365;
+  const lamban = r.lagFraction > 0.125;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -224,6 +262,31 @@ export function ResponsAirTanahClient() {
 
   return (
     <LabShell
+      status={
+        r.runsDry ? (
+          <RegimeScale
+            symbol="tp/365"
+            value={NaN}
+            invalid
+            pesan={x.kering}
+            digits={3}
+            bands={[{ from: 0, to: 0.25, label: x.kering, tone: "invalid" }]}
+          />
+        ) : (
+          /* Batas ωτ = 1: D = 1/√2 dan tp = musim/8 (sistem orde satu,
+             Gelhar 1974). 0,25 adalah asimtot arctan, tidak pernah dicapai;
+             rentang penggeser 0,00068 sampai 0,227. */
+          <RegimeScale
+            symbol="tp/365"
+            value={r.lagFraction}
+            digits={3}
+            bands={[
+              { from: 0, to: 0.125, label: x.bTanggap, tone: "water" },
+              { from: 0.125, to: 0.25, label: x.bLamban, tone: "neutral" },
+            ]}
+          />
+        )
+      }
       sheet="GW-03"
       subject={SUBJECTS.GW[lang]}
       title={x.title}
@@ -252,7 +315,7 @@ export function ResponsAirTanahClient() {
           cells={[
             { label: t.tbUnit, value: lang === "id" ? "SI (m, mm/hari)" : "SI (m, mm/day)" },
             { label: "τ", value: `${fmt(r.tau, 0)} ${lang === "id" ? "hari" : "d"}`, tint: C.critical },
-            { label: "Δh", value: `${fmt(r.amplitude, 3)} m`, tint: C.water },
+            { label: "Δh", value: r.runsDry ? "—" : `${fmt(r.amplitude, 3)} m`, tint: C.water },
             /*
              * Lambangnya "tp", bukan "t".
              *
@@ -263,7 +326,7 @@ export function ResponsAirTanahClient() {
              * yang mana tundaan puncak, dan keduanya kebetulan berdekatan
              * nilainya pada setelan bawaan.
              */
-            { label: "tp", value: `${fmt(r.lag, 0)} ${lang === "id" ? "hari" : "d"}` },
+            { label: "tp", value: r.runsDry ? "—" : `${fmt(r.lag, 0)} ${hari}` },
             { label: "Sy", value: fmt(Sy, 2) },
           ]}
         >
@@ -294,34 +357,75 @@ export function ResponsAirTanahClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.runsDry ? undefined : C.water} alert={r.runsDry}>
-                {r.runsDry ? x.kering : x.aman}
-              </Flag>
-            </div>
-            {r.runsDry && (
-              <div className="mb-2.5">
-                <Note>{x.keringNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: lang === "id" ? "hari" : "d", tint: C.critical, strong: true },
-                { symbol: "h̄", label: x.rMean, value: fmt(r.meanHead, 3), unit: "m", tint: C.water, strong: true },
-                { symbol: "Δh", label: x.rAmp, value: fmt(r.amplitude, 4), unit: "m" },
+                { symbol: "τ", label: x.rTau, value: fmt(r.tau, 1), unit: hari, tint: C.critical, strong: true },
+                { symbol: "h̄", label: x.rMean, value: fmt(tampil(r.meanHead), 3), unit: satuan("m"), tint: C.water, strong: true },
+                { symbol: "Δh", label: x.rAmp, value: fmt(tampil(r.amplitude), 4), unit: satuan("m") },
                 { symbol: "Δh₀", label: x.rAmpUn, value: fmt(r.amplitudeUndamped, 4), unit: "m" },
                 { symbol: "D", label: x.rDamp, value: fmt(r.damping, 4) },
-                { symbol: "t", label: x.rLag, value: fmt(r.lag, 1), unit: lang === "id" ? "hari" : "d", strong: true },
-                { symbol: "t/P", label: x.rLagF, value: fmt(r.lagFraction, 4) },
+                /* Lambang tundaan "tp" di kop dan di tabel. Pecahannya
+                   "tp/365": "P" sudah dipakai penggeser pemompaan. */
+                { symbol: "tp", label: x.rLag, value: fmt(tampil(r.lag), 1), unit: satuan(hari), strong: true },
+                { symbol: "tp/365", label: x.rLagF, value: fmt(tampil(r.lagFraction), 4) },
                 { symbol: "hmin", label: x.rMin, value: fmt(r.minHead, 3), unit: "m", tint: r.runsDry ? C.signal : undefined },
-                { symbol: "q", label: x.rBase, value: fmt(r.baseflow, 3), unit: mmHari },
+                { symbol: "q", label: x.rBase, value: fmt(tampil(r.baseflow), 3), unit: satuan(mmHari) },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hTau,
+                    rumus: (<><span>τ =</span><Frac num="Sy" den="α" /></>),
+                    isi: `${fmt(Sy, 2)} / ${fmt(alpha, 3)}`,
+                    hasil: fmt(r.tau, 1),
+                    satuan: hari,
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hMean,
+                    rumus: (<><span>h̄ =</span><Frac num="(R − P) / 1000" den="α" /></>),
+                    isi: r.runsDry ? x.keringIsi : `( ${fmt(rata, 1)} − ${fmt(pompa, 1)} ) / 1000 / ${fmt(alpha, 3)}`,
+                    hasil: fmt(tampil(r.meanHead), 3),
+                    satuan: satuan("m"),
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hAmp,
+                    rumus: (<><span>ω =</span><Frac num="2π" den="365" /><span>; D =</span><Frac num="1" den="√(1 + (ωτ)²)" /><span>; Δh = D · A/α</span></>),
+                    isi: r.runsDry
+                      ? x.keringIsi
+                      : `ω = ${fmt(omega, 6)} ; ωτ = ${fmt(omega * r.tau, 4)} ; D = ${fmt(r.damping, 4)} ; Δh₀ = ${fmt(ayun, 1)} / 1000 / ${fmt(alpha, 3)} = ${fmt(r.amplitudeUndamped, 4)} ; Δh = ${fmt(r.damping, 4)} · ${fmt(r.amplitudeUndamped, 4)}`,
+                    hasil: fmt(tampil(r.amplitude), 4),
+                    satuan: satuan("m"),
+                  },
+                  {
+                    judul: x.hLag,
+                    rumus: (<><span>tp =</span><Frac num="arctan(ωτ)" den="ω" /><span>; tp/365</span></>),
+                    isi: r.runsDry
+                      ? x.keringIsi
+                      : `arctan( ${fmt(omega * r.tau, 4)} ) / ${fmt(omega, 6)} = ${fmt(r.lag, 1)} ${hari} ; ${fmt(r.lag, 1)} / 365`,
+                    hasil: fmt(tampil(r.lagFraction), 4),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hBase,
+                    rumus: <span>q = α · h̄</span>,
+                    isi: r.runsDry ? x.keringIsi : `${fmt(alpha, 3)} · ${fmt(r.meanHead, 4)} · 1000`,
+                    hasil: fmt(tampil(r.baseflow), 3),
+                    satuan: satuan(mmHari),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(rata, ayun, pompa, Sy, alpha, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.runsDry ? "invalid" : imbuhanNegatif ? "caution" : lamban ? "neutral" : "water"}
+            badge={r.runsDry ? x.kering : imbuhanNegatif ? x.negatif : lamban ? x.lamban : x.tanggap}
+            {...notice(rata, ayun, pompa, Sy, alpha, imbuhanNegatif, x.keringNote, x.negatifNote, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksAquifer(rata, ayun, pompa, Sy, alpha)} />}
@@ -352,19 +456,55 @@ export function ResponsAirTanahClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) lipat tiga Sy; (b) tundaan tidak pernah
+ * mencapai 91 hari; (c) kering (cukup cabang ini saja) atau imbuhan
+ * negatif.
+ */
 function notice(
   rata: number,
   ayun: number,
   pompa: number,
   Sy: number,
   alpha: number,
+  imbuhanNegatif: boolean,
+  keringNote: string,
+  negatifNote: string,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const en = lang === "en";
   const r = aquiferResponse(rata, ayun, pompa, Sy, alpha);
+
+  if (r.runsDry) {
+    return {
+      state: en
+        ? `τ = ${fmt(r.tau, 0)} days, but the water table falls below the outflow threshold (lowest ${fmt(r.minHead, 3)} m): the linear outflow term no longer holds, so the mean level, baseflow, swing, and lag are not shown.`
+        : `τ = ${fmt(r.tau, 0)} hari, tetapi muka air turun di bawah ambang keluaran (terendah ${fmt(r.minHead, 3)} m): suku keluaran linear tidak berlaku lagi, jadi muka air rata-rata, aliran dasar, simpangan, dan tundaannya tidak ditampilkan.`,
+      notice: [keringNote],
+    };
+  }
+
   const lamban = aquiferResponse(rata, ayun, pompa, Sy * 3, alpha);
   const bulan = r.lag / 30.4;
+  const butir: string[] = [];
+  if (imbuhanNegatif) butir.push(negatifNote);
 
-  if (lang === "en")
-    return `The time constant is ${fmt(r.tau, 0)} days, so the water table peaks ${fmt(r.lag, 0)} days after the recharge peak, about ${fmt(bulan, 1)} months, and swings ${fmt(r.damping * 100, 0)} per cent of what it would swing without storage. Now treble the specific yield. The lag grows to ${fmt(lamban.lag, 0)} days and the swing falls to ${fmt(lamban.damping * 100, 0)} per cent: storage buys smoothness and pays for it in delay. Push the storage as high as you like and the lag still stops short of ninety one days, a quarter of the season, because arctan never reaches half pi.`;
-  return `Tetapan waktunya ${fmt(r.tau, 0)} hari, jadi muka air tanahnya memuncak ${fmt(r.lag, 0)} hari sesudah puncak imbuhan, kira-kira ${fmt(bulan, 1)} bulan, dan berayun ${fmt(r.damping * 100, 0)} persen dari ayunan yang akan terjadi bila tanpa simpanan. Sekarang lipattigakan specific yield-nya. Tundaannya menjadi ${fmt(lamban.lag, 0)} hari dan ayunannya turun menjadi ${fmt(lamban.damping * 100, 0)} persen: simpanan membeli kehalusan dan membayarnya dengan tundaan. Naikkan simpanannya setinggi apa pun dan tundaannya tetap berhenti sebelum sembilan puluh satu hari, yaitu seperempat musim, karena arctan tidak pernah mencapai setengah pi.`;
+  if (en) {
+    butir.push(
+      `Treble the specific yield and the lag grows to ${fmt(lamban.lag, 0)} days while the swing falls to ${fmt(lamban.damping * 100, 0)} per cent: storage buys smoothness and pays for it in delay.`,
+      "Push the storage as high as you like and the lag still stops short of ninety one days, a quarter of the season, because arctan never reaches half pi."
+    );
+    return {
+      state: `τ = ${fmt(r.tau, 0)} days: the water table peaks ${fmt(r.lag, 0)} days after the recharge (about ${fmt(bulan, 1)} months) and swings ${fmt(r.damping * 100, 0)} % of the swing without storage.`,
+      notice: butir,
+    };
+  }
+  butir.push(
+    `Lipattigakan specific yield-nya dan tundaannya menjadi ${fmt(lamban.lag, 0)} hari sementara ayunannya turun menjadi ${fmt(lamban.damping * 100, 0)} persen: simpanan membeli kehalusan dan membayarnya dengan tundaan.`,
+    "Naikkan simpanannya setinggi apa pun dan tundaannya tetap berhenti sebelum sembilan puluh satu hari, yaitu seperempat musim, karena arctan tidak pernah mencapai setengah pi."
+  );
+  return {
+    state: `τ = ${fmt(r.tau, 0)} hari: muka air memuncak ${fmt(r.lag, 0)} hari sesudah imbuhan (kira-kira ${fmt(bulan, 1)} bulan) dan berayun ${fmt(r.damping * 100, 0)} % dari ayunan tanpa simpanan.`,
+    notice: butir,
+  };
 }

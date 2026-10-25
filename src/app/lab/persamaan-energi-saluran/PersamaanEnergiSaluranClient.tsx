@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type RegimeBand,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import {
@@ -22,13 +24,14 @@ import {
   type ReachSeries,
 } from "@/lib/drawReach";
 import {
+  G,
   criticalDepth,
   fmt,
   normalDepthReachable,
   reachEnergy,
   type ReachEnergyResult,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -57,13 +60,18 @@ const TXT = {
     rSf: "Kemiringan gesek rata-rata",
     tak: "Melampaui kapasitas saluran",
     takNote:
-      "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Kedalaman normal yang tampil hanyalah batas atas pencarian, bukan hasil yang berlaku.",
+      "Pada lebar dan kemiringan ini, saluran tidak sanggup mengalirkan debit sebesar itu berapa pun dalamnya. Tidak ada kedalaman normal yang memenuhi persamaan Manning, jadi y₀ dan nama profilnya ditulis “—”. Perbesar lebar dasar, perbesar kemiringan, atau kurangi debitnya.",
+    hH1: "Tinggi energi total di ujung hulu",
+    hH2: "Tinggi energi total di ujung hilir",
+    hHf: "Kehilangan gesekan: kemiringan gesek dijumlahkan sepanjang profil",
+    hHfIsi: (N: number, L: string, dx: string, sf1: string, sf2: string) =>
+      `${N} ruas, Δx = ${L} / 300 = ${dx} m;  Sf hulu ${sf1} ‰, Sf hilir ${sf2} ‰`,
     exagg: "pelebihan tegak",
     seragam: "Aliran seragam",
     berhenti: "Profil berakhir sebelum ujung bentang",
     rLen: "Panjang profil sampai kondisi kritis",
     note:
-      "Tiga garis pada gambar ini adalah tiga suku persamaan energi, dan jarak tegak di antaranya adalah besaran yang dicari. Dasar saluran memberi tinggi tempat, kedalaman air di atasnya memberi tinggi tekan, dan tinggi kecepatan menumpang di atas keduanya. Karena ketiganya diturunkan dari satu profil yang sama, ketiganya tidak mungkin saling bertentangan di layar. Yang perlu diperhatikan, garis energi selalu menurun ke arah hilir sedangkan muka air tidak selalu demikian. Pada kurva pembendungan, muka air jauh lebih landai daripada dasarnya dan mendekati datar, tetapi ia tidak pernah benar-benar naik: kemiringan muka air adalah dy/dx dikurangi S nol, dan pada kurva pembendungan dy/dx mendekati S nol dari bawah tanpa pernah melampauinya. Yang benar-benar naik ke arah hilir adalah muka air pada profil M3 di hilir pintu, tempat kedalaman bertambah jauh lebih cepat daripada dasarnya menurun. Pada kedua keadaan itu garis energinya tetap turun, dan itulah bukti bahwa yang selalu berkurang adalah energi, bukan ketinggian air. Kehilangan gesekan pada tabel di samping dijumlahkan dengan menjumlahkan kemiringan gesek sepanjang bentang, bukan diambil dari selisih kedua ujung garis energi. Keduanya harus menghasilkan angka yang sama, dan blok verifikasi di bawah membandingkannya secara langsung.",
+      "Tiga garis pada gambar ini adalah tiga suku persamaan energi, dan jarak tegak di antaranya adalah besaran yang dicari. Dasar saluran memberi tinggi tempat, kedalaman air di atasnya memberi tinggi tekan, dan tinggi kecepatan menumpang di atas keduanya. Karena ketiganya diturunkan dari satu profil yang sama, ketiganya tidak mungkin saling bertentangan di layar. Yang perlu diperhatikan, garis energi selalu menurun ke arah hilir sedangkan muka air tidak selalu demikian. Pada kurva pembendungan, muka air jauh lebih landai daripada dasarnya dan hampir datar; ia dapat naik sangat sedikit ke arah hilir bila S₀·Fr² > Sf, karena kemiringan muka air adalah dy/dx dikurangi S₀, dan dy/dx melampaui S₀ tepat pada keadaan itu. Yang naik dengan jelas ke arah hilir adalah muka air pada profil M3 di hilir pintu, tempat kedalaman bertambah jauh lebih cepat daripada dasarnya menurun. Pada kedua keadaan itu garis energinya tetap turun, dan itulah bukti bahwa yang selalu berkurang adalah energi, bukan ketinggian air. Kehilangan gesekan pada tabel di samping dijumlahkan dengan menjumlahkan kemiringan gesek sepanjang bentang, bukan diambil dari selisih kedua ujung garis energi. Keduanya harus menghasilkan angka yang sama, dan blok verifikasi di bawah membandingkannya secara langsung.",
   },
   en: {
     title: "Open-channel energy equation",
@@ -86,13 +94,18 @@ const TXT = {
     rSf: "Mean friction slope",
     tak: "Exceeds channel capacity",
     takNote:
-      "At this width and slope the channel cannot carry that discharge at any depth. The normal depth shown is only the upper bound of the search, not a valid result.",
+      "At this width and slope the channel cannot carry that discharge at any depth. No normal depth satisfies Manning's equation, so y₀ and the profile name are shown as “—”. Widen the bed, steepen the slope, or reduce the discharge.",
+    hH1: "Total energy head at the upstream end",
+    hH2: "Total energy head at the downstream end",
+    hHf: "Friction loss: friction slope summed along the profile",
+    hHfIsi: (N: number, L: string, dx: string, sf1: string, sf2: string) =>
+      `${N} segments, Δx = ${L} / 300 = ${dx} m;  Sf upstream ${sf1} ‰, Sf downstream ${sf2} ‰`,
     exagg: "vertical exaggeration",
     seragam: "Uniform flow",
     berhenti: "Profile ends before the end of the reach",
     rLen: "Profile length up to critical conditions",
     note:
-      "The three lines on this drawing are the three terms of the energy equation, and the vertical gaps between them are the quantities being sought. The bed gives elevation head, the depth of water above it gives pressure head, and the velocity head rides on top of both. Because all three are derived from a single profile, they cannot contradict one another on screen. Note that the energy line always falls downstream while the water surface does not always follow. On a backwater curve the surface is far flatter than the bed and approaches horizontal, but it never actually rises: the surface slope is dy/dx minus S zero, and on a backwater curve dy/dx approaches S zero from below without ever exceeding it. What does rise downstream is the surface of an M3 profile below a gate, where the depth grows far faster than the bed falls. In both cases the energy line still falls, and that is the proof that what always decreases is energy, not water level. The friction loss in the table beside the drawing is summed from the friction slope along the reach rather than read off the difference between the two ends of the energy line. The two must produce the same number, and the verification block below compares them directly.",
+      "The three lines on this drawing are the three terms of the energy equation, and the vertical gaps between them are the quantities being sought. The bed gives elevation head, the depth of water above it gives pressure head, and the velocity head rides on top of both. Because all three are derived from a single profile, they cannot contradict one another on screen. Note that the energy line always falls downstream while the water surface does not always follow. On a backwater curve the surface is far flatter than the bed and almost horizontal; it can rise very slightly downstream when S₀·Fr² > Sf, because the surface slope is dy/dx minus S₀, and dy/dx exceeds S₀ exactly in that condition. What rises clearly downstream is the surface of an M3 profile below a gate, where the depth grows far faster than the bed falls. In both cases the energy line still falls, and that is the proof that what always decreases is energy, not water level. The friction loss in the table beside the drawing is summed from the friction slope along the reach rather than read off the difference between the two ends of the energy line. The two must produce the same number, and the verification block below compares them directly.",
   },
 } as const;
 
@@ -135,10 +148,66 @@ export function PersamaanEnergiSaluranClient() {
 
   const zSpan = Math.max(S0 * L + r.points[0].y + r.points[0].vHead, 1e-3);
   const exagg = L / zSpan / 1.9;
-  const seragam = Math.abs(yCtl - r.y0) < 0.01;
+  const seragam = terjangkau && Math.abs(yCtl - r.y0) < 0.01;
+
+  // Ujung hulu dan hilir profil; titik reachEnergy selalu urut dari hulu.
+  const p0 = r.points[0];
+  const pN = r.points[r.points.length - 1];
+  const N = r.points.length - 1;
+
+  /* Pita zona kedalaman kendali seperti OC-03, ditambah pita sempit
+     "Seragam" y0 ± 0,01 m (ambang `seragam` di atas). Batas yang
+     berdekatan dijaga urut supaya tidak ada pita terbalik bila y0 dekat yc. */
+  const puncak = Math.max(6, Math.max(r.y0, yc) * 1.08);
+  const pitaZona: RegimeBand[] = (() => {
+    if (!terjangkau) return [{ from: 0, to: 6, label: x.tak, tone: "invalid" }];
+    const a = Math.max(0, r.y0 - 0.01);
+    const c = r.y0 + 0.01;
+    const calon: RegimeBand[] = r.mild
+      ? [
+          { from: 0, to: Math.min(yc, a), label: "M3", tone: "neutral" },
+          { from: Math.min(yc, a), to: a, label: "M2", tone: "water" },
+          { from: a, to: c, label: x.seragam, tone: "pass" },
+          { from: c, to: puncak, label: "M1", tone: "water" },
+        ]
+      : [
+          { from: 0, to: a, label: "S3", tone: "neutral" },
+          { from: a, to: c, label: x.seragam, tone: "pass" },
+          { from: c, to: Math.max(c, yc), label: "S2", tone: "neutral" },
+          { from: Math.max(c, yc), to: puncak, label: "S1", tone: "water" },
+        ];
+    return calon.filter((p) => p.to - p.from > 1e-6);
+  })();
+
+  const nada: Tone = !terjangkau
+    ? "invalid"
+    : r.endsAtCritical
+      ? "critical"
+      : seragam
+        ? "pass"
+        : yCtl > yc
+          ? "water"
+          : "neutral";
+  const lencana = !terjangkau
+    ? x.tak
+    : r.endsAtCritical
+      ? x.berhenti
+      : seragam
+        ? x.seragam
+        : r.profile;
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="y"
+          value={terjangkau ? yCtl : NaN}
+          invalid={!terjangkau}
+          pesan={terjangkau ? undefined : x.tak}
+          digits={2}
+          bands={pitaZona}
+        />
+      }
       sheet="OC-09"
       subject={SUBJECTS.OC[lang]}
       title={x.title}
@@ -185,7 +254,7 @@ export function PersamaanEnergiSaluranClient() {
               <InputRow symbol="b" label={x.db} value={b} min={0.5} max={20} step={0.1} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.1} max={20} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
-              <InputRow symbol="y" label={x.dy} value={yCtl} min={0.15} max={6} step={0.05} unit="m" onChange={setYCtl} tint={C.signal} />
+              <InputRow symbol="y" label={x.dy} value={yCtl} min={0.15} max={6} step={0.05} unit="m" onChange={setYCtl} tint={C.water} />
               <InputRow symbol="L" label={x.dL} value={L} min={100} max={4000} step={50} digits={0} unit="m" onChange={setL} />
             </InputTable>
 
@@ -202,29 +271,12 @@ export function PersamaanEnergiSaluranClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.critical}>{r.profile}</Flag>
-              {seragam && (
-                <span className="value label text-[0.78rem] text-ink-3">
-                  {x.seragam}
-                </span>
-              )}
-              {!terjangkau && <Flag alert>{x.tak}</Flag>}
-              {terjangkau && r.endsAtCritical && (
-                <Flag alert>{x.berhenti}</Flag>
-              )}
-            </div>
-            {!terjangkau && (
-              <div className="mb-2.5">
-                <Note>{x.takNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "hf", label: x.rHf, value: fmt(r.hf, 4), unit: "m", tint: C.energy, strong: true },
                 { symbol: "Δz", label: x.rDz, value: fmt(r.dz, 4), unit: "m" },
                 { symbol: "ΔH", label: x.rDE, value: fmt(r.dE, 4), unit: "m", tint: C.energy },
-                { symbol: "y₀", label: x.rY0, value: fmt(r.y0, 3), unit: "m", tint: C.water },
+                { symbol: "y₀", label: x.rY0, value: terjangkau ? fmt(r.y0, 3) : "—", unit: terjangkau ? "m" : undefined, tint: C.water },
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical },
                 { symbol: "hv", label: x.rVh, value: fmt(tengah.vHead, 4), unit: "m", tint: C.energy },
                 { symbol: "S̄f", label: x.rSf, value: fmt((r.hf / r.length) * 1000, 3), unit: "‰" },
@@ -235,17 +287,64 @@ export function PersamaanEnergiSaluranClient() {
                         label: x.rLen,
                         value: fmt(r.length, 1),
                         unit: "m",
-                        tint: C.signal,
+                        tint: C.critical,
                       },
                     ]
                   : []),
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hH1,
+                    rumus: (<><span>H₁ = z₁ + y₁ +</span><Frac num="V₁²" den="2 · g" /></>),
+                    isi: `${fmt(p0.zb, 3)} + ${fmt(p0.y, 4)} + ${fmt(p0.V, 4)}² / ( 2 · ${fmt(G, 2)} )`,
+                    hasil: fmt(p0.egl, 4),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hH2,
+                    rumus: (<><span>H₂ = z₂ + y₂ +</span><Frac num="V₂²" den="2 · g" /></>),
+                    isi: `${fmt(pN.zb, 3)} + ${fmt(pN.y, 4)} + ${fmt(pN.V, 4)}² / ( 2 · ${fmt(G, 2)} )`,
+                    hasil: fmt(pN.egl, 4),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rDE,
+                    rumus: <span>ΔH = H₁ − H₂</span>,
+                    isi: `${fmt(p0.egl, 5)} − ${fmt(pN.egl, 5)}`,
+                    hasil: fmt(r.dE, 4),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hHf,
+                    rumus: <span>hf = Σ ½ · ( Sf,i−1 + Sf,i ) · Δx</span>,
+                    isi: x.hHfIsi(N, fmt(L, 0), fmt(L / 300, 2), fmt(p0.Sf * 1000, 4), fmt(pN.Sf * 1000, 4)),
+                    hasil: fmt(r.hf, 4),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rDz,
+                    rumus: <span>Δz = S₀ · Lp</span>,
+                    isi: `${fmt(S0, 5)} · ${fmt(r.length, 1)}`,
+                    hasil: fmt(r.dz, 4),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r, L, lang)}</Note>
-          </Block>
+          {terjangkau ? (
+            <StateCard tone={nada} badge={lencana} {...notice(r, L, lang)} />
+          ) : (
+            <StateCard tone="invalid" badge={x.tak} state={x.takNote} />
+          )}
         </>
       }
       verification={
@@ -397,7 +496,11 @@ function susun(r: ReachEnergyResult, L: number, S0: number, lang: Lang) {
   };
 }
 
-function notice(r: ReachEnergyResult, L: number, lang: Lang): string {
+function notice(
+  r: ReachEnergyResult,
+  L: number,
+  lang: Lang
+): { state: string; notice: string[] } {
   const naik = r.points[r.points.length - 1].wsl > r.points[0].wsl;
   const bagian = r.dz > 1e-9 ? (r.hf / r.dz) * 100 : 0;
 
@@ -411,17 +514,53 @@ function notice(r: ReachEnergyResult, L: number, lang: Lang): string {
    */
   if (r.endsAtCritical) {
     return lang === "en"
-      ? `The profile ends after ${fmt(r.length, 1)} m, where the depth reaches critical, so it covers only part of the ${fmt(L, 0)} m reach drawn. Every figure in the table is measured along that ${fmt(r.length, 1)} m, not along the full reach: friction spends ${fmt(r.hf, 3)} m while the bed gives up ${fmt(r.dz, 3)} m over the same distance. Shorten the reach length to see the profile properly, and see sheet OC-01 for the hydraulic jump that ends it.`
-      : `Profilnya berakhir setelah ${fmt(r.length, 1)} m, di tempat kedalamannya mencapai kondisi kritis, jadi ia hanya mengisi sebagian dari bentang ${fmt(L, 0)} m yang digambar. Seluruh angka pada tabel diukur sepanjang ${fmt(r.length, 1)} m itu, bukan sepanjang bentang penuh: gesekan menghabiskan ${fmt(r.hf, 3)} m sementara dasar menyerahkan ${fmt(r.dz, 3)} m pada jarak yang sama. Perpendek panjang bentang untuk melihat profilnya dengan jelas, dan lihat lembar OC-01 untuk loncatan air yang mengakhirinya.`;
+      ? {
+          state: `The ${r.profile} profile ends after ${fmt(r.length, 1)} m, where the depth reaches critical, so it covers only part of the ${fmt(L, 0)} m reach drawn.`,
+          notice: [
+            `Every figure in the table is measured along that ${fmt(r.length, 1)} m, not along the full reach: friction spends ${fmt(r.hf, 3)} m while the bed gives up ${fmt(r.dz, 3)} m over the same distance.`,
+            "Shorten the reach length to see the profile properly, and see sheet OC-01 for the hydraulic jump that ends it.",
+          ],
+        }
+      : {
+          state: `Profil ${r.profile} berakhir setelah ${fmt(r.length, 1)} m, di tempat kedalamannya mencapai kondisi kritis, jadi ia hanya mengisi sebagian dari bentang ${fmt(L, 0)} m yang digambar.`,
+          notice: [
+            `Seluruh angka pada tabel diukur sepanjang ${fmt(r.length, 1)} m itu, bukan sepanjang bentang penuh: gesekan menghabiskan ${fmt(r.hf, 3)} m sementara dasar menyerahkan ${fmt(r.dz, 3)} m pada jarak yang sama.`,
+            "Perpendek panjang bentang untuk melihat profilnya dengan jelas, dan lihat lembar OC-01 untuk loncatan air yang mengakhirinya.",
+          ],
+        };
   }
 
   if (lang === "en") {
     if (naik)
-      return `Read the two upper lines against each other. The water surface rises downstream, yet the energy line still falls: over ${fmt(r.length, 0)} m it drops ${fmt(r.dE, 3)} m while the bed drops ${fmt(r.dz, 3)} m. Water can be pushed uphill by a structure; energy cannot. That is the whole reason the energy line, and not the water surface, is what a backwater computation actually marches along.`;
-    return `Friction spends ${fmt(r.hf, 3)} m over this reach, which is ${fmt(bagian, 0)} per cent of the ${fmt(r.dz, 3)} m the bed gives up. When those two numbers are equal the flow is uniform, the depth stops changing, and the energy line runs exactly parallel to the bed. Move the control depth to the normal depth and watch all three lines settle into parallel.`;
+      return {
+        state: `The water surface rises downstream, yet the energy line still falls: over ${fmt(r.length, 0)} m it drops ${fmt(r.dE, 3)} m while the bed drops ${fmt(r.dz, 3)} m.`,
+        notice: [
+          "Read the two upper lines against each other. Water can be pushed uphill by a structure; energy cannot.",
+          "That is the whole reason the energy line, and not the water surface, is what a backwater computation actually marches along.",
+        ],
+      };
+    return {
+      state: `Friction spends ${fmt(r.hf, 3)} m over this reach, which is ${fmt(bagian, 0)} per cent of the ${fmt(r.dz, 3)} m the bed gives up.`,
+      notice: [
+        "When those two numbers are equal the flow is uniform, the depth stops changing, and the energy line runs exactly parallel to the bed.",
+        "Move the control depth to the normal depth and watch all three lines settle into parallel.",
+      ],
+    };
   }
 
   if (naik)
-    return `Bacalah dua garis teratas terhadap satu sama lain. Muka air naik ke arah hilir, tetapi garis energinya tetap turun: sepanjang ${fmt(r.length, 0)} m ia turun ${fmt(r.dE, 3)} m sementara dasarnya turun ${fmt(r.dz, 3)} m. Air dapat didorong naik oleh sebuah bangunan, energi tidak bisa. Itulah alasan sesungguhnya mengapa yang ditelusuri dalam hitungan pembendungan adalah garis energi, bukan muka airnya.`;
-  return `Gesekan menghabiskan ${fmt(r.hf, 3)} m di sepanjang bentang ini, yaitu ${fmt(bagian, 0)} persen dari ${fmt(r.dz, 3)} m yang diserahkan oleh dasar saluran. Saat kedua angka itu sama besar, alirannya seragam, kedalamannya berhenti berubah, dan garis energi berjalan persis sejajar dasar. Geser kedalaman kendali ke kedalaman normal, lalu perhatikan ketiga garisnya menjadi sejajar.`;
+    return {
+      state: `Muka air naik ke arah hilir, tetapi garis energinya tetap turun: sepanjang ${fmt(r.length, 0)} m ia turun ${fmt(r.dE, 3)} m sementara dasarnya turun ${fmt(r.dz, 3)} m.`,
+      notice: [
+        "Bacalah dua garis teratas terhadap satu sama lain. Air dapat didorong naik oleh sebuah bangunan, energi tidak bisa.",
+        "Itulah alasan sesungguhnya mengapa yang ditelusuri dalam hitungan pembendungan adalah garis energi, bukan muka airnya.",
+      ],
+    };
+  return {
+    state: `Gesekan menghabiskan ${fmt(r.hf, 3)} m di sepanjang bentang ini, yaitu ${fmt(bagian, 0)} persen dari ${fmt(r.dz, 3)} m yang diserahkan oleh dasar saluran.`,
+    notice: [
+      "Saat kedua angka itu sama besar, alirannya seragam, kedalamannya berhenti berubah, dan garis energi berjalan persis sejajar dasar.",
+      "Geser kedalaman kendali ke kedalaman normal, lalu perhatikan ketiga garisnya menjadi sejajar.",
+    ],
+  };
 }

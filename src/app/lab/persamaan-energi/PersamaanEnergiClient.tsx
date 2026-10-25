@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,7 +20,7 @@ import {
   type StructureDim,
   type StructureLine,
 } from "@/lib/drawStructure";
-import { ductEnergy, fmt, fmtPlain, type DuctStation } from "@/lib/hydraulics";
+import { G, ductEnergy, fmt, fmtPlain, type DuctStation } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -50,6 +51,30 @@ const TXT = {
     labelEntry: "kehilangan masuk",
     labelValve: "katup",
     labelBend: "belokan",
+    unitCell: "SI (m, l/s)",
+    bandSetempat: "Kehilangan setempat berkuasa",
+    bandGesekan: "Gesekan berkuasa",
+    kavitasi: "Kavitasi di pipa",
+    sState: (judul: string, hf: string, hk: string, H: string, Q: string) =>
+      `${judul}: hf ${hf} m dan ΣhK ${hk} m dari ΔH ${H} m, Q ${Q} l/s.`,
+    sKav: (xm: string) =>
+      `Tekanan mutlak di pipa (x = ${xm} m) turun sampai tekanan uap, jadi air mendidih di sana. Debit yang dituntut beda muka air ini tidak dapat terjadi karena kavitasi membatasinya, maka debit, kecepatan, dan kehilangannya ditulis “—”.`,
+    kavNote:
+      "Tekanan terendah ada di mulut pipa, tempat tinggi kecepatan dan kehilangan masuk diambil dari tinggi tekan. Kecilkan beda muka air, perpanjang pipa, atau tambah kehilangan katup supaya kecepatannya turun.",
+    nPendek: (L: string, b: string, kuasa: boolean) =>
+      `Pendekkan pipa menjadi ${L} m: bagian gesekan menjadi ${b} %, ${kuasa ? "gesekan masih berkuasa" : "sekarang kehilangan setempat yang berkuasa"}.`,
+    nPanjang: (L: string, b: string, Q: string, kuasa: boolean) =>
+      `Panjangkan pipa menjadi ${L} m: bagian gesekan menjadi ${b} % dan debitnya ${Q} l/s, ${kuasa ? "gesekan yang berkuasa" : "kehilangan setempat masih berkuasa"}.`,
+    nKav: (L: string) => `Pada panjang ${L} m pipanya berkavitasi, jadi perbandingannya tidak ditulis.`,
+    nTetap:
+      "Nisbah hf terhadap ΣhK tidak bergantung pada debit, karena keduanya sebanding dengan tinggi kecepatan yang sama.",
+    jK: "Jumlah koefisien kehilangan setempat (masuk + katup + belokan)",
+    jV: "Kecepatan dari beda muka air",
+    jQ: "Debit",
+    jHf: "Kehilangan gesekan",
+    jHk: "Kehilangan setempat",
+    jCek: "Pemeriksaan: kehilangan ditambah tinggi kecepatan di ujung sama dengan ΔH",
+    jBagi: "Bagian gesekan",
     note:
       "Persamaan energi tidak lain persamaan Bernoulli yang jujur, yaitu Bernoulli dengan satu suku tambahan untuk energi yang tidak dapat dikembalikan. Suku tambahan itulah yang membuat lembar ini berbeda dari lembar sebelumnya: di sana garis energinya mendatar sempurna, di sini ia hanya boleh turun. Dua bentuk penurunannya perlu dibedakan karena keduanya menuntut perlakuan yang berbeda. Gesekan dinding menurunkannya sebagai kemiringan yang tetap, sebanding dengan panjang, jadi memperpanjang pipa selalu menambah biayanya. Kehilangan setempat menurunkannya sebagai anak tangga di satu titik, tidak peduli panjang pipanya, jadi pada pipa pendek justru anak tangga itulah yang menghabiskan hampir seluruh tinggi yang tersedia. Yang menyesatkan pada perhitungan yang tergesa adalah anggapan bahwa kehilangan setempat selalu kecil dan pantas diabaikan. Coba pendekkan pipanya di lembar ini sampai sepuluh meter dan perhatikan bagiannya. Keduanya kebetulan sebanding dengan tinggi kecepatan yang sama, jadi nisbah keduanya sama sekali tidak bergantung pada debit: sekali pipanya dikuasai kehilangan setempat, ia akan tetap begitu pada debit berapa pun.",
   },
@@ -75,6 +100,30 @@ const TXT = {
     labelEntry: "entry loss",
     labelValve: "valve",
     labelBend: "bend",
+    unitCell: "SI (m, l/s)",
+    bandSetempat: "Minor losses dominate",
+    bandGesekan: "Friction dominates",
+    kavitasi: "Cavitation in the pipe",
+    sState: (judul: string, hf: string, hk: string, H: string, Q: string) =>
+      `${judul}: hf ${hf} m and ΣhK ${hk} m out of ΔH ${H} m, Q ${Q} l/s.`,
+    sKav: (xm: string) =>
+      `The absolute pressure in the pipe (x = ${xm} m) falls to vapour pressure, so the water boils there. The discharge this level difference demands cannot occur because cavitation limits it, so discharge, velocity and losses are shown as “—”.`,
+    kavNote:
+      "The lowest pressure is at the pipe mouth, where the velocity head and the entry loss are taken out of the pressure head. Reduce the level difference, lengthen the pipe, or add valve loss so the velocity falls.",
+    nPendek: (L: string, b: string, kuasa: boolean) =>
+      `Shorten the pipe to ${L} m: friction's share becomes ${b} %, ${kuasa ? "friction still dominates" : "now the minor losses dominate"}.`,
+    nPanjang: (L: string, b: string, Q: string, kuasa: boolean) =>
+      `Lengthen the pipe to ${L} m: friction's share becomes ${b} % and the discharge ${Q} l/s, ${kuasa ? "friction dominates" : "minor losses still dominate"}.`,
+    nKav: (L: string) => `At a length of ${L} m the pipe cavitates, so the comparison is not given.`,
+    nTetap:
+      "The ratio of hf to ΣhK does not depend on discharge, because both are proportional to the same velocity head.",
+    jK: "Sum of minor loss coefficients (entry + valve + bend)",
+    jV: "Velocity from the level difference",
+    jQ: "Discharge",
+    jHf: "Friction loss",
+    jHk: "Minor losses",
+    jCek: "Check: losses plus outlet velocity head equal ΔH",
+    jBagi: "Friction share",
     note:
       "The energy equation is nothing but an honest Bernoulli, that is Bernoulli with one extra term for the energy that cannot be given back. That term is what separates this sheet from the last one: there the energy line was perfectly level, here it may only fall. Two forms of fall need to be told apart, because they ask for different treatment. Wall friction lowers it as a steady slope, proportional to length, so lengthening the pipe always adds to the bill. A minor loss lowers it as a step at one point, whatever the length, so on a short pipe it is the steps that consume nearly all the head available. What misleads a hurried calculation is the assumption that minor losses are always small and safely ignored. Try shortening the pipe on this sheet to ten metres and watch the share. Both happen to be proportional to the same velocity head, so their ratio does not depend on discharge at all: once a pipe is dominated by its fittings, it stays that way at every discharge.",
   },
@@ -163,6 +212,15 @@ export function PersamaanEnergiClient() {
   const ujung = r.points[r.points.length - 1];
   const total = r.frictionLoss + r.minorLoss + ujung.velocityHead;
   const bagiGesekan = total > 0 ? r.frictionLoss / total : 0;
+  /* Kavitasi: tekanan mutlak di suatu tempat (biasanya mulut pipa) jatuh
+     ke tekanan uap. Debit yang dituntut ΔH tidak dapat terjadi, jadi semua
+     besaran yang bergantung padanya ditulis "—" lewat NaN. Nisbah hf/ΣhK
+     tidak bergantung debit, tetapi pitanya juga dipadamkan (spesifikasi). */
+  const kav = r.cavitates;
+  const tampil = (v: number) => (kav ? NaN : v);
+  const satuan = (u: string) => (kav ? undefined : u);
+  const SK = K_MASUK + Kv + K_BELOK;
+  const gesekKuasa = bagiGesekan >= 0.5;
 
   /*
    * Kedua garis digambar bertangga: di penampang yang punya perlengkapan,
@@ -287,7 +345,9 @@ export function PersamaanEnergiClient() {
             { x: L * 0.75, z: r.points[3].z, dx: 14, dy: 24, text: x.labelBend },
           ],
           dims,
-          heading: bagiGesekan >= 0.5 ? x.gesekanKuasa : x.setempatKuasa,
+          heading: kav ? x.kavitasi : gesekKuasa ? x.gesekanKuasa : x.setempatKuasa,
+          /* Merah sinyal hanya saat kavitasi: di luar rentang berlaku. */
+          headingColor: kav ? C.signal : undefined,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
         },
@@ -299,6 +359,25 @@ export function PersamaanEnergiClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas 50 % adalah batas definisi "berkuasa" (tanpa sumber
+           literatur), sama dengan yang dipakai judul gambar. */
+        <RegimeScale
+          symbol="hf/ΔH"
+          value={kav ? NaN : bagiGesekan * 100}
+          invalid={kav}
+          pesan={kav ? x.kavitasi : undefined}
+          digits={1}
+          bands={
+            kav
+              ? [{ from: 0, to: 100, label: x.kavitasi, tone: "invalid" }]
+              : [
+                  { from: 0, to: 50, label: x.bandSetempat, tone: "critical" },
+                  { from: 50, to: 100, label: x.bandGesekan, tone: "energy" },
+                ]
+          }
+        />
+      }
       sheet="FF-02"
       subject={SUBJECTS.FF[lang]}
       title={x.title}
@@ -326,11 +405,11 @@ export function PersamaanEnergiClient() {
           title={x.sheetTitle}
           rev="A"
           cells={[
-            { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "Q", value: `${fmt(Q * 1000, 1)} l/s`, tint: C.water },
-            { label: "hf", value: `${fmt(r.frictionLoss, 2)} m`, tint: C.energy },
-            { label: "ΣhK", value: `${fmt(r.minorLoss, 2)} m`, tint: C.critical },
-            { label: "V²/2g", value: `${fmt(ujung.velocityHead, 3)} m` },
+            { label: t.tbUnit, value: x.unitCell },
+            { label: "Q", value: kav ? "—" : `${fmt(Q * 1000, 1)} l/s`, tint: kav ? C.signal : C.water },
+            { label: "hf", value: kav ? "—" : `${fmt(r.frictionLoss, 2)} m`, tint: C.energy },
+            { label: "ΣhK", value: kav ? "—" : `${fmt(r.minorLoss, 2)} m`, tint: C.critical },
+            { label: "V²/2g", value: kav ? "—" : `${fmt(ujung.velocityHead, 3)} m` },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -360,26 +439,102 @@ export function PersamaanEnergiClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag tint={bagiGesekan >= 0.5 ? C.energy : C.critical}>
-                {bagiGesekan >= 0.5 ? x.gesekanKuasa : x.setempatKuasa}
-              </Flag>
-            </div>
             <ResultTable
               rows={[
-                { symbol: "Q", label: x.rQ, value: fmt(Q * 1000, 2), unit: "l/s", tint: C.water, strong: true },
-                { symbol: "V", label: x.rV, value: fmt(ujung.velocity, 3), unit: "m/s" },
-                { symbol: "hf", label: x.rHf, value: fmt(r.frictionLoss, 3), unit: "m", tint: C.energy, strong: true },
-                { symbol: "ΣhK", label: x.rHk, value: fmt(r.minorLoss, 3), unit: "m", tint: C.critical, strong: true },
-                { symbol: "V²/2g", label: x.rHv, value: fmt(ujung.velocityHead, 4), unit: "m" },
-                { symbol: "hf/ΔH", label: x.rBagi, value: fmt(bagiGesekan * 100, 1), unit: "%" },
+                { symbol: "Q", label: x.rQ, value: fmt(tampil(Q * 1000), 2), unit: satuan("l/s"), tint: kav ? C.signal : C.water, strong: true },
+                { symbol: "V", label: x.rV, value: fmt(tampil(ujung.velocity), 3), unit: satuan("m/s") },
+                { symbol: "hf", label: x.rHf, value: fmt(tampil(r.frictionLoss), 3), unit: satuan("m"), tint: C.energy, strong: true },
+                { symbol: "ΣhK", label: x.rHk, value: fmt(tampil(r.minorLoss), 3), unit: satuan("m"), tint: C.critical, strong: true },
+                { symbol: "V²/2g", label: x.rHv, value: fmt(tampil(ujung.velocityHead), 4), unit: satuan("m") },
+                { symbol: "hf/ΔH", label: x.rBagi, value: fmt(tampil(bagiGesekan * 100), 1), unit: satuan("%") },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jK,
+                    rumus: <span>ΣK = {fmt(K_MASUK, 1)} + K + {fmt(K_BELOK, 1)}</span>,
+                    isi: `${fmt(K_MASUK, 1)} + ${fmt(Kv, 1)} + ${fmt(K_BELOK, 1)}`,
+                    hasil: fmt(SK, 2),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.jV,
+                    rumus: (<><span>V =</span><Frac num="√( 2 · g · ΔH )" den="√( 1 + ΣK + f · L / D )" /></>),
+                    isi: kav
+                      ? "—"
+                      : `√( 2 · ${fmt(G, 2)} · ${fmt(H, 1)} / ( 1 + ${fmt(SK, 2)} + ${fmt(f, 3)} · ${fmt(L, 0)} / ${fmt(D, 2)} ) )`,
+                    hasil: fmt(tampil(ujung.velocity), 3),
+                    satuan: satuan("m/s"),
+                  },
+                  {
+                    judul: x.jQ,
+                    rumus: <span>Q = V · π · D² / 4</span>,
+                    isi: kav ? "—" : `${fmt(ujung.velocity, 4)} · π · ${fmt(D, 2)}² / 4 = ${fmt(Q, 5)} m³/s`,
+                    hasil: fmt(tampil(Q * 1000), 2),
+                    satuan: satuan("l/s"),
+                    tint: kav ? C.signal : C.water,
+                  },
+                  {
+                    judul: x.jHf,
+                    rumus: (<><span>hf = f ·</span><Frac num="L" den="D" /><span>·</span><Frac num="V²" den="2 · g" /></>),
+                    isi: kav ? "—" : `${fmt(f, 3)} · ${fmt(L, 0)} / ${fmt(D, 2)} · ${fmt(ujung.velocityHead, 4)}`,
+                    hasil: fmt(tampil(r.frictionLoss), 3),
+                    satuan: satuan("m"),
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.jHk,
+                    rumus: (<><span>ΣhK = ΣK ·</span><Frac num="V²" den="2 · g" /></>),
+                    isi: kav ? "—" : `${fmt(SK, 2)} · ${fmt(ujung.velocityHead, 4)}`,
+                    hasil: fmt(tampil(r.minorLoss), 3),
+                    satuan: satuan("m"),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.jCek,
+                    rumus: <span>hf + ΣhK + V²/2g = ΔH</span>,
+                    isi: kav
+                      ? "—"
+                      : `${fmt(r.frictionLoss, 4)} + ${fmt(r.minorLoss, 4)} + ${fmt(ujung.velocityHead, 4)}`,
+                    hasil: fmt(tampil(total), 3),
+                    satuan: satuan("m"),
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.jBagi,
+                    rumus: <span>hf / ΔH · 100</span>,
+                    isi: kav ? "—" : `${fmt(r.frictionLoss, 4)} / ${fmt(total, 4)} · 100`,
+                    hasil: fmt(tampil(bagiGesekan * 100), 1),
+                    satuan: satuan("%"),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(H, L, D, f, Kv, lang)}</Note>
-          </Block>
+          {kav ? (
+            <StateCard
+              tone="invalid"
+              badge={x.kavitasi}
+              state={x.sKav(fmt(r.minPressureAt, 0))}
+              notice={[x.kavNote]}
+            />
+          ) : (
+            <StateCard
+              tone={gesekKuasa ? "energy" : "critical"}
+              badge={gesekKuasa ? x.gesekanKuasa : x.setempatKuasa}
+              state={x.sState(
+                gesekKuasa ? x.gesekanKuasa : x.setempatKuasa,
+                fmt(r.frictionLoss, 2),
+                fmt(r.minorLoss, 2),
+                fmt(H, 1),
+                fmt(Q * 1000, 1)
+              )}
+              notice={[...notice(H, L, D, f, Kv, lang), x.nTetap]}
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksDuct(Q, stations, 0, f)} />}
@@ -413,6 +568,12 @@ export function PersamaanEnergiClient() {
   );
 }
 
+/*
+ * Perbandingan dengan pipa sepersepuluh dan sepuluh kali panjangnya.
+ * Kalimatnya dibangun dari bagian yang dihitung (>= 50 % berarti gesekan
+ * berkuasa), dan cabang yang jatuh di ujung penggeser (10 m atau 2000 m,
+ * yaitu keadaan saat ini sendiri) dilewati.
+ */
 function notice(
   H: number,
   L: number,
@@ -420,21 +581,33 @@ function notice(
   f: number,
   Kv: number,
   lang: Lang
-): string {
+): string[] {
+  const x = TXT[lang];
   const bagi = (Lx: number) => {
     const q = debitAlami(Lx, D, H, Kv, f);
     const rr = ductEnergy(q, pipa(Lx, D, H, Kv), 0, f);
     const uj = rr.points[rr.points.length - 1];
     const tot = rr.frictionLoss + rr.minorLoss + uj.velocityHead;
-    return { q, bagian: tot > 0 ? (rr.frictionLoss / tot) * 100 : 0 };
+    return { q, kav: rr.cavitates, bagian: tot > 0 ? (rr.frictionLoss / tot) * 100 : 0 };
   };
+  const out: string[] = [];
   const pendek = Math.max(10, L / 10);
   const panjang = Math.min(2000, L * 10);
-  const a = bagi(L);
-  const b = bagi(pendek);
-  const c = bagi(panjang);
-
-  if (lang === "en")
-    return `At ${fmt(L, 0)} metres of pipe, friction takes ${fmt(a.bagian, 0)} per cent of the available head and the discharge settles at ${fmt(a.q * 1000, 1)} litres a second. Shorten the pipe to ${fmt(pendek, 0)} metres and friction's share falls to ${fmt(b.bagian, 0)} per cent: the fittings now consume almost everything. Lengthen it to ${fmt(panjang, 0)} metres instead and the share rises to ${fmt(c.bagian, 0)} per cent, while the discharge drops to ${fmt(c.q * 1000, 1)} litres a second. The same fittings, the same valve, and a completely different answer to the question of what is worth designing carefully.`;
-  return `Pada pipa sepanjang ${fmt(L, 0)} meter, gesekan mengambil ${fmt(a.bagian, 0)} persen tinggi yang tersedia dan debitnya menetap di ${fmt(a.q * 1000, 1)} liter tiap detik. Pendekkan pipanya menjadi ${fmt(pendek, 0)} meter dan bagian gesekannya turun ke ${fmt(b.bagian, 0)} persen: sekarang perlengkapannya yang menghabiskan hampir seluruhnya. Panjangkan menjadi ${fmt(panjang, 0)} meter dan bagiannya naik ke ${fmt(c.bagian, 0)} persen, sementara debitnya turun ke ${fmt(c.q * 1000, 1)} liter tiap detik. Perlengkapan yang sama, katup yang sama, dan jawaban yang sama sekali berbeda atas pertanyaan mana yang pantas dirancang dengan hati-hati.`;
+  if (pendek < L) {
+    const b = bagi(pendek);
+    out.push(
+      b.kav
+        ? x.nKav(fmt(pendek, 0))
+        : x.nPendek(fmt(pendek, 0), fmt(b.bagian, 0), b.bagian >= 50)
+    );
+  }
+  if (panjang > L) {
+    const c = bagi(panjang);
+    out.push(
+      c.kav
+        ? x.nKav(fmt(panjang, 0))
+        : x.nPanjang(fmt(panjang, 0), fmt(c.bagian, 0), fmt(c.q * 1000, 1), c.bagian >= 50)
+    );
+  }
+  return out;
 }

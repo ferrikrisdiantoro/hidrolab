@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type RegimeBand,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import {
@@ -20,8 +22,14 @@ import {
   type FieldLine,
   type FieldMarker,
 } from "@/lib/drawField";
-import { fmt, fmtSci, reynoldsExperiment } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import {
+  RE_LAMINAR_MAX,
+  fmt,
+  fmtSci,
+  reynoldsExperiment,
+  waterViscosity,
+} from "@/lib/hydraulics";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -30,6 +38,25 @@ import { checksReynoldsExp } from "@/lib/checks";
 
 /** Panjang tabung kaca yang digambar, meter. */
 const PANJANG = 2;
+
+/* Sumbu pita Re 1–10⁷ memuat penggeser (3,56 pada Q 1 ml/s, D 200, T 0;
+   7,68·10⁶ pada Q 20 l/s, D 5, T 40). */
+const RE_AXIS_MIN = 1;
+const RE_AXIS_MAX = 1e7;
+
+/*
+ * Ambang kecepatan untuk butir peringatan. BUKAN angka terbitan: hanya
+ * penanda bahwa kecepatan di atasnya jauh melampaui air di tabung kaca
+ * atau pipa nyata (beberapa m/s). Rumusnya tetap berlaku, jadi nadanya
+ * caution, bukan invalid. Ambang akhirnya menunggu keputusan sesi utama.
+ */
+const V_WASPADA = 10;
+
+const NADA: Record<string, Tone> = {
+  laminar: "water",
+  peralihan: "critical",
+  turbulen: "energy",
+};
 
 const TXT = {
   id: {
@@ -54,6 +81,20 @@ const TXT = {
     laminar: "Laminar",
     peralihan: "Peralihan",
     turbulen: "Turbulen",
+    bLam: "Laminar",
+    bLamTenang: "Laminar karena tenang",
+    bPeralihan: "Peralihan",
+    bTurbulen: "Turbulen",
+    hV: "Kekentalan kinematik dan kecepatan rata-rata",
+    hRe: "Bilangan Reynolds",
+    hKrit: "Batas laminar pada ketenangan ini dan kecepatannya",
+    hLe: "Panjang masuk",
+    hFLam: "Faktor gesekan, laminar",
+    hFTurb: "Faktor gesekan, kurva licin Colebrook (ε = 0)",
+    hDelta: "Tebal lapisan kental di dinding",
+    tenangBadge: "Laminar tenang",
+    leLewat: (le: string) => `Panjang masuknya ${le} m, lebih panjang daripada tabung ${PANJANG} m yang digambar: profil kecepatannya belum berkembang penuh di ujung tabung.`,
+    vCepat: (v: string) => `Kecepatan ${v} m/s jauh di atas kecepatan air di tabung kaca atau pipa nyata, yang umumnya beberapa meter per detik. Rumusnya tetap berlaku, tetapi percobaan semacam ini tidak dapat dibuat. Perbesar diameternya atau kurangi debitnya.`,
     tenangNote:
       "Bilangan Reynolds sudah jauh melewati dua ribu, dan alirannya tetap laminar. Ini bukan cacat hitungan melainkan kenyataan percobaan: batas dua ribu bukan sifat air melainkan sifat gangguan yang ada di sekitarnya. Reynolds sendiri mencapai tiga belas ribu pada tabung kaca yang didiamkan berhari-hari sebelum percobaannya, dan percobaan berikutnya mencapai seratus ribu. Yang dua ribu itu batas bawah, yaitu bilangan tempat aliran laminar berhenti mampu meredam gangguan sekecil apa pun, dan itulah yang dipakai merancang pipa lapangan karena pipa lapangan memang tidak pernah tenang.",
     note:
@@ -81,6 +122,20 @@ const TXT = {
     laminar: "Laminar",
     peralihan: "Transition",
     turbulen: "Turbulent",
+    bLam: "Laminar",
+    bLamTenang: "Laminar because quiet",
+    bPeralihan: "Transition",
+    bTurbulen: "Turbulent",
+    hV: "Kinematic viscosity and mean velocity",
+    hRe: "Reynolds number",
+    hKrit: "Laminar limit at this quietness and its velocity",
+    hLe: "Entry length",
+    hFLam: "Friction factor, laminar",
+    hFTurb: "Friction factor, Colebrook smooth-pipe curve (ε = 0)",
+    hDelta: "Thickness of the viscous layer at the wall",
+    tenangBadge: "Quiet laminar",
+    leLewat: (le: string) => `The entry length is ${le} m, longer than the ${PANJANG} m tube drawn: the velocity profile is not yet fully developed at the end of the tube.`,
+    vCepat: (v: string) => `A velocity of ${v} m/s is far above water in a glass tube or a real pipe, which is usually a few metres per second. The formulas still hold, but no such experiment can be built. Enlarge the diameter or reduce the discharge.`,
     tenangNote:
       "The Reynolds number is far past two thousand and the flow is still laminar. This is not an arithmetic fault but an experimental fact: the limit of two thousand is not a property of water but a property of the disturbances around it. Reynolds himself reached thirteen thousand in a glass tube left standing for days before his experiment, and later experiments reached a hundred thousand. Two thousand is a lower bound, the number at which laminar flow ceases to damp out even the smallest disturbance, and it is that bound which is used to design field pipework, because field pipework is never quiet.",
     note:
@@ -127,6 +182,25 @@ export function PercobaanReynoldsClient() {
       : r.regime === "peralihan"
         ? C.critical
         : C.energy;
+  const laminar = r.regime === "laminar";
+  // ν tidak dikembalikan model; dihitung dengan fungsi yang sama.
+  const nu = waterViscosity(suhu);
+  const Rek = r.criticalReynolds;
+
+  /* Pita dinamis dari reynoldsExperiment: laminar sampai Re_kr, peralihan
+     sampai 2 Re_kr, lalu turbulen. Laminar dibelah di 2000 (batas bawah
+     yang tetap) supaya tanda 2000 selalu terbaca di skala. */
+  const bands: RegimeBand[] = [
+    { from: RE_AXIS_MIN, to: Math.min(RE_LAMINAR_MAX, Rek), label: x.bLam, tone: "water" as Tone },
+    { from: RE_LAMINAR_MAX, to: Rek, label: x.bLamTenang, tone: "water" as Tone },
+    { from: Rek, to: 2 * Rek, label: x.bPeralihan, tone: "critical" as Tone },
+    { from: 2 * Rek, to: RE_AXIS_MAX, label: x.bTurbulen, tone: "energy" as Tone },
+  ].filter((b) => b.to > b.from);
+
+  // Sisa persamaan Colebrook licin pada f yang dipakai model.
+  const sisaCb = laminar
+    ? NaN
+    : 1 / Math.sqrt(r.friction) + 2 * Math.log10(2.51 / (r.reynolds * Math.sqrt(r.friction)));
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -245,6 +319,9 @@ export function PercobaanReynoldsClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale symbol="Re" value={r.reynolds} scale="log" digits={0} bands={bands} />
+      }
       sheet="PI-04"
       subject={SUBJECTS.PI[lang]}
       title={x.title}
@@ -305,31 +382,83 @@ export function PercobaanReynoldsClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag tint={warna}>{nama}</Flag>
-            </div>
-            {r.quietLaminar && (
-              <div className="mb-2.5">
-                <Note>{x.tenangNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Re", label: x.rRe, value: fmtSci(r.reynolds), tint: warna, strong: true },
+                { symbol: "Rekr", label: x.rRekrit, value: fmtSci(r.criticalReynolds), tint: C.critical, strong: true },
                 { symbol: "V", label: x.rV, value: fmt(r.velocity, 4), unit: "m/s", tint: C.water },
                 { symbol: "Vkr", label: x.rVkrit, value: fmt(r.criticalVelocity, 4), unit: "m/s", tint: C.critical },
-                { symbol: "Rekr", label: x.rRekrit, value: fmtSci(r.criticalReynolds), tint: C.critical, strong: true },
                 { symbol: "Le", label: x.rMasuk, value: fmt(r.entryLength, 3), unit: "m" },
                 { symbol: "Le/D", label: x.rMasukD, value: fmt(r.entryDiameters, 1) },
                 { symbol: "f", label: x.rF, value: fmt(r.friction, 5) },
-                { symbol: "δv", label: x.rTebal, value: fmt(r.viscousThickness, 3), unit: "mm" },
+                // Lapisan kental hanya ada pada aliran turbulen; laminar NaN → "—".
+                { symbol: "δv", label: x.rTebal, value: fmt(r.viscousThickness, 3), unit: laminar ? undefined : "mm" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hV,
+                    rumus: (<><span>ν = ν(T),</span><span className="ml-2">V =</span><Frac num="Q" den="π D² / 4" /></>),
+                    isi: `ν(${fmt(suhu, 0)} °C) = ${fmtSci(nu)};  ${fmtSci(Q)} / ( π · ${fmt(D, 3)}² / 4 )`,
+                    hasil: fmt(r.velocity, 4),
+                    satuan: "m/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hRe,
+                    rumus: (<><span>Re =</span><Frac num="V · D" den="ν" /></>),
+                    isi: `${fmt(r.velocity, 5)} · ${fmt(D, 3)} / ${fmtSci(nu)}`,
+                    hasil: fmtSci(r.reynolds),
+                    tint: warna,
+                  },
+                  {
+                    judul: x.hKrit,
+                    rumus: (<><span>Re_kr = {fmt(RE_LAMINAR_MAX, 0)} · 50^q,</span><span className="ml-2">V_kr =</span><Frac num="Re_kr · ν" den="D" /></>),
+                    isi: `${fmt(RE_LAMINAR_MAX, 0)} · 50^${fmt(tenang, 2)} = ${fmtSci(Rek)};  ${fmtSci(Rek)} · ${fmtSci(nu)} / ${fmt(D, 3)} = ${fmt(r.criticalVelocity, 4)} m/s`,
+                    hasil: fmtSci(Rek),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: `${x.hLe} (${nama.toLowerCase()})`,
+                    rumus: laminar ? <span>Le = {fmt(0.06, 2)} · Re · D</span> : <span>Le = {fmt(4.4, 1)} · Re^(1/6) · D</span>,
+                    isi: laminar
+                      ? `${fmt(0.06, 2)} · ${fmtSci(r.reynolds)} · ${fmt(D, 3)}`
+                      : `${fmt(4.4, 1)} · ( ${fmtSci(r.reynolds)} )^(1/6) · ${fmt(D, 3)}`,
+                    hasil: fmt(r.entryLength, 3),
+                    satuan: "m",
+                  },
+                  laminar
+                    ? {
+                        judul: x.hFLam,
+                        rumus: (<><span>f =</span><Frac num="64" den="Re" /></>),
+                        isi: `64 / ${fmtSci(r.reynolds)}`,
+                        hasil: fmt(r.friction, 5),
+                      }
+                    : {
+                        judul: x.hFTurb,
+                        rumus: (<><Frac num="1" den="√f" /><span>+ 2 log₁₀(</span><Frac num={fmt(2.51, 2)} den="Re · √f" /><span>) ≈ 0</span></>),
+                        isi: `1/√${fmt(r.friction, 6)} + 2 log₁₀( ${fmt(2.51, 2)} / ( ${fmtSci(r.reynolds)} · √${fmt(r.friction, 6)} ) ) = ${Math.abs(sisaCb) < 1e-9 ? fmt(0, 0) : fmtSci(sisaCb)}`,
+                        hasil: fmt(r.friction, 5),
+                      },
+                  {
+                    judul: x.hDelta,
+                    rumus: (<><span>δv =</span><Frac num="5 ν" den="u*" /><span className="ml-2">u* = V √( f / 8 )</span></>),
+                    isi: laminar ? "—" : `5 · ${fmtSci(nu)} / ( ${fmt(r.velocity, 4)} · √( ${fmt(r.friction, 5)} / 8 ) ) · 1000`,
+                    hasil: fmt(r.viscousThickness, 3),
+                    satuan: laminar ? undefined : "mm",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Q, D, suhu, tenang, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={NADA[r.regime]}
+            badge={r.quietLaminar ? x.tenangBadge : nama}
+            {...notice(Q, D, suhu, tenang, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksReynoldsExp(Q, D, suhu, tenang)} />}
@@ -363,14 +492,53 @@ export function PercobaanReynoldsClient() {
   );
 }
 
-function notice(Q: number, D: number, suhu: number, tenang: number, lang: Lang) {
+/*
+ * Isi kalimatnya sama dengan catatan lama satu paragraf; kalimat pertama
+ * menyatakan keadaan, sisanya butir. Dua butir baru: panjang masuk yang
+ * melebihi tabung dan kecepatan yang tidak mungkin dibuat.
+ */
+function notice(
+  Q: number,
+  D: number,
+  suhu: number,
+  tenang: number,
+  lang: Lang
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
   const a = reynoldsExperiment(Q, D, suhu, tenang);
   const kasar = reynoldsExperiment(Q, D, suhu, 0);
   const sunyi = reynoldsExperiment(Q, D, suhu, 1);
   const dingin = reynoldsExperiment(Q, D, 5, tenang);
   const panas = reynoldsExperiment(Q, D, 35, tenang);
+  const nama =
+    a.regime === "laminar" ? x.laminar : a.regime === "peralihan" ? x.peralihan : x.turbulen;
+
+  const tambahan = [
+    a.entryLength > PANJANG ? x.leLewat(fmt(a.entryLength, 2)) : "",
+    a.velocity > V_WASPADA ? x.vCepat(fmt(a.velocity, 1)) : "",
+  ];
 
   if (lang === "en")
-    return `At this discharge the Reynolds number is ${fmtSci(a.reynolds)}. Drag the quietness to zero, the state of a field pipe that vibrates, and the flow leaves laminar at ${fmtSci(kasar.criticalReynolds)}; drag it to one and it holds out to ${fmtSci(sunyi.criticalReynolds)}. The water has not changed at all, only its surroundings. Temperature is the other lever and it works through viscosity alone: the same discharge gives ${fmtSci(dingin.reynolds)} at five degrees and ${fmtSci(panas.reynolds)} at thirty-five, so a pipe that is laminar in winter can be turbulent in summer.`;
-  return `Pada debit ini bilangan Reynoldsnya ${fmtSci(a.reynolds)}. Tarik ketenangannya ke nol, yaitu keadaan pipa lapangan yang bergetar, dan alirannya meninggalkan laminar pada ${fmtSci(kasar.criticalReynolds)}; tarik ke satu dan ia bertahan sampai ${fmtSci(sunyi.criticalReynolds)}. Airnya sama sekali tidak berubah, yang berubah hanya sekelilingnya. Suhu tuas yang satu lagi dan ia bekerja lewat kekentalan saja: debit yang sama memberi ${fmtSci(dingin.reynolds)} pada lima derajat dan ${fmtSci(panas.reynolds)} pada tiga puluh lima, jadi pipa yang laminar pada musim dingin dapat menjadi turbulen pada musim panas.`;
+    return {
+      state: a.quietLaminar
+        ? `Re = ${fmtSci(a.reynolds)} is above 4,000 yet the flow stays laminar because the experiment is quiet; the laminar limit here is ${fmtSci(a.criticalReynolds)}.`
+        : `Re = ${fmtSci(a.reynolds)} at quietness ${fmt(tenang, 2)}: ${nama.toLowerCase()}; the laminar limit here is ${fmtSci(a.criticalReynolds)}.`,
+      notice: [
+        a.quietLaminar ? x.tenangNote : "",
+        `Drag the quietness to zero, the state of a field pipe that vibrates, and the flow leaves laminar at ${fmtSci(kasar.criticalReynolds)}; drag it to one and it holds out to ${fmtSci(sunyi.criticalReynolds)}. The water has not changed at all, only its surroundings.`,
+        `Temperature is the other lever and it works through viscosity alone: the same discharge gives ${fmtSci(dingin.reynolds)} at five degrees and ${fmtSci(panas.reynolds)} at thirty-five, so a pipe that is laminar in winter can be turbulent in summer.`,
+        ...tambahan,
+      ],
+    };
+  return {
+    state: a.quietLaminar
+      ? `Re = ${fmtSci(a.reynolds)} di atas 4.000 tetapi tetap laminar karena percobaannya tenang; batas laminar di sini ${fmtSci(a.criticalReynolds)}.`
+      : `Re = ${fmtSci(a.reynolds)} pada ketenangan ${fmt(tenang, 2)}: ${nama.toLowerCase()}; batas laminar di sini ${fmtSci(a.criticalReynolds)}.`,
+    notice: [
+      a.quietLaminar ? x.tenangNote : "",
+      `Tarik ketenangannya ke nol, yaitu keadaan pipa lapangan yang bergetar, dan alirannya meninggalkan laminar pada ${fmtSci(kasar.criticalReynolds)}; tarik ke satu dan ia bertahan sampai ${fmtSci(sunyi.criticalReynolds)}. Airnya sama sekali tidak berubah, yang berubah hanya sekelilingnya.`,
+      `Suhu tuas yang satu lagi dan ia bekerja lewat kekentalan saja: debit yang sama memberi ${fmtSci(dingin.reynolds)} pada lima derajat dan ${fmtSci(panas.reynolds)} pada tiga puluh lima, jadi pipa yang laminar pada musim dingin dapat menjadi turbulen pada musim panas.`,
+      ...tambahan,
+    ],
+  };
 }

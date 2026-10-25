@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,11 +20,12 @@ import {
   SWIM_BURST_BL,
   SWIM_BURST_TIME,
   SWIM_SUSTAINED_BL,
+  SWIM_SUSTAINED_TIME,
   fishSwim,
   fmt,
   fmtPlain,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -55,6 +57,21 @@ const TXT = {
     mSentak: "Sentak",
     mTidak: "Tidak mampu melawan arus",
     tidak: "Tidak mampu melawan arus",
+    pt: "PT/dtk",
+    bJelajah: "Jelajah",
+    bLanjut: "Berkelanjutan",
+    bSentak: "Sentak (batas model)",
+    bTidak: "Tidak mampu maju",
+    hU: "Kecepatan arus dalam panjang tubuh",
+    hAB: "Tetapan kurva ketahanan dari dua titik",
+    hT: "Lama bertahan",
+    hV: "Kecepatan jelajah, sentak, dan maju bersih",
+    hL: "Jarak dalam satu sentakan",
+    tak: "tak terbatas",
+    batasModel:
+      "Batas antara berkelanjutan dan sentak di lembar ini ditaruh model di tengah (Us + Ub)/2, padahal menurut Beamish (1978) sentak berarti bertahan kurang dari 20 detik. Di pita sentak itu ikan masih bertahan sampai ratusan detik; perbaikan modelnya sudah diusulkan.",
+    cekBaku:
+      "Blok verifikasi di bawah memeriksa kurva dengan kecepatan jelajah dan sentak bawaan (2 dan 10 PT/dtk), bukan nilai penggeser yang sedang diubah.",
     tidakNote:
       "Kecepatan arusnya menyamai atau melampaui kecepatan sentak ikan ini, jadi ikan tidak dapat maju sama sekali betapa pun kuatnya ia berenang. Bangunan dengan arus seperti ini menjadi penghalang mutlak bagi ikan seukuran itu, dan memperpanjang atau memperpendeknya tidak mengubah apa pun. Yang harus diubah kecepatan arusnya, bukan panjangnya. Perbesar penampang basahnya, tambahkan kekasaran dasar, atau sisipkan kolam istirahat.",
     note:
@@ -84,6 +101,21 @@ const TXT = {
     mSentak: "Burst",
     mTidak: "Cannot make headway",
     tidak: "Cannot make headway",
+    pt: "BL/s",
+    bJelajah: "Cruising",
+    bLanjut: "Prolonged",
+    bSentak: "Burst (model boundary)",
+    bTidak: "Cannot make headway",
+    hU: "Current speed in body lengths",
+    hAB: "Endurance curve constants from two points",
+    hT: "Endurance",
+    hV: "Cruising, burst and net ground speed",
+    hL: "Distance in one burst",
+    tak: "unlimited",
+    batasModel:
+      "The boundary between prolonged and burst on this sheet is placed by the model halfway, at (Us + Ub)/2, whereas Beamish (1978) defines burst as lasting under 20 seconds. Inside that burst band the fish still holds for hundreds of seconds; a model correction has been proposed.",
+    cekBaku:
+      "The verification block below checks the curve with the default cruising and burst speeds (2 and 10 BL/s), not the slider values currently changed.",
     tidakNote:
       "The current velocity matches or exceeds this fish's burst speed, so the fish cannot advance at all however hard it swims. A structure with a current like this is an absolute barrier for fish of that size, and making it longer or shorter changes nothing. What must change is the velocity, not the length. Enlarge the wetted section, add bed roughness, or insert resting pools.",
     note:
@@ -131,6 +163,26 @@ export function RenangIkanClient() {
           : x.mTidak;
 
   const vMax = Math.max(r.burst * 1.3, 0.2);
+  const U = L > 0 ? V / L : 0;
+  /* Tetapan kurva ln t = a − b U, sama persis dengan fishSwim; ditulis
+     ulang hanya untuk baris Hitungan. */
+  const bK =
+    burstBL > susBL
+      ? (Math.log(SWIM_SUSTAINED_TIME) - Math.log(SWIM_BURST_TIME)) / (burstBL - susBL)
+      : 0;
+  const aK = Math.log(SWIM_SUSTAINED_TIME) + bK * susBL;
+  const batasTengah = (susBL + burstBL) / 2;
+  const nada: Tone = r.impossible
+    ? "invalid"
+    : tidak
+      ? "caution"
+      : r.mode === "sentak"
+        ? "critical"
+        : r.mode === "berkelanjutan"
+          ? "neutral"
+          : "pass";
+  const bawaan = susBL === SWIM_SUSTAINED_BL && burstBL === SWIM_BURST_BL;
+  const mati = (v: string) => (r.impossible ? "—" : v);
 
   const ref = useCanvas(
     (ctx, w, h) => {
@@ -181,7 +233,7 @@ export function RenangIkanClient() {
                 x: V,
                 y: r.endurance,
                 label: `${fmtPlain(r.endurance, 0)} s`,
-                invalid: tidak,
+                invalid: r.impossible,
               }
             : undefined,
           /* Keadaan mustahil didahulukan: selama kecepatan jelajah disetel
@@ -189,7 +241,7 @@ export function RenangIkanClient() {
              tidak menggambarkan apa pun, jadi itulah yang perlu dibaca lebih
              dulu. */
           heading: r.impossible ? x.mustahil : tidak ? T.unableZone : undefined,
-          headingColor: C.signal,
+          headingColor: r.impossible ? C.signal : C.caution,
         },
         lang
       );
@@ -199,6 +251,26 @@ export function RenangIkanClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="U"
+          value={r.impossible ? NaN : U}
+          invalid={r.impossible}
+          pesan={r.impossible ? x.mustahil : undefined}
+          scale="log"
+          digits={2}
+          bands={
+            r.impossible
+              ? [{ from: 0.01, to: 300, label: x.mustahil, tone: "invalid" }]
+              : [
+                  { from: 0.01, to: susBL, label: x.bJelajah, tone: "pass" },
+                  { from: susBL, to: batasTengah, label: x.bLanjut, tone: "neutral" },
+                  { from: batasTengah, to: burstBL, label: x.bSentak, tone: "critical" },
+                  { from: burstBL, to: 300, label: x.bTidak, tone: "caution" },
+                ]
+          }
+        />
+      }
       sheet="EH-04"
       subject={SUBJECTS.EH[lang]}
       title={x.title}
@@ -235,7 +307,7 @@ export function RenangIkanClient() {
                 : Number.isFinite(r.endurance)
                   ? `${fmt(r.endurance, 0)} s`
                   : "∞",
-              tint: r.impossible || tidak ? C.signal : C.energy,
+              tint: r.impossible ? C.signal : tidak ? C.caution : C.energy,
             },
             { label: "—", value: r.impossible ? "—" : modeNama },
           ]}
@@ -249,8 +321,8 @@ export function RenangIkanClient() {
             <InputTable>
               <InputRow symbol="L" label={x.dL} value={Lcm} min={2} max={150} step={1} digits={0} unit="cm" onChange={setLcm} />
               <InputRow symbol="V" label={x.dV} value={V} min={0.02} max={6} step={0.02} digits={2} unit="m/s" onChange={setV} tint={C.water} />
-              <InputRow symbol="Us" label={x.dSus} value={susBL} min={0.5} max={5} step={0.1} digits={1} unit="L/s" onChange={setSusBL} />
-              <InputRow symbol="Ub" label={x.dBurst} value={burstBL} min={4} max={20} step={0.5} digits={1} unit="L/s" onChange={setBurstBL} tint={C.critical} />
+              <InputRow symbol="Us" label={x.dSus} value={susBL} min={0.5} max={5} step={0.1} digits={1} unit={x.pt} onChange={setSusBL} />
+              <InputRow symbol="Ub" label={x.dBurst} value={burstBL} min={4} max={20} step={0.5} digits={1} unit={x.pt} onChange={setBurstBL} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -266,40 +338,77 @@ export function RenangIkanClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.impossible || tidak ? undefined : C.water} alert={r.impossible || tidak}>
-                {r.impossible ? x.mustahil : modeNama}
-              </Flag>
-            </div>
-            {r.impossible && (
-              <div className="mb-2.5">
-                <Note>{x.mustahilNote}</Note>
-              </div>
-            )}
-            {!r.impossible && tidak && (
-              <div className="mb-2.5">
-                <Note>{x.tidakNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 /* Pada keadaan mustahil, ketahanan dan jarak tidak
                    ditampilkan sama sekali. Menuliskan "tak terbatas" di
                    sebelah "tidak bisa maju" adalah tabel yang membantah
                    dirinya sendiri, dan itu lebih buruk daripada diam. */
-                { symbol: "t", label: x.rTahan, value: r.impossible ? "—" : Number.isFinite(r.endurance) ? fmt(r.endurance, 1) : "∞", unit: !r.impossible && Number.isFinite(r.endurance) ? "s" : undefined, tint: r.impossible ? C.signal : C.energy, strong: true },
-                { symbol: "Ls", label: x.rJarak, value: r.impossible ? "—" : fmt(r.distance, 2), unit: r.impossible ? undefined : "m", tint: r.impossible || tidak ? C.signal : C.water, strong: true },
+                { symbol: "t", label: x.rTahan, value: r.impossible ? "—" : Number.isFinite(r.endurance) ? fmt(r.endurance, 1) : "∞", unit: !r.impossible && Number.isFinite(r.endurance) ? "s" : undefined, tint: r.impossible ? C.signal : tidak ? C.caution : C.energy, strong: true },
+                { symbol: "Ls", label: x.rJarak, value: r.impossible ? "—" : fmt(r.distance, 2), unit: r.impossible ? undefined : "m", tint: r.impossible ? C.signal : tidak ? C.caution : C.water, strong: true },
                 { symbol: "Us", label: x.rSus, value: fmt(r.sustained, 3), unit: "m/s" },
                 { symbol: "Ub", label: x.rBurst, value: fmt(r.burst, 3), unit: "m/s", tint: C.critical },
-                { symbol: "Vg", label: x.rMaju, value: fmt(r.groundSpeed, 3), unit: "m/s", tint: r.groundSpeed <= 0 ? C.signal : undefined },
+                { symbol: "Vg", label: x.rMaju, value: mati(fmt(r.groundSpeed, 3)), unit: r.impossible ? undefined : "m/s", tint: !r.impossible && r.groundSpeed <= 0 ? C.caution : undefined },
                 { symbol: "—", label: x.rMode, value: r.impossible ? "—" : modeNama },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hU,
+                    rumus: (<><span>U =</span><Frac num="V" den="L" /></>),
+                    isi: `${fmt(V, 2)} / ${fmt(L, 2)}`,
+                    hasil: mati(fmt(U, 2)),
+                    satuan: r.impossible ? undefined : x.pt,
+                  },
+                  {
+                    judul: x.hAB,
+                    rumus: (<><span>b =</span><Frac num={`ln ${fmtPlain(SWIM_SUSTAINED_TIME, 0)} − ln ${fmtPlain(SWIM_BURST_TIME, 0)}`} den="Ub − Us" /><span>;  a = ln {fmtPlain(SWIM_SUSTAINED_TIME, 0)} + b · Us</span></>),
+                    isi: r.impossible
+                      ? "—"
+                      : `( ln ${fmtPlain(SWIM_SUSTAINED_TIME, 0)} − ln ${fmtPlain(SWIM_BURST_TIME, 0)} ) / ( ${fmt(burstBL, 1)} − ${fmt(susBL, 1)} ) = ${fmt(bK, 4)} ;  a = ${fmt(Math.log(SWIM_SUSTAINED_TIME), 4)} + ${fmt(bK, 4)} · ${fmt(susBL, 1)}`,
+                    hasil: r.impossible ? "—" : `b ${fmt(bK, 4)} ; a ${fmt(aK, 3)}`,
+                  },
+                  {
+                    judul: x.hT,
+                    rumus: <span>t = exp( a − b · U )</span>,
+                    isi: r.impossible
+                      ? "—"
+                      : Number.isFinite(r.endurance)
+                        ? `exp( ${fmt(aK, 3)} − ${fmt(bK, 4)} · ${fmt(U, 3)} )`
+                        : `U ${fmt(U, 2)} ≤ Us ${fmt(susBL, 1)}: ${x.tak}`,
+                    hasil: r.impossible ? "—" : Number.isFinite(r.endurance) ? fmt(r.endurance, 1) : "∞",
+                    satuan: !r.impossible && Number.isFinite(r.endurance) ? "s" : undefined,
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hV,
+                    rumus: <span>Us = {fmtPlain(susBL, 1)} · L ;  Ub = {fmtPlain(burstBL, 1)} · L ;  Vg = Ub − V</span>,
+                    isi: r.impossible
+                      ? "—"
+                      : `${fmt(susBL, 1)} · ${fmt(L, 2)} = ${fmt(r.sustained, 3)} ;  ${fmt(burstBL, 1)} · ${fmt(L, 2)} = ${fmt(r.burst, 3)} ;  ${fmt(r.burst, 3)} − ${fmt(V, 2)}`,
+                    hasil: mati(fmt(r.groundSpeed, 3)),
+                    satuan: r.impossible ? undefined : "m/s",
+                  },
+                  {
+                    judul: x.hL,
+                    rumus: <span>Ls = {lang === "en" ? "max" : "maks"}( Vg, 0 ) · {fmtPlain(SWIM_BURST_TIME, 0)} s</span>,
+                    isi: r.impossible ? "—" : `${lang === "en" ? "max" : "maks"}( ${fmt(r.groundSpeed, 3)}, 0 ) · ${fmt(SWIM_BURST_TIME, 0)}`,
+                    hasil: mati(fmt(r.distance, 2)),
+                    satuan: r.impossible ? undefined : "m",
+                    tint: C.water,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(L, V, r.distance, r.burst, tidak, susBL, burstBL, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={r.impossible ? x.mustahil : modeNama}
+            {...notice(L, V, U, r, tidak, susBL, burstBL, bawaan, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksSwim(L, V)} />}
@@ -337,22 +446,55 @@ export function RenangIkanClient() {
 function notice(
   L: number,
   V: number,
-  distance: number,
-  burst: number,
+  U: number,
+  r: ReturnType<typeof fishSwim>,
   tidak: boolean,
   susBL: number,
   burstBL: number,
+  bawaan: boolean,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
+  const en = lang === "en";
+
+  /* Keadaan mustahil: hanya mengulang alasannya. Angka jarak atau
+     ketahanan dari kurva yang terbalik tidak menggambarkan apa pun. */
+  if (r.impossible) return { state: x.mustahilNote, notice: [] };
+
+  const modeNama =
+    r.mode === "jelajah" ? x.mJelajah : r.mode === "berkelanjutan" ? x.mLanjut : r.mode === "sentak" ? x.mSentak : x.mTidak;
+  const tahan = Number.isFinite(r.endurance) ? `${fmt(r.endurance, 0)} s` : "∞";
+  const state = en
+    ? `U = ${fmt(U, 2)} BL/s: ${modeNama.toLowerCase()}; holds ${tahan}, burst distance ${fmt(r.distance, 1)} m.`
+    : `U = ${fmt(U, 2)} PT/dtk: ${modeNama.toLowerCase()}; bertahan ${tahan}, jarak sentak ${fmt(r.distance, 1)} m.`;
+
+  const butir: string[] = [];
   if (tidak) {
-    return lang === "id"
-      ? `Arus ${fmt(V, 2)} m/s sudah menyamai atau melampaui kecepatan sentak ${fmt(burst, 2)} m/s. Perkecil arusnya, atau perbesar ikannya, lalu perhatikan jarak tempuh di tabel berubah dari nol menjadi angka yang berarti.`
-      : `A current of ${fmt(V, 2)} m/s already matches or exceeds the burst speed of ${fmt(burst, 2)} m/s. Reduce the current, or take a larger fish, and watch the distance in the table change from zero to something meaningful.`;
+    butir.push(x.tidakNote);
+    butir.push(
+      en
+        ? `A current of ${fmt(V, 2)} m/s already matches or exceeds the burst speed of ${fmt(r.burst, 2)} m/s. Reduce the current, or take a larger fish, and watch the distance in the table change from zero to something meaningful.`
+        : `Arus ${fmt(V, 2)} m/s sudah menyamai atau melampaui kecepatan sentak ${fmt(r.burst, 2)} m/s. Perkecil arusnya, atau perbesar ikannya, lalu perhatikan jarak tempuh di tabel berubah dari nol menjadi angka yang berarti.`
+    );
+  } else {
+    const separuh = fishSwim(L / 2, V, susBL, burstBL);
+    butir.push(
+      en
+        ? `This fish can cover ${fmt(r.distance, 1)} m against this current in one burst, which is the longest culvert it can pass without a rest.`
+        : `Ikan ini sanggup menempuh ${fmt(r.distance, 1)} m melawan arus ini dalam satu sentakan, dan itulah gorong-gorong terpanjang yang dapat dilewatinya tanpa beristirahat.`
+    );
+    butir.push(
+      en
+        ? `Halve the body length, keeping everything else, and that distance becomes ${fmt(separuh.distance, 1)} m: the design is then ${separuh.distance <= 0 ? "impassable" : `${fmt(r.distance / Math.max(separuh.distance, 1e-9), 1)} times too long`}.`
+        : `Kecilkan panjang tubuhnya menjadi separuh, dengan segala hal lain tetap, dan jaraknya menjadi ${fmt(separuh.distance, 1)} m: rancangan yang sama ${separuh.distance <= 0 ? "tidak dapat dilewati sama sekali" : `${fmt(r.distance / Math.max(separuh.distance, 1e-9), 1)} kali terlalu panjang`}.`
+    );
   }
-
-  const separuh = fishSwim(L / 2, V, susBL, burstBL);
-
-  if (lang === "en")
-    return `This fish can cover ${fmt(distance, 1)} m against this current in one burst, which is the longest culvert it can pass without a rest. Halve the body length, keeping everything else, and that distance becomes ${fmt(separuh.distance, 1)} m. The same structure, the same flow, and a fish half as long: the design that was comfortable is now ${separuh.distance <= 0 ? "impassable" : `${fmt(distance / Math.max(separuh.distance, 1e-9), 1)} times too long`}. That is why fish-passage criteria are written for the weakest species expected, not the most prominent one.`;
-  return `Ikan ini sanggup menempuh ${fmt(distance, 1)} m melawan arus ini dalam satu sentakan, dan itulah gorong-gorong terpanjang yang dapat dilewatinya tanpa beristirahat. Kecilkan panjang tubuhnya menjadi separuh, dengan segala hal lain tetap, dan jaraknya menjadi ${fmt(separuh.distance, 1)} m. Bangunan yang sama, aliran yang sama, dan ikan separuh panjangnya: rancangan yang tadinya lapang sekarang ${separuh.distance <= 0 ? "tidak dapat dilewati sama sekali" : `${fmt(distance / Math.max(separuh.distance, 1e-9), 1)} kali terlalu panjang`}. Itulah sebabnya kriteria lintasan ikan ditulis untuk jenis terlemah yang diperkirakan ada, bukan untuk jenis yang paling menonjol.`;
+  if (r.mode === "sentak") butir.push(x.batasModel);
+  butir.push(
+    en
+      ? "Fish-passage criteria are written for the weakest species expected, not the most prominent one."
+      : "Kriteria lintasan ikan ditulis untuk jenis terlemah yang diperkirakan ada, bukan untuk jenis yang paling menonjol."
+  );
+  if (!bawaan) butir.push(x.cekBaku);
+  return { state, notice: butir };
 }

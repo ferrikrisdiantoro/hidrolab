@@ -4,22 +4,24 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
+  G,
   fmt,
   fmtPlain,
-  floodHydrograph,
   reservoirRouting,
+  triangularInflow,
 } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
@@ -49,6 +51,15 @@ const TXT = {
     rSmax: "Tampungan terpakai terbesar",
     rFb: "Sisa jagaan",
     limpas: "Air melampaui puncak bendungan",
+    aman: "Di bawah puncak bendungan",
+    pitaLimpas: "Melimpas, hitungan tidak berlaku",
+    sedia: "Waduk meredam",
+    hBase: "Waktu dasar hidrograf masuk",
+    hDt: "Selang kisi hitungan",
+    hStep: "Satu langkah di puncak keluar",
+    hStepNote: "diselesaikan dengan Newton atas h₂",
+    hSub: "selang ini dipecah menjadi sublangkah karena tampungannya kecil, jadi substitusi satu langkah hanya hampiran",
+    limpasState: "Air melampaui puncak bendungan: seluruh angka tidak berlaku.",
     limpasNote:
       "Tinggi muka air tertinggi melebihi tinggi jagaan yang tersedia, artinya air melimpah di atas puncak bendungan dan bukan lagi lewat pelimpahnya saja. Hitungan di lembar ini tidak berlaku sejak saat itu, karena seluruhnya mengandaikan air keluar hanya lewat pelimpah. Bendungan urukan yang dilimpasi biasanya runtuh dalam hitungan jam. Perlebar pelimpahnya, perbesar luas genangannya, atau tinggikan jagaannya.",
     note:
@@ -74,6 +85,15 @@ const TXT = {
     rSmax: "Largest storage used",
     rFb: "Freeboard remaining",
     limpas: "Water overtops the dam crest",
+    aman: "Below the dam crest",
+    pitaLimpas: "Overtopping, calculation invalid",
+    sedia: "Reservoir attenuates",
+    hBase: "Base time of the inflow hydrograph",
+    hDt: "Calculation grid interval",
+    hStep: "One step at the outflow peak",
+    hStepNote: "solved by Newton on h₂",
+    hSub: "this interval is split into substeps because storage is small, so the one-step substitution is only approximate",
+    limpasState: "Water overtops the dam crest: every figure is invalid.",
     limpasNote:
       "The highest water level exceeds the available freeboard, meaning water spills over the dam crest and no longer leaves through the spillway alone. The calculation on this sheet stops holding at that moment, because all of it assumes water leaves only through the spillway. An embankment dam that is overtopped usually fails within hours. Widen the spillway, enlarge the surface area, or raise the freeboard.",
     note:
@@ -109,26 +129,36 @@ export function PenelusuranWadukClient() {
   const [fb, setFb] = useState(3);
   const [Cd, setCd] = useState(0.6);
 
-  // Banjir masuk disusun sebagai hidrograf satuan segitiga yang diskalakan,
-  // supaya bentuknya selalu masuk akal dan puncaknya persis nilai yang
-  // dimasukkan. Lembar ini tentang penelusurannya, bukan tentang asal
-  // banjirnya; asal banjir dibahas lembar HY-02.
-  const masuk = (() => {
-    const tb = 2.67 * tPeak;
-    const pts: { t: number; Q: number }[] = [];
-    const n = 160;
-    for (let i = 0; i <= n; i++) {
-      const tt = (tb * 1.6 * i) / n;
-      const f =
-        tt <= 0 || tt >= tb ? 0 : tt <= tPeak ? tt / tPeak : (tb - tt) / (tb - tPeak);
-      pts.push({ t: tt, Q: Qp * f });
-    }
-    return pts;
-  })();
+  // Banjir masuk disusun sebagai hidrograf satuan segitiga yang diskalakan.
+  // triangularInflow menambahkan titik t = tp ke kisi rata, jadi puncak
+  // yang tercatat persis Ip (kisi rata saja melewatkannya: Ip 120 tercatat
+  // 118,95). Lembar ini tentang penelusurannya, bukan asal banjirnya; asal
+  // banjir dibahas lembar HY-02.
+  const masuk = triangularInflow(Qp, tPeak);
 
   const area = areaHa * 1e4;
   const r = reservoirRouting(masuk, area, b, fb, Cd);
   const sisaJagaan = fb - r.maxHead;
+  const limpas = r.overtops;
+  // Selama melimpas, angka yang mengandaikan air keluar lewat pelimpah saja
+  // ditulis "—"; hmax dan f′ tetap tampil karena keduanya sebabnya.
+  const sah = (v: string) => (limpas ? "—" : v);
+  // Digit Omax di kop sama dengan label titik di gambar.
+  const digitO = r.outflowPeak < 1 ? 3 : 1;
+
+  const tb = 2.67 * tPeak;
+  const dtKisi = (tb * 1.6) / 160;
+
+  // Satu langkah hitungan di titik puncak keluar, dibaca dari hasil model.
+  const kP = r.points.reduce((m, p, i, a) => (p.outflow > a[m].outflow ? i : m), 0);
+  const p1 = r.points[Math.max(kP - 1, 0)];
+  const p2 = r.points[kP];
+  const dtS = (p2.t - p1.t) * 3600;
+  const kanan = p1.storage - (dtS * p1.outflow) / 2 + (dtS * (p1.inflow + p2.inflow)) / 2;
+  const kiri = p2.storage + (dtS * p2.outflow) / 2;
+  // Model memecah selang menjadi sublangkah bila tampungannya kecil; saat
+  // itu satu langkah trapesium di kisi tidak lagi setimbang persis.
+  const hampiran = kP > 0 && Math.abs(kiri - kanan) > 1e-6 * Math.max(kanan, 1);
 
   const ref = useCanvas(
     (ctx, w, h) => {
@@ -144,9 +174,9 @@ export function PenelusuranWadukClient() {
         },
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.outflow })),
-          color: r.overtops ? C.signal : C.energy,
+          color: limpas ? C.signal : C.energy,
           weight: W.bold,
-          dash: r.overtops ? DASH.invalid : DASH.solid,
+          dash: limpas ? DASH.invalid : DASH.solid,
           label: T.outflowCurve,
           labelAt: 0.62,
           labelDy: 14,
@@ -166,23 +196,15 @@ export function PenelusuranWadukClient() {
           axisY: T.axFlowRate,
           series: deret,
           point: {
-            x: r.points.reduce((m, p) => (p.outflow > m.outflow ? p : m), r.points[0])
-              .t,
+            x: p2.t,
             y: r.outflowPeak,
-            /* Dua desimal untuk puncak yang kecil, karena waduk besar dengan
+            /* Tiga desimal untuk puncak yang kecil, karena waduk besar dengan
                pelimpah sempit meredam sampai puluhan liter per detik dan satu
-               desimal menuliskannya sebagai nol. */
-            label: `${fmtPlain(r.outflowPeak, r.outflowPeak < 1 ? 3 : 1)} m³/s`,
-            invalid: r.overtops,
+               desimal menuliskannya sebagai nol. Kop memakai digit yang sama. */
+            label: `${fmtPlain(r.outflowPeak, digitO)} m³/s`,
+            invalid: limpas,
           },
-          /*
-           * Sebelumnya di sini tertulis T.pointOffChart, yaitu "titik operasi
-           * di luar diagram", padahal titiknya justru tergambar di dalam
-           * bidang. Yang terjadi bukan titik yang keluar bidang melainkan air
-           * yang melampaui puncak bendungan, dan gambar yang mengumumkan
-           * sebab yang salah lebih buruk daripada gambar yang diam.
-           */
-          heading: r.overtops ? x.limpas : undefined,
+          heading: limpas ? x.limpas : undefined,
           headingColor: C.signal,
         },
         lang
@@ -191,8 +213,26 @@ export function PenelusuranWadukClient() {
     [Qp, tPeak, areaHa, b, fb, Cd, lang]
   );
 
+  const persen = fmtPersen(r.attenuation * 100);
+
   return (
     <LabShell
+      status={
+        /* Rentang penggeser memberi hmax/f dari 1,6e-5 sampai 153; skala
+           berhenti di 2, nilai di atasnya ditandai di luar skala (dan tetap
+           merah karena memang melimpas). */
+        <RegimeScale
+          symbol="hmax/f"
+          value={r.maxHead / fb}
+          invalid={limpas}
+          pesan={limpas ? x.limpas : undefined}
+          digits={2}
+          bands={[
+            { from: 0, to: 1, label: x.aman, tone: "pass" },
+            { from: 1, to: 2, label: x.pitaLimpas, tone: "invalid" },
+          ]}
+        />
+      }
       sheet="HY-01"
       subject={SUBJECTS.HY[lang]}
       title={x.title}
@@ -223,12 +263,12 @@ export function PenelusuranWadukClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m³/s, m)" },
             { label: "Imax", value: `${fmt(r.inflowPeak, 1)} m³/s`, tint: C.water },
-            { label: "Omax", value: `${fmt(r.outflowPeak, 1)} m³/s`, tint: C.energy },
-            { label: "redam", value: `${fmt(r.attenuation * 100, 1)} %` },
+            { label: "Omax", value: sah(`${fmt(r.outflowPeak, digitO)} m³/s`), tint: C.energy },
+            { label: lang === "id" ? "redam" : "atten.", value: sah(`${fmt(r.attenuation * 100, 1)} %`) },
             {
               label: "hmax",
               value: `${fmt(r.maxHead, 2)} m`,
-              tint: r.overtops ? C.signal : undefined,
+              tint: limpas ? C.signal : undefined,
             },
           ]}
         >
@@ -243,7 +283,7 @@ export function PenelusuranWadukClient() {
               <InputRow symbol="tp" label={x.dTp} value={tPeak} min={0.5} max={36} step={0.5} digits={1} unit="h" onChange={setTPeak} />
               <InputRow symbol="As" label={x.dArea} value={areaHa} min={1} max={5000} step={1} digits={0} unit="ha" onChange={setAreaHa} tint={C.energy} />
               <InputRow symbol="b" label={x.dB} value={b} min={2} max={200} step={1} digits={0} unit="m" onChange={setB} />
-              <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} tint={C.signal} />
+              <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} />
               <InputRow symbol="Cd" label={x.dCd} value={Cd} min={0.5} max={0.75} step={0.005} digits={3} onChange={setCd} />
             </InputTable>
 
@@ -260,33 +300,100 @@ export function PenelusuranWadukClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.overtops ? undefined : C.energy} alert={r.overtops}>
-                {`${fmt(r.attenuation * 100, 1)} %`}
-              </Flag>
-              {r.overtops && <Flag alert>{x.limpas}</Flag>}
-            </div>
-            {r.overtops && (
-              <div className="mb-2.5">
-                <Note>{x.limpasNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "Omax", label: x.rOut, value: fmt(r.outflowPeak, 2), unit: "m³/s", tint: C.energy, strong: true },
-                { symbol: "—", label: x.rAtt, value: fmt(r.attenuation * 100, 2), unit: "%", strong: true },
+                { symbol: "Omax", label: x.rOut, value: sah(fmt(r.outflowPeak, 2)), unit: "m³/s", tint: C.energy, strong: true },
+                { label: x.rAtt, value: sah(fmt(r.attenuation * 100, 2)), unit: "%", strong: true },
                 { symbol: "Imax", label: x.rIn, value: fmt(r.inflowPeak, 2), unit: "m³/s", tint: C.water },
-                { symbol: "Δt", label: x.rLag, value: fmt(r.lag, 2), unit: "h" },
-                { symbol: "hmax", label: x.rHmax, value: fmt(r.maxHead, 3), unit: "m", tint: r.overtops ? C.signal : undefined },
-                { symbol: "Smax", label: x.rSmax, value: fmt(r.maxStorage / 1e6, 3), unit: T.millionCubic, tint: C.water },
-                { symbol: "f′", label: x.rFb, value: fmt(sisaJagaan, 2), unit: "m", tint: r.overtops ? C.signal : undefined },
+                { symbol: "tlag", label: x.rLag, value: sah(fmt(r.lag, 2)), unit: "h" },
+                { symbol: "hmax", label: x.rHmax, value: fmt(r.maxHead, 3), unit: "m", tint: limpas ? C.signal : undefined },
+                { symbol: "Smax", label: x.rSmax, value: sah(fmt(r.maxStorage / 1e6, 3)), unit: T.millionCubic, tint: C.water },
+                { symbol: "f′", label: x.rFb, value: fmt(sisaJagaan, 2), unit: "m", tint: limpas ? C.signal : undefined },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hBase,
+                    rumus: <span>tb = {fmt(2.67, 2)} · tp</span>,
+                    isi: `${fmt(2.67, 2)} · ${fmt(tPeak, 1)}`,
+                    hasil: fmt(tb, 2),
+                    satuan: "h",
+                  },
+                  {
+                    judul: x.hDt,
+                    rumus: (<><span>Δt =</span><Frac num={`${fmt(1.6, 1)} · tb`} den="160" /></>),
+                    isi: `${fmt(1.6, 1)} · ${fmt(tb, 2)} / 160`,
+                    hasil: fmt(dtKisi, 4),
+                    satuan: "h",
+                  },
+                  {
+                    judul: `${x.hStep}, ${x.hStepNote}${hampiran ? `; ${x.hSub}` : ""}`,
+                    rumus: <span>As · h₂ + Δt · O(h₂)/2 = S₁ − Δt · O₁/2 + Δt · (I₁ + I₂)/2</span>,
+                    isi:
+                      kP > 0
+                        ? `${fmt(p1.storage, 0)} − ${fmt(dtS, 1)} · ${fmt(p1.outflow, 3)}/2 + ${fmt(dtS, 1)} · (${fmt(p1.inflow, 3)} + ${fmt(p2.inflow, 3)})/2 = ${fmt(kanan, 0)} m³`
+                        : "—",
+                    hasil: kP > 0 ? `h₂ = ${fmt(p2.head, 4)}` : "—",
+                    satuan: "m",
+                  },
+                  {
+                    judul: x.rOut,
+                    rumus: (<><span>Omax =</span><Frac num="2" den="3" /><span>· Cd · b · √(2g) · hmax^{fmt(1.5, 1)}</span></>),
+                    isi: limpas ? "—" : `(2/3) · ${fmt(Cd, 3)} · ${fmt(b, 0)} · √(2 · ${fmt(G, 2)}) · ${fmt(r.maxHead, 4)}^${fmt(1.5, 1)}`,
+                    hasil: sah(fmt(r.outflowPeak, 2)),
+                    satuan: "m³/s",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rAtt,
+                    rumus: (<><span>redam = 1 −</span><Frac num="Omax" den="Imax" /></>),
+                    isi: limpas ? "—" : `1 − ${fmt(r.outflowPeak, 3)} / ${fmt(r.inflowPeak, 2)}`,
+                    hasil: sah(fmt(r.attenuation * 100, 2)),
+                    satuan: "%",
+                  },
+                  {
+                    judul: x.rLag,
+                    rumus: <span>tlag = t(Omax) − t(Imax)</span>,
+                    isi: limpas ? "—" : `${fmt(p2.t, 3)} − ${fmt(tPeak, 3)}`,
+                    hasil: sah(fmt(r.lag, 2)),
+                    satuan: "h",
+                  },
+                  {
+                    judul: x.rSmax,
+                    rumus: <span>Smax = As · hmax</span>,
+                    isi: limpas ? "—" : `${fmt(area, 0)} · ${fmt(r.maxHead, 4)}`,
+                    hasil: sah(fmt(r.maxStorage / 1e6, 3)),
+                    satuan: T.millionCubic,
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.rFb,
+                    rumus: <span>f′ = f − hmax</span>,
+                    isi: `${fmt(fb, 1)} − ${fmt(r.maxHead, 3)}`,
+                    hasil: fmt(sisaJagaan, 2),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r.attenuation, r.lag, r.maxStorage, r.overtops, masuk, area, b, fb, Cd, lang)}</Note>
-          </Block>
+          {limpas ? (
+            <StateCard
+              tone="invalid"
+              badge={x.limpas}
+              state={x.limpasState}
+              notice={[x.limpasNote]}
+            />
+          ) : (
+            <StateCard
+              tone="pass"
+              badge={`${x.sedia} ${persen} %`}
+              {...notice(r.attenuation, r.lag, r.maxStorage, masuk, area, b, fb, Cd, lang)}
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksRouting(masuk, area, b, fb, Cd)} />}
@@ -310,8 +417,8 @@ export function PenelusuranWadukClient() {
               <Eq>
                 <span className="text-ink-3">
                   {lang === "id"
-                    ? "O₂ dan S₂ sama-sama fungsi h₂, jadi tiap langkah diselesaikan dengan bagi dua atas h₂"
-                    : "O₂ and S₂ are both functions of h₂, so each step is solved by bisection on h₂"}
+                    ? "O₂ dan S₂ sama-sama fungsi h₂, jadi tiap langkah diselesaikan dengan Newton atas h₂; selang yang lebih panjang dari 0,5 K (K = As h / 1,5 O) dipecah menjadi sublangkah"
+                    : "O₂ and S₂ are both functions of h₂, so each step is solved by Newton on h₂; intervals longer than 0.5 K (K = As h / 1.5 O) are split into substeps"}
                 </span>
               </Eq>
             </>
@@ -324,28 +431,41 @@ export function PenelusuranWadukClient() {
   );
 }
 
+/** Persen redam: satu desimal bila 99 ke atas, supaya tidak tertulis "100". */
+function fmtPersen(v: number): string {
+  return v >= 99 ? fmt(v, 1) : fmt(v, 0);
+}
+
 function notice(
   attenuation: number,
   lag: number,
   maxStorage: number,
-  overtops: boolean,
   masuk: { t: number; Q: number }[],
   area: number,
   b: number,
   fb: number,
   Cd: number,
   lang: Lang
-): string {
-  if (overtops) {
-    return lang === "id"
-      ? "Selama air melampaui puncak bendungan, seluruh angka di atas tidak berlaku karena hitungannya mengandaikan air keluar hanya lewat pelimpah. Perlebar pelimpahnya atau perbesar luas genangannya sampai penanda merah hilang, baru bacaannya berarti."
-      : "While the water overtops the dam crest, every number above is invalid, because the calculation assumes water leaves only through the spillway. Widen the spillway or enlarge the surface area until the red flag clears, and only then read the values.";
-  }
-
+): { state: string; notice: string[] } {
   const lebar = reservoirRouting(masuk, area, b * 2, fb, Cd);
   const luas = reservoirRouting(masuk, area * 2, b, fb, Cd);
+  const a = fmtPersen(attenuation * 100);
+  const aLebar = fmtPersen(lebar.attenuation * 100);
+  const aLuas = fmtPersen(luas.attenuation * 100);
 
   if (lang === "en")
-    return `This reservoir holds back ${fmt(attenuation * 100, 0)} per cent of the peak and delays it by ${fmt(lag, 1)} hours, using ${fmt(maxStorage / 1e6, 2)} million cubic metres of storage. Double the spillway width and the attenuation falls to ${fmt(lebar.attenuation * 100, 0)} per cent; double the surface area instead and it rises to ${fmt(luas.attenuation * 100, 0)} per cent. The spillway is what lets water out, so making it larger makes the reservoir do less. It is the storage that does the work, and this comparison is the shortest way to see that.`;
-  return `Waduk ini menahan ${fmt(attenuation * 100, 0)} persen puncaknya dan menundanya ${fmt(lag, 1)} jam, dengan memakai ${fmt(maxStorage / 1e6, 2)} juta meter kubik tampungan. Lipatduakan lebar pelimpahnya dan peredamannya turun ke ${fmt(lebar.attenuation * 100, 0)} persen; lipatduakan luas genangannya dan ia naik ke ${fmt(luas.attenuation * 100, 0)} persen. Pelimpah adalah jalan air keluar, jadi memperbesarnya justru membuat waduknya bekerja lebih sedikit. Yang bekerja tampungannya, dan perbandingan ini jalan terpendek untuk melihatnya.`;
+    return {
+      state: `The reservoir holds back ${a} per cent of the peak and delays it by ${fmt(lag, 1)} hours, using ${fmt(maxStorage / 1e6, 2)} million m³ of storage.`,
+      notice: [
+        `Double the spillway width and the attenuation falls to ${aLebar} per cent; double the surface area instead and it rises to ${aLuas} per cent.`,
+        "The storage does the attenuating, not the spillway. The spillway is what lets water out, so making it larger makes the reservoir do less.",
+      ],
+    };
+  return {
+    state: `Waduk menahan ${a} persen puncak dan menundanya ${fmt(lag, 1)} jam, memakai ${fmt(maxStorage / 1e6, 2)} juta m³ tampungan.`,
+    notice: [
+      `Lipatduakan lebar pelimpahnya dan peredamannya turun ke ${aLebar} persen; lipatduakan luas genangannya dan peredamannya naik ke ${aLuas} persen.`,
+      "Yang meredam tampungannya, bukan pelimpahnya. Pelimpah adalah jalan air keluar, jadi memperbesarnya justru membuat waduk bekerja lebih sedikit.",
+    ],
+  };
 }

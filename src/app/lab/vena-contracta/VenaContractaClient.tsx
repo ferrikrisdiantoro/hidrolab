@@ -4,22 +4,23 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawOrifice } from "@/lib/drawOrifice";
 import {
+  G,
   ORIFICE_CC_SLOT,
   fmt,
   orificeJet,
-  type OrificeResult,
 } from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
@@ -52,8 +53,12 @@ const TXT = {
     rJangkau: "Jangkauan pancaran sampai lantai",
     teori: "Sama dengan nilai teoretis",
     takRendam: "Lubang tidak terendam penuh",
+    rendam: "Lubang terendam",
+    bandTak: "Bukaan tidak terendam",
+    bandRendam: "Lubang terendam",
+    takRumus: "bibir atas di atas muka air, rumus lubang tidak berlaku",
     takRendamNote:
-      "Tinggi muka air di atas titik berat lubang lebih kecil daripada setengah tinggi bukaannya, jadi bibir atas lubang muncul di atas permukaan. Yang terjadi bukan lagi aliran lubang melainkan luapan di atas ambang, dan seluruh rumus di lembar ini berdiri di atas andaian bahwa bukaan terendam penuh. Angka yang tampil tetap keluar dari persamaannya, tetapi tidak menggambarkan apa pun. Turunkan tinggi bukaan, atau naikkan muka airnya melewati",
+      "Tinggi muka air di atas titik berat lubang lebih kecil daripada setengah tinggi bukaannya, jadi bibir atas lubang muncul di atas permukaan. Yang terjadi bukan lagi aliran lubang melainkan luapan di atas ambang, dan seluruh rumus di lembar ini berdiri di atas andaian bahwa bukaan terendam penuh. Karena itu debit, laju, dan pancaran ditulis “—”. Turunkan tinggi bukaan, atau naikkan muka airnya melewati",
     note:
       "Dua koefisien bekerja berurutan di sini, dan menukarnya adalah kesalahan yang paling sering terjadi pada perhitungan lubang. Kontraksi mengurangi LUAS pancaran, bukan lajunya. Sebabnya bentuk geometri, bukan gesekan: air yang mendekati lubang dari atas dan dari bawah tidak dapat berbelok tajam tepat di bibirnya, sehingga garis arusnya masih melengkung sebentar setelah keluar. Di tempat lengkungan itu selesai, pancaran paling sempit dan garis arusnya sejajar, dan hanya di situ tekanannya nol. Itulah sebabnya penampang acuan bukan bibir lubang melainkan vena contracta, kira-kira setengah tinggi bukaan di hilirnya. Koefisien kecepatan mengurangi LAJU, dan inilah yang berasal dari gesekan di bibir lubang. Nilainya dekat sekali dengan satu, biasanya 0,97 sampai 0,99, jauh lebih dekat daripada koefisien kontraksinya. Hasil kali keduanya adalah koefisien debit, dan hanya hasil kali itulah yang dapat dibaca dari pengukuran debit. Untuk memisahkan keduanya diperlukan pengukuran kedua, dan yang paling murah bukan mengukur kecepatan melainkan mengukur lintasan pancarannya dengan meteran, karena lintasan tanpa kehilangan memenuhi hubungan x kuadrat sama dengan empat H y.",
   },
@@ -80,8 +85,12 @@ const TXT = {
     rJangkau: "Jet reach to the floor",
     teori: "Equal to the theoretical value",
     takRendam: "Opening not fully submerged",
+    rendam: "Submerged orifice",
+    bandTak: "Opening not submerged",
+    bandRendam: "Submerged orifice",
+    takRumus: "top lip above the water surface, orifice formula does not apply",
     takRendamNote:
-      "The head above the centroid is less than half the opening height, so the top lip stands above the water surface. What happens then is not orifice flow but flow over a weir, and every formula on this sheet assumes a fully submerged opening. The numbers still come out of the equations but describe nothing. Reduce the opening height, or raise the head past",
+      "The head above the centroid is less than half the opening height, so the top lip stands above the water surface. What happens then is not orifice flow but flow over a weir, and every formula on this sheet assumes a fully submerged opening. So discharge, velocity, and jet values are shown as “—”. Reduce the opening height, or raise the head past",
     note:
       "Two coefficients act in sequence here, and swapping them is the most common error in orifice calculations. Contraction reduces the AREA of the jet, not its speed. The cause is geometry, not friction: water approaching the orifice from above and below cannot turn sharply at the lip, so its streamlines keep curving for a short distance after leaving. Where that curvature ends, the jet is narrowest and its streamlines are parallel, and only there is the pressure zero. That is why the reference section is not the lip but the vena contracta, roughly half an opening height downstream. The velocity coefficient reduces the SPEED, and it is this one that comes from friction at the lip. Its value sits very close to one, usually 0.97 to 0.99, far closer than the contraction coefficient. The product of the two is the discharge coefficient, and only that product can be read from a discharge measurement. Separating them needs a second measurement, and the cheapest is not to measure velocity but to measure the jet path with a tape, because the loss-free path satisfies x squared equals four H y.",
   },
@@ -115,9 +124,23 @@ export function VenaContractaClient() {
   const [Cc, setCc] = useState(0.62);
 
   const r = orificeJet(H, a, bLubang, Cv, Cc);
-  const jangkau = r.V * Math.sqrt((2 * z0) / 9.81);
+  const jangkau = r.V * Math.sqrt((2 * z0) / G);
   const dekatTeori = Math.abs(Cc - ORIFICE_CC_SLOT) < 0.002;
   const takRendam = !r.submerged;
+  /* Saat bukaan tidak terendam, rumus lubang tidak berlaku: angka yang
+     keluar dari persamaannya ditulis "—", bukan angka seolah sah. */
+  const sah = (v: number) => (takRendam ? NaN : v);
+  const susut = (1 - Cc) * 100;
+  const lambat = (1 - r.Cv) * 100;
+
+  const langkahV0 = {
+    judul: x.rVth,
+    rumus: <span>V₀ = √( 2 g H )</span>,
+    isi: `√( 2 · ${fmt(G, 2)} · ${fmt(H, 2)} )`,
+    hasil: fmt(r.Vth, 3),
+    satuan: "m/s",
+    tint: C.ink3,
+  };
 
   const ref = useCanvas(
     (ctx, w, h) =>
@@ -133,6 +156,22 @@ export function VenaContractaClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas pita dari orificeJet: submerged bila H ≥ a/2, jadi H/a = 0,5.
+           Sumbu 0,3 sampai 1 200 memuat seluruh rentang penggeser
+           (0,10/0,300 = 0,333 sampai 6/0,005 = 1 200). */
+        <RegimeScale
+          symbol="H/a"
+          value={H / a}
+          invalid={takRendam}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: 0.3, to: 0.5, label: x.bandTak, tone: "invalid" },
+            { from: 0.5, to: 1200, label: x.bandRendam, tone: "water" },
+          ]}
+        />
+      }
       sheet="HS-07"
       subject={SUBJECTS.HS[lang]}
       title={x.title}
@@ -161,7 +200,7 @@ export function VenaContractaClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "H", value: `${fmt(H, 3)} m`, tint: C.water },
-            { label: "Cc", value: fmt(Cc, 4), tint: C.signal },
+            { label: "Cc", value: fmt(Cc, 4), tint: C.water },
             { label: "Cv", value: fmt(Cv, 4) },
             { label: "Cd", value: fmt(r.Cd, 4) },
           ]}
@@ -178,7 +217,7 @@ export function VenaContractaClient() {
               <InputRow symbol="b" label={x.db} value={bLubang * 1000} min={10} max={800} step={10} digits={0} unit="mm" onChange={(v) => setBLubang(v / 1000)} />
               <InputRow symbol="z₀" label={x.dz} value={z0} min={0.1} max={3} step={0.05} unit="m" onChange={setZ0} />
               <InputRow symbol="Cv" label={x.dCv} value={Cv} min={0.9} max={1} step={0.005} digits={3} onChange={setCv} />
-              <InputRow symbol="Cc" label={x.dCc} value={Cc} min={0.5} max={1} step={0.005} digits={3} onChange={setCc} tint={C.signal} />
+              <InputRow symbol="Cc" label={x.dCc} value={Cc} min={0.5} max={1} step={0.005} digits={3} onChange={setCc} tint={C.water} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -194,36 +233,122 @@ export function VenaContractaClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.water}>{`${fmt(r.Q * 1000, 2)} l/s`}</Flag>
-              {dekatTeori && <Flag tint={C.critical}>{x.teori}</Flag>}
-              {takRendam && <Flag alert>{x.takRendam}</Flag>}
-            </div>
-            {takRendam && (
-              <div className="mb-2.5">
-                <Note>
-                  {x.takRendamNote} {fmt(r.minHead, 3)} m.
-                </Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "Q", label: x.rQ, value: fmt(r.Q * 1000, 3), unit: "l/s", tint: C.water, strong: true },
+                { symbol: "Q", label: x.rQ, value: fmt(sah(r.Q * 1000), 3), unit: "l/s", tint: C.water, strong: true },
                 { symbol: "Cd", label: x.rCd, value: fmt(r.Cd, 4), strong: true },
                 { symbol: "V₀", label: x.rVth, value: fmt(r.Vth, 3), unit: "m/s", tint: C.ink3 },
-                { symbol: "V", label: x.rV, value: fmt(r.V, 3), unit: "m/s", tint: C.water },
+                { symbol: "V", label: x.rV, value: fmt(sah(r.V), 3), unit: "m/s", tint: C.water },
                 { symbol: "A", label: x.rArea, value: fmt(r.area * 1e4, 2), unit: "cm²" },
-                { symbol: "Ac", label: x.rVena, value: fmt(r.areaVena * 1e4, 2), unit: "cm²", tint: C.signal },
-                { symbol: "xc", label: x.rX, value: fmt(r.xVena * 1000, 1), unit: "mm", tint: C.signal },
-                { symbol: "hL", label: x.rLoss, value: fmt(r.headLoss, 4), unit: "m", tint: C.energy },
-                { symbol: "R", label: x.rJangkau, value: fmt(jangkau, 3), unit: "m" },
+                { symbol: "Ac", label: x.rVena, value: fmt(sah(r.areaVena * 1e4), 2), unit: "cm²", tint: C.water },
+                { symbol: "xc", label: x.rX, value: fmt(sah(r.xVena * 1000), 1), unit: "mm" },
+                { symbol: "hL", label: x.rLoss, value: fmt(sah(r.headLoss), 4), unit: "m", tint: C.energy },
+                { symbol: "R", label: x.rJangkau, value: fmt(sah(jangkau), 3), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={
+                  takRendam
+                    ? [
+                        langkahV0,
+                        {
+                          judul: x.takRendam,
+                          rumus: <span>H &lt; a/2</span>,
+                          isi: `${fmt(H, 2)} < ${fmt(r.minHead, 3)} m: ${x.takRumus}`,
+                          hasil: "—",
+                        },
+                      ]
+                    : [
+                        langkahV0,
+                        {
+                          judul: x.rV,
+                          rumus: <span>V = Cv · V₀</span>,
+                          isi: `${fmt(Cv, 3)} · ${fmt(r.Vth, 4)}`,
+                          hasil: fmt(r.V, 3),
+                          satuan: "m/s",
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.rLoss,
+                          rumus: (<><span>hL =</span><Frac num="V₀² − V²" den="2g" /></>),
+                          isi: `( ${fmt(r.Vth, 4)}² − ${fmt(r.V, 4)}² ) / ( 2 · ${fmt(G, 2)} )`,
+                          hasil: fmt(r.headLoss, 4),
+                          satuan: "m",
+                          tint: C.energy,
+                        },
+                        {
+                          judul: x.rArea,
+                          rumus: <span>A = a · b</span>,
+                          isi: `${fmt(a * 1000, 0)} mm · ${fmt(bLubang * 1000, 0)} mm`,
+                          hasil: fmt(r.area * 1e4, 2),
+                          satuan: "cm²",
+                        },
+                        {
+                          judul: x.rVena,
+                          rumus: <span>Ac = Cc · A</span>,
+                          isi: `${fmt(Cc, 3)} · ${fmt(r.area * 1e4, 3)}`,
+                          hasil: fmt(r.areaVena * 1e4, 2),
+                          satuan: "cm²",
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.rX,
+                          rumus: <span>xc = a / 2</span>,
+                          isi: `${fmt(a * 1000, 0)} / 2`,
+                          hasil: fmt(r.xVena * 1000, 1),
+                          satuan: "mm",
+                        },
+                        {
+                          judul: x.rCd,
+                          rumus: <span>Cd = Cc · Cv</span>,
+                          isi: `${fmt(Cc, 3)} · ${fmt(Cv, 3)}`,
+                          hasil: fmt(r.Cd, 4),
+                        },
+                        {
+                          judul: x.rQ,
+                          rumus: <span>Q = V · Ac</span>,
+                          isi: `${fmt(r.V, 4)} m/s · ${fmt(r.areaVena * 1e4, 3)} cm²`,
+                          hasil: fmt(r.Q * 1000, 3),
+                          satuan: "l/s",
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.rJangkau,
+                          rumus: <span>R = V · √( 2 z₀ / g )</span>,
+                          isi: `${fmt(r.V, 4)} · √( 2 · ${fmt(z0, 2)} / ${fmt(G, 2)} )`,
+                          hasil: fmt(jangkau, 3),
+                          satuan: "m",
+                        },
+                      ]
+                }
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r, H, Cc, takRendam, lang)}</Note>
-          </Block>
+          {takRendam ? (
+            <StateCard
+              tone="invalid"
+              badge={x.takRendam}
+              state={
+                lang === "id"
+                  ? `Bukaan tidak terendam: H ${fmt(H, 2)} m < a/2 ${fmt(r.minHead, 3)} m.`
+                  : `Opening not submerged: H ${fmt(H, 2)} m < a/2 ${fmt(r.minHead, 3)} m.`
+              }
+              notice={[`${x.takRendamNote} ${fmt(r.minHead, 3)} m.`]}
+            />
+          ) : (
+            <StateCard
+              tone="water"
+              badge={dekatTeori ? x.teori : x.rendam}
+              state={
+                lang === "id"
+                  ? `Cd = ${fmt(r.Cd, 3)}: kontraksi mengambil ${fmt(susut, 1)} % luas, gesekan ${fmt(lambat, 1)} % laju.`
+                  : `Cd = ${fmt(r.Cd, 3)}: contraction takes ${fmt(susut, 1)} % of the area, friction ${fmt(lambat, 1)} % of the speed.`
+              }
+              notice={butir(susut, lambat, H, Cv, lang)}
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksOrifice(H, a, bLubang, Cv, Cc)} />}
@@ -259,22 +384,34 @@ export function VenaContractaClient() {
   );
 }
 
-function notice(
-  r: OrificeResult,
-  H: number,
-  Cc: number,
-  takRendam: boolean,
-  lang: Lang
-): string {
-  if (takRendam) {
-    return lang === "id"
-      ? `Tidak ada vena contracta untuk diamati selama bibir atas lubang masih di atas muka air. Naikkan muka airnya melewati ${fmt(r.minHead, 3)} m, atau perkecil tinggi bukaannya, lalu pancarannya kembali terbentuk.`
-      : `There is no vena contracta to look at while the top lip stands above the water surface. Raise the head past ${fmt(r.minHead, 3)} m, or reduce the opening height, and the jet forms again.`;
-  }
-  const susut = (1 - Cc) * 100;
-  const lambat = (1 - r.Cv) * 100;
-
+/*
+ * Butir yang perlu diperhatikan. Kalimat perbandingan dibangun dari angka
+ * lembar, bukan dipatok: pada Cv 0,900 dan Cc 0,950 gesekan mengambil lebih
+ * banyak daripada kontraksi, dan kalimat lama ("gesekan hanya mengambil …")
+ * menjadi salah. Klaim lintasan dan klaim Cc dipisah karena
+ * orificeTrajectory hanya bergantung V: lintasan berimpit cukup dengan
+ * Cv = 1, sedangkan Cc 0,611 hanya membuat Cd sama dengan nilai teoretis.
+ */
+function butir(susut: number, lambat: number, H: number, Cv: number, lang: Lang): string[] {
+  const cc = fmt(ORIFICE_CC_SLOT, 3);
+  const berimpit = Math.abs(Cv - 1) < 1e-9;
   if (lang === "en")
-    return `Compare the two losses side by side. Contraction takes ${fmt(susut, 1)} per cent of the area away, while friction takes only ${fmt(lambat, 1)} per cent of the speed. That imbalance is the point: almost everything that separates the ideal discharge from the real one is geometry, not friction. Set the contraction coefficient to ${fmt(ORIFICE_CC_SLOT, 3)} and the velocity coefficient to one, and the sheet reproduces the exact two-dimensional solution, where the phantom path and the real path fall on top of each other and the jet obeys x² = 4Hy with H at ${fmt(H, 2)} m.`;
-  return `Bandingkan kedua kehilangan itu berdampingan. Kontraksi mengambil ${fmt(susut, 1)} persen dari luasnya, sedangkan gesekan hanya mengambil ${fmt(lambat, 1)} persen dari lajunya. Ketimpangan itulah intinya: hampir seluruh yang memisahkan debit ideal dari debit nyata adalah geometri, bukan gesekan. Setel koefisien kontraksi ke ${fmt(ORIFICE_CC_SLOT, 3)} dan koefisien kecepatan ke satu, dan lembar ini mengulang penyelesaian dua dimensi yang tertutup itu: garis khayal dan lintasan sesungguhnya berimpit, dan pancarannya memenuhi x² = 4Hy dengan H sebesar ${fmt(H, 2)} m.`;
+    return [
+      lambat >= susut
+        ? "Here friction takes more than contraction, the reverse of a sharp-edged orifice (Cc ≈ 0.62, Cv ≈ 0.98)."
+        : `Contraction takes ${fmt(susut, 1)} per cent of the area, while friction takes only ${fmt(lambat, 1)} per cent of the speed: almost everything that separates the ideal discharge from the real one is geometry, not friction.`,
+      berimpit
+        ? `With Cv at one the real jet path falls on the phantom loss-free path, x² = 4Hy with H at ${fmt(H, 2)} m. Cc does not move the path, it only narrows the jet.`
+        : "The real path falls on the phantom loss-free path x² = 4Hy only when Cv is one. Cc does not move the path, it only narrows the jet.",
+      `Cc = ${cc} (π/(π + 2)) is the exact two-dimensional slot solution; with Cv at one it makes Cd equal that theoretical value.`,
+    ];
+  return [
+    lambat >= susut
+      ? "Di sini gesekan mengambil lebih banyak daripada kontraksi, kebalikan dari lubang berbibir tajam (Cc ≈ 0,62, Cv ≈ 0,98)."
+      : `Kontraksi mengambil ${fmt(susut, 1)} persen dari luasnya, sedangkan gesekan hanya ${fmt(lambat, 1)} persen dari lajunya: hampir seluruh yang memisahkan debit ideal dari debit nyata adalah geometri, bukan gesekan.`,
+    berimpit
+      ? `Dengan Cv sama dengan satu, lintasan sesungguhnya berimpit dengan garis khayal tanpa kehilangan, x² = 4Hy dengan H sebesar ${fmt(H, 2)} m. Cc tidak menggeser lintasan, hanya menyempitkan pancaran.`
+      : "Lintasan sesungguhnya berimpit dengan garis khayal x² = 4Hy hanya bila Cv sama dengan satu. Cc tidak menggeser lintasan, hanya menyempitkan pancaran.",
+    `Cc = ${cc} (π/(π + 2)) adalah penyelesaian tepat celah dua dimensi; bersama Cv satu, nilai itu membuat Cd sama dengan nilai teoretisnya.`,
+  ];
 }

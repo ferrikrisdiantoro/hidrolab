@@ -24,7 +24,11 @@ export type EnergyState = {
   b: number;
   /** Kedalaman kritis, m */
   yc: number;
-  /** Kedalaman normal, m */
+  /**
+   * Kedalaman normal, m. NaN bila tidak ada kedalaman normal (debit
+   * melampaui kapasitas saluran): muka air, y0, dan cadangan energi tidak
+   * digambar, dan skala hanya dihitung dari yc dan Emin.
+   */
   y0: number;
 };
 
@@ -59,9 +63,10 @@ export function drawEnergy(
   const baseY = padT + plotH;
 
   const Emin = 1.5 * s.yc;
-  const E0 = specificEnergy(s.y0, s.q);
-  const yMax = Math.max(s.y0 * 1.55, s.yc * 2.5, 0.5);
-  const eMax = Math.max(E0 * 1.25, Emin * 2.1, yMax * 1.08);
+  const adaY0 = Number.isFinite(s.y0) && s.y0 > 0;
+  const E0 = adaY0 ? specificEnergy(s.y0, s.q) : NaN;
+  const yMax = Math.max(adaY0 ? s.y0 * 1.55 : 0, s.yc * 2.5, 0.5);
+  const eMax = Math.max(adaY0 ? E0 * 1.25 : 0, Emin * 2.1, yMax * 1.08);
 
   const X = (E: number) => padL + (E / eMax) * plotW;
   const Y = (y: number) => baseY - (y / yMax) * plotH;
@@ -136,7 +141,7 @@ export function drawEnergy(
   curveLabel(ctx, `${T.minEnergy} ${fmtPlain(Emin, 3)}`, X(Emin) + 9, baseY - 12, C.critical);
 
   /* ---------------- kedalaman normal ---------------- */
-  if (E0 <= eMax && s.y0 <= yMax) {
+  if (adaY0 && E0 <= eMax && s.y0 <= yMax) {
     pen(ctx, W.thin, C.water, DASH.hidden);
     ctx.beginPath();
     ctx.moveTo(padL, Y(s.y0));
@@ -236,18 +241,22 @@ function drawSection(
 
   region(ctx, T.section, cx, padT - 12, C.ink3);
 
-  // Air
-  const wl = Y(s.y0);
+  const adaY0 = Number.isFinite(s.y0) && s.y0 > 0;
+
+  // Air (tidak ada bila kedalaman normal tidak ada)
+  const wl = adaY0 ? Y(s.y0) : baseY;
   const clip = () => {
     ctx.beginPath();
     ctx.rect(left, wl, bw, baseY - wl);
   };
-  ctx.save();
-  clip();
-  ctx.fillStyle = C.waterFill;
-  ctx.fill();
-  ctx.restore();
-  hatchWater(ctx, clip, left, right, wl, baseY, 8);
+  if (adaY0) {
+    ctx.save();
+    clip();
+    ctx.fillStyle = C.waterFill;
+    ctx.fill();
+    ctx.restore();
+    hatchWater(ctx, clip, left, right, wl, baseY, 8);
+  }
 
   // Kedalaman kritis menyeberang dari kurva di kiri.
   pen(ctx, W.thin, C.critical, DASH.axis);
@@ -263,11 +272,13 @@ function drawSection(
   stencil(ctx, "yc", right + 13, Y(s.yc) - 2);
 
   // Muka air
-  pen(ctx, W.bold, C.water);
-  ctx.beginPath();
-  ctx.moveTo(left, wl);
-  ctx.lineTo(right, wl);
-  ctx.stroke();
+  if (adaY0) {
+    pen(ctx, W.bold, C.water);
+    ctx.beginPath();
+    ctx.moveTo(left, wl);
+    ctx.lineTo(right, wl);
+    ctx.stroke();
+  }
 
   // Dinding dan dasar, digambar sebagai bidang terpotong
   const thk = 9;
@@ -289,7 +300,7 @@ function drawSection(
   ctx.strokeRect(left - thk + 0.5, baseY + 0.5, bw + thk * 2, thk);
 
   // Dimensi
-  dimV(ctx, left - thk - 16, wl, baseY, `y₀ ${fmtPlain(s.y0, 2)}`, C.water);
+  if (adaY0) dimV(ctx, left - thk - 16, wl, baseY, `y₀ ${fmtPlain(s.y0, 2)}`, C.water);
   dimH(
     ctx,
     baseY + thk + 20,

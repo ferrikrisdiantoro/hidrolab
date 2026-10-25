@@ -4,26 +4,29 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
+  G,
   RE_TURBULENT_MIN,
+  colebrookFriction,
   fmt,
   fmtPlain,
   fmtSci,
   wallingfordVelocity,
   waterViscosity,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -49,6 +52,15 @@ const TXT = {
     rHf: "Kehilangan tinggi tekan per 100 m",
     rKsD: "Kekasaran relatif",
     luar: "Belum turbulen",
+    bandLuar: "Belum turbulen, bagan tidak berlaku",
+    bandTrans: "Turbulen transisi",
+    bandKasar: "Kasar penuh, V ∝ √S",
+    hNu: "Kekentalan kinematik dari suhu",
+    hAkar: "Suku akar dan dua suku di dalam logaritma",
+    hV: "Kecepatan, Colebrook-White dibalik",
+    hQ: "Debit",
+    hRe: "Bilangan Reynolds, pemeriksaan ≥ 4.000",
+    hF: "Faktor gesekan, dihitung mundur",
     luarNote:
       "Bilangan Reynolds di bawah 4.000, jadi alirannya belum turbulen. Rumus Colebrook-White diturunkan untuk aliran turbulen dan tidak berlaku di bawah batas itu; bagan Wallingford pun tidak pernah dicetak untuk daerah ini. Kurvanya digambar titik rapat justru karena itu. Perbesar kemiringannya, perbesar pipanya, atau naikkan suhu airnya.",
     note:
@@ -72,6 +84,15 @@ const TXT = {
     rHf: "Head loss per 100 m",
     rKsD: "Relative roughness",
     luar: "Not yet turbulent",
+    bandLuar: "Not yet turbulent, chart does not apply",
+    bandTrans: "Transitional turbulent",
+    bandKasar: "Fully rough, V ∝ √S",
+    hNu: "Kinematic viscosity from temperature",
+    hAkar: "Root term and the two terms inside the logarithm",
+    hV: "Velocity, Colebrook-White inverted",
+    hQ: "Discharge",
+    hRe: "Reynolds number, check ≥ 4,000",
+    hF: "Friction factor, computed backwards",
     luarNote:
       "The Reynolds number is below 4,000, so the flow is not yet turbulent. Colebrook-White was derived for turbulent flow and does not hold below that limit; the Wallingford charts were never printed for this region either. That is exactly why the curve is drawn with fine dots. Increase the gradient, enlarge the pipe, or raise the water temperature.",
     note:
@@ -96,9 +117,38 @@ const REFS = {
 const KELUARGA_D = [0.075, 0.1, 0.15, 0.225, 0.3, 0.45, 0.6, 0.9, 1.2, 1.8];
 
 const V_MIN = 0.05;
-const V_MAX = 8;
+/* Sumbu V harus memuat hasil penggeser (aturan §5): D 1800, S 100 ‰, ks 0,
+   T 40 memberi V 23,7 m/s. Dulu 8 m/s, titik jadi "di luar diagram". */
+const V_MAX = 30;
 const S_MIN = 1e-4;
 const S_MAX = 1e-1;
+
+/* Sumbu pita Re 5·10²–10⁸ memuat penggeser (878 pada D 50, S 0,1 ‰, ks 6,
+   T 4; 6,44·10⁷ pada D 1800, S 100 ‰, ks 0, T 40). */
+const RE_AXIS_MIN = 5e2;
+const RE_AXIS_MAX = 1e8;
+
+/*
+ * Re awal kasar penuh: Re·(ks/D)·√f = 200 dengan f Colebrook, kriteria yang
+ * sama dengan PI-01 dan garis putus drawMoody. Bagi dua pada log Re.
+ */
+function reKasarPenuh(rr: number): number {
+  if (rr <= 0) return Infinity;
+  const g = (lg: number) => {
+    const Re = 10 ** lg;
+    return Re * rr * Math.sqrt(colebrookFriction(Re, rr)) - 200;
+  };
+  let lo = Math.log10(RE_TURBULENT_MIN);
+  let hi = Math.log10(RE_AXIS_MAX);
+  if (g(lo) >= 0) return RE_TURBULENT_MIN;
+  if (g(hi) < 0) return Infinity;
+  for (let i = 0; i < 60; i++) {
+    const m = (lo + hi) / 2;
+    if (g(m) >= 0) hi = m;
+    else lo = m;
+  }
+  return 10 ** hi;
+}
 
 export function DiagramWallingfordClient() {
   const { lang } = useLang();
@@ -114,6 +164,20 @@ export function DiagramWallingfordClient() {
   const nu = waterViscosity(suhu);
   const ks = ksMm / 1000;
   const r = wallingfordVelocity(D, S, ks, nu);
+
+  const luar = r.outOfRange;
+  // Di bawah Re 4000 Colebrook-White tidak berlaku: V, Q, f ditulis "—".
+  const sah = (v: number) => (luar ? NaN : v);
+  const akar = Math.sqrt(2 * G * D * S);
+  const sukuKs = ks / (3.7 * D);
+  const sukuNu = (2.51 * nu) / (D * akar);
+  const reKp = Math.min(Math.max(reKasarPenuh(ks / D), RE_TURBULENT_MIN), RE_AXIS_MAX);
+  const kasarPenuh = !luar && ks > 0 && r.Re >= reKp;
+  const bands = [
+    { from: RE_AXIS_MIN, to: RE_TURBULENT_MIN, label: x.bandLuar, tone: "invalid" as Tone },
+    { from: RE_TURBULENT_MIN, to: reKp, label: x.bandTrans, tone: "water" as Tone },
+    { from: reKp, to: RE_AXIS_MAX, label: x.bandKasar, tone: "neutral" as Tone },
+  ].filter((b) => b.to > b.from);
 
   const ref = useCanvas(
     (ctx, w, h) => {
@@ -225,7 +289,7 @@ export function DiagramWallingfordClient() {
           regions: [
             {
               x: 1.6e-4,
-              y: 5.2,
+              y: 18,
               text: `${T.wallRoughness} ${fmtPlain(ksMm, 3)} mm`,
               color: C.ink3,
             },
@@ -240,6 +304,16 @@ export function DiagramWallingfordClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Re"
+          value={r.Re}
+          scale="log"
+          digits={0}
+          invalid={luar}
+          bands={bands}
+        />
+      }
       sheet="PI-02"
       subject={SUBJECTS.PI[lang]}
       title={x.title}
@@ -269,7 +343,7 @@ export function DiagramWallingfordClient() {
             { label: t.tbUnit, value: "SI (m, m/s)" },
             { label: "D", value: `${fmtPlain(D * 1000, 0)} mm` },
             { label: "S", value: fmtSci(S) },
-            { label: "V", value: `${fmt(r.V, 3)} m/s`, tint: C.water },
+            { label: "V", value: luar ? "—" : `${fmt(r.V, 3)} m/s`, tint: C.water },
             {
               label: "Re",
               value: fmtSci(r.Re),
@@ -303,33 +377,94 @@ export function DiagramWallingfordClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.outOfRange ? undefined : C.water} alert={r.outOfRange}>
-                {`${fmt(r.V, 3)} m/s`}
-              </Flag>
-              {r.outOfRange && <Flag alert>{x.luar}</Flag>}
-            </div>
-            {r.outOfRange && (
-              <div className="mb-2.5">
-                <Note>{x.luarNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "V", label: x.rV, value: fmt(r.V, 4), unit: "m/s", tint: C.water, strong: true },
-                { symbol: "Q", label: x.rQ, value: fmt(r.Q * 1000, 2), unit: "l/s", tint: C.water, strong: true },
-                { symbol: "Re", label: x.rRe, value: fmtSci(r.Re), tint: r.outOfRange ? C.signal : undefined },
-                { symbol: "f", label: x.rF, value: fmt(r.f, 5), tint: C.energy },
-                { symbol: "ks/D", label: x.rKsD, value: fmtSci(ks / D) },
+                { symbol: "V", label: x.rV, value: fmt(sah(r.V), 4), unit: luar ? undefined : "m/s", tint: C.water, strong: true },
+                { symbol: "Q", label: x.rQ, value: fmt(sah(r.Q * 1000), 2), unit: luar ? undefined : "l/s", tint: C.water, strong: true },
+                { symbol: "Re", label: x.rRe, value: fmtSci(r.Re), tint: luar ? C.signal : undefined },
+                { symbol: "f", label: x.rF, value: fmt(sah(r.f), 5), tint: C.energy },
+                { symbol: "ks/D", label: x.rKsD, value: ks > 0 ? fmtSci(ks / D) : fmt(0, 0) },
                 { symbol: "hf", label: x.rHf, value: fmt(S * 100, 3), unit: "m", tint: C.energy },
                 { symbol: "ν", label: x.rNu, value: fmtSci(nu), unit: "m²/s" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hNu,
+                    rumus: (<><span>ν =</span><Frac num={`${fmt(1.79, 2)} · 10⁻⁶`} den={`1 + ${fmt(0.03368, 5)} T + ${fmt(0.000221, 6)} T²`} /></>),
+                    isi: `${fmt(1.79, 2)} · 10⁻⁶ / ( 1 + ${fmt(0.03368, 5)} · ${fmt(suhu, 1)} + ${fmt(0.000221, 6)} · ${fmt(suhu, 1)}² )`,
+                    hasil: fmtSci(nu),
+                    satuan: "m²/s",
+                  },
+                  {
+                    judul: x.hAkar,
+                    rumus: (
+                      <>
+                        <span>√( 2 g D S ),</span>
+                        <Frac num="ks" den={`${fmt(3.7, 1)} D`} />
+                        <span>,</span>
+                        <Frac num={`${fmt(2.51, 2)} ν`} den="D √( 2 g D S )" />
+                      </>
+                    ),
+                    isi: `√( 2 · ${fmt(G, 2)} · ${fmt(D, 3)} · ${fmt(S, 4)} ) = ${fmt(akar, 4)};  ${fmt(ks, 6)} / ( ${fmt(3.7, 1)} · ${fmt(D, 3)} ) = ${sukuKs > 0 ? fmtSci(sukuKs) : fmt(0, 0)};  ${fmt(2.51, 2)} · ${fmtSci(nu)} / ( ${fmt(D, 3)} · ${fmt(akar, 4)} ) = ${fmtSci(sukuNu)}`,
+                    hasil: fmt(akar, 4),
+                    satuan: "m/s",
+                  },
+                  {
+                    judul: x.hV,
+                    rumus: <span>V = −2 √( 2 g D S ) · log₁₀[ … + … ]</span>,
+                    isi: luar ? "—" : `−2 · ${fmt(akar, 4)} · log₁₀( ${sukuKs > 0 ? fmtSci(sukuKs) : fmt(0, 0)} + ${fmtSci(sukuNu)} )`,
+                    hasil: fmt(sah(r.V), 4),
+                    satuan: luar ? undefined : "m/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hQ,
+                    rumus: (<><span>Q = V ·</span><Frac num="π D²" den="4" /></>),
+                    isi: luar ? "—" : `${fmt(r.V, 5)} · π · ${fmt(D, 3)}² / 4 · 1000`,
+                    hasil: fmt(sah(r.Q * 1000), 2),
+                    satuan: luar ? undefined : "l/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hRe,
+                    rumus: (<><span>Re =</span><Frac num="V · D" den="ν" /><span>≥ {fmt(RE_TURBULENT_MIN, 0)}</span></>),
+                    isi: `${fmt(r.V, 5)} · ${fmt(D, 3)} / ${fmtSci(nu)}`,
+                    hasil: fmtSci(r.Re),
+                    tint: luar ? C.signal : undefined,
+                  },
+                  {
+                    judul: x.hF,
+                    rumus: (<><span>f =</span><Frac num="2 g D S" den="V²" /></>),
+                    isi: luar ? "—" : `2 · ${fmt(G, 2)} · ${fmt(D, 3)} · ${fmt(S, 4)} / ${fmt(r.V, 5)}²`,
+                    hasil: fmt(sah(r.f), 5),
+                    tint: C.energy,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(r.V, r.f, D, S, ks, nu, lang)}</Note>
-          </Block>
+          {luar ? (
+            <StateCard
+              tone="invalid"
+              badge={x.luar}
+              state={
+                lang === "id"
+                  ? `Re = ${fmtSci(r.Re)} < ${fmt(RE_TURBULENT_MIN, 0)}: aliran belum turbulen, rumus tidak berlaku.`
+                  : `Re = ${fmtSci(r.Re)} < ${fmt(RE_TURBULENT_MIN, 0)}: the flow is not yet turbulent, the formula does not apply.`
+              }
+              notice={[x.luarNote]}
+            />
+          ) : (
+            <StateCard
+              tone={kasarPenuh ? "neutral" : "water"}
+              badge={kasarPenuh ? x.bandKasar : x.bandTrans}
+              {...notice(r.V, r.Q, D, S, ks, nu, lang)}
+            />
+          )}
         </>
       }
       verification={<Verification checks={checksWallingford(D, S, ks, nu)} />}
@@ -366,19 +501,51 @@ export function DiagramWallingfordClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama; kalimat pertama menyatakan
+ * keadaan, sisanya butir. Nisbah V(4S)/V dibaca dari model: bila praktis
+ * tepat dua (kasar penuh), kalimat "bukan tepat dua" tidak lagi benar.
+ */
 function notice(
   V: number,
-  f: number,
+  Q: number,
   D: number,
   S: number,
   ks: number,
   nu: number,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
   const dua = wallingfordVelocity(D, S * 4, ks, nu).V;
   const rasio = V > 0 ? dua / V : 0;
+  const tepatDua = Math.abs(rasio - 2) < 0.005;
+  const keadaan =
+    lang === "en"
+      ? `V = ${fmt(V, 3)} m/s, Q = ${fmt(Q * 1000, 2)} l/s at S = ${fmt(S * 1000, 1)} ‰.`
+      : `V = ${fmt(V, 3)} m/s, Q = ${fmt(Q * 1000, 2)} l/s pada S = ${fmt(S * 1000, 1)} ‰.`;
 
   if (lang === "en")
-    return `Quadruple the gradient and the velocity rises by ${fmt(rasio, 3)} times, not exactly two. A pure square-root law would give exactly two; the excess appears because the friction factor itself falls as the flow speeds up, and it is largest on smooth pipes where the viscous term still matters. Set the roughness to zero and watch the excess grow; set it to several millimetres and watch the ratio settle onto two, which is the signature of fully rough flow where the friction factor no longer depends on the Reynolds number at all.`;
-  return `Lipatempatkan kemiringannya dan kecepatannya naik ${fmt(rasio, 3)} kali, bukan tepat dua. Hukum akar murni akan memberi tepat dua; kelebihannya muncul karena faktor gesekannya sendiri turun ketika alirannya mengencang, dan kelebihan itu paling besar pada pipa licin tempat suku kekentalan masih berpengaruh. Setel kekasarannya ke nol lalu perhatikan kelebihan itu membesar; setel ke beberapa milimeter lalu perhatikan perbandingannya turun ke dua, dan dua itulah tanda aliran kasar penuh tempat faktor gesekan sudah tidak bergantung pada bilangan Reynolds sama sekali.`;
+    return {
+      state: keadaan,
+      notice: tepatDua
+        ? [
+            `Quadruple the gradient and the velocity rises by ${fmt(rasio, 3)} times, practically exactly two: the flow is fully rough, the friction factor no longer depends on the Reynolds number, and V follows √S.`,
+            "Set the roughness to zero and watch the ratio climb above two, because on a smooth pipe the viscous term still matters.",
+          ]
+        : [
+            `Quadruple the gradient and the velocity rises by ${fmt(rasio, 3)} times, not exactly two. A pure square-root law would give exactly two; the excess appears because the friction factor itself falls as the flow speeds up, and it is largest on smooth pipes where the viscous term still matters.`,
+            "Set the roughness to zero and watch the excess grow; set it to several millimetres and watch the ratio settle onto two, which is the signature of fully rough flow where the friction factor no longer depends on the Reynolds number at all.",
+          ],
+    };
+  return {
+    state: keadaan,
+    notice: tepatDua
+      ? [
+          `Lipatempatkan kemiringannya dan kecepatannya naik ${fmt(rasio, 3)} kali, praktis tepat dua: alirannya kasar penuh, faktor gesekan sudah tidak bergantung pada bilangan Reynolds, dan V mengikuti √S.`,
+          "Setel kekasarannya ke nol lalu perhatikan perbandingannya naik di atas dua, karena pada pipa licin suku kekentalan masih berpengaruh.",
+        ]
+      : [
+          `Lipatempatkan kemiringannya dan kecepatannya naik ${fmt(rasio, 3)} kali, bukan tepat dua. Hukum akar murni akan memberi tepat dua; kelebihannya muncul karena faktor gesekannya sendiri turun ketika alirannya mengencang, dan kelebihan itu paling besar pada pipa licin tempat suku kekentalan masih berpengaruh.`,
+          "Setel kekasarannya ke nol lalu perhatikan kelebihan itu membesar; setel ke beberapa milimeter lalu perhatikan perbandingannya turun ke dua, dan dua itulah tanda aliran kasar penuh tempat faktor gesekan sudah tidak bergantung pada bilangan Reynolds sama sekali.",
+        ],
+  };
 }

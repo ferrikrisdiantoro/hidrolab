@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -52,6 +53,32 @@ const TXT = {
     putarMurni: "Putaran murni",
     regangMurni: "Regangan murni",
     campur: "Putaran dan regangan bercampur",
+    muaiMerata: "Muai merata",
+    diam: "Tanpa gerak relatif",
+    rLuas: "Luas elemen satuan sesudah t",
+    bandRegang: "Regangan lebih besar",
+    bandPutar: "Putaran lebih besar",
+    tanpaBagian: "Tidak ada putaran maupun regangan geser",
+    sState: (k: string, pct: string, w: string, e1: string) =>
+      `${k}: ${pct} % putaran, ω = ${w} 1/s, ε₁ = ${e1} 1/s.`,
+    sDiam: (k: string) =>
+      `${k}: keempat kemiringan kecepatan nol, jadi elemennya hanya berpindah tanpa berputar dan tanpa berubah bentuk.`,
+    sMuai: (k: string, dil: string, luas: string) =>
+      `${k}: elemennya mengembang sama ke segala arah (∇·u = ${dil} 1/s, luas menjadi ${luas}), tanpa putaran dan tanpa regangan geser.`,
+    nGeser: (pct: string) =>
+      `Geser sederhana, keadaan yang paling dekat dengan dinding, selalu ${pct} % putaran: tepat separuh, jadi ia tidak pernah dapat disebut menggeser saja.`,
+    nPutar: (pct: string, e1: string, e2: string) =>
+      `Putaran murni mencapai ${pct} % dengan ε₁ = ${e1} dan ε₂ = ${e2} 1/s: elemennya berputar tanpa berubah bentuk, dan tidak merasakan tegangan kental sedikit pun.`,
+    nLuas: (luas: string) =>
+      `Luas elemen sesudah t tetap ${luas}: syarat tak mampat ∇·u = 0 yang menjaganya.`,
+    jMuai: "Laju pemuaian",
+    jVort: "Vortisitas",
+    jPutar: "Laju putar elemen",
+    jGeser: "Laju regangan geser",
+    jUtama: "Laju regangan utama",
+    jSudut: "Arah regangan utama terbesar",
+    jBagi: "Bagian gerak yang berupa putaran",
+    jLuas: "Luas elemen satuan sesudah t (Liouville)",
     mampat: "Medan ini memuai, dan air tidak dapat memuai",
     mampatNote:
       "Jumlah kedua regangan searah sumbunya tidak nol, jadi elemen ini berubah volumenya. Air pada tekanan biasa tidak dapat melakukannya: seluruh medan kecepatan air yang benar selalu memenuhi ∂u/∂x + ∂v/∂y = 0. Medan yang sedang digambar sekarang bukan medan yang mustahil dihitung, melainkan medan yang mustahil ada. Nilainya sebagai alat ajar justru di situ: syarat tak mampat bukan rumus tambahan yang dihafal, melainkan satu-satunya yang menjaga luas elemen tetap sepanjang gerakannya, dan di sini luas itu terlihat berubah.",
@@ -81,6 +108,32 @@ const TXT = {
     putarMurni: "Pure rotation",
     regangMurni: "Pure strain",
     campur: "Rotation and strain mixed",
+    muaiMerata: "Uniform expansion",
+    diam: "No relative motion",
+    rLuas: "Area of the unit element after t",
+    bandRegang: "Strain dominates",
+    bandPutar: "Rotation dominates",
+    tanpaBagian: "Neither rotation nor shear strain",
+    sState: (k: string, pct: string, w: string, e1: string) =>
+      `${k}: ${pct} % rotation, ω = ${w} 1/s, ε₁ = ${e1} 1/s.`,
+    sDiam: (k: string) =>
+      `${k}: all four velocity gradients are zero, so the element only translates, without rotating and without changing shape.`,
+    sMuai: (k: string, dil: string, luas: string) =>
+      `${k}: the element grows equally in every direction (∇·u = ${dil} 1/s, area becomes ${luas}), with no rotation and no shear strain.`,
+    nGeser: (pct: string) =>
+      `Simple shear, the state nearest a wall, is always ${pct} % rotation: exactly half, so it can never be described as shearing alone.`,
+    nPutar: (pct: string, e1: string, e2: string) =>
+      `Pure rotation reaches ${pct} % with ε₁ = ${e1} and ε₂ = ${e2} 1/s: the element turns without changing shape and feels no viscous stress at all.`,
+    nLuas: (luas: string) =>
+      `The element's area after t stays ${luas}: the incompressibility condition ∇·u = 0 is what keeps it.`,
+    jMuai: "Rate of dilatation",
+    jVort: "Vorticity",
+    jPutar: "Rotation rate of the element",
+    jGeser: "Shear strain rate",
+    jUtama: "Principal strain rates",
+    jSudut: "Direction of the larger principal strain",
+    jBagi: "Share of the motion that is rotation",
+    jLuas: "Area of the unit element after t (Liouville)",
     mampat: "This field expands, and water cannot expand",
     mampatNote:
       "The two axial strain rates do not sum to zero, so this element changes its volume. Water at ordinary pressures cannot do that: every correct velocity field for water satisfies ∂u/∂x + ∂v/∂y = 0. The field now being drawn is not one that is impossible to compute but one that is impossible to exist. Its worth as a teaching case lies exactly there: the incompressibility condition is not an extra formula to memorise but the one thing that keeps an element's area constant through its motion, and here that area is visibly changing.",
@@ -234,14 +287,41 @@ export function DeformasiFluidaClient() {
     [a, b, c, d, waktu, lang]
   );
 
-  const keadaan = r.pureRotation
-    ? x.putarMurni
-    : r.pureStrain
-      ? x.regangMurni
-      : x.campur;
+  const keadaan = r.still
+    ? x.diam
+    : r.pureDilatation
+      ? x.muaiMerata
+      : r.pureRotation
+        ? x.putarMurni
+        : r.pureStrain
+          ? x.regangMurni
+          : x.campur;
+  /* Bagian putaran tidak bermakna bila tidak ada putaran maupun regangan
+     geser (muai merata atau diam): model memberi 0, bukan "tidak ada". */
+  const adaBagian = !r.still && !r.pureDilatation;
+  const mampat = !r.incompressible;
+  const ex = (a - d) / 2;
+  const exy = (b + c) / 2;
 
   return (
     <LabShell
+      status={
+        /* Bagian putaran |Ω| / (|Ω| + √(((εxx − εyy)/2)² + (γ̇/2)²)) dari
+           deformation. Acuan: 0 regangan murni, 50 geser sederhana, 100
+           putaran murni (Helmholtz 1858; Batchelor 1967 §2.3). Merah sinyal
+           untuk medan memuai sah: air tak mampat, di luar rentang lembar. */
+        <RegimeScale
+          symbol={lang === "id" ? "bagian putaran" : "rotation share"}
+          value={adaBagian ? r.rotationShare * 100 : NaN}
+          invalid={mampat}
+          pesan={mampat ? x.mampat : adaBagian ? undefined : x.tanpaBagian}
+          digits={1}
+          bands={[
+            { from: 0, to: 50, label: x.bandRegang, tone: "critical" },
+            { from: 50, to: 100, label: x.bandPutar, tone: "water" },
+          ]}
+        />
+      }
       sheet="FF-06"
       subject={SUBJECTS.FF[lang]}
       title={x.title}
@@ -305,15 +385,6 @@ export function DeformasiFluidaClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.pureRotation ? C.water : C.critical}>{keadaan}</Flag>
-              {!r.incompressible && <Flag alert>{x.mampat}</Flag>}
-            </div>
-            {!r.incompressible && (
-              <div className="mb-2.5">
-                <Note>{x.mampatNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "ε₁", label: x.rE1, value: fmt(r.principal[0], 3), unit: "1/s", tint: C.critical, strong: true },
@@ -321,16 +392,94 @@ export function DeformasiFluidaClient() {
                 { symbol: "θ", label: x.rSudut, value: adaSumbu ? fmt(r.principalAngle, 2) : "—", unit: adaSumbu ? "°" : undefined },
                 { symbol: "ω", label: x.rVort, value: fmt(r.vorticity, 3), unit: "1/s", tint: C.water, strong: true },
                 { symbol: "Ω", label: x.rPutar, value: fmt(r.rotationRate, 3), unit: "1/s", tint: C.water },
-                { symbol: "∇·u", label: x.rMuai, value: fmt(r.dilatation, 3), unit: "1/s", tint: r.incompressible ? undefined : C.signal },
+                { symbol: "∇·u", label: x.rMuai, value: fmt(r.dilatation, 3), unit: "1/s", tint: mampat ? C.signal : undefined },
                 { symbol: "γ̇", label: x.rGeser, value: fmt(r.shearRate, 3), unit: "1/s" },
-                { symbol: "—", label: x.rBagi, value: fmt(r.rotationShare * 100, 1), unit: "%" },
+                { symbol: "Ω/Σ", label: x.rBagi, value: adaBagian ? fmt(r.rotationShare * 100, 1) : "—", unit: adaBagian ? "%" : undefined, strong: true },
+                { symbol: "A", label: x.rLuas, value: fmt(r.deformedArea, 4), tint: mampat ? C.signal : undefined },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jMuai,
+                    rumus: <span>∇·u = ∂u/∂x + ∂v/∂y</span>,
+                    isi: `${fmt(a, 1)} + ${kurung(d, 1)}`,
+                    hasil: fmt(r.dilatation, 3),
+                    satuan: "1/s",
+                    tint: mampat ? C.signal : undefined,
+                  },
+                  {
+                    judul: x.jVort,
+                    rumus: <span>ω = ∂v/∂x − ∂u/∂y</span>,
+                    isi: `${fmt(c, 1)} − ${kurung(b, 1)}`,
+                    hasil: fmt(r.vorticity, 3),
+                    satuan: "1/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.jPutar,
+                    rumus: <span>Ω = ω / 2</span>,
+                    isi: `${fmt(r.vorticity, 3)} / 2`,
+                    hasil: fmt(r.rotationRate, 3),
+                    satuan: "1/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.jGeser,
+                    rumus: <span>γ̇ = ∂u/∂y + ∂v/∂x</span>,
+                    isi: `${fmt(b, 1)} + ${kurung(c, 1)}`,
+                    hasil: fmt(r.shearRate, 3),
+                    satuan: "1/s",
+                  },
+                  {
+                    judul: x.jUtama,
+                    rumus: <span>ε₁,₂ = (εxx + εyy)/2 ± √( ((εxx − εyy)/2)² + (γ̇/2)² )</span>,
+                    isi: `( ${fmt(a, 1)} + ${kurung(d, 1)} ) / 2 ± √( ${kurung(ex, 2)}² + ${kurung(exy, 2)}² )`,
+                    hasil: `${fmt(r.principal[0], 3)} ; ${fmt(r.principal[1], 3)}`,
+                    satuan: "1/s",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.jSudut,
+                    rumus: <span>θ = ½ · atan2( γ̇, εxx − εyy )</span>,
+                    isi: adaSumbu ? `½ · atan2( ${fmt(r.shearRate, 3)}, ${fmt(a - d, 1)} )` : "—",
+                    hasil: adaSumbu ? fmt(r.principalAngle, 2) : "—",
+                    satuan: adaSumbu ? "°" : undefined,
+                  },
+                  {
+                    judul: x.jBagi,
+                    rumus: <span>|Ω| / ( |Ω| + √( ((εxx − εyy)/2)² + (γ̇/2)² ) ) · 100</span>,
+                    isi: adaBagian
+                      ? `${fmt(Math.abs(r.rotationRate), 3)} / ( ${fmt(Math.abs(r.rotationRate), 3)} + ${fmt(Math.hypot(ex, exy), 4)} ) · 100`
+                      : "—",
+                    hasil: adaBagian ? fmt(r.rotationShare * 100, 1) : "—",
+                    satuan: adaBagian ? "%" : undefined,
+                  },
+                  {
+                    judul: x.jLuas,
+                    rumus: <span>A = e^( t · ∇·u )</span>,
+                    isi: `e^( ${fmt(waktu, 2)} · ${kurung(r.dilatation, 1)} )`,
+                    hasil: fmt(r.deformedArea, 4),
+                    tint: mampat ? C.signal : undefined,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(a, b, c, d, waktu, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={mampat ? "invalid" : r.still ? "neutral" : r.rotationShare >= 0.5 ? "water" : "critical"}
+            badge={mampat ? x.mampat : keadaan}
+            state={
+              r.still
+                ? x.sDiam(keadaan)
+                : r.pureDilatation
+                  ? x.sMuai(keadaan, fmt(r.dilatation, 2), fmt(r.deformedArea, 3))
+                  : x.sState(keadaan, fmt(r.rotationShare * 100, 1), fmt(r.vorticity, 2), fmt(r.principal[0], 2))
+            }
+            notice={notice(waktu, r.incompressible ? r.deformedArea : NaN, lang, mampat)}
+          />
         </>
       }
       verification={<Verification checks={checksDeformation(a, b, c, d)} />}
@@ -355,8 +504,8 @@ export function DeformasiFluidaClient() {
               <Eq>
                 <span className="text-ink-3">
                   {lang === "id"
-                    ? "geser: γ̇ = ∂u/∂y + ∂v/∂x, dan hanya inilah yang membangkitkan tegangan kental"
-                    : "shear: γ̇ = ∂u/∂y + ∂v/∂x, and this alone generates viscous stress"}
+                    ? "geser: γ̇ = ∂u/∂y + ∂v/∂x; tegangan kental lahir dari laju regangan (ε₁, ε₂), tidak dari putaran"
+                    : "shear: γ̇ = ∂u/∂y + ∂v/∂x; viscous stress arises from the rate of strain (ε₁, ε₂), not from rotation"}
                 </span>
               </Eq>
             </>
@@ -369,19 +518,24 @@ export function DeformasiFluidaClient() {
   );
 }
 
-function notice(
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  waktu: number,
-  lang: Lang
-) {
-  const r = deformation(a, b, c, d, waktu);
+/** Angka negatif dalam substitusi ditulis berkurung: 1,0 + (−1,0). */
+function kurung(v: number, dg: number) {
+  const t = fmt(v, dg);
+  return v < 0 && t !== fmt(0, dg) ? `(${t})` : t;
+}
+
+/*
+ * Butir tetap: geser sederhana 50 % dan putaran murni 100 % dengan
+ * ε₁ = ε₂ = 0, dihitung dari model. Bila medannya memuai, catatan tak
+ * mampat menggantikan butir luas.
+ */
+function notice(waktu: number, luas: number, lang: Lang, mampat: boolean): string[] {
+  const x = TXT[lang];
   const geser = deformation(0, 1, 0, 0, waktu);
   const putar = deformation(0, -1, 1, 0, waktu);
-
-  if (lang === "en")
-    return `Here ${fmt(r.rotationShare * 100, 0)} per cent of the motion is rotation and the rest is change of shape. Try simple shear, the state nearest a wall: its rotation share is ${fmt(geser.rotationShare * 100, 0)} per cent, exactly half, so it can never be described as shearing alone. Pure rotation, by contrast, reaches ${fmt(putar.rotationShare * 100, 0)} per cent and its principal strain rates are ${fmt(putar.principal[0], 2)} and ${fmt(putar.principal[1], 2)}: the element turns while its shape stays untouched, and a fluid element in that state feels no viscous stress at all.`;
-  return `Di sini ${fmt(r.rotationShare * 100, 0)} persen gerakannya berupa putaran dan sisanya perubahan bentuk. Coba geser sederhana, keadaan yang paling dekat dengan dinding: bagian putarnya ${fmt(geser.rotationShare * 100, 0)} persen, tepat separuh, jadi ia tidak pernah dapat disebut menggeser saja. Putaran murni sebaliknya mencapai ${fmt(putar.rotationShare * 100, 0)} persen dan laju regangan utamanya ${fmt(putar.principal[0], 2)} dan ${fmt(putar.principal[1], 2)}: elemennya berputar sementara bentuknya sama sekali tidak tersentuh, dan elemen fluida dalam keadaan itu tidak merasakan tegangan kental sedikit pun.`;
+  return [
+    mampat ? x.mampatNote : x.nLuas(fmt(luas, 4)),
+    x.nGeser(fmt(geser.rotationShare * 100, 0)),
+    x.nPutar(fmt(putar.rotationShare * 100, 0), fmt(putar.principal[0], 2), fmt(putar.principal[1], 2)),
+  ];
 }

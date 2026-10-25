@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -305,8 +306,17 @@ export function InputRow({
         : ubah;
   }
   // Lebar kotak menurut angka terpanjang di rentangnya, supaya kolom nilai
-  // tidak melebar dan tidak bergoyang saat angkanya berubah.
-  const lebarKotak = Math.max(polos(min).length, polos(max).length, 3);
+  // tidak melebar dan tidak bergoyang saat angkanya berubah. Yang diukur
+  // dua bentuk: tampilan diam (fmt, dengan pemisah ribuan "1.200") dan
+  // bentuk saat disunting (polos, "1200"). Dulu hanya bentuk polos yang
+  // diukur, sehingga "1.200" terpotong menjadi "1.20".
+  const lebarKotak = Math.max(
+    fmt(min, digits).length,
+    fmt(max, digits).length,
+    polos(min).length,
+    polos(max).length,
+    3
+  );
 
   return (
     <tr>
@@ -391,7 +401,7 @@ export function InputRow({
             }}
             className="label border-0 border-b border-rule-strong bg-transparent px-0.5 py-0 text-right text-[16px] font-semibold text-ink transition-colors hover:border-ink focus:border-ink sm:text-[0.84rem]"
             style={{
-              width: `calc(${lebarKotak}ch + 0.35rem)`,
+              width: `calc(${lebarKotak}ch + 0.6rem)`,
               borderBottomColor: salahKetik || luarRentang ? "var(--color-signal)" : undefined,
             }}
           />
@@ -870,6 +880,11 @@ export function RegimeScale({
     return (v - lo) / (hi - lo);
   };
 
+  type Ukur = { W: number; pita: number[]; gabung: number[]; angka: Record<string, number> };
+  const [ukur, setUkur] = useState<Ukur | null>(null);
+  const wadah = useRef<HTMLDivElement>(null);
+  const lapisUkur = useRef<HTMLDivElement>(null);
+
   const sah = Number.isFinite(value);
   const p = sah ? posisi(value) : NaN;
   const luar = sah && (p < 0 || p > 1);
@@ -881,45 +896,166 @@ export function RegimeScale({
   const persen = (x: number) => `${(x * 100).toFixed(3)}%`;
 
   /* Tanda di bawah pita: ujung skala, batas antarpita, dan dekade untuk
-     skala log. Pita sempit di tengah diberi satu tanda gabungan
-     "label a–b" di tengahnya, menggantikan dua angka batasnya yang pasti
-     bertumpuk. Tanda yang terlalu dekat dengan tanda lain dibuang. */
-  type Tanda = { at: number; teks: string; warna?: string };
+     skala log. Pita yang labelnya tidak muat di dalam pitanya disebut
+     sempit; labelnya pindah ke bawah pita sebagai satu tanda gabungan
+     "label a–b", menggantikan dua angka batasnya.
+
+     Dulu sempit atau tidaknya ditebak dari pecahan lebar skala (12 %) dan
+     tanda gabungan semuanya ditulis di satu baris. Pita sempit yang
+     berderet (Berombak, Lemah, Berosilasi di OC-01; Mulut terendam dan
+     HW/D di gorong-gorong) jadi saling menimpa. Sekarang lebar teks dan
+     lebar skala diukur di layar: pita sempit bila labelnya tidak muat,
+     angka batas menempati baris pertama, dan tanda gabungan disusun di
+     baris pertama sampai ketiga tanpa tumpang tindih. Tanda gabungan pita
+     yang sedang ditunjuk ditempatkan lebih dulu, jadi selalu tampil; yang
+     tidak kebagian tempat tetap terbaca lewat title di pitanya. */
+  type Jenis = "ujung" | "batas" | "pita" | "dekade";
+  type Tanda = { at: number; teks: string; jenis: Jenis; warna?: string; aktif?: boolean };
   const SEMPIT = 0.12;
   const lebarPita = (i: number) => posisi(bands[i].to) - posisi(bands[i].from);
-  const sempit = (i: number) => i > 0 && i < bands.length - 1 && lebarPita(i) < SEMPIT;
+  const teksGabung = (b: RegimeBand) => `${b.label} ${angkaSkala(b.from)}–${angkaSkala(b.to)}`;
+  const sempit = (i: number) => {
+    if (bands.length < 2) return false;
+    // Sebelum diukur: aturan lama, pita ujung tidak pernah sempit.
+    if (!ukur) return i > 0 && i < bands.length - 1 && lebarPita(i) < SEMPIT;
+    // Sesudah diukur, pita ujung juga (dulu labelnya terpotong, misalnya
+    // "Dalam batas la" di HS-05 pada 390 px). Label di dalam pita berjarak
+    // px-1 (4 px) di kedua sisi.
+    return lebarPita(i) * ukur.W < (ukur.pita[i] ?? 0) + 10;
+  };
   const batas: Tanda[] = [];
   for (let i = 0; i < bands.length; i++) {
     const b = bands[i];
     if (sempit(i)) {
       batas.push({
         at: (posisi(b.from) + posisi(b.to)) / 2,
-        teks: `${b.label} ${angkaSkala(b.from)}–${angkaSkala(b.to)}`,
+        teks: teksGabung(b),
+        jenis: "pita",
         warna: TONE[b.tone].line,
+        aktif: b === kini,
       });
     } else if (i > 0 && !sempit(i - 1)) {
-      batas.push({ at: posisi(b.from), teks: angkaSkala(b.from) });
+      batas.push({ at: posisi(b.from), teks: angkaSkala(b.from), jenis: "batas" });
     }
   }
   const ujung: Tanda[] = [
-    { at: 0, teks: angkaSkala(lo) },
-    { at: 1, teks: angkaSkala(hi) },
+    { at: 0, teks: angkaSkala(lo), jenis: "ujung" },
+    { at: 1, teks: angkaSkala(hi), jenis: "ujung" },
   ];
   const dekade: Tanda[] = [];
   if (log) {
     for (let e = Math.ceil(Math.log10(lo)); e <= Math.floor(Math.log10(hi)); e++) {
       const at = posisi(10 ** e);
-      if (at > 0.001 && at < 0.999) dekade.push({ at, teks: angkaSkala(10 ** e) });
+      if (at > 0.001 && at < 0.999) dekade.push({ at, teks: angkaSkala(10 ** e), jenis: "dekade" });
     }
   }
-  const jauh = (a: Tanda, daftar: Tanda[], jarak: number) =>
-    daftar.every((b) => Math.abs(a.at - b.at) >= jarak);
-  const batasDipakai = batas.filter((a) => jauh(a, ujung, 0.1));
-  const dipakai = [
-    ...ujung,
-    ...batasDipakai,
-    ...dekade.filter((a) => jauh(a, [...ujung, ...batasDipakai], 0.12)),
-  ];
+
+  /* Semua teks yang mungkin tampil di bawah dan di dalam pita, untuk
+     diukur di lapisan tak terlihat. */
+  const angkaUkur = Array.from(
+    new Set([
+      angkaSkala(lo),
+      angkaSkala(hi),
+      ...bands.map((b) => angkaSkala(b.from)),
+      ...dekade.map((d) => d.teks),
+    ])
+  );
+  const kunciUkur = [
+    ...bands.map((b) => `${b.label}|${teksGabung(b)}`),
+    ...angkaUkur,
+  ].join("~");
+
+  type Letak = Tanda & { x?: number; w?: number; baris: number };
+  let letak: Letak[];
+  let banyakBaris = 1;
+  if (!ukur) {
+    // Sebelum diukur (render server): aturan lama, satu baris.
+    const jauh = (a: Tanda, daftar: Tanda[], jarak: number) =>
+      daftar.every((b) => Math.abs(a.at - b.at) >= jarak);
+    const batasDipakai = batas.filter((a) => jauh(a, ujung, 0.1));
+    letak = [
+      ...ujung,
+      ...batasDipakai,
+      ...dekade.filter((a) => jauh(a, [...ujung, ...batasDipakai], 0.12)),
+    ].map((d) => ({ ...d, baris: 0 }));
+  } else {
+    const { W } = ukur;
+    const JARAK = 6;
+    const MAKS_BARIS = 3;
+    const lebarTeks = (d: Tanda) =>
+      d.jenis === "pita"
+        ? ukur.gabung[bands.findIndex((b) => teksGabung(b) === d.teks)] ?? 0
+        : ukur.angka[d.teks] ?? d.teks.length * 6;
+    const baris: { x: number; w: number }[][] = Array.from({ length: MAKS_BARIS }, () => []);
+    const muat = (r: number, x: number, w: number) =>
+      baris[r].every((o) => x + w + JARAK <= o.x || o.x + o.w + JARAK <= x);
+    const pita = batas.filter((d) => d.jenis === "pita");
+    const urutan: Tanda[] = [
+      ...ujung,
+      ...batas.filter((d) => d.jenis === "batas"),
+      ...pita.filter((d) => d.aktif),
+      ...pita.filter((d) => !d.aktif),
+      ...dekade,
+    ];
+    letak = [];
+    for (const d of urutan) {
+      const w = lebarTeks(d);
+      const x =
+        d.at <= 0.001 ? 0 : d.at >= 0.999 ? W - w : Math.min(W - w, Math.max(0, d.at * W - w / 2));
+      const pilihan = d.jenis === "pita" ? [0, 1, 2] : [0];
+      const r = pilihan.find((k) => muat(k, x, w));
+      if (r === undefined) continue;
+      baris[r].push({ x, w });
+      letak.push({ ...d, x, w, baris: r });
+      banyakBaris = Math.max(banyakBaris, r + 1);
+    }
+  }
+  const TINGGI_BARIS = 13;
+  const atasBaris = (r: number) => 4 + r * TINGGI_BARIS;
+  /* Garis penunjuk dari pita ke tanda gabungan yang turun ke baris bawah,
+     hanya bila tidak menembus tanda di baris atasnya. */
+  const penunjuk = letak.filter(
+    (d) =>
+      ukur &&
+      d.jenis === "pita" &&
+      d.baris > 0 &&
+      letak.every(
+        (o) =>
+          o.baris >= d.baris ||
+          o.x === undefined ||
+          o.w === undefined ||
+          d.at * ukur.W < o.x - 2 ||
+          d.at * ukur.W > o.x + o.w + 2
+      )
+  );
+
+  useLayoutEffect(() => {
+    const el = wadah.current;
+    const lapis = lapisUkur.current;
+    if (!el || !lapis) return;
+    let aktif = true;
+    const hitung = () => {
+      if (!aktif) return;
+      const lebar = (jenis: string) =>
+        Array.from(lapis.querySelectorAll<HTMLElement>(`[data-u="${jenis}"]`)).map(
+          (e) => e.getBoundingClientRect().width
+        );
+      const angka: Record<string, number> = {};
+      lapis.querySelectorAll<HTMLElement>('[data-u="angka"]').forEach((e) => {
+        angka[e.textContent ?? ""] = e.getBoundingClientRect().width;
+      });
+      const baru: Ukur = { W: el.clientWidth, pita: lebar("pita"), gabung: lebar("gabung"), angka };
+      setUkur((lama) => (lama && JSON.stringify(lama) === JSON.stringify(baru) ? lama : baru));
+    };
+    hitung();
+    const ro = new ResizeObserver(hitung);
+    ro.observe(el);
+    document.fonts?.ready.then(hitung);
+    return () => {
+      aktif = false;
+      ro.disconnect();
+    };
+  }, [kunciUkur]);
 
   const ringkas = `${symbol} = ${sah ? fmt(value, digits) : "—"}${
     pesan ? `, ${pesan}` : kini ? `, ${kini.label}` : luar ? `, ${t.offScale}` : ""
@@ -957,7 +1093,41 @@ export function RegimeScale({
         )}
       </div>
 
-      <div aria-hidden="true" className="relative mt-1.5">
+      <div ref={wadah} aria-hidden="true" className="relative mt-1.5">
+        {/* Lapisan ukur: teks yang sama dengan kelas yang sama, tak terlihat,
+            untuk mengukur lebarnya sebelum disusun. */}
+        <div
+          ref={lapisUkur}
+          className="pointer-events-none invisible absolute left-0 top-0 h-0 overflow-hidden"
+        >
+          {bands.map((b, i) => (
+            <span
+              key={`p${i}`}
+              data-u="pita"
+              className="label absolute whitespace-nowrap text-[0.68rem] font-semibold leading-none"
+            >
+              {b.label}
+            </span>
+          ))}
+          {bands.map((b, i) => (
+            <span
+              key={`g${i}`}
+              data-u="gabung"
+              className="label value absolute whitespace-nowrap text-[0.66rem] font-semibold leading-none"
+            >
+              {teksGabung(b)}
+            </span>
+          ))}
+          {angkaUkur.map((a) => (
+            <span
+              key={`a${a}`}
+              data-u="angka"
+              className="label value absolute whitespace-nowrap text-[0.66rem] leading-none"
+            >
+              {a}
+            </span>
+          ))}
+        </div>
         {/* Penanda: segitiga di atas pita, garis tipis menembus pita. */}
         <div className="relative h-[7px]">
           {sah && (
@@ -986,6 +1156,7 @@ export function RegimeScale({
             return (
               <div
                 key={i}
+                title={teksGabung(b)}
                 className="absolute inset-y-0 overflow-hidden"
                 style={{
                   left: persen(a),
@@ -1021,19 +1192,39 @@ export function RegimeScale({
             />
           )}
         </div>
-        <div className="relative h-5">
-          {dipakai.map((d, i) => (
+        <div
+          className="relative"
+          style={{ height: atasBaris(banyakBaris) + 3 }}
+        >
+          {penunjuk.map((d, i) => (
             <span
-              key={i}
-              className="label value absolute top-1 whitespace-nowrap text-[0.66rem] leading-none"
+              key={`l${i}`}
+              className="absolute top-0 w-px"
               style={{
                 left: persen(d.at),
-                transform:
-                  d.at <= 0.001
-                    ? "none"
-                    : d.at >= 0.999
-                      ? "translateX(-100%)"
-                      : "translateX(-50%)",
+                height: atasBaris(d.baris) - 1,
+                background: d.warna,
+                opacity: 0.6,
+              }}
+            />
+          ))}
+          {letak.map((d, i) => (
+            <span
+              key={i}
+              className="label value absolute whitespace-nowrap text-[0.66rem] leading-none"
+              style={{
+                top: atasBaris(d.baris),
+                ...(d.x !== undefined
+                  ? { left: d.x }
+                  : {
+                      left: persen(d.at),
+                      transform:
+                        d.at <= 0.001
+                          ? "none"
+                          : d.at >= 0.999
+                            ? "translateX(-100%)"
+                            : "translateX(-50%)",
+                    }),
                 color: d.warna ?? "var(--color-ink-3)",
                 fontWeight: d.warna ? 600 : 400,
               }}

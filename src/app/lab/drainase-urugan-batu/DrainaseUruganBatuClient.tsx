@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -18,11 +19,13 @@ import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   ERGUN_INERTIAL,
   ERGUN_VISCOUS,
+  G,
   PORE_RE_DARCY,
   fmt,
   fmtPlain,
   fmtSci,
   rockfillFlow,
+  waterViscosity,
 } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
@@ -57,6 +60,15 @@ const TXT = {
     rExp: "Pangkat kecepatan terhadap gradien",
     darcy: "Hukum Darcy masih berlaku",
     bukanDarcy: "Di luar hukum Darcy, aliran inersia",
+    bDarcy: "Darcy berlaku",
+    bInersia: "Inersia, Darcy tidak berlaku",
+    rA: "Koefisien suku kental",
+    rB: "Koefisien suku inersia",
+    hI: "Gradien hidraulik",
+    hAB: "Koefisien Ergun, ν (20 °C)",
+    hV: "Kecepatan semu dan debit",
+    hVD: "Kecepatan Darcy dan perbandingannya",
+    hRe: "Reynolds pori, bagian inersia, dan pangkat",
     bukanDarcyNote:
       "Bilangan Reynolds porinya melampaui sepuluh, jadi kehilangan tinggi tekan di sini tidak lagi berasal dari kekentalan melainkan dari inersia air yang berbelok terus-menerus di antara batunya. Menghitung kapasitas urugan ini dengan permeabilitas Darcy yang diukur pada gradien kecil akan melebih-lebihkan alirannya, dan pada urugan batu yang sebenarnya selisihnya sering sepuluh kali lipat atau lebih. Kesalahan itu berbahaya justru karena arahnya: ia membuat perancang mengira drainasenya berlebih padahal kurang.",
     note:
@@ -84,6 +96,15 @@ const TXT = {
     rExp: "Exponent of velocity against gradient",
     darcy: "Darcy law still holds",
     bukanDarcy: "Beyond Darcy law, inertial flow",
+    bDarcy: "Darcy holds",
+    bInersia: "Inertial, Darcy fails",
+    rA: "Viscous term coefficient",
+    rB: "Inertial term coefficient",
+    hI: "Hydraulic gradient",
+    hAB: "Ergun coefficients, ν (20 °C)",
+    hV: "Bulk velocity and discharge",
+    hVD: "Darcy velocity and the ratio",
+    hRe: "Pore Reynolds number, inertial share, and exponent",
     bukanDarcyNote:
       "The pore Reynolds number exceeds ten, so the head loss here no longer comes from viscosity but from the inertia of water turning continually between the stones. Computing this fill capacity with a Darcy permeability measured at a small gradient will overpredict the flow, and on real rockfill the discrepancy is often tenfold or more. The error is dangerous precisely because of its direction: it leads the designer to believe the drainage is generous when it is short.",
     note:
@@ -120,6 +141,10 @@ export function DrainaseUruganBatuClient() {
 
   const i = head / Math.max(length, 1e-6);
   const r = rockfillFlow(i, d, n, tebal);
+  /* ν pada 20 °C, parameter bawaan rockfillFlow. */
+  const nu20 = waterViscosity(20);
+  /* Di bawah 1,1 kali, "melebih-lebihkan sekian kali" tidak bermakna. */
+  const lebih = r.overprediction >= 1.1;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -182,18 +207,19 @@ export function DrainaseUruganBatuClient() {
           axisX: T.axSeepGradient,
           axisY: T.axSeepVelocity,
           series: deret,
-          bands: r.darcyValid ? undefined : [{ axis: "x", from: i, to: I_MAX }],
+          /* Aliran inersia adalah keadaan sah (Ergun berlaku di seluruh
+             rentang), bukan di luar rentang: tanpa pita dan titik merah
+             sinyal. Penilaiannya di skala dan kartu keadaan. */
           point: {
             x: i,
             y: r.v,
             label: `${fmtSci(r.v)} m/s`,
-            invalid: !r.darcyValid,
           },
           regions: [
             { x: I_MIN * 3, y: yMax / 2.2, text: T.laminar, color: C.ink3 },
           ],
           heading: r.darcyValid ? undefined : x.bukanDarcy,
-          headingColor: C.signal,
+          headingColor: C.caution,
           padRight: 46,
         },
         lang
@@ -204,6 +230,21 @@ export function DrainaseUruganBatuClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas darcyValid: poreRe < PORE_RE_DARCY (10), Ergun 1952.
+           Rentang penggeser memberi Rep 0,0206 sampai 1,37·10⁷. Tidak ada
+           pita invalid: persamaan Ergun berlaku di seluruh rentang. */
+        <RegimeScale
+          symbol="Rep"
+          value={r.poreRe}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: 0.01, to: PORE_RE_DARCY, label: x.bDarcy, tone: "water" },
+            { from: PORE_RE_DARCY, to: 1e8, label: x.bInersia, tone: "caution" },
+          ]}
+        />
+      }
       sheet="DM-03"
       subject={SUBJECTS.DM[lang]}
       title={x.title}
@@ -212,15 +253,28 @@ export function DrainaseUruganBatuClient() {
           <p>
             Kecepatannya sebanding dengan{" "}
             <Term tint={C.critical}>akar gradien</Term>, bukan dengan gradien.
-            Menghitungnya dengan hukum Darcy melebih-lebihkan alirannya{" "}
-            <Term tint={C.critical}>{fmt(r.overprediction, 1)} kali</Term>.
+            {lebih ? (
+              <>
+                {" "}Menghitungnya dengan hukum Darcy melebih-lebihkan alirannya{" "}
+                <Term tint={C.critical}>{fmt(r.overprediction, 1)} kali</Term>.
+              </>
+            ) : (
+              " Pada butiran sehalus ini hukum Darcy masih memberi jawaban yang hampir sama."
+            )}
           </p>
         ) : (
           <p>
             The velocity scales with the{" "}
             <Term tint={C.critical}>square root of the gradient</Term>, not with
-            the gradient. Computing it with Darcy law overpredicts the flow{" "}
-            <Term tint={C.critical}>{fmt(r.overprediction, 1)} times over</Term>.
+            the gradient.
+            {lebih ? (
+              <>
+                {" "}Computing it with Darcy law overpredicts the flow{" "}
+                <Term tint={C.critical}>{fmt(r.overprediction, 1)} times over</Term>.
+              </>
+            ) : (
+              " At grains this fine Darcy law still gives almost the same answer."
+            )}
           </p>
         )
       }
@@ -233,7 +287,7 @@ export function DrainaseUruganBatuClient() {
             { label: t.tbUnit, value: "SI (m, m/s)" },
             { label: "i", value: fmt(i, 4), tint: C.critical },
             { label: "v", value: `${fmtSci(r.v)} m/s`, tint: C.water },
-            { label: "Rep", value: fmt(r.poreRe, 1), tint: r.darcyValid ? undefined : C.signal },
+            { label: "Rep", value: fmt(r.poreRe, 1), tint: r.darcyValid ? undefined : C.caution },
             { label: "n", value: fmtPlain(n, 2) },
           ]}
         >
@@ -264,34 +318,68 @@ export function DrainaseUruganBatuClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.darcyValid ? C.water : undefined} alert={!r.darcyValid}>
-                {r.darcyValid ? x.darcy : x.bukanDarcy}
-              </Flag>
-            </div>
-            {!r.darcyValid && (
-              <div className="mb-2.5">
-                <Note>{x.bukanDarcyNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "i", label: x.rI, value: fmt(i, 5), tint: C.critical },
                 { symbol: "v", label: x.rV, value: fmtSci(r.v), unit: "m/s", tint: C.water, strong: true },
                 { symbol: "q", label: x.rQ, value: fmtSci(r.q), unit: "m³/s per m", strong: true },
                 { symbol: "vD", label: x.rVDarcy, value: fmtSci(r.vDarcy), unit: "m/s", tint: C.ink3 },
-                { symbol: "vD/v", label: x.rOver, value: fmt(r.overprediction, 2), tint: r.overprediction > 2 ? C.signal : undefined, strong: true },
+                { symbol: "vD/v", label: x.rOver, value: fmt(r.overprediction, 2), tint: r.overprediction > 2 ? C.caution : undefined, strong: true },
                 { symbol: "k", label: x.rK, value: fmtSci(r.kDarcy), unit: "m/s" },
-                { symbol: "Rep", label: x.rRe, value: fmt(r.poreRe, 2), tint: r.darcyValid ? undefined : C.signal },
+                { symbol: "A", label: x.rA, value: fmtSci(r.A), unit: "s/m" },
+                { symbol: "B", label: x.rB, value: fmtSci(r.B), unit: "s²/m²" },
+                { symbol: "Rep", label: x.rRe, value: fmt(r.poreRe, 2), tint: r.darcyValid ? undefined : C.caution },
                 { symbol: "β", label: x.rShare, value: fmt(r.turbulentShare, 3) },
                 { symbol: "m", label: x.rExp, value: fmt(r.exponent, 3) },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hI,
+                    rumus: (<><span>i =</span><Frac num="Δh" den="L" /></>),
+                    isi: `${fmt(head, 2)} / ${fmt(length, 0)}`,
+                    hasil: fmt(i, 5),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hAB,
+                    rumus: (<><span>A =</span><Frac num={`${fmtPlain(ERGUN_VISCOUS, 0)} (1 − n)² ν`} den="n³ g d²" /><span>; B =</span><Frac num={`${fmtPlain(ERGUN_INERTIAL, 2)} (1 − n)`} den="n³ g d" /></>),
+                    isi: `A = ${fmtPlain(ERGUN_VISCOUS, 0)} · (1 − ${fmt(n, 2)})² · ${fmtSci(nu20)} / ( ${fmt(n, 2)}³ · ${fmt(G, 2)} · ${fmt(d, 3)}² ) = ${fmtSci(r.A)} ; B = ${fmt(ERGUN_INERTIAL, 2)} · (1 − ${fmt(n, 2)}) / ( ${fmt(n, 2)}³ · ${fmt(G, 2)} · ${fmt(d, 3)} )`,
+                    hasil: fmtSci(r.B),
+                    satuan: "s²/m²",
+                  },
+                  {
+                    judul: x.hV,
+                    rumus: (<><span>v =</span><Frac num="2 i" den="A + √(A² + 4 B i)" /><span>; q = v · t</span></>),
+                    isi: `v = 2 · ${fmt(i, 5)} / ( ${fmtSci(r.A)} + √( (${fmtSci(r.A)})² + 4 · ${fmtSci(r.B)} · ${fmt(i, 5)} ) ) = ${fmtSci(r.v)} ; q = ${fmtSci(r.v)} · ${fmt(tebal, 1)}`,
+                    hasil: fmtSci(r.q),
+                    satuan: "m³/s per m",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hVD,
+                    rumus: (<><span>vD =</span><Frac num="i" den="A" /><span>; vD/v</span></>),
+                    isi: `vD = ${fmt(i, 5)} / ${fmtSci(r.A)} = ${fmtSci(r.vDarcy)} ; ${fmtSci(r.vDarcy)} / ${fmtSci(r.v)}`,
+                    hasil: fmt(r.overprediction, 2),
+                  },
+                  {
+                    judul: x.hRe,
+                    rumus: (<><span>Rep =</span><Frac num="v · d" den="ν (1 − n)" /><span>; β =</span><Frac num="B v²" den="i" /></>),
+                    isi: `Rep = ${fmtSci(r.v)} · ${fmt(d, 3)} / ( ${fmtSci(nu20)} · (1 − ${fmt(n, 2)}) ) ; β = ${fmt(r.turbulentShare, 3)} ; m = ${fmt(r.exponent, 3)}`,
+                    hasil: fmt(r.poreRe, 2),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(head, length, d, n, tebal, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.darcyValid ? "water" : "caution"}
+            badge={r.darcyValid ? x.darcy : x.bukanDarcy}
+            {...notice(head, length, d, n, tebal, x.bukanDarcyNote, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksRockfill(i, d, n, tebal)} />}
@@ -327,20 +415,49 @@ export function DrainaseUruganBatuClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) lipat dua beda tinggi, dengan cabang
+ * bila Darcy masih berlaku; (b) Darcy meramalkan … kali, hanya bila
+ * selisihnya bermakna; (c) catatan aliran inersia.
+ */
 function notice(
   head: number,
   length: number,
   d: number,
   n: number,
   tebal: number,
+  bukanDarcyNote: string,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const en = lang === "en";
   const i = head / Math.max(length, 1e-6);
   const r = rockfillFlow(i, d, n, tebal);
   const dua = rockfillFlow(i * 2, d, n, tebal);
   const naik = r.v > 0 ? (dua.v / r.v - 1) * 100 : 0;
 
-  if (lang === "en")
-    return `At a gradient of ${fmt(i, 5)} the fill passes ${fmtSci(r.q)} cubic metres a second for every metre of width. Double the head difference and the flow rises only ${fmt(naik, 1)} per cent, not a hundred: ${fmt(r.turbulentShare * 100, 0)} per cent of this gradient is already being spent on inertia rather than viscosity. Darcy law on the same gradient would have promised ${fmtSci(r.vDarcy)} metres a second, ${fmt(r.overprediction, 1)} times the truth, and that is the direction in which a rockfill drain is usually designed short.`;
-  return `Pada gradien ${fmt(i, 5)} urugannya meloloskan ${fmtSci(r.q)} meter kubik tiap detik untuk tiap meter lebar. Gandakan beda tingginya dan alirannya naik hanya ${fmt(naik, 1)} persen, bukan seratus: ${fmt(r.turbulentShare * 100, 0)} persen gradien ini sudah terpakai untuk inersia, bukan untuk kekentalan. Hukum Darcy pada gradien yang sama akan menjanjikan ${fmtSci(r.vDarcy)} meter tiap detik, ${fmt(r.overprediction, 1)} kali yang sebenarnya, dan ke arah itulah drainase urugan batu biasanya dirancang kurang.`;
+  const state = en
+    ? `Rep = ${fmt(r.poreRe, 2)}: ${r.darcyValid ? "Darcy law holds" : "inertial flow"}; v scales with i^${fmt(r.exponent, 3)}.`
+    : `Rep = ${fmt(r.poreRe, 2)}: ${r.darcyValid ? "hukum Darcy berlaku" : "aliran inersia"}; v sebanding i^${fmt(r.exponent, 3)}.`;
+
+  const butir: string[] = [];
+  if (!r.darcyValid) butir.push(bukanDarcyNote);
+
+  butir.push(
+    r.darcyValid
+      ? en
+        ? `At these grains the viscous term dominates; doubling the head difference almost doubles the flow (${fmt(naik, 1)} %), and Darcy law holds.`
+        : `Pada butiran ini suku kental menguasai; menggandakan beda tinggi hampir menggandakan alirannya (${fmt(naik, 1)} %), dan hukum Darcy berlaku.`
+      : en
+        ? `At a gradient of ${fmt(i, 5)} the fill passes ${fmtSci(r.q)} m³/s per metre of width. Double the head difference and the flow rises only ${fmt(naik, 1)} per cent, not a hundred: ${fmt(r.turbulentShare * 100, 0)} per cent of this gradient is already spent on inertia rather than viscosity.`
+        : `Pada gradien ${fmt(i, 5)} urugannya meloloskan ${fmtSci(r.q)} m³/s tiap meter lebar. Gandakan beda tingginya dan alirannya naik hanya ${fmt(naik, 1)} persen, bukan seratus: ${fmt(r.turbulentShare * 100, 0)} persen gradien ini sudah terpakai untuk inersia, bukan untuk kekentalan.`
+  );
+
+  if (r.overprediction >= 1.1)
+    butir.push(
+      en
+        ? `Darcy law on the same gradient would promise ${fmtSci(r.vDarcy)} m/s, ${fmt(r.overprediction, 1)} times the true velocity, and that is the direction in which a rockfill drain is usually designed short.`
+        : `Hukum Darcy pada gradien yang sama akan menjanjikan ${fmtSci(r.vDarcy)} m/s, ${fmt(r.overprediction, 1)} kali kecepatan sebenarnya, dan ke arah itulah drainase urugan batu biasanya dirancang kurang.`
+    );
+
+  return { state, notice: butir };
 }

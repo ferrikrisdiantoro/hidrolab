@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -22,7 +23,7 @@ import {
   fmtSci,
   trophicPyramid,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -45,10 +46,22 @@ const TXT = {
     rBio: "Biomassa tegakan di tingkat teratas",
     rLoss: "Energi yang hilang tiap selang",
     melampaui: "Tingkat yang diminta tidak tertopang",
+    tertopang: "Semua tingkat tertopang",
+    satE: "kJ/m²·th",
+    axE: "aliran energi, kJ/m²·th",
+    bTak: "Tak tertopang",
+    bYa: "Tertopang",
+    hE: "Energi tiap tingkat",
+    hEn: "Energi di tingkat teratas",
+    hFrac: "Bagian yang sampai ke puncak",
+    hSup: "Tingkat dengan E sedikitnya 1 kJ/m²·th",
+    hB: "Biomassa di tingkat teratas",
+    faktor16:
+      "Faktor 1,6 per tingkat pada biomassa adalah angka lembar ini, belum bersumber; biomassa ditampilkan sebagai gambaran, bukan acuan.",
     melampauiNote:
       "Aliran energi di tingkat teratas turun di bawah satu kilojoule per meter persegi per tahun, dan di bawah itu tidak ada populasi yang dapat bertahan pada luas yang wajar. Tingkat yang digambar tetap ada dalam hitungan, tetapi ia tidak ada di sungainya. Inilah sebabnya rantai makanan sungai jarang melebihi empat tingkat, dan mengapa pemangsa puncak seperti sidat besar atau burung pemakan ikan menuntut daerah jelajah yang luas: mereka harus memanen produksi dasar dari berhektar-hektar sungai untuk menopang satu ekor.",
     note:
-      "Piramida ini menghubungkan ekologi dengan hidraulika lewat satu jalur yang sering tidak terlihat. Banyaknya tingkat yang dapat ditopang sebuah sungai ditentukan oleh produksi dasarnya, dan produksi dasar ditentukan oleh cahaya yang menembus air, hara yang terbawa, serta waktu tinggal air yang menentukan berapa lama keduanya dapat dipakai. Membendung sungai mengubah ketiganya sekaligus: kedalaman bertambah sehingga cahaya berkurang di dasar, kecepatan turun sehingga hara mengendap, dan waktu tinggal memanjang sehingga ganggang sempat tumbuh di permukaan tetapi tidak di dasar. Akibatnya bukan sekadar berkurangnya jumlah ikan melainkan berubahnya susunan rantai makanannya. Perhatikan juga bentuk piramida biomassa yang digambar berdampingan: ia tidak selalu menciut seperti piramida energi, karena hewan bertingkat tinggi berumur lebih panjang sehingga biomassanya menumpuk lebih lama untuk aliran energi yang sama.",
+      "Piramida ini menghubungkan ekologi dengan hidraulika lewat satu jalur yang sering tidak terlihat. Banyaknya tingkat yang dapat ditopang sebuah sungai ditentukan oleh produksi dasarnya, dan produksi dasar ditentukan oleh cahaya yang menembus air, hara yang terbawa, serta waktu tinggal air yang menentukan berapa lama keduanya dapat dipakai. Membendung sungai mengubah ketiganya sekaligus: kedalaman bertambah sehingga cahaya berkurang di dasar, kecepatan turun sehingga hara mengendap, dan waktu tinggal memanjang sehingga ganggang sempat tumbuh di permukaan tetapi tidak di dasar. Akibatnya bukan sekadar berkurangnya jumlah ikan melainkan berubahnya susunan rantai makanannya. Perhatikan juga piramida biomassa yang digambar berdampingan: pada lembar ini ia ikut menciut, tetapi lebih lambat daripada piramida energinya, karena hewan bertingkat tinggi berumur lebih panjang sehingga biomassanya menumpuk lebih lama untuk aliran energi yang sama.",
   },
   en: {
     title: "Trophic levels",
@@ -65,10 +78,22 @@ const TXT = {
     rBio: "Standing biomass at the top level",
     rLoss: "Energy lost at each step",
     melampaui: "The requested level is not supported",
+    tertopang: "All levels supported",
+    satE: "kJ/m²·y",
+    axE: "energy flow, kJ/m²·y",
+    bTak: "Not supported",
+    bYa: "Supported",
+    hE: "Energy at each level",
+    hEn: "Energy at the top level",
+    hFrac: "Fraction reaching the top",
+    hSup: "Levels with E of at least 1 kJ/m²·y",
+    hB: "Biomass at the top level",
+    faktor16:
+      "The factor of 1.6 per level in the biomass is this sheet's own figure and has no source yet; biomass is shown as an illustration, not a reference.",
     melampauiNote:
       "The energy flow at the top level falls below one kilojoule per square metre per year, and below that no population can persist over any reasonable area. The level drawn still exists in the arithmetic, but it does not exist in the river. This is why river food chains rarely exceed four levels, and why top predators such as large eels or fish-eating birds demand wide ranges: they must harvest the base production of hectares of river to support a single individual.",
     note:
-      "This pyramid links ecology to hydraulics along a path that is often invisible. The number of levels a river can support is set by its base production, and base production is set by the light reaching through the water, the nutrients carried past, and the residence time that decides how long both can be used. Damming a river changes all three at once: depth increases so light dims at the bed, velocity falls so nutrients settle, and residence time lengthens so algae grow at the surface but not on the bottom. The consequence is not merely fewer fish but a different arrangement of the food chain. Note also the biomass pyramid drawn alongside: it does not always narrow like the energy pyramid, because higher-level animals live longer, so their biomass accumulates for longer at the same energy flow.",
+      "This pyramid links ecology to hydraulics along a path that is often invisible. The number of levels a river can support is set by its base production, and base production is set by the light reaching through the water, the nutrients carried past, and the residence time that decides how long both can be used. Damming a river changes all three at once: depth increases so light dims at the bed, velocity falls so nutrients settle, and residence time lengthens so algae grow at the surface but not on the bottom. The consequence is not merely fewer fish but a different arrangement of the food chain. Note also the biomass pyramid drawn alongside: on this sheet it narrows too, but more slowly than the energy pyramid, because higher-level animals live longer, so their biomass accumulates for longer at the same energy flow.",
   },
 } as const;
 
@@ -99,6 +124,10 @@ export function TingkatTrofikClient() {
 
   const r = trophicPyramid(P, eff, n);
   const atas = r.levels[r.levels.length - 1];
+  const nada: Tone = r.overreach ? "caution" : "pass";
+  /* Angka energi yang kecil ditulis berpangkat sepuluh, sama di tabel dan
+     Hitungan. */
+  const fmtE = (v: number) => (v > 0 && v < 1e-2 ? fmtSci(v) : fmt(v, 3));
 
   /* Dipakai pada gambar dan kop: yang kecil ditulis berpangkat sepuluh. */
   const fmtEnergi = (v: number) =>
@@ -120,7 +149,7 @@ export function TingkatTrofikClient() {
           pts: energi,
           color: C.energy,
           weight: W.bold,
-          label: T.axEnergyFlow.split(",")[0],
+          label: x.axE.split(",")[0],
           labelAt: 0.35,
           labelDy: -12,
         },
@@ -146,15 +175,15 @@ export function TingkatTrofikClient() {
           yMax: Math.max(P * 2, 10),
           yLog: true,
           axisX: T.axTrophic,
-          axisY: T.axEnergyFlow,
+          axisY: x.axE,
           series: deret,
           rules: [
             {
               axis: "y",
               at: TROPHIC_MIN_ENERGY,
-              color: C.signal,
+              color: C.critical,
               dash: DASH.axis,
-              label: `${fmtPlain(TROPHIC_MIN_ENERGY, 0)} kJ/m²·y`,
+              label: `${fmtPlain(TROPHIC_MIN_ENERGY, 0)} ${x.satE}`,
               labelAlign: "left",
             },
           ],
@@ -165,7 +194,6 @@ export function TingkatTrofikClient() {
                sepersejuta kilojoule, jadi dua desimal tetap menuliskan ujung
                bawahnya sebagai nol. */
             label: fmtEnergi(atas.energy),
-            invalid: r.overreach,
           },
           /*
            * Sebelumnya di sini tertulis "tidak ada hukum sederhana di sini",
@@ -177,7 +205,7 @@ export function TingkatTrofikClient() {
            * yang salah pula.
            */
           heading: r.overreach ? x.melampaui : undefined,
-          headingColor: C.signal,
+          headingColor: C.caution,
         },
         lang
       );
@@ -187,6 +215,21 @@ export function TingkatTrofikClient() {
 
   return (
     <LabShell
+      status={
+        /* Skala log energi ditulis sebagai log₁₀ En pada skala lurus: En
+           membentang dari 2 × 10⁻¹¹ sampai 7000, dan RegimeScale menuliskan
+           nilainya dengan desimal tetap, jadi En kecil akan terbaca "0,00".
+           Batasnya tetap TROPHIC_MIN_ENERGY (log₁₀ 1 = 0). */
+        <RegimeScale
+          symbol="log₁₀ En"
+          value={atas.energy > 0 ? Math.log10(atas.energy) : NaN}
+          digits={2}
+          bands={[
+            { from: -11, to: Math.log10(TROPHIC_MIN_ENERGY), label: x.bTak, tone: "caution" },
+            { from: Math.log10(TROPHIC_MIN_ENERGY), to: 4, label: x.bYa, tone: "pass" },
+          ]}
+        />
+      }
       sheet="EK-01"
       subject={SUBJECTS.EK[lang]}
       title={x.title}
@@ -213,11 +256,11 @@ export function TingkatTrofikClient() {
           title={x.sheetTitle}
           rev="A"
           cells={[
-            { label: t.tbUnit, value: "SI (kJ/m²·y)" },
+            { label: t.tbUnit, value: `SI (${x.satE})` },
             { label: "P", value: `${fmt(P, 0)}` },
             { label: "ε", value: fmt(eff, 3) },
-            { label: "n", value: fmt(n, 0), tint: r.overreach ? C.signal : undefined },
-            { label: "En", value: fmtEnergi(atas.energy), tint: r.overreach ? C.signal : C.energy },
+            { label: "n", value: fmt(n, 0), tint: r.overreach ? C.caution : undefined },
+            { label: "En", value: fmtEnergi(atas.energy), tint: r.overreach ? C.caution : C.energy },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -227,7 +270,7 @@ export function TingkatTrofikClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="P" label={x.dP} value={P} min={20} max={20000} step={20} digits={0} unit="kJ/m²·y" onChange={setP} tint={C.water} />
+              <InputRow symbol="P" label={x.dP} value={P} min={20} max={20000} step={20} digits={0} unit={x.satE} onChange={setP} tint={C.water} />
               <InputRow symbol="ε" label={x.dE} value={eff} min={0.01} max={0.35} step={0.005} digits={3} onChange={setEff} tint={C.energy} />
               <InputRow symbol="n" label={x.dN} value={n} min={2} max={7} step={1} digits={0} onChange={setN} />
             </InputTable>
@@ -245,31 +288,63 @@ export function TingkatTrofikClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.overreach ? undefined : C.energy} alert={r.overreach}>
-                {`${fmt(r.supported, 0)} ${lang === "id" ? "tingkat" : "levels"}`}
-              </Flag>
-              {r.overreach && <Flag alert>{x.melampaui}</Flag>}
-            </div>
-            {r.overreach && (
-              <div className="mb-2.5">
-                <Note>{x.melampauiNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "—", label: x.rSupported, value: fmt(r.supported, 0), strong: true },
-                { symbol: "En", label: x.rTop, value: atas.energy > 0 && atas.energy < 1e-2 ? fmtSci(atas.energy) : fmt(atas.energy, 3), unit: "kJ/m²·y", tint: C.energy, strong: true },
+                { symbol: "En", label: x.rTop, value: fmtE(atas.energy), unit: x.satE, tint: r.overreach ? C.caution : C.energy, strong: true },
                 { symbol: "En/P", label: x.rFrac, value: fmtSci(r.topFraction), tint: C.critical },
                 { symbol: "Bn", label: x.rBio, value: atas.biomass > 0 && atas.biomass < 1e-2 ? fmtSci(atas.biomass) : fmt(atas.biomass, 3), unit: "g/m²", tint: C.water },
                 { symbol: "—", label: x.rLoss, value: fmt((1 - eff) * 100, 1), unit: "%" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hE,
+                    rumus: <span>E(i) = P · ε^(i−1)</span>,
+                    isi: r.levels.map((l) => `E${l.level} ${fmtE(l.energy)}`).join(" ;  "),
+                    hasil: `${fmt(r.levels.length, 0)} ${lang === "id" ? "tingkat" : "levels"}`,
+                  },
+                  {
+                    judul: x.hEn,
+                    rumus: <span>En = P · ε^(n−1)</span>,
+                    isi: `${fmt(P, 0)} · ${fmt(eff, 3)}^${fmt(n - 1, 0)}`,
+                    hasil: fmtE(atas.energy),
+                    satuan: x.satE,
+                    tint: r.overreach ? C.caution : C.energy,
+                  },
+                  {
+                    judul: x.hFrac,
+                    rumus: (<><Frac num="En" den="P" /><span>= ε^(n−1)</span></>),
+                    isi: `${fmt(eff, 3)}^${fmt(n - 1, 0)}`,
+                    hasil: fmtSci(r.topFraction),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hSup,
+                    rumus: <span>E(i) ≥ {fmtPlain(TROPHIC_MIN_ENERGY, 0)}</span>,
+                    isi: r.levels.map((l) => `E${l.level} ${l.energy >= TROPHIC_MIN_ENERGY ? "≥" : "<"} ${fmtPlain(TROPHIC_MIN_ENERGY, 0)}`).join(" ;  "),
+                    hasil: `${fmt(r.supported, 0)} / ${fmt(n, 0)}`,
+                  },
+                  {
+                    judul: x.hB,
+                    rumus: <span>Bn = En · {fmt(0.02, 2)} · {fmt(1.6, 1)}^(n−1)</span>,
+                    isi: `${fmtE(atas.energy)} · ${fmt(0.02, 2)} · ${fmt(1.6, 1)}^${fmt(n - 1, 0)}`,
+                    hasil: atas.biomass > 0 && atas.biomass < 1e-2 ? fmtSci(atas.biomass) : fmt(atas.biomass, 3),
+                    satuan: "g/m²",
+                    tint: C.water,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(P, eff, n, r.topFraction, r.supported, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={r.overreach ? x.melampaui : x.tertopang}
+            {...notice(P, eff, n, r.topFraction, r.supported, r.overreach, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksTrophic(P, eff, n)} />}
@@ -286,8 +361,8 @@ export function TingkatTrofikClient() {
               <Eq>
                 <span className="text-ink-3">
                   {lang === "id"
-                    ? "satu tingkat dianggap tertopang bila alirannya melebihi 1 kJ/m² per tahun"
-                    : "a level counts as supported when its flow exceeds 1 kJ/m² per year"}
+                    ? "satu tingkat dianggap tertopang bila alirannya sedikitnya 1 kJ/m² per tahun"
+                    : "a level counts as supported when its flow is at least 1 kJ/m² per year"}
                 </span>
               </Eq>
             </>
@@ -306,11 +381,34 @@ function notice(
   n: number,
   topFraction: number,
   supported: number,
+  overreach: boolean,
   lang: Lang
-): string {
-  const naik = trophicPyramid(P, Math.min(eff * 1.5, 0.5), n);
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
+  /* Tanpa penjepitan: ε × 1,5 paling besar 0,525, masih sah secara
+     aritmetik. Dulu dijepit diam-diam ke 0,5 sementara kalimatnya tetap
+     menulis "setengah kali lipat". */
+  const effNaik = eff * 1.5;
+  const naik = trophicPyramid(P, effNaik, n);
+  const kali = naik.topFraction / Math.max(topFraction, 1e-30);
 
   if (lang === "en")
-    return `At ${fmt(eff * 100, 1)} per cent transfer efficiency, only ${fmtSci(topFraction)} of the base production reaches level ${fmtPlain(n, 0)}. Raise the efficiency by half, to ${fmt(Math.min(eff * 1.5, 0.5) * 100, 1)} per cent, and that fraction becomes ${fmtSci(naik.topFraction)}, a change of ${fmt(naik.topFraction / Math.max(topFraction, 1e-30), 1)} times. A modest change in efficiency compounds through every step, which is why arguments about food-chain length turn on numbers that look small. This river supports ${fmtPlain(supported, 0)} levels.`;
-  return `Pada efisiensi peralihan ${fmt(eff * 100, 1)} persen, hanya ${fmtSci(topFraction)} dari produksi dasar yang sampai ke tingkat ${fmtPlain(n, 0)}. Naikkan efisiensinya setengah kali lipat, menjadi ${fmt(Math.min(eff * 1.5, 0.5) * 100, 1)} persen, dan bagian itu menjadi ${fmtSci(naik.topFraction)}, berubah ${fmt(naik.topFraction / Math.max(topFraction, 1e-30), 1)} kali. Perubahan kecil pada efisiensi berlipat ganda melewati tiap selang, dan itulah sebabnya perdebatan tentang panjang rantai makanan berkisar pada angka yang tampak sepele. Sungai ini menopang ${fmtPlain(supported, 0)} tingkat.`;
+    return {
+      state: `${fmtPlain(supported, 0)} of the ${fmtPlain(n, 0)} levels shown are supported; the top receives ${fmtSci(topFraction)} of the base production.`,
+      notice: [
+        overreach ? x.melampauiNote : "",
+        `Raise the transfer efficiency by half, from ${fmt(eff * 100, 1)} to ${fmt(effNaik * 100, 1)} per cent, and the fraction reaching level ${fmtPlain(n, 0)} becomes ${fmtSci(naik.topFraction)}, ${fmt(kali, 1)} times as much; ${fmtPlain(naik.supported, 0)} of the ${fmtPlain(n, 0)} levels are then supported.`,
+        "A modest change in efficiency compounds through every step, which is why arguments about food-chain length turn on numbers that look small.",
+        x.faktor16,
+      ],
+    };
+  return {
+    state: `${fmtPlain(supported, 0)} dari ${fmtPlain(n, 0)} tingkat yang dilihat tertopang; puncak menerima ${fmtSci(topFraction)} dari produksi dasar.`,
+    notice: [
+      overreach ? x.melampauiNote : "",
+      `Naikkan efisiensi peralihannya setengah kali lipat, dari ${fmt(eff * 100, 1)} menjadi ${fmt(effNaik * 100, 1)} persen, dan bagian yang sampai ke tingkat ${fmtPlain(n, 0)} menjadi ${fmtSci(naik.topFraction)}, ${fmt(kali, 1)} kali lipat; ${fmtPlain(naik.supported, 0)} dari ${fmtPlain(n, 0)} tingkat lalu tertopang.`,
+      "Perubahan kecil pada efisiensi berlipat ganda melewati tiap selang, dan itulah sebabnya perdebatan tentang panjang rantai makanan berkisar pada angka yang tampak sepele.",
+      x.faktor16,
+    ],
+  };
 }

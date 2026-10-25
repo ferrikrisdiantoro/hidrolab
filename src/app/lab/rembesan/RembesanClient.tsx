@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -23,6 +24,8 @@ import {
 } from "@/lib/drawStructure";
 import {
   CASAGRANDE_ENTRY,
+  SOIL_GS,
+  SOIL_VOID_RATIO,
   fmt,
   fmtPlain,
   fmtSci,
@@ -53,12 +56,28 @@ const TXT = {
     pAniso: "Tanah berlapis, mendatar sembilan kali",
     rY0: "Setengah parameter parabola",
     rQ: "Rembesan tiap meter panjang",
-    rQday: "Rembesan tiap meter panjang",
+    rQday: "Rembesan tiap meter panjang (liter)",
     rNeeded: "Panjang drainase terpendek yang menahan",
     rIMean: "Gradien rata-rata sepanjang badan",
     rICrit: "Gradien kritis butirannya",
     rD: "Jarak masuk terkoreksi ke fokus",
     aman: "Garis freatik tertahan di dalam badan",
+    bKeluar: "Garis freatik keluar di lereng",
+    bTahan: "Tertahan di dalam badan",
+    luar: "Di luar rentang lembar",
+    luarNote:
+      "Drainase kaki sepanjang ini melampaui kaki lereng hilir sampai ke bawah mercu: pangkal drainasenya, yang menjadi fokus parabola Kozeny, tidak lagi berada di bawah lereng hilir. Hitungan parabola tidak punya arti di situ, jadi y₀, q, dan gradiennya ditulis “—”. Perpendek drainasenya.",
+    entry: "koreksi masuk Casagrande",
+    lhm: "l/hari per m",
+    m3sm: "m³/s per m",
+    rQs: "Rembesan tiap meter panjang (m³/s)",
+    hD: "Titik masuk terkoreksi, fokus, dan jarak terubah",
+    hY0: "Setengah parameter parabola",
+    hQ: "Rembesan, q = k y₀",
+    hI: "Gradien rata-rata dan gradien kritis",
+    hLd: "Drainase terpendek, bagi dua dengan uji keluar yang sama",
+    hLdIsi: "Ld dicari sampai parabola tidak memotong lereng hilir",
+    takAda: "tidak ada panjang yang menahan",
     limpas: "Muka air hulu melampaui puncak bendungan",
     limpasNote:
       "Kedalaman air hulu yang dipilih sudah melewati tinggi bendungannya sendiri, jadi airnya melimpas di atas mercu. Bendungan urugan tidak boleh dilimpasi sama sekali: berbeda dengan bendungan beton yang mercunya memang dirancang basah, urugan tanah tergerus dari sisi hilir begitu air mengalir di atasnya, dan keruntuhannya berlangsung dalam hitungan jam. Itu sebabnya setiap bendungan urugan punya pelimpah terpisah yang kapasitasnya ditentukan banjir rancangan, bukan dibiarkan melimpas lewat mercunya. Garis freatik di bawah ini karena itu dihitung pada muka air setinggi mercu, bukan pada muka air yang dipilih, dan angkanya tidak lagi menyatakan keadaan yang sedang dipilih penggesernya.",
@@ -83,12 +102,28 @@ const TXT = {
     pAniso: "Layered soil, nine times horizontal",
     rY0: "Half the parabola parameter",
     rQ: "Seepage per metre of dam",
-    rQday: "Seepage per metre of dam",
+    rQday: "Seepage per metre of dam (litres)",
     rNeeded: "Shortest drain that holds the line in",
     rIMean: "Mean gradient across the body",
     rICrit: "Critical gradient of the grain",
     rD: "Corrected entry to focus distance",
     aman: "The phreatic line stays inside the body",
+    bKeluar: "Line daylights on the slope",
+    bTahan: "Held inside the body",
+    luar: "Outside the range of this sheet",
+    luarNote:
+      "A toe drain this long runs past the downstream slope to beneath the crest: its upstream end, the focus of the Kozeny parabola, no longer lies under the downstream slope. The parabola has no meaning there, so y₀, q and the gradients are shown as “—”. Shorten the drain.",
+    entry: "Casagrande entry correction",
+    lhm: "l/day per m",
+    m3sm: "m³/s per m",
+    rQs: "Seepage per metre of dam (m³/s)",
+    hD: "Corrected entry point, focus, and transformed distance",
+    hY0: "Half the parabola parameter",
+    hQ: "Seepage, q = k y₀",
+    hI: "Mean gradient and critical gradient",
+    hLd: "Shortest drain, bisection with the same daylight test",
+    hLdIsi: "Ld is searched until the parabola no longer cuts the downstream slope",
+    takAda: "no length holds it",
     limpas: "The headwater is above the dam crest",
     limpasNote:
       "The chosen headwater depth has passed the height of the dam itself, so water spills over the crest. An embankment dam must never be overtopped: unlike a concrete dam, whose crest is designed to run wet, an earth embankment erodes from its downstream face as soon as water flows across it, and its failure takes hours. That is why every embankment has a separate spillway sized by the design flood rather than being allowed to spill over its crest. The phreatic line below is therefore computed at a water level equal to the crest, not at the level chosen, and its figures no longer describe the state the sliders are set to.",
@@ -145,10 +180,38 @@ export function RembesanClient() {
   const limpas = H > Hd;
   const r = seepageLine(Math.min(H, Hd), Hd, CREST, mUp, mDown, Ld, kh, kv);
   const g = r.geometry;
+  /* r.valid salah bila drainase melampaui kaki lereng hilir (Ld ≥ md·Hd):
+     fokus parabola jatuh di bawah mercu atau di hulu tumit, dan y₀, q,
+     gradien tidak bermakna. Angka turunannya ditulis "—". */
+  const sah = r.valid;
+  const tampil = (v: number) => (sah ? v : NaN);
+  const kosong = "—";
+  /* Bila drainase sepanjang lereng hilir pun tidak menahan, bagi dua
+     model berhenti di ujung atas; tidak ada panjang yang menahan. */
+  const lerengHilir = g.toeDown - g.crestTo;
+  const LdAda = sah && r.drainNeeded < lerengHilir - 1e-6;
+  const rasioLd = r.drainNeeded > 0 ? Ld / r.drainNeeded : NaN;
+  /* Rembesan dapat jatuh di bawah satu liter sehari; nol desimal menulis
+     "0". Di bawah 1 berpangkat. */
+  const fQd = (v: number) => (!Number.isFinite(v) ? kosong : v > 0 && v < 1 ? fmtSci(v) : fmt(v, 1));
+  const Hp = Math.min(H, Hd);
+  const masukKoreksi = mUp * Hp * (1 - CASAGRANDE_ENTRY);
+  const akarKvKh = Math.sqrt(kv / kh);
 
   const ref = useCanvas(
     (ctx, w, ch) => {
-      const pinggir = Math.max(g.toeDown * 0.12, 6);
+      /*
+       * Layar sempit (HP): penampang selebar tujuh puluh meter dengan skala
+       * sama di kedua sumbu tinggal garis setebal empat puluh piksel. Skala
+       * tegak boleh dipertinggi (faktornya ditulis di judul sumbu tegak),
+       * dan pinggir kiri kanan dilebarkan supaya dimensi H dan y₀ beserta
+       * angkanya tidak menempel atau terpotong bingkai.
+       */
+      const sempit = w < 600;
+      const pinggir = Math.max(g.toeDown * (sempit ? 0.2 : 0.12), 6);
+      /* Sisi kanan diberi ruang lebih: dimensi y₀ dan nama drainase kaki
+         dulu menempel atau terpotong di bingkai kanan. */
+      const pinggirKanan = Math.max(g.toeDown * (sempit ? 0.2 : 0.16), 8);
 
       const badan: StructureBody[] = [
         { pts: g.body, hatch: "soil" },
@@ -194,12 +257,31 @@ export function RembesanClient() {
           color: C.critical,
           weight: W.thin,
           dash: DASH.hidden,
-          label: `${T.seepageFace} ${fmtPlain(CASAGRANDE_ENTRY, 1)} m`,
+          /* Bukan "muka rembesan" (itu tempat keluar di hilir) dan 0,3
+             bukan meter: ini faktor koreksi titik masuk Casagrande.
+             Rata kanan, menjulur ke atas genangan hulu, supaya tidak
+             bertumpuk dengan nama garis freatik. */
+          label: `${x.entry} ${fmtPlain(CASAGRANDE_ENTRY, 1)} mu H`,
           labelAt: 0,
           labelDy: -12,
-          labelAlign: "left",
+          labelAlign: "right",
         },
       ];
+      /* Nama garis freatik ditulis sebagai label garis, bukan penunjuk:
+         label garis lewat penempat label yang sama dengan label koreksi
+         masuk, jadi keduanya tidak dapat bertumpuk. Garisnya sendiri
+         selebar nol (satu titik), garis freatik sudah digambar sebagai
+         muka zona jenuh. */
+      const titikF = r.phreatic[Math.floor(r.phreatic.length * 0.4)];
+      garis.push({
+        pts: [titikF, titikF],
+        color: C.water,
+        weight: W.thin,
+        dash: DASH.solid,
+        label: T.phreaticLine,
+        labelAt: 0,
+        labelDy: -14,
+      });
 
       const dims: StructureDim[] = [
         {
@@ -212,7 +294,7 @@ export function RembesanClient() {
         },
         {
           axis: "v",
-          at: g.toeDown + pinggir * 0.5,
+          at: g.toeDown + pinggirKanan * 0.6,
           from: 0,
           to: r.y0,
           text: `y₀ ${fmtPlain(r.y0, 3)} m`,
@@ -229,22 +311,14 @@ export function RembesanClient() {
           offset: 26,
         });
 
-      const penunjuk: StructureCallout[] = [
-        {
-          x: r.phreatic[Math.floor(r.phreatic.length * 0.55)].x,
-          z: r.phreatic[Math.floor(r.phreatic.length * 0.55)].z,
-          dx: -6,
-          dy: -26,
-          text: T.phreaticLine,
-          color: C.water,
-        },
-      ];
+      const penunjuk: StructureCallout[] = [];
+      /* Penunjuk ke kiri: ke kanan teksnya terpotong bingkai kanan. */
       if (Ld > 0)
         penunjuk.push({
           x: (r.focus + g.toeDown) / 2,
           z: 0.2,
-          dx: 10,
-          dy: -34,
+          dx: -12,
+          dy: -30,
           text: T.toeDrain,
         });
 
@@ -254,9 +328,9 @@ export function RembesanClient() {
         ch,
         {
           xMin: -pinggir,
-          xMax: g.toeDown + pinggir,
+          xMax: g.toeDown + pinggirKanan,
           zMin: 0,
-          zMax: Hd * 1.22,
+          zMax: Hd * 1.3,
           bodies: badan,
           waters: [airHulu, jenuh],
           lines: garis,
@@ -265,9 +339,10 @@ export function RembesanClient() {
           arrows: [
             { x: r.phreatic[0].x + (r.focus - r.phreatic[0].x) * 0.45, z: r.y0 * 0.45, length: 18, rise: 4 },
           ],
-          heading: limpas ? x.limpas : r.daylights ? x.keluar : undefined,
+          heading: !sah ? x.luar : limpas ? x.limpas : r.daylights ? x.keluar : undefined,
           headingColor: C.signal,
           imperviousFloor: true,
+          maxExaggeration: sempit ? 5 : 1,
           axisX: T.axSection,
           axisZ: T.elevation,
         },
@@ -279,6 +354,33 @@ export function RembesanClient() {
 
   return (
     <LabShell
+      status={
+        !sah || limpas ? (
+          <RegimeScale
+            symbol="Ld/Ld,min"
+            value={NaN}
+            invalid
+            pesan={!sah ? x.luar : x.limpas}
+            digits={2}
+            bands={[{ from: 0, to: 3, label: x.luar, tone: "invalid" }]}
+          />
+        ) : (
+          /* Batas 1 dari uji keluar seepageLine dan bagi dua drainNeeded
+             (uji yang sama), Casagrande 1937. Di bawah 1 parabola Kozeny
+             memotong muka lereng hilir: bukan keadaan fisik, jadi pitanya
+             di luar rentang berlaku. */
+          <RegimeScale
+            symbol="Ld/Ld,min"
+            value={rasioLd}
+            invalid={r.daylights}
+            digits={2}
+            bands={[
+              { from: 0, to: 1, label: x.bKeluar, tone: "invalid" },
+              { from: 1, to: 3, label: x.bTahan, tone: "pass" },
+            ]}
+          />
+        )
+      }
       sheet="GW-01"
       subject={SUBJECTS.GW[lang]}
       title={x.title}
@@ -303,11 +405,15 @@ export function RembesanClient() {
           number="GW-01"
           title={x.sheetTitle}
           rev="A"
+          /* Di HP bingkai setinggi 56vh menyisakan bidang kosong di atas
+             penampang yang lebar dan pendek; dibatasi 80vw. Di layar lebar
+             56vh tetap yang menentukan, jadi tingginya sama seperti dulu. */
+          height="clamp(300px, min(56vh, 80vw), 620px)"
           cells={[
             { label: t.tbUnit, value: "SI (m, m/s)" },
             { label: "H", value: `${fmt(Math.min(H, Hd), 2)} m`, tint: C.water },
-            { label: "y₀", value: `${fmt(r.y0, 3)} m`, tint: C.critical },
-            { label: "q", value: `${fmtSci(r.q)} m³/s·m` },
+            { label: "y₀", value: sah ? `${fmt(r.y0, 3)} m` : kosong, tint: C.critical },
+            { label: "q", value: sah ? `${fmtSci(r.q)} ${x.m3sm}` : kosong },
             { label: "k", value: `${fmtSci(r.kEq)} m/s` },
           ]}
         >
@@ -340,38 +446,75 @@ export function RembesanClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.daylights ? undefined : C.water} alert={r.daylights}>
-                {r.daylights ? x.keluar : x.aman}
-              </Flag>
-              {limpas && <Flag alert>{x.limpas}</Flag>}
-            </div>
-            {limpas && (
-              <div className="mb-2.5">
-                <Note>{x.limpasNote}</Note>
-              </div>
-            )}
-            {r.daylights && (
-              <div className="mb-2.5">
-                <Note>{x.keluarNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "y₀", label: x.rY0, value: fmt(r.y0, 4), unit: "m", tint: C.critical, strong: true },
-                { symbol: "q", label: x.rQ, value: fmtSci(r.q), unit: "m³/s per m", strong: true },
-                { symbol: "q", label: x.rQday, value: fmt(r.qLitreDay, 0), unit: "l/d per m" },
-                { symbol: "Ld", label: x.rNeeded, value: fmt(r.drainNeeded, 2), unit: "m", tint: Ld < r.drainNeeded ? C.signal : undefined },
-                { symbol: "d", label: x.rD, value: fmt(r.d, 2), unit: "m" },
-                { symbol: "ī", label: x.rIMean, value: fmt(r.iMean, 4) },
+                { symbol: "q", label: x.rQday, value: fQd(tampil(r.qLitreDay)), unit: sah ? x.lhm : undefined, tint: C.water, strong: true },
+                { symbol: "Ld,min", label: x.rNeeded, value: LdAda ? fmt(r.drainNeeded, 2) : kosong, unit: LdAda ? "m" : undefined, tint: C.critical, strong: true },
+                { symbol: "y₀", label: x.rY0, value: fmt(tampil(r.y0), 4), unit: sah ? "m" : undefined, tint: C.critical },
+                { symbol: "q", label: x.rQs, value: sah ? fmtSci(r.q) : kosong, unit: sah ? x.m3sm : undefined },
+                { symbol: "d", label: x.rD, value: fmt(tampil(r.d), 2), unit: sah ? "m" : undefined },
+                { symbol: "ī", label: x.rIMean, value: fmt(tampil(r.iMean), 4) },
                 { symbol: "ic", label: x.rICrit, value: fmt(r.iCritical, 3) },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hD,
+                    rumus: <span>x_m = (1 − 0,3) · mu · H ; f = x_kaki − Ld ; d = (f − x_m) · √(kv/kh)</span>,
+                    isi: sah
+                      ? `x_m = ${fmt(1 - CASAGRANDE_ENTRY, 1)} · ${fmt(mUp, 2)} · ${fmt(Hp, 1)} = ${fmt(masukKoreksi, 2)} ; f = ${fmt(g.toeDown, 1)} − ${fmt(Ld, 1)} = ${fmt(r.focus, 2)} ; d = ( ${fmt(r.focus, 2)} − ${fmt(masukKoreksi, 2)} ) · ${fmt(akarKvKh, 4)}`
+                      : x.luar,
+                    hasil: fmt(tampil(r.d), 2),
+                    satuan: sah ? "m" : undefined,
+                  },
+                  {
+                    judul: x.hY0,
+                    rumus: <span>y₀ = √( d² + H² ) − d</span>,
+                    isi: sah ? `√( ${fmt(r.d, 2)}² + ${fmt(Hp, 1)}² ) − ${fmt(r.d, 2)}` : x.luar,
+                    hasil: fmt(tampil(r.y0), 4),
+                    satuan: sah ? "m" : undefined,
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hQ,
+                    rumus: <span>k = √( kh · kv ) ; q = k · y₀ · 1000 · 86400</span>,
+                    isi: sah ? `${fmtSci(r.kEq)} · ${fmt(r.y0, 4)} = ${fmtSci(r.q)} ${x.m3sm} ; · 1000 · 86400` : x.luar,
+                    hasil: fQd(tampil(r.qLitreDay)),
+                    satuan: sah ? x.lhm : undefined,
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hI,
+                    rumus: (<><span>ī =</span><Frac num="H" den="d / √(kv/kh)" /><span>; ic =</span><Frac num="Gs − 1" den="1 + e" /></>),
+                    isi: sah
+                      ? `ī = ${fmt(Hp, 1)} / ( ${fmt(r.d, 2)} / ${fmt(akarKvKh, 4)} ) = ${fmt(r.iMean, 4)} ; ic = ( ${fmt(SOIL_GS, 2)} − 1 ) / ( 1 + ${fmt(SOIL_VOID_RATIO, 2)} )`
+                      : `ic = ( ${fmt(SOIL_GS, 2)} − 1 ) / ( 1 + ${fmt(SOIL_VOID_RATIO, 2)} )`,
+                    hasil: fmt(r.iCritical, 3),
+                  },
+                  {
+                    judul: x.hLd,
+                    rumus: <span>{x.hLdIsi}</span>,
+                    isi: sah ? `0 ≤ Ld ≤ ${fmt(lerengHilir, 1)} m` : x.luar,
+                    hasil: LdAda ? fmt(r.drainNeeded, 2) : sah ? x.takAda : kosong,
+                    satuan: LdAda ? "m" : undefined,
+                    tint: C.critical,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(H, Hd, mUp, mDown, Ld, kEq, aniso, lang)}</Note>
-          </Block>
+          {!sah ? (
+            <StateCard tone="invalid" badge={x.luar} state={x.luarNote} />
+          ) : (
+            <StateCard
+              tone={limpas || r.daylights ? "invalid" : "pass"}
+              badge={limpas ? x.limpas : r.daylights ? x.keluar : x.aman}
+              {...notice(H, Hd, mUp, mDown, Ld, kEq, aniso, limpas, x.limpasNote, x.keluarNote, lang)}
+            />
+          )}
         </>
       }
       verification={
@@ -408,6 +551,11 @@ export function RembesanClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) drainase lebih panjang menaikkan q,
+ * hanya bila Ld + 6 masih di dalam lereng hilir; cabang tersendiri bila
+ * garis freatik keluar; (b) anisotropi, hanya bila kh/kv > 1; (c) limpas.
+ */
 function notice(
   H: number,
   Hd: number,
@@ -416,18 +564,63 @@ function notice(
   Ld: number,
   kEq: number,
   aniso: number,
+  limpas: boolean,
+  limpasNote: string,
+  keluarNote: string,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const en = lang === "en";
   const Hp = Math.min(H, Hd);
-  const r = seepageLine(Hp, Hd, CREST, mUp, mDown, Ld, kEq * Math.sqrt(aniso), kEq / Math.sqrt(aniso));
-  const panjang = seepageLine(
-    Hp, Hd, CREST, mUp, mDown, Math.min(Ld + 6, mDown * Hd), kEq * Math.sqrt(aniso), kEq / Math.sqrt(aniso)
-  );
-  const seragam = seepageLine(Hp, Hd, CREST, mUp, mDown, Ld, kEq, kEq);
-  const naik = r.q > 0 ? (panjang.q / r.q - 1) * 100 : 0;
-  const naikAniso = seragam.q > 0 ? (r.q / seragam.q - 1) * 100 : 0;
+  const kh = kEq * Math.sqrt(aniso);
+  const kv = kEq / Math.sqrt(aniso);
+  const r = seepageLine(Hp, Hd, CREST, mUp, mDown, Ld, kh, kv);
+  const lereng = r.geometry.toeDown - r.geometry.crestTo;
+  const fq = (v: number) => (v > 0 && v < 1 ? fmtSci(v) : fmt(v, 1));
+  const butir: string[] = [];
 
-  if (lang === "en")
-    return `Seepage now runs at ${fmt(r.qLitreDay, 0)} litres a day for every metre of dam length. Lengthen the drain by six metres and it rises ${fmt(naik, 1)} per cent, to ${fmt(panjang.qLitreDay, 0)} litres: the drain shortened the seepage path, so the gradient rose. What the drain bought is on the drawing rather than in the table, namely that the line stays inside the body. Now raise the permeability ratio. At a ratio of ${fmt(aniso, 1)} the same geometric mean permeability passes ${fmt(naikAniso, 1)} per cent more water than uniform soil would, because the transformed section is shorter and its gradient higher.`;
-  return `Rembesannya sekarang ${fmt(r.qLitreDay, 0)} liter sehari untuk tiap meter panjang bendungan. Panjangkan drainasenya enam meter dan angkanya naik ${fmt(naik, 1)} persen, menjadi ${fmt(panjang.qLitreDay, 0)} liter: drainase memendekkan lintasan rembesannya, jadi gradiennya naik. Yang dibeli drainase itu ada di gambarnya, bukan di tabelnya, yaitu garis freatik yang tetap tertahan di dalam badan. Sekarang naikkan perbandingan permeabilitasnya. Pada perbandingan ${fmt(aniso, 1)}, permeabilitas rata-rata ukur yang sama meloloskan ${fmt(naikAniso, 1)} persen lebih banyak air daripada tanah seragam, karena penampang terubahnya lebih pendek dan gradiennya lebih tinggi.`;
+  const state = en
+    ? `The phreatic line ${r.daylights ? "daylights on the downstream slope" : "is held inside the body"}; q = ${fq(r.qLitreDay)} l/day per m.`
+    : `Garis freatik ${r.daylights ? "keluar di lereng hilir" : "tertahan di dalam badan"}; q = ${fq(r.qLitreDay)} l/hari per m.`;
+
+  if (limpas) butir.push(limpasNote);
+
+  if (r.daylights) {
+    butir.push(keluarNote);
+    const tahan = r.drainNeeded < lereng - 1e-6;
+    butir.push(
+      tahan
+        ? en
+          ? `A toe drain of at least ${fmt(r.drainNeeded, 2)} m would hold the line inside the body. It would raise the seepage a little, not lower it: what it buys is the place where the water leaves.`
+          : `Drainase kaki sekurangnya ${fmt(r.drainNeeded, 2)} m akan menahan garis freatik di dalam badan. Rembesannya justru naik sedikit, bukan turun: yang dibeli drainase itu tempat keluarnya air.`
+        : en
+          ? "Even a drain running the whole length of the downstream slope does not hold the line in; flatten the downstream slope or lower the headwater."
+          : "Drainase sepanjang seluruh lereng hilir pun tidak menahannya; landaikan lereng hilir atau turunkan muka air hulu."
+    );
+  } else if (Ld + 6 < lereng) {
+    const panjang = seepageLine(Hp, Hd, CREST, mUp, mDown, Ld + 6, kh, kv);
+    const naik = r.q > 0 ? (panjang.q / r.q - 1) * 100 : 0;
+    butir.push(
+      en
+        ? `Lengthen the drain by six metres and the seepage rises ${fmt(naik, 1)} per cent, to ${fq(panjang.qLitreDay)} l/day per m: the drain shortened the seepage path, so the gradient rose. What the drain bought is on the drawing rather than in the table, namely that the line stays inside the body.`
+        : `Panjangkan drainasenya enam meter dan rembesannya naik ${fmt(naik, 1)} persen, menjadi ${fq(panjang.qLitreDay)} l/hari per m: drainase memendekkan lintasan rembesannya, jadi gradiennya naik. Yang dibeli drainase itu ada di gambarnya, bukan di tabelnya, yaitu garis freatik yang tetap tertahan di dalam badan.`
+    );
+  } else {
+    butir.push(
+      en
+        ? `The drain already runs nearly the whole downstream slope (${fmt(lereng, 1)} m); six metres more would pass the toe of the slope, outside this sheet. Shorter drains would carry slightly less seepage, as long as the line stays inside the body.`
+        : `Drainasenya sudah hampir sepanjang lereng hilir (${fmt(lereng, 1)} m); enam meter lagi melewati kaki lerengnya, di luar rentang lembar. Drainase yang lebih pendek meloloskan sedikit lebih kecil rembesan, selama garis freatiknya tetap tertahan.`
+    );
+  }
+
+  if (aniso > 1) {
+    const seragam = seepageLine(Hp, Hd, CREST, mUp, mDown, Ld, kEq, kEq);
+    const naikAniso = seragam.q > 0 ? (r.q / seragam.q - 1) * 100 : 0;
+    butir.push(
+      en
+        ? `At a permeability ratio of ${fmt(aniso, 1)} the same geometric mean permeability passes ${fmt(naikAniso, 1)} per cent more water than uniform soil would, because the transformed section is shorter and its gradient higher.`
+        : `Pada perbandingan permeabilitas ${fmt(aniso, 1)}, permeabilitas rata-rata ukur yang sama meloloskan ${fmt(naikAniso, 1)} persen lebih banyak air daripada tanah seragam, karena penampang terubahnya lebih pendek dan gradiennya lebih tinggi.`
+    );
+  }
+
+  return { state, notice: butir };
 }

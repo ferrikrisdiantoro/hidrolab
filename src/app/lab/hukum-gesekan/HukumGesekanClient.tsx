@@ -4,18 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
+  G,
   chezyFromManning,
   chezyVelocity,
   darcyFromChezy,
@@ -23,7 +25,7 @@ import {
   fmtPlain,
   stricklerN,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -46,9 +48,17 @@ const TXT = {
     rKs: "Kekasaran butir setara, Strickler",
     rNStrickler: "Angka Manning dari kekasaran itu",
     rRasio: "Kenaikan C bila R dilipatempatkan",
-    jauh: "Angka kekasaran di luar kebiasaan",
+    jauh: "Di bawah rentang lazim",
     jauhNote:
-      "Angka Manning di luar rentang 0,010 sampai 0,10 hampir tidak pernah ditemui pada saluran nyata. Di bawah 0,010 lebih halus daripada kaca, di atas 0,10 lebih kasar daripada hutan tergenang. Rumusnya tetap memberi angka karena ia memang tidak punya batas di dalam dirinya, tetapi angka itu tidak berdiri di atas pengukuran mana pun.",
+      "Angka Manning di bawah 0,010 hampir tidak pernah ditemui pada saluran nyata; itu lebih halus daripada kaca. Rumusnya tetap memberi angka karena ia memang tidak punya batas di dalam dirinya, tetapi angka itu tidak berdiri di atas pengukuran mana pun.",
+    lazim: "Rentang lazim",
+    banjir: "Dataran banjir berpohon atau bersemak",
+    banjirNote:
+      "Angka Manning 0,10 sampai 0,15 lazim untuk dataran banjir dengan tegakan pohon rapat atau semak dedalu (Chow 1959, Tabel 5-6). Pada kekasaran ini hambatannya datang dari batang dan dahan, bukan dari butiran dasar, jadi kekasaran butir setara Strickler di tabel tidak lagi bermakna ukuran butir.",
+    state: (n: string, R: string, C: string, f: string) =>
+      `Dengan n = ${n} dan R = ${R} m, koefisien Chezy C = ${C} m^½/s dan faktor gesekan Darcy f = ${f}.`,
+    hKs: "Kekasaran butir setara, Strickler dibalik",
+    hRasio: "Kenaikan C bila R dilipatempatkan, selalu 4^(1/6) apa pun n dan R",
     note:
       "Ketiga hukum ini sering diperkenalkan sebagai pilihan, seolah seorang perancang boleh memilih salah satunya. Sebenarnya ketiganya menggambarkan gesekan yang sama dan dapat ditukar satu sama lain tanpa kehilangan apa pun; yang berbeda hanya besaran yang dianggap tetap. Darcy menganggap faktor gesekan tetap, dan itu benar untuk aliran kasar penuh di dalam pipa. Manning menganggap angka kekasaran tetap, dan itu pilihan yang hanya masuk akal untuk saluran terbuka pada rentang kedalaman yang tidak terlalu lebar. Chezy berada di antaranya, dan koefisiennya terang-terangan bergantung pada ukuran saluran. Kurva pada gambar ini menunjukkan akibat pilihan itu: angka Manning yang tetap berarti koefisien Chezy yang naik menurut akar pangkat enam jari-jari hidrolik, dan faktor gesekan Darcy yang justru turun. Yang mana yang benar bukan pertanyaan yang bisa dijawab; yang bisa dijawab adalah yang mana yang paling tidak berubah pada rentang keadaan yang sedang dirancang.",
   },
@@ -67,9 +77,17 @@ const TXT = {
     rKs: "Equivalent grain roughness, Strickler",
     rNStrickler: "Manning value from that roughness",
     rRasio: "Rise in C when R is quadrupled",
-    jauh: "Roughness outside common practice",
+    jauh: "Below the common range",
     jauhNote:
-      "Manning values outside 0.010 to 0.10 are almost never met on real channels. Below 0.010 is smoother than glass; above 0.10 is rougher than flooded forest. The formula still returns a number, because it carries no limit within itself, but that number rests on no measurement.",
+      "Manning values below 0.010 are almost never met on real channels; that is smoother than glass. The formula still returns a number, because it carries no limit within itself, but that number rests on no measurement.",
+    lazim: "Common range",
+    banjir: "Floodplain with trees or brush",
+    banjirNote:
+      "Manning values of 0.10 to 0.15 are common for floodplains with dense stands of trees or willow brush (Chow 1959, Table 5-6). At this roughness the resistance comes from trunks and branches rather than bed grains, so the Strickler equivalent grain roughness in the table no longer means a grain size.",
+    state: (n: string, R: string, C: string, f: string) =>
+      `With n = ${n} and R = ${R} m, the Chezy coefficient is C = ${C} m^½/s and the Darcy friction factor f = ${f}.`,
+    hKs: "Equivalent grain roughness, Strickler inverted",
+    hRasio: "Rise in C when R is quadrupled, always 4^(1/6) whatever n and R",
     note:
       "These three laws are often introduced as a choice, as if a designer were free to pick one. In fact all three describe the same friction and convert into one another without loss; what differs is only which quantity is held constant. Darcy holds the friction factor constant, and that is right for fully rough flow in pipes. Manning holds the roughness coefficient constant, a choice that only makes sense for open channels over a limited range of depths. Chezy sits between them, and its coefficient depends openly on the size of the channel. The curves here show the consequence of that choice: a constant Manning value means a Chezy coefficient rising as the sixth root of hydraulic radius, and a Darcy friction factor falling. Which one is correct is not an answerable question; what is answerable is which one changes least over the range of conditions being designed for.",
   },
@@ -113,7 +131,15 @@ export function HukumGesekanClient() {
   const V = chezyVelocity(C_, R, S);
   const ks = Math.pow(n * 21.1, 6);
   const rasio = C_ > 0 ? chezyFromManning(n, R * 4) / C_ : 0;
-  const jauh = n < N_MIN || n > N_MAX;
+  /* Hanya sisi bawah yang di luar rentang berlaku. n 0,10 sampai 0,15
+     memang ada di Chow (1959) Tabel 5-6 (tegakan pohon rapat 0,100/0,120/
+     0,160, semak dedalu 0,110/0,150/0,200), jadi bukan keadaan invalid. */
+  const jauh = n < N_MIN;
+  const banjir = n > N_MAX;
+  const nada: Tone = jauh ? "invalid" : "neutral";
+  const nStr = stricklerN(ks);
+  const ksTampil = ks >= 1 ? fmt(ks, 2) : fmt(ks * 1000, 1);
+  const ksSatuan = ks >= 1 ? "m" : "mm";
 
   const ref = useCanvas(
     (ctx, w, h) => {
@@ -184,6 +210,20 @@ export function HukumGesekanClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="n"
+          value={n}
+          invalid={jauh}
+          scale="log"
+          digits={3}
+          bands={[
+            { from: 0.005, to: N_MIN, label: x.jauh, tone: "invalid" },
+            { from: N_MIN, to: N_MAX, label: x.lazim, tone: "neutral" },
+            { from: N_MAX, to: 0.15, label: x.banjir, tone: "neutral" },
+          ]}
+        />
+      }
       sheet="OC-10"
       subject={SUBJECTS.OC[lang]}
       title={x.title}
@@ -242,18 +282,9 @@ export function HukumGesekanClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.water}>{`C ${fmt(C_, 1)}`}</Flag>
-              {jauh && <Flag alert>{x.jauh}</Flag>}
-            </div>
-            {jauh && (
-              <div className="mb-2.5">
-                <Note>{x.jauhNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "C", label: x.rC, value: fmt(C_, 3), unit: "m^0,5/s", tint: C.water, strong: true },
+                { symbol: "C", label: x.rC, value: fmt(C_, 3), unit: "m^½/s", tint: C.water, strong: true },
                 { symbol: "f", label: x.rF, value: fmt(f, 5), tint: C.energy, strong: true },
                 { symbol: "V", label: x.rV, value: fmt(V, 4), unit: "m/s", tint: C.water },
                 /*
@@ -261,25 +292,80 @@ export function HukumGesekanClient() {
                  * berbanding dengan PANGKAT ENAM angka Manning. Angka Manning
                  * 0,15 memberi butiran setara seribu meter, dan menuliskannya
                  * sebagai 1.005.176,4 mm membuat angka yang memang sudah tidak
-                 * masuk akal menjadi tidak terbaca pula. Keadaan itu sendiri
-                 * sudah ditandai merah di sebelahnya.
+                 * bermakna butir menjadi tidak terbaca pula. Kartu keadaan
+                 * menjelaskan bahwa di atas n 0,10 hambatannya dari vegetasi.
                  */
                 {
                   symbol: "ks",
                   label: x.rKs,
-                  value: ks >= 1 ? fmt(ks, 2) : fmt(ks * 1000, 1),
-                  unit: ks >= 1 ? "m" : "mm",
+                  value: ksTampil,
+                  unit: ksSatuan,
                   tint: C.critical,
                 },
-                { symbol: "n′", label: x.rNStrickler, value: fmt(stricklerN(ks), 4) },
+                { symbol: "n′", label: x.rNStrickler, value: fmt(nStr, 4) },
                 { symbol: "—", label: x.rRasio, value: fmt(rasio, 4) },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.rC,
+                    rumus: (<><span>C =</span><Frac num="R^(1/6)" den="n" /></>),
+                    isi: `${fmt(R, 2)}^(1/6) / ${fmt(n, 3)}`,
+                    hasil: fmt(C_, 3),
+                    satuan: "m^½/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.rF,
+                    rumus: (<><span>f =</span><Frac num="8 · g" den="C²" /></>),
+                    isi: `8 · ${fmt(G, 2)} / ${fmt(C_, 4)}²`,
+                    hasil: fmt(f, 5),
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.rV,
+                    rumus: <span>V = C · √( R · S )</span>,
+                    isi: `${fmt(C_, 4)} · √( ${fmt(R, 2)} · ${fmt(S, 5)} )`,
+                    hasil: fmt(V, 4),
+                    satuan: "m/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hKs,
+                    rumus: <span>ks = ( {fmt(21.1, 1)} · n )⁶</span>,
+                    isi: `( ${fmt(21.1, 1)} · ${fmt(n, 3)} )⁶`,
+                    hasil: ksTampil,
+                    satuan: ksSatuan,
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.rNStrickler,
+                    rumus: (<><span>n′ =</span><Frac num="ks^(1/6)" den={fmt(21.1, 1)} /></>),
+                    isi: `${fmt(ks, 5)}^(1/6) / ${fmt(21.1, 1)}`,
+                    hasil: fmt(nStr, 4),
+                  },
+                  {
+                    judul: x.hRasio,
+                    rumus: (<><Frac num="C(4R)" den="C(R)" /><span>=</span><Frac num="( 4R )^(1/6) / n" den="R^(1/6) / n" /><span>= 4^(1/6)</span></>),
+                    isi: `4^(1/6) = ${fmt(Math.pow(4, 1 / 6), 4)}`,
+                    hasil: fmt(rasio, 4),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(n, R, C_, f, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={jauh ? x.jauh : banjir ? x.banjir : x.lazim}
+            state={x.state(fmt(n, 3), fmt(R, 2), fmt(C_, 1), fmt(f, 4))}
+            notice={[
+              ...notice(n, R, C_, f, lang),
+              ...(jauh ? [x.jauhNote] : banjir ? [x.banjirNote] : []),
+            ]}
+          />
         </>
       }
       verification={<Verification checks={checksFrictionLaws(n, R)} />}
@@ -313,12 +399,18 @@ export function HukumGesekanClient() {
   );
 }
 
-function notice(n: number, R: number, C_: number, f: number, lang: Lang): string {
+function notice(n: number, R: number, C_: number, f: number, lang: Lang): string[] {
   const cDangkal = chezyFromManning(n, R / 4);
   const fDangkal = darcyFromChezy(cDangkal);
   const naikF = f > 0 ? ((fDangkal - f) / f) * 100 : 0;
 
   if (lang === "en")
-    return `Hold the Manning value fixed and shrink the hydraulic radius to a quarter: the Chezy coefficient falls from ${fmt(C_, 1)} to ${fmt(cDangkal, 1)}, and the Darcy friction factor rises by ${fmt(naikF, 0)} per cent. Nothing about the channel lining changed. That rise is entirely an artefact of holding n constant, and it is the clearest statement of what the choice between these three laws actually costs: whichever quantity you declare constant, the other two must move.`;
-  return `Tahan angka Manning-nya lalu perkecil jari-jari hidroliknya menjadi seperempat: koefisien Chezy turun dari ${fmt(C_, 1)} ke ${fmt(cDangkal, 1)}, dan faktor gesekan Darcy naik ${fmt(naikF, 0)} persen. Tidak ada satu pun yang berubah pada lapisan salurannya. Kenaikan itu sepenuhnya akibat menahan n tetap, dan itulah pernyataan paling jelas tentang harga sebenarnya dari memilih di antara ketiga hukum ini: besaran mana pun yang dinyatakan tetap, dua yang lain harus bergerak.`;
+    return [
+      `Hold the Manning value fixed and shrink the hydraulic radius to a quarter: the Chezy coefficient falls from ${fmt(C_, 1)} to ${fmt(cDangkal, 1)}, and the Darcy friction factor rises by ${fmt(naikF, 0)} per cent.`,
+      "Nothing about the channel lining changed. That rise is entirely an artefact of holding n constant: whichever quantity you declare constant, the other two must move.",
+    ];
+  return [
+    `Tahan angka Manning-nya lalu perkecil jari-jari hidroliknya menjadi seperempat: koefisien Chezy turun dari ${fmt(C_, 1)} ke ${fmt(cDangkal, 1)}, dan faktor gesekan Darcy naik ${fmt(naikF, 0)} persen.`,
+    "Tidak ada satu pun yang berubah pada lapisan salurannya. Kenaikan itu sepenuhnya akibat menahan n tetap: besaran mana pun yang dinyatakan tetap, dua yang lain harus bergerak.",
+  ];
 }

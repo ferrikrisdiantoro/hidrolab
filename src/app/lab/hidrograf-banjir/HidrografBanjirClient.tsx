@@ -4,13 +4,13 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,7 +19,6 @@ import {
   fmt,
   fmtPlain,
   floodHydrograph,
-  scsPeakRate,
   scsStorage,
   scsUnitHydrograph,
 } from "@/lib/hydraulics";
@@ -43,7 +42,7 @@ const TXT = {
     pKota: "Daerah terbangun, hujan lebat",
     pHutan: "Daerah berhutan, hujan panjang",
     rPeak: "Debit puncak",
-    rPeakTime: "Waktu puncak",
+    rPeakTime: "Waktu puncak banjir",
     rPe: "Hujan efektif",
     rLoss: "Hujan yang hilang",
     rS: "Simpanan maksimum",
@@ -51,9 +50,19 @@ const TXT = {
     rQp: "Puncak hidrograf satuan",
     rVol: "Isi hidrograf",
     rDepth: "Kedalaman limpasan",
-    pendek: "Hujan lebih pendek daripada tanggapan",
-    pendekNote:
-      "Lama hujannya kurang dari seperlima waktu naik hidrograf satuan. Pada keadaan itu pembagian hujan menjadi pias sejam yang dipakai lembar ini sudah terlalu kasar: seluruh hujan jatuh ke dalam satu pias, dan bentuk hidrografnya menjadi bentuk hidrograf satuan itu sendiri, bukan hasil penjumlahan beberapa pias. Puncaknya masih masuk akal sebagai taksiran, tetapi bentuk sisi naiknya tidak. Perpanjang hujannya, atau pakai daerah aliran yang waktu tempuhnya lebih pendek.",
+    rDD: "Lama satu pias hujan",
+    rIa: "Hujan awal yang tertahan",
+    perMm: "m³/s per mm",
+    kasar: "Pias hujan terlalu kasar",
+    kasarNote:
+      "Lama satu pias hujan melebihi seperempat waktu naik hidrograf satuan (NEH 630 Bab 16). Puncak dan bentuk sisi naiknya menjadi kasar; perpendek pias atau perpanjang waktu tempuhnya.",
+    adaLimpas: "Ada limpasan",
+    tanpaLimpas: "Tanpa limpasan",
+    hPe0: "P tidak melebihi Ia: Pe = 0, seluruh hujan tertahan",
+    hPeak: "Puncak hasil penjumlahan pias",
+    hCek: "Pemeriksaan isi",
+    andaian:
+      "CN dan hidrograf satuan sama-sama andaian: CN berasal dari tabel petak percobaan di Amerika Serikat, dan hidrograf satuan menganggap tanggapan daerah aliran linear (Ponce dan Hawkins 1996).",
     note:
       "Dua andaian besar berdiri di balik lembar ini, dan keduanya perlu dilihat jelas sebelum angkanya dipakai. Pertama, Curve Number (CN) menyatukan jenis tanah, tutupan lahan, dan kelembapan sebelumnya ke dalam satu angka antara 30 dan 100. Angka itu tidak punya makna fisis tersendiri; ia pengenal baris pada tabel yang disusun dari ribuan petak percobaan di Amerika Serikat pada pertengahan abad lalu, dan memindahkannya ke daerah tropis adalah langkah yang harus dibenarkan, bukan diandaikan. Kedua, hidrograf satuan mengandaikan tanggapan daerah aliran itu linear: hujan dua kali lipat memberi debit dua kali lipat, dan hidrograf dari beberapa pias hujan boleh dijumlahkan begitu saja. Andaian itu cukup baik untuk banjir sedang dan meleset pada banjir besar, tempat jalur aliran berubah karena limpasannya sendiri. Yang tetap berlaku apa pun andaiannya adalah kekekalan isi: luas di bawah hidrograf harus sama dengan hujan efektif dikali luas daerah aliran, dan pemeriksaan di bawah menguji justru hal itu.",
   },
@@ -69,7 +78,7 @@ const TXT = {
     pKota: "Built-up area, heavy rain",
     pHutan: "Forested catchment, long rain",
     rPeak: "Peak discharge",
-    rPeakTime: "Time to peak",
+    rPeakTime: "Time of the flood peak",
     rPe: "Effective rainfall",
     rLoss: "Rainfall lost",
     rS: "Maximum storage",
@@ -77,9 +86,19 @@ const TXT = {
     rQp: "Unit hydrograph peak",
     rVol: "Hydrograph volume",
     rDepth: "Runoff depth",
-    pendek: "Rain shorter than the response",
-    pendekNote:
-      "The rain lasts less than one fifth of the unit hydrograph time to peak. At that point the one-hour rainfall blocks used on this sheet are too coarse: all the rain falls into a single block, and the hydrograph shape becomes the unit hydrograph itself rather than a sum of several blocks. The peak is still reasonable as an estimate, but the shape of its rising limb is not. Lengthen the rain, or use a catchment with a shorter time of concentration.",
+    rDD: "Length of one rainfall block",
+    rIa: "Initial abstraction",
+    perMm: "m³/s per mm",
+    kasar: "Rainfall block too coarse",
+    kasarNote:
+      "One rainfall block is longer than a quarter of the unit hydrograph time to peak (NEH 630 Chapter 16). The peak and the rising limb become coarse; shorten the block or lengthen the time of concentration.",
+    adaLimpas: "Runoff",
+    tanpaLimpas: "No runoff",
+    hPe0: "P does not exceed Ia: Pe = 0, all the rain is held back",
+    hPeak: "Peak of the summed blocks",
+    hCek: "Volume check",
+    andaian:
+      "The curve number and the unit hydrograph are both assumptions: CN comes from tables of experimental plots in the United States, and the unit hydrograph treats the catchment response as linear (Ponce and Hawkins 1996).",
     note:
       "Two large assumptions stand behind this sheet, and both deserve a clear look before the numbers are used. First, the curve number folds soil type, land cover, and antecedent moisture into a single value between 30 and 100. That value has no physical meaning of its own; it is a row identifier in a table assembled from thousands of experimental plots in the United States in the middle of the last century, and carrying it into the tropics is a step that must be justified rather than assumed. Second, the unit hydrograph assumes the catchment responds linearly: double the rain gives double the discharge, and hydrographs from several rainfall blocks may simply be added. That assumption serves moderate floods well and fails on large ones, where the flow paths themselves change because of the runoff. What holds regardless of either assumption is conservation of volume: the area under the hydrograph must equal the effective rainfall times the catchment area, and the verification below tests exactly that.",
   },
@@ -114,6 +133,11 @@ export function HidrografBanjirClient() {
 
   const r = floodHydrograph(P, dur, CN, A, tc);
   const hilang = P - r.effectiveRain;
+  const S = scsStorage(CN);
+  const Ia = 0.2 * S;
+  const adaLimpas = r.effectiveRain > 0;
+  // Pias ΔD dibulatkan model supaya bilangan bulat pias mengisi D tepat.
+  const nPias = Math.round(dur / r.blockLength);
 
   const ref = useCanvas(
     (ctx, w, h) => {
@@ -141,9 +165,9 @@ export function HidrografBanjirClient() {
         },
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.Q })),
-          color: r.burstTooShort ? C.signal : C.water,
+          color: C.water,
           weight: W.bold,
-          dash: r.burstTooShort ? DASH.invalid : DASH.solid,
+          dash: DASH.solid,
           fill: C.waterFill,
         },
       ];
@@ -166,7 +190,8 @@ export function HidrografBanjirClient() {
            */
           yMax: qMax > 1e-6 ? qMax : 1,
           heading: r.peak <= 1e-9 ? T.noRunoff : undefined,
-          headingColor: C.signal,
+          // Tanpa limpasan adalah hasil sah, bukan di luar rentang berlaku.
+          headingColor: C.ink2,
           axisX: T.axTimeHour,
           axisY: T.axFlowRate,
           series: deret,
@@ -175,7 +200,6 @@ export function HidrografBanjirClient() {
             x: r.peakTime,
             y: r.peak,
             label: `${fmtPlain(r.peak, 1)} m³/s`,
-            invalid: r.burstTooShort,
           },
         },
         lang
@@ -218,7 +242,7 @@ export function HidrografBanjirClient() {
             { label: "P", value: `${fmt(P, 0)} mm` },
             { label: "Pe", value: `${fmt(r.effectiveRain, 1)} mm`, tint: C.water },
             { label: "Qp", value: `${fmt(r.peak, 1)} m³/s`, tint: C.water },
-            { label: "tp", value: `${fmt(r.peakTime, 2)} h`, tint: C.energy },
+            { label: "tpk", value: `${fmt(r.peakTime, 2)} h`, tint: C.energy },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -248,35 +272,90 @@ export function HidrografBanjirClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.burstTooShort ? undefined : C.water} alert={r.burstTooShort}>
-                {`${fmt(r.peak, 1)} m³/s`}
-              </Flag>
-              {r.burstTooShort && <Flag alert>{x.pendek}</Flag>}
-            </div>
-            {r.burstTooShort && (
-              <div className="mb-2.5">
-                <Note>{x.pendekNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Qp", label: x.rPeak, value: fmt(r.peak, 2), unit: "m³/s", tint: C.water, strong: true },
-                { symbol: "tp", label: x.rPeakTime, value: fmt(r.peakTime, 2), unit: "h", tint: C.energy, strong: true },
+                { symbol: "tpk", label: x.rPeakTime, value: fmt(r.peakTime, 2), unit: "h", tint: C.energy, strong: true },
                 { symbol: "Pe", label: x.rPe, value: fmt(r.effectiveRain, 2), unit: "mm", tint: C.water },
                 { symbol: "—", label: x.rLoss, value: fmt(hilang, 2), unit: "mm", tint: C.ink3 },
-                { symbol: "S", label: x.rS, value: fmt(scsStorage(CN), 1), unit: "mm", tint: C.critical },
+                { symbol: "S", label: x.rS, value: fmt(S, 1), unit: "mm", tint: C.critical },
+                { symbol: "Ia", label: x.rIa, value: fmt(Ia, 2), unit: "mm" },
+                { symbol: "ΔD", label: x.rDD, value: fmt(r.blockLength, 3), unit: "h" },
                 { symbol: "Tp", label: x.rTp, value: fmt(r.tp, 2), unit: "h" },
-                { symbol: "qp", label: x.rQp, value: fmt(r.qp, 3), unit: "m³/s·mm" },
+                { symbol: "qp", label: x.rQp, value: fmt(r.qp, 3), unit: x.perMm },
                 { symbol: "V", label: x.rVol, value: fmt(r.volume / 1e6, 3), unit: T.millionCubic },
                 { symbol: "Dr", label: x.rDepth, value: fmt(r.runoffDepth, 2), unit: "mm" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: `${x.rS}; ${x.rIa}`,
+                    rumus: (<><span>S =</span><Frac num="25400" den="CN" /><span>− 254;  Ia = {fmt(0.2, 1)} · S</span></>),
+                    isi: `25400 / ${fmt(CN, 0)} − 254;  Ia = ${fmt(0.2, 1)} · ${fmt(S, 2)}`,
+                    hasil: `S = ${fmt(S, 1)};  Ia = ${fmt(Ia, 2)}`,
+                    satuan: "mm",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: adaLimpas ? x.rPe : x.hPe0,
+                    rumus: (<><span>Pe =</span><Frac num="( P − Ia )²" den="P − Ia + S" /></>),
+                    isi: adaLimpas
+                      ? `( ${fmt(P, 0)} − ${fmt(Ia, 3)} )² / ( ${fmt(P, 0)} − ${fmt(Ia, 3)} + ${fmt(S, 3)} )`
+                      : `${fmt(P, 0)} ≤ ${fmt(Ia, 3)}`,
+                    hasil: fmt(r.effectiveRain, 2),
+                    satuan: "mm",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.rDD,
+                    rumus: <span>ΔD = D / ⌈ D / min( 1; {fmt(0.133, 3)} · tc ) ⌉</span>,
+                    isi: `${fmt(dur, 0)} / ⌈ ${fmt(dur, 0)} / ${fmt(Math.min(1, 0.133 * tc), 4)} ⌉ = ${fmt(dur, 0)} / ${nPias}`,
+                    hasil: fmt(r.blockLength, 3),
+                    satuan: "h",
+                  },
+                  {
+                    judul: x.rTp,
+                    rumus: (<><span>Tp =</span><Frac num="ΔD" den="2" /><span>+ {fmt(0.6, 1)} · tc</span></>),
+                    isi: `${fmt(r.blockLength, 4)} / 2 + ${fmt(0.6, 1)} · ${fmt(tc, 1)}`,
+                    hasil: fmt(r.tp, 2),
+                    satuan: "h",
+                  },
+                  {
+                    judul: x.rQp,
+                    rumus: (<><span>qp =</span><Frac num={`${fmt(0.208, 3)} · A`} den="Tp" /></>),
+                    isi: `${fmt(0.208, 3)} · ${fmt(A, 0)} / ${fmt(r.tp, 3)}`,
+                    hasil: fmt(r.qp, 3),
+                    satuan: x.perMm,
+                  },
+                  {
+                    judul: `${x.hPeak}, tpk = ${fmt(r.peakTime, 2)} h`,
+                    rumus: (<><span>Qp = {lang === "id" ? "maks" : "max"} Σ</span><Frac num="Pe" den="n" /><span>· qp · u( t − k · ΔD )</span></>),
+                    isi: adaLimpas
+                      ? `${lang === "id" ? "maks" : "max"} Σ ( ${fmt(r.effectiveRain, 3)} / ${nPias} ) · ${fmt(r.qp, 4)} · u( t − k · ${fmt(r.blockLength, 4)} )`
+                      : "—",
+                    hasil: fmt(r.peak, 2),
+                    satuan: "m³/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hCek,
+                    rumus: (<><span>Dr =</span><Frac num="V" den="A" /><span>≈ Pe</span></>),
+                    isi: `${fmt(r.volume, 0)} m³ / ( ${fmt(A, 0)} · 10⁶ m² ) · 1000`,
+                    hasil: fmt(r.runoffDepth, 2),
+                    satuan: "mm",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(P, dur, CN, A, tc, r.peak, r.effectiveRain, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.blockTooCoarse ? "caution" : adaLimpas ? "water" : "neutral"}
+            badge={r.blockTooCoarse ? x.kasar : adaLimpas ? x.adaLimpas : x.tanpaLimpas}
+            {...notice(P, dur, CN, A, tc, r.peak, r.peakTime, r.effectiveRain, r.blockTooCoarse, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksHydrograph(P, dur, CN, A, tc)} />}
@@ -298,7 +377,11 @@ export function HidrografBanjirClient() {
                 </span>
               </Eq>
               <Eq>
-                <span>Tp = 0,5 Δt + 0,6 tc</span>
+                <span>Tp =</span>
+                <Frac num="ΔD" den="2" />
+                <span>+ 0,6 tc</span>
+                <span className="ml-5">ΔD ≈ min(1 h; {fmt(0.133, 3)} tc)</span>
+
                 <span className="ml-5">qp =</span>
                 <Frac num="0,208 A" den="Tp" />
                 <span className="ml-3 text-ink-3">
@@ -324,14 +407,63 @@ function notice(
   A: number,
   tc: number,
   peak: number,
+  peakTime: number,
   Pe: number,
+  kasar: boolean,
   lang: Lang
-): string {
-  const naik = floodHydrograph(P, dur, Math.min(CN + 10, 100), A, tc);
-  const bedaPuncak = peak > 0 ? ((naik.peak - peak) / peak) * 100 : 0;
-  const bedaHujan = 10;
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
+  const en = lang === "en";
+  const CN2 = Math.min(CN + 10, 100);
+  const butir: string[] = [];
 
-  if (lang === "en")
-    return `Raise the curve number by ${fmtPlain(bedaHujan, 0)}, from ${fmtPlain(CN, 0)} to ${fmtPlain(Math.min(CN + 10, 100), 0)}, and the peak rises by ${fmt(bedaPuncak, 0)} per cent while the rainfall is untouched. That is the whole weight the curve number carries, and it is why arguments over catchment design so often turn out to be arguments over a single table lookup. Note also how little of the rain becomes runoff at low curve numbers: at ${fmtPlain(CN, 0)} only ${fmt((Pe / P) * 100, 0)} per cent of ${fmtPlain(P, 0)} mm reaches the river at all.`;
-  return `Naikkan nilai CN sebesar ${fmtPlain(bedaHujan, 0)} angka, dari ${fmtPlain(CN, 0)} ke ${fmtPlain(Math.min(CN + 10, 100), 0)}, dan puncaknya naik ${fmt(bedaPuncak, 0)} persen tanpa satu milimeter pun hujan ditambahkan. Itulah seluruh beban yang dipikul satu nilai CN, dan itu sebabnya perdebatan tentang rancangan daerah aliran sering berujung menjadi perdebatan tentang satu baris pada tabel. Perhatikan juga betapa sedikit hujan yang menjadi limpasan pada CN rendah: pada ${fmtPlain(CN, 0)} hanya ${fmt((Pe / P) * 100, 0)} persen dari ${fmtPlain(P, 0)} mm yang sampai ke sungai sama sekali.`;
+  if (kasar) butir.push(x.kasarNote);
+
+  // Kepekaan CN memakai selisih sebenarnya; pada CN 100 tidak ada lagi
+  // yang bisa dinaikkan, jadi butirnya ditekan.
+  if (CN2 > CN) {
+    const naik = floodHydrograph(P, dur, CN2, A, tc);
+    if (peak <= 1e-9) {
+      butir.push(
+        naik.peak > 1e-9
+          ? en
+            ? `At CN ${fmtPlain(CN2, 0)} this rain starts to run off: the peak becomes ${fmt(naik.peak, 2)} m³/s with no extra rain.`
+            : `Pada CN ${fmtPlain(CN2, 0)} hujan ini mulai melimpas: puncaknya menjadi ${fmt(naik.peak, 2)} m³/s tanpa tambahan hujan.`
+          : en
+            ? `Even at CN ${fmtPlain(CN2, 0)} this rain is still held back completely.`
+            : `Pada CN ${fmtPlain(CN2, 0)} pun hujan ini masih tertahan seluruhnya.`
+      );
+    } else {
+      const beda = ((naik.peak - peak) / peak) * 100;
+      const d = fmtPlain(CN2 - CN, 0);
+      butir.push(
+        en
+          ? `Raise the curve number by ${d}, from ${fmtPlain(CN, 0)} to ${fmtPlain(CN2, 0)}, and the peak rises by ${fmt(beda, 0)} per cent while the rainfall is untouched.`
+          : `Naikkan CN sebesar ${d} angka, dari ${fmtPlain(CN, 0)} ke ${fmtPlain(CN2, 0)}, dan puncaknya naik ${fmt(beda, 0)} persen tanpa satu milimeter pun hujan ditambahkan.`
+      );
+    }
+  }
+
+  if (Pe > 0) {
+    const bagian = fmt((Pe / P) * 100, 0);
+    // "CN rendah" hanya ditulis bila CN-nya memang rendah.
+    const rendah = CN < 60;
+    butir.push(
+      en
+        ? `${rendah ? "Little rain becomes runoff at a low curve number: at" : "At"} CN ${fmtPlain(CN, 0)}, ${bagian} per cent of ${fmtPlain(P, 0)} mm reaches the river.`
+        : `${rendah ? "Pada CN rendah sedikit hujan yang menjadi limpasan: pada" : "Pada"} CN ${fmtPlain(CN, 0)}, ${bagian} persen dari ${fmtPlain(P, 0)} mm sampai ke sungai.`
+    );
+  }
+  butir.push(x.andaian);
+
+  const state =
+    Pe > 0
+      ? en
+        ? `Of ${fmtPlain(P, 0)} mm of rain, ${fmt(Pe, 1)} mm becomes runoff; the peak is ${fmt(peak, 1)} m³/s at hour ${fmt(peakTime, 2)}.`
+        : `Dari ${fmtPlain(P, 0)} mm hujan, ${fmt(Pe, 1)} mm menjadi limpasan; puncak ${fmt(peak, 1)} m³/s pada jam ke-${fmt(peakTime, 2)}.`
+      : en
+        ? "The rain is held back completely; there is no runoff."
+        : "Hujan seluruhnya tertahan, tidak ada limpasan.";
+
+  return { state, notice: butir };
 }

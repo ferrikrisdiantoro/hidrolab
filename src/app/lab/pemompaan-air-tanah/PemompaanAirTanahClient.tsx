@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -20,7 +21,7 @@ import {
   type StructureCallout,
   type StructureLine,
 } from "@/lib/drawStructure";
-import { fmt, fmtPlain, fmtSci, pumpingWell, wellDrawdownAt } from "@/lib/hydraulics";
+import { SICHARDT_C, fmt, fmtPlain, fmtSci, pumpingWell, wellDrawdownAt } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -36,6 +37,14 @@ import { checksWell } from "@/lib/checks";
  * muka piezometrik jatuh di bawah atap dan akuifernya berhenti tertekan.
  */
 const PIEZO_RISE = 0.5;
+
+/*
+ * Batas penurunan dalam akuifer bebas dalam Q/Qmax. Model menandai
+ * deepDrawdown bila s > 0,25 b, yaitu hw < 0,75 b. Karena
+ * b² − hw² = Q ln(R/rw)/(π k) = (Q/Qmax) b², batas itu setara
+ * Q/Qmax = 1 − 0,75² = 0,4375 dengan tepat.
+ */
+const Q_DALAM = 1 - 0.75 * 0.75;
 
 const TXT = {
   id: {
@@ -63,6 +72,21 @@ const TXT = {
     rT: "Keterusan akuifer",
     rSich: "Taksiran Sichardt untuk jari-jari pengaruh",
     aman: "Sumur berjalan",
+    dalam: "Penurunan dalam",
+    dalamNote:
+      "Penurunan melampaui seperempat tebal akuifer; asumsi Dupuit mulai longgar. Rumus akuifer bebas mengandaikan aliran mendatar, dan di dekat sumur yang muka airnya turun sedalam ini aliran mulai menukik, jadi penurunan di dinding sumur yang sebenarnya sedikit berbeda dari yang dihitung.",
+    bKecil: "Penurunan kecil, Dupuit berlaku",
+    bDalam: "Penurunan dalam",
+    bKering: "Sumur kering",
+    bTertekan: "Tertekan, Thiem berlaku",
+    bBawahAtap: "Muka piezometrik di bawah atap",
+    lsm: "l/s per m",
+    hT: "Keterusan akuifer",
+    hS: "Penurunan di dinding sumur",
+    hSw: "Kehilangan sumur, penurunan terukur, dan tinggi muka air",
+    hHalf: "Jari-jari separuh penurunan dan kapasitas jenis",
+    hHalfBebas: "bebas: dicari dengan bagi dua",
+    hQmax: "Debit terbesar dan taksiran Sichardt",
     kering: "Sumur kering pada debit ini",
     bukanTertekan: "Muka piezometrik jatuh di bawah atap akuifer",
     keringNote:
@@ -97,6 +121,21 @@ const TXT = {
     rT: "Aquifer transmissivity",
     rSich: "Sichardt estimate of the influence radius",
     aman: "The well runs",
+    dalam: "Deep drawdown",
+    dalamNote:
+      "Drawdown exceeds a quarter of the aquifer thickness; the Dupuit assumption starts to loosen. The unconfined formula assumes horizontal flow, and near a well whose water level falls this far the flow starts to dip, so the true drawdown at the well face differs somewhat from the computed one.",
+    bKecil: "Small drawdown, Dupuit holds",
+    bDalam: "Deep drawdown",
+    bKering: "Well runs dry",
+    bTertekan: "Confined, Thiem holds",
+    bBawahAtap: "Piezometric surface below the roof",
+    lsm: "l/s per m",
+    hT: "Aquifer transmissivity",
+    hS: "Drawdown at the well face",
+    hSw: "Well loss, measured drawdown, and water level",
+    hHalf: "Half-drawdown radius and specific capacity",
+    hHalfBebas: "unconfined: found by bisection",
+    hQmax: "Largest discharge and the Sichardt estimate",
     kering: "The well runs dry at this discharge",
     bukanTertekan: "The piezometric surface falls below the aquifer roof",
     keringNote:
@@ -143,6 +182,12 @@ export function PemompaanAirTanahClient() {
   /* Aras muka air mula-mula di atas dasar akuifer */
   const arasAwal = confined ? b * (1 + PIEZO_RISE) : b;
   const bukanTertekan = confined && r.sAquifer > b * PIEZO_RISE;
+  /* Saat kering, model menjepit s pada b (wellDrawdownAt), jadi hw 0,
+     Q/s, r½, dan Sichardt bukan hasil yang sah: ditulis "—". */
+  const tampil = (v: number) => (r.dry ? NaN : v);
+  const satuan = (u: string) => (r.dry ? undefined : u);
+  const lnR = Math.log(R / rw);
+  const dalam = !confined && !r.dry && r.deepDrawdown;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -305,6 +350,40 @@ export function PemompaanAirTanahClient() {
 
   return (
     <LabShell
+      status={
+        confined ? (
+          /* Batas 1: muka piezometrik dipatok 0,5 b di atas atap; s yang
+             melewatinya membuat akuifer berhenti tertekan (di luar
+             rentang Thiem). Rentang penggeser memberi 2,7·10⁻⁵ sampai
+             5060, jadi kedua ujung bisa lewat skala. */
+          <RegimeScale
+            symbol="s/(0,5 b)"
+            value={r.sAquifer / (b * PIEZO_RISE)}
+            invalid={bukanTertekan}
+            scale="log"
+            digits={3}
+            bands={[
+              { from: 0.001, to: 1, label: x.bTertekan, tone: "water" },
+              { from: 1, to: 10, label: x.bBawahAtap, tone: "invalid" },
+            ]}
+          />
+        ) : (
+          /* Batas dari pumpingWell: deepDrawdown (s > 0,25 b, setara
+             Q/Qmax = 0,4375) dan dry (Q ≥ Qmax), Dupuit-Thiem. */
+          <RegimeScale
+            symbol="Q/Qmax"
+            value={Q / r.Qmax}
+            invalid={r.dry}
+            scale="log"
+            digits={3}
+            bands={[
+              { from: 0.001, to: Q_DALAM, label: x.bKecil, tone: "water" },
+              { from: Q_DALAM, to: 1, label: x.bDalam, tone: "caution" },
+              { from: 1, to: 10, label: x.bKering, tone: "invalid" },
+            ]}
+          />
+        )
+      }
       sheet="GW-02"
       subject={SUBJECTS.GW[lang]}
       title={x.title}
@@ -313,17 +392,25 @@ export function PemompaanAirTanahClient() {
           <p>
             Separuh seluruh penurunan selesai pada{" "}
             <Term tint={C.critical}>rata-rata ukur</Term> jari-jari sumur dan
-            jari-jari pengaruh, bukan rata-rata hitungnya. Pada sumur ini,
-            separuhnya sudah selesai dalam{" "}
-            <Term tint={C.water}>{fmt(r.halfRadius, 1)} meter</Term> pertama.
+            jari-jari pengaruh, bukan rata-rata hitungnya.
+            {!r.dry && (
+              <>
+                {" "}Pada sumur ini, separuhnya sudah selesai dalam{" "}
+                <Term tint={C.water}>{fmt(r.halfRadius, 1)} meter</Term> pertama.
+              </>
+            )}
           </p>
         ) : (
           <p>
             Half the entire drawdown is done at the{" "}
             <Term tint={C.critical}>geometric mean</Term> of the well radius and
-            the radius of influence, not the arithmetic one. For this well half
-            of it is finished within the first{" "}
-            <Term tint={C.water}>{fmt(r.halfRadius, 1)} metres</Term>.
+            the radius of influence, not the arithmetic one.
+            {!r.dry && (
+              <>
+                {" "}For this well half of it is finished within the first{" "}
+                <Term tint={C.water}>{fmt(r.halfRadius, 1)} metres</Term>.
+              </>
+            )}
           </p>
         )
       }
@@ -366,51 +453,104 @@ export function PemompaanAirTanahClient() {
             </InputTable>
 
             <div className="mt-3.5">
+              {/* Penurunan dalam: Q 15 l/s, bebas (s 9,24 m = 0,37 b, belum
+                  kering; 50 l/s dulu sudah kering). Sumur tersumbat: Q 24
+                  l/s, C 3000 (s 12,05 m < 0,5 b; 40 l/s dulu membuat akuifer
+                  berhenti tertekan dan menutup pokok tombolnya). */}
               <PresetRow
                 label={t.presetExample}
                 presets={[
                   { label: x.pUji, apply: () => { setQ(0.02); setK(1); setB(25); setRw(0.15); setR(400); setCw(0); setConfined(true); } },
-                  { label: x.pDalam, apply: () => { setQ(0.05); setK(1); setB(25); setRw(0.15); setR(400); setCw(0); setConfined(false); } },
-                  { label: x.pRugi, apply: () => { setQ(0.04); setK(1); setB(25); setRw(0.15); setR(400); setCw(3000); setConfined(true); } },
+                  { label: x.pDalam, apply: () => { setQ(0.015); setK(1); setB(25); setRw(0.15); setR(400); setCw(0); setConfined(false); } },
+                  { label: x.pRugi, apply: () => { setQ(0.024); setK(1); setB(25); setRw(0.15); setR(400); setCw(3000); setConfined(true); } },
                 ]}
               />
             </div>
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.dry || bukanTertekan ? undefined : C.water} alert={r.dry || bukanTertekan}>
-                {r.dry ? x.kering : bukanTertekan ? x.bukanTertekan : x.aman}
-              </Flag>
-            </div>
-            {r.dry && (
-              <div className="mb-2.5">
-                <Note>{x.keringNote}</Note>
-              </div>
-            )}
-            {!r.dry && bukanTertekan && (
-              <div className="mb-2.5">
-                <Note>{x.bukanTertekanNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "s", label: x.rS, value: fmt(r.sAquifer, 3), unit: "m", tint: C.critical, strong: true },
+                { symbol: "s", label: x.rS, value: fmt(tampil(r.sAquifer), 3), unit: satuan("m"), tint: C.critical, strong: true },
                 { symbol: "sw", label: x.rLoss, value: fmt(r.sWellLoss, 3), unit: "m", tint: Cw > 0 ? C.critical : undefined },
-                { symbol: "st", label: x.rTotal, value: fmt(r.sTotal, 3), unit: "m", strong: true },
-                { symbol: "hw", label: x.rH, value: fmt(r.hWell, 2), unit: "m", tint: C.water },
-                { symbol: "r½", label: x.rHalf, value: fmt(r.halfRadius, 2), unit: "m" },
-                { symbol: "Q/s", label: x.rSpec, value: fmt(r.specificCapacity * 1000, 2), unit: "l/s per m" },
-                { symbol: "Qmax", label: x.rQmax, value: Number.isFinite(r.Qmax) ? fmt(r.Qmax * 1000, 1) : "—", unit: "l/s", tint: r.dry ? C.signal : undefined },
+                { symbol: "st", label: x.rTotal, value: fmt(tampil(r.sTotal), 3), unit: satuan("m"), strong: true },
+                { symbol: "hw", label: x.rH, value: fmt(tampil(r.hWell), 2), unit: satuan("m"), tint: C.water },
+                { symbol: "r½", label: x.rHalf, value: fmt(tampil(r.halfRadius), 2), unit: satuan("m") },
+                { symbol: "Q/s", label: x.rSpec, value: fmt(tampil(r.specificCapacity * 1000), 2), unit: satuan(x.lsm) },
+                { symbol: "Qmax", label: x.rQmax, value: Number.isFinite(r.Qmax) ? fmt(r.Qmax * 1000, 1) : "—", unit: Number.isFinite(r.Qmax) ? "l/s" : undefined, tint: r.dry ? C.signal : undefined },
                 { symbol: "T", label: x.rT, value: fmtSci(r.T), unit: "m²/s" },
-                { symbol: "R", label: x.rSich, value: fmt(r.sichardt, 0), unit: "m" },
+                { symbol: "R", label: x.rSich, value: fmt(tampil(r.sichardt), 0), unit: satuan("m") },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hT,
+                    rumus: <span>T = k · b</span>,
+                    isi: `${fmtSci(kSI)} · ${fmt(b, 0)}`,
+                    hasil: fmtSci(r.T),
+                    satuan: "m²/s",
+                  },
+                  confined
+                    ? {
+                        judul: x.hS,
+                        rumus: (<><span>s =</span><Frac num="Q · ln(R/rw)" den="2 π T" /></>),
+                        isi: `${fmt(Q, 4)} · ln( ${fmt(R, 0)} / ${fmt(rw, 2)} ) / ( 2π · ${fmtSci(r.T)} )`,
+                        hasil: fmt(r.sAquifer, 3),
+                        satuan: "m",
+                        tint: C.critical,
+                      }
+                    : {
+                        judul: x.hS,
+                        rumus: (<><span>s = b − √( b² −</span><Frac num="Q · ln(R/rw)" den="π k" /><span>)</span></>),
+                        isi: r.dry
+                          ? `${fmt(Q, 4)} · ln( ${fmt(R, 0)} / ${fmt(rw, 2)} ) / ( π · ${fmtSci(kSI)} ) = ${fmt((Q * lnR) / (Math.PI * kSI), 1)} ≥ b² = ${fmt(b * b, 0)}`
+                          : `${fmt(b, 0)} − √( ${fmt(b, 0)}² − ${fmt(Q, 4)} · ln( ${fmt(R, 0)} / ${fmt(rw, 2)} ) / ( π · ${fmtSci(kSI)} ) )`,
+                        hasil: fmt(tampil(r.sAquifer), 3),
+                        satuan: satuan("m"),
+                        tint: C.critical,
+                      },
+                  {
+                    judul: x.hSw,
+                    rumus: <span>sw = C · Q² ; st = s + sw ; hw = b − s</span>,
+                    isi: r.dry
+                      ? `sw = ${fmt(Cw, 0)} · ${fmt(Q, 4)}² = ${fmt(r.sWellLoss, 3)} m`
+                      : `sw = ${fmt(Cw, 0)} · ${fmt(Q, 4)}² = ${fmt(r.sWellLoss, 3)} ; st = ${fmt(r.sAquifer, 3)} + ${fmt(r.sWellLoss, 3)} = ${fmt(r.sTotal, 3)} m ; hw = ${fmt(b, 0)} − ${fmt(r.sAquifer, 3)}`,
+                    hasil: fmt(tampil(r.hWell), 2),
+                    satuan: satuan("m"),
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hHalf,
+                    rumus: (<><span>r½ = √( R · rw ) ; Q/st</span></>),
+                    isi: r.dry
+                      ? "—"
+                      : confined
+                        ? `r½ = √( ${fmt(R, 0)} · ${fmt(rw, 2)} ) = ${fmt(r.halfRadius, 2)} m ; ${fmt(Q * 1000, 1)} / ${fmt(r.sTotal, 3)}`
+                        : `r½ (${x.hHalfBebas}) = ${fmt(r.halfRadius, 2)} m ; ${fmt(Q * 1000, 1)} / ${fmt(r.sTotal, 3)}`,
+                    hasil: fmt(tampil(r.specificCapacity * 1000), 2),
+                    satuan: satuan(x.lsm),
+                  },
+                  {
+                    judul: x.hQmax,
+                    rumus: (<><span>Qmax =</span><Frac num="π k b²" den="ln(R/rw)" /><span>; R = {fmt(SICHARDT_C, 0)} · s · √k</span></>),
+                    isi: r.dry
+                      ? `Qmax = π · ${fmtSci(kSI)} · ${fmt(b, 0)}² / ln( ${fmt(R, 0)} / ${fmt(rw, 2)} ) = ${fmt(r.Qmax * 1000, 1)} l/s`
+                      : `${confined ? "" : `Qmax = π · ${fmtSci(kSI)} · ${fmt(b, 0)}² / ln( ${fmt(R, 0)} / ${fmt(rw, 2)} ) = ${fmt(r.Qmax * 1000, 1)} l/s ; `}R = ${fmt(SICHARDT_C, 0)} · ${fmt(r.sAquifer, 3)} · √${fmtSci(kSI)}`,
+                    hasil: fmt(tampil(r.sichardt), 0),
+                    satuan: satuan("m"),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Q, kSI, b, rw, R, confined, Cw, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.dry || bukanTertekan ? "invalid" : dalam ? "caution" : "water"}
+            badge={r.dry ? x.kering : bukanTertekan ? x.bukanTertekan : dalam ? x.dalam : x.aman}
+            {...notice(Q, kSI, b, rw, R, confined, Cw, bukanTertekan, x, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksWell(Q, kSI, b, rw, R, confined, Cw)} />}
@@ -452,6 +592,11 @@ export function PemompaanAirTanahClient() {
   );
 }
 
+/*
+ * Kalimat keadaan, lalu butir: (a) lipat empat R; (b) lipat dua Q, dengan
+ * cabang bila lipat dua itu membuat sumur kering atau akuifernya sudah
+ * berhenti tertekan; (c) catatan kering / di bawah atap / penurunan dalam.
+ */
 function notice(
   Q: number,
   k: number,
@@ -460,16 +605,67 @@ function notice(
   R: number,
   confined: boolean,
   Cw: number,
+  bukanTertekan: boolean,
+  x: { keringNote: string; bukanTertekanNote: string; dalamNote: string },
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const en = lang === "en";
   const r = pumpingWell(Q, k, b, rw, R, confined, Cw);
+  const jenis = confined ? (en ? "Confined" : "Tertekan") : en ? "Unconfined" : "Bebas";
+
+  if (r.dry) {
+    return {
+      state: en
+        ? `${jenis}: the well runs dry; Q = ${fmt(Q * 1000, 1)} l/s is at or above Qmax = ${fmt(r.Qmax * 1000, 1)} l/s.`
+        : `${jenis}: sumur kering; Q = ${fmt(Q * 1000, 1)} l/s sudah mencapai atau melampaui Qmax = ${fmt(r.Qmax * 1000, 1)} l/s.`,
+      notice: [x.keringNote],
+    };
+  }
+
   const empat = pumpingWell(Q, k, b, rw, R * 4, confined, Cw);
   const dua = pumpingWell(Q * 2, k, b, rw, R, confined, Cw);
   const naikR = r.sAquifer > 0 ? (empat.sAquifer / r.sAquifer - 1) * 100 : 0;
   const naikQ = r.sAquifer > 0 ? dua.sAquifer / r.sAquifer : 2;
   const bagian = (r.halfRadius / R) * 100;
 
-  if (lang === "en")
-    return `Half the drawdown is done inside ${fmt(r.halfRadius, 1)} metres, which is ${fmt(bagian, 2)} per cent of the radius of influence. Now quadruple that radius: the drawdown rises only ${fmt(naikR, 1)} per cent, because the radius sits inside a logarithm. Then double the discharge instead. ${confined ? `In a confined aquifer the drawdown doubles exactly, to ${fmt(dua.sAquifer, 2)} metres.` : `In an unconfined aquifer it rises by a factor of ${fmt(naikQ, 2)}, not two, because what is proportional to the discharge is the difference of squared heads rather than the drawdown itself.`}`;
-  return `Separuh penurunannya selesai dalam ${fmt(r.halfRadius, 1)} meter, yaitu ${fmt(bagian, 2)} persen dari jari-jari pengaruhnya. Sekarang lipatempatkan jari-jari pengaruh itu: penurunannya naik hanya ${fmt(naikR, 1)} persen, karena jari-jarinya berada di dalam logaritma. Lalu gandakan debitnya. ${confined ? `Pada akuifer tertekan penurunannya tepat menjadi dua kali, ${fmt(dua.sAquifer, 2)} meter.` : `Pada akuifer bebas ia menjadi ${fmt(naikQ, 2)} kali, bukan dua kali, karena yang berbanding lurus dengan debit adalah selisih kuadrat tinggi muka airnya, bukan penurunannya sendiri.`}`;
+  const state = en
+    ? `${jenis}: s = ${fmt(r.sAquifer, 3)} m at the well face, half of it done within ${fmt(r.halfRadius, 1)} m.`
+    : `${jenis}: s = ${fmt(r.sAquifer, 3)} m di dinding sumur, separuhnya selesai dalam ${fmt(r.halfRadius, 1)} m.`;
+
+  const butir: string[] = [];
+  if (bukanTertekan) {
+    butir.push(x.bukanTertekanNote);
+    return { state, notice: butir };
+  }
+
+  butir.push(
+    en
+      ? `Half the drawdown is done inside ${fmt(r.halfRadius, 1)} metres, ${fmt(bagian, 2)} per cent of the radius of influence. Quadruple that radius and the drawdown rises only ${fmt(naikR, 1)} per cent, because the radius sits inside a logarithm.`
+      : `Separuh penurunannya selesai dalam ${fmt(r.halfRadius, 1)} meter, yaitu ${fmt(bagian, 2)} persen dari jari-jari pengaruhnya. Lipatempatkan jari-jari pengaruh itu dan penurunannya naik hanya ${fmt(naikR, 1)} persen, karena jari-jarinya berada di dalam logaritma.`
+  );
+
+  if (confined) {
+    butir.push(
+      dua.sAquifer > b * PIEZO_RISE
+        ? en
+          ? `Double the discharge and the drawdown doubles to ${fmt(dua.sAquifer, 2)} m, which already takes the piezometric surface below the aquifer roof: the aquifer would stop being confined.`
+          : `Gandakan debitnya dan penurunannya menjadi dua kali, ${fmt(dua.sAquifer, 2)} m, yang sudah membawa muka piezometrik ke bawah atap akuifer: akuifernya berhenti tertekan.`
+        : en
+          ? `Double the discharge and in a confined aquifer the drawdown doubles exactly, to ${fmt(dua.sAquifer, 2)} metres.`
+          : `Gandakan debitnya dan pada akuifer tertekan penurunannya tepat menjadi dua kali, ${fmt(dua.sAquifer, 2)} meter.`
+    );
+  } else {
+    butir.push(
+      dua.dry
+        ? en
+          ? `Doubling the discharge would run the well dry: ${fmt(Q * 2000, 1)} l/s is above Qmax = ${fmt(r.Qmax * 1000, 1)} l/s.`
+          : `Menggandakan debit membuat sumurnya kering: ${fmt(Q * 2000, 1)} l/s melampaui Qmax = ${fmt(r.Qmax * 1000, 1)} l/s.`
+        : en
+          ? `Double the discharge and in an unconfined aquifer the drawdown rises by a factor of ${fmt(naikQ, 2)}, not two, because what is proportional to the discharge is the difference of squared heads rather than the drawdown itself.`
+          : `Gandakan debitnya dan pada akuifer bebas penurunannya menjadi ${fmt(naikQ, 2)} kali, bukan dua kali, karena yang berbanding lurus dengan debit adalah selisih kuadrat tinggi muka airnya, bukan penurunannya sendiri.`
+    );
+    if (r.deepDrawdown) butir.push(x.dalamNote);
+  }
+
+  return { state, notice: butir };
 }

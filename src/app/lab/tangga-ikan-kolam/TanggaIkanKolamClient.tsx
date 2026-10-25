@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,11 +20,12 @@ import {
   FISHWAY_POWER_GENERAL,
   FISHWAY_POWER_SALMON,
   FISHWAY_POWER_WEAK,
+  G,
   fmt,
   fmtPlain,
   poolFishway,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -51,8 +53,18 @@ const TXT = {
     rLength: "Panjang tangga ikan seluruhnya",
     rVslot: "Kecepatan di celah",
     teraduk: "Kolam terlalu teraduk",
+    bLapang: "Lapang untuk semua jenis",
+    bUmum: "Batas ikan sungai umum",
+    bKuat: "Hanya ikan perenang kuat",
+    bTeraduk: "Terlalu teraduk",
+    hQ: "Debit lewat celah",
+    hV: "Kecepatan di celah",
+    hP: "Daya lesap dan isi kolam",
+    hEps: "Lesapan daya per isi kolam",
+    hN: "Banyak kolam dan panjangnya",
+    banding: "dibanding batas",
     teradukNote:
-      "Lesapan daya per satuan isi kolam melampaui 150 watt per meter kubik, batas yang lazim dipakai untuk ikan sungai pada umumnya. Yang menghalangi ikan pada keadaan ini bukan kecepatan celahnya, yang masih dapat dilawan, melainkan putaran air di dalam kolam itu sendiri: gelembung udara dan pusaran membuat ikan kehilangan arah dan tidak menemukan celah berikutnya, lalu terbawa turun. Yang perlu diingat saat memperbaikinya: memperkecil celah tidak menolong, karena itu menurunkan debit sekaligus isi kolam yang teraduk dalam perbandingan yang hampir sama. Yang menolong memperbesar kolamnya atau memperkecil beda tinggi antar kolam.",
+      "Yang menghalangi ikan pada keadaan ini bukan kecepatan celahnya, yang masih dapat dilawan, melainkan putaran air di dalam kolam itu sendiri: gelembung udara dan pusaran membuat ikan kehilangan arah dan tidak menemukan celah berikutnya, lalu terbawa turun. Memperkecil celah menurunkan lesapan daya sebanding lebarnya, tetapi juga menurunkan debit yang menarik ikan ke pintu masuk; memperbesar kolam menurunkannya tanpa mengurangi debit.",
     note:
       "Tangga ikan berkolam dinilai dari dua angka yang sering tertukar. Yang pertama kecepatan di celah, dan itu yang harus dilawan ikan untuk berpindah dari satu kolam ke kolam berikutnya; ia ditentukan seluruhnya oleh beda tinggi muka air antar kolam, lewat Torricelli, dan tidak bergantung pada ukuran kolam sama sekali. Yang kedua lesapan daya per satuan isi kolam, dan itu yang menentukan apakah ikan sanggup beristirahat dan menemukan celah berikutnya setelah sampai; ia bergantung pada ukuran kolam maupun debitnya. Keduanya harus dipenuhi bersama, dan keduanya diperbaiki dengan cara yang berbeda: kecepatan celah hanya dapat diturunkan dengan memperkecil beda tinggi antar kolam, sedangkan lesapan daya dapat diturunkan dengan memperbesar kolamnya tanpa menyentuh beda tingginya sama sekali. Rancangan yang gagal biasanya memenuhi yang pertama dan melupakan yang kedua, karena yang pertama mudah dihitung dan yang kedua menuntut memikirkan isi kolam.",
   },
@@ -76,8 +88,18 @@ const TXT = {
     rLength: "Total fishway length",
     rVslot: "Velocity in the slot",
     teraduk: "Pool too turbulent",
+    bLapang: "Comfortable for all species",
+    bUmum: "Limit for river fish generally",
+    bKuat: "Strong swimmers only",
+    bTeraduk: "Too turbulent",
+    hQ: "Discharge through the slot",
+    hV: "Slot velocity",
+    hP: "Dissipated power and pool volume",
+    hEps: "Dissipation per pool volume",
+    hN: "Number of pools and length",
+    banding: "against the limit",
     teradukNote:
-      "The power dissipated per unit pool volume exceeds 150 watts per cubic metre, the limit commonly applied for river fish generally. What stops the fish in this state is not the slot velocity, which they can still beat, but the churning of the pool itself: entrained air and eddies leave the fish disoriented so that it fails to find the next slot and is carried back down. Worth remembering when fixing it: narrowing the slot does not help, because it lowers the discharge and the churned volume in nearly the same proportion. What helps is enlarging the pool or reducing the drop between pools.",
+      "What stops the fish in this state is not the slot velocity, which they can still beat, but the churning of the pool itself: entrained air and eddies leave the fish disoriented so that it fails to find the next slot and is carried back down. Narrowing the slot lowers the dissipation in proportion to its width, but also lowers the attraction flow; enlarging the pool lowers it without reducing the discharge.",
     note:
       "A pool fishway is judged by two numbers that are often confused. The first is the slot velocity, which the fish must beat to move from one pool to the next; it is set entirely by the head drop between pools, through Torricelli, and does not depend on the pool size at all. The second is the power dissipated per unit pool volume, which decides whether the fish can rest and find the next slot after arriving; it depends on the pool size as well as the discharge. Both must be satisfied together, and each is fixed in a different way: the slot velocity can only be lowered by reducing the drop between pools, while the dissipation can be lowered by enlarging the pool without touching the drop at all. A failed design usually meets the first and forgets the second, because the first is easy to compute and the second requires thinking about the volume of the pool.",
   },
@@ -112,6 +134,7 @@ export function TanggaIkanKolamClient() {
   const [rise, setRise] = useState(4);
 
   const r = poolFishway(dh, L, B, D, slot, rise);
+  const pita = pitaEps(r.powerDensity, lang);
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -160,7 +183,6 @@ export function TanggaIkanKolamClient() {
           {
             surface: muka,
             bed: [...dasar].reverse(),
-            invalid: r.tooTurbulent,
           },
         ],
         dims: [
@@ -202,7 +224,7 @@ export function TanggaIkanKolamClient() {
           { x: L * 1.3, z: (tampil - 2) * dh + D * 0.5, length: -26 },
         ],
         heading: r.tooTurbulent ? x.teraduk : undefined,
-        headingColor: C.signal,
+        headingColor: C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
       };
@@ -214,6 +236,20 @@ export function TanggaIkanKolamClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="ε"
+          value={r.powerDensity}
+          scale="log"
+          digits={0}
+          bands={[
+            { from: 1, to: FISHWAY_POWER_WEAK, label: x.bLapang, tone: "pass" },
+            { from: FISHWAY_POWER_WEAK, to: FISHWAY_POWER_GENERAL, label: x.bUmum, tone: "neutral" },
+            { from: FISHWAY_POWER_GENERAL, to: FISHWAY_POWER_SALMON, label: x.bKuat, tone: "critical" },
+            { from: FISHWAY_POWER_SALMON, to: 30000, label: x.bTeraduk, tone: "caution" },
+          ]}
+        />
+      }
       sheet="EH-01"
       subject={SUBJECTS.EH[lang]}
       title={x.title}
@@ -242,7 +278,7 @@ export function TanggaIkanKolamClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s, W)" },
             { label: "Q", value: `${fmt(r.Q, 3)} m³/s`, tint: C.water },
-            { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: r.tooTurbulent ? C.signal : C.energy },
+            { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: r.tooTurbulent ? C.caution : C.energy },
             { label: "V", value: `${fmt(r.slotVelocity, 2)} m/s`, tint: C.water },
             { label: "n", value: fmt(r.poolCount, 0) },
           ]}
@@ -275,20 +311,9 @@ export function TanggaIkanKolamClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.tooTurbulent ? undefined : C.water} alert={r.tooTurbulent}>
-                {`${fmt(r.powerDensity, 0)} W/m³`}
-              </Flag>
-              {r.tooTurbulent && <Flag alert>{x.teraduk}</Flag>}
-            </div>
-            {r.tooTurbulent && (
-              <div className="mb-2.5">
-                <Note>{x.teradukNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 1), unit: "W/m³", tint: r.tooTurbulent ? C.signal : C.energy, strong: true },
+                { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 1), unit: "W/m³", tint: r.tooTurbulent ? C.caution : C.energy, strong: true },
                 { symbol: "V", label: x.rVslot, value: fmt(r.slotVelocity, 3), unit: "m/s", tint: C.water, strong: true },
                 { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water },
                 { symbol: "P", label: x.rPower, value: fmt(r.power, 0), unit: "W" },
@@ -297,11 +322,57 @@ export function TanggaIkanKolamClient() {
                 { symbol: "Ltot", label: x.rLength, value: fmt(r.totalLength, 1), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hQ,
+                    rumus: <span>Q = Cd · b₀ · y · √( 2 · g · Δh )</span>,
+                    isi: `${fmt(0.65, 2)} · ${fmt(slot, 2)} · ${fmt(D, 1)} · √( 2 · ${fmt(G, 2)} · ${fmt(dh, 2)} )`,
+                    hasil: fmt(r.Q, 4),
+                    satuan: "m³/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hV,
+                    rumus: <span>V = √( 2 · g · Δh )</span>,
+                    isi: `√( 2 · ${fmt(G, 2)} · ${fmt(dh, 2)} )`,
+                    hasil: fmt(r.slotVelocity, 3),
+                    satuan: "m/s",
+                    tint: C.water,
+                  },
+                  {
+                    judul: x.hP,
+                    rumus: <span>P = ρ · g · Q · Δh ;  Vk = L · B · y</span>,
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(r.Q, 5)} · ${fmt(dh, 2)} ;  ${fmt(L, 1)} · ${fmt(B, 1)} · ${fmt(D, 1)} = ${fmt(r.poolVolume, 2)} m³`,
+                    hasil: fmt(r.power, 0),
+                    satuan: "W",
+                  },
+                  {
+                    judul: x.hEps,
+                    rumus: (<><span>ε =</span><Frac num="P" den="Vk" /></>),
+                    isi: `${fmt(r.power, 1)} / ${fmt(r.poolVolume, 3)}  (${x.banding} ${fmt(FISHWAY_POWER_GENERAL, 0)})`,
+                    hasil: fmt(r.powerDensity, 1),
+                    satuan: "W/m³",
+                    tint: r.tooTurbulent ? C.caution : C.energy,
+                  },
+                  {
+                    judul: x.hN,
+                    rumus: <span>n = ⌈H / Δh⌉ ;  Ltot = n · L</span>,
+                    isi: `⌈${fmt(rise, 1)} / ${fmt(dh, 2)}⌉ = ${fmt(r.poolCount, 0)} ;  ${fmt(r.poolCount, 0)} · ${fmt(L, 1)}`,
+                    hasil: fmt(r.totalLength, 1),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(dh, L, B, D, slot, rise, r.powerDensity, r.slotVelocity, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.tooTurbulent ? "caution" : pita.tone}
+            badge={r.tooTurbulent ? x.teraduk : pita.label}
+            {...notice(dh, L, B, D, slot, rise, r.powerDensity, r.slotVelocity, r.tooTurbulent, pita.label, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksPoolFishway(dh, L, B, D, slot, rise)} />}
@@ -332,6 +403,21 @@ export function TanggaIkanKolamClient() {
   );
 }
 
+/*
+ * Pita lesapan daya. Batasnya tetapan model (FISHWAY_POWER_*), dan pita
+ * keempat dimulai di batas salmon 200 W/m³. `tooTurbulent` model menyala di
+ * atas 150, jadi pita "hanya perenang kuat" sudah termasuk teraduk untuk
+ * ikan sungai umum. Ini hasil rancangan, bukan di luar rentang berlaku:
+ * tidak ada nada invalid di lembar ini.
+ */
+function pitaEps(eps: number, lang: Lang): { tone: Tone; label: string } {
+  const x = TXT[lang];
+  if (eps <= FISHWAY_POWER_WEAK) return { tone: "pass", label: x.bLapang };
+  if (eps <= FISHWAY_POWER_GENERAL) return { tone: "neutral", label: x.bUmum };
+  if (eps <= FISHWAY_POWER_SALMON) return { tone: "critical", label: x.bKuat };
+  return { tone: "caution", label: x.bTeraduk };
+}
+
 function notice(
   dh: number,
   L: number,
@@ -341,12 +427,31 @@ function notice(
   rise: number,
   eps: number,
   vSlot: number,
+  teraduk: boolean,
+  pita: string,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
   const celahKecil = poolFishway(dh, L, B, D, slot / 2, rise);
   const kolamBesar = poolFishway(dh, L * 1.5, B * 1.5, D, slot, rise);
+  const x = TXT[lang];
 
   if (lang === "en")
-    return `Halve the slot width and the dissipation goes from ${fmt(eps, 0)} to ${fmt(celahKecil.powerDensity, 0)} W/m³, while the slot velocity does not move at all: it stays ${fmt(vSlot, 2)} m/s, because it depends only on the drop between pools. Enlarge the pool by half in both plan dimensions instead and the dissipation falls to ${fmt(kolamBesar.powerDensity, 0)} W/m³ for the same discharge. The slot sets the velocity, the pool sets the turbulence, and mixing the two up is the most common way a fishway is designed to the wrong criterion.`;
-  return `Kecilkan lebar celahnya menjadi separuh dan lesapan dayanya berubah dari ${fmt(eps, 0)} ke ${fmt(celahKecil.powerDensity, 0)} W/m³, sementara kecepatan celahnya tidak bergerak sama sekali: ia tetap ${fmt(vSlot, 2)} m/s, karena ia hanya bergantung pada beda tinggi antar kolam. Perbesar kolamnya setengah kali lipat pada kedua ukuran denahnya, dan lesapan dayanya turun ke ${fmt(kolamBesar.powerDensity, 0)} W/m³ pada debit yang sama. Celah menentukan kecepatan, kolam menentukan keteradukan, dan menukar keduanya adalah cara paling lazim sebuah tangga ikan dirancang terhadap syarat yang salah.`;
+    return {
+      state: `ε = ${fmt(eps, 1)} W/m³: ${pita.toLowerCase()}. Slot velocity ${fmt(vSlot, 2)} m/s.${teraduk ? ` Above ${fmt(FISHWAY_POWER_GENERAL, 0)} W/m³ the pool is too turbulent for river fish generally.` : ""}`,
+      notice: [
+        teraduk ? x.teradukNote : "",
+        `Halve the slot width and the dissipation goes from ${fmt(eps, 0)} to ${fmt(celahKecil.powerDensity, 0)} W/m³, while the slot velocity stays ${fmt(vSlot, 2)} m/s, because it depends only on the drop between pools.`,
+        `Enlarge the pool by half in both plan dimensions instead and the dissipation falls to ${fmt(kolamBesar.powerDensity, 0)} W/m³ for the same discharge.`,
+        "The slot sets the velocity, the pool sets the turbulence.",
+      ],
+    };
+  return {
+    state: `ε = ${fmt(eps, 1)} W/m³: ${pita.toLowerCase()}. Kecepatan celah ${fmt(vSlot, 2)} m/s.${teraduk ? ` Di atas ${fmt(FISHWAY_POWER_GENERAL, 0)} W/m³ kolamnya terlalu teraduk untuk ikan sungai umum.` : ""}`,
+    notice: [
+      teraduk ? x.teradukNote : "",
+      `Kecilkan lebar celahnya menjadi separuh dan lesapan dayanya berubah dari ${fmt(eps, 0)} ke ${fmt(celahKecil.powerDensity, 0)} W/m³, sementara kecepatan celahnya tetap ${fmt(vSlot, 2)} m/s, karena ia hanya bergantung pada beda tinggi antar kolam.`,
+      `Perbesar kolamnya setengah kali lipat pada kedua ukuran denahnya, dan lesapan dayanya turun ke ${fmt(kolamBesar.powerDensity, 0)} W/m³ pada debit yang sama.`,
+      "Celah menentukan kecepatan, kolam menentukan keteradukan.",
+    ],
+  };
 }

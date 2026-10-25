@@ -4,18 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawPitot } from "@/lib/drawPitot";
 import {
+  G,
   fmt,
   pitotHead,
   pitotVelocity,
@@ -50,6 +52,17 @@ const TXT = {
     rSalah: "Kesalahan bila bacaan sumbu dianggap rata-rata",
     rDh: "Beda tinggi tekan di ujung tabung",
     dekatDinding: "Ujung tabung terlalu dekat dinding",
+    bandPangkat: "Profil pangkat berlaku",
+    bandAcuan: "Jari-jari acuan",
+    bandDinding: "Dekat dinding",
+    diAcuan: "Di jari-jari acuan",
+    diSumbu: "Di sumbu pipa",
+    setempat: "Bacaan setempat",
+    hU0: "Kecepatan di sumbu dari beda tinggi tekan",
+    hRasio: "Perbandingan rata-rata terhadap sumbu",
+    hQ: "Debit",
+    hU: "Kecepatan dan beda tinggi tekan di ujung tabung",
+    hR: "Jari-jari acuan dan kesalahan bacaan sumbu",
     dekatDindingNote:
       "Hukum pangkat tidak berlaku di dekat dinding. Turunan profilnya di dinding menjadi tak hingga, padahal kenyataannya di sana ada lapisan tipis tempat kekentalan menguasai dan kecepatannya turun mulus ke nol. Bacaan pada kedalaman ini tidak boleh dipakai. Tarik tabungnya menjauh dari dinding.",
     note:
@@ -74,6 +87,17 @@ const TXT = {
     rSalah: "Error if the axis reading is taken as the mean",
     rDh: "Head difference at the probe tip",
     dekatDinding: "Probe tip too close to the wall",
+    bandPangkat: "Power law holds",
+    bandAcuan: "Reference radius",
+    bandDinding: "Near the wall",
+    diAcuan: "At the reference radius",
+    diSumbu: "On the pipe axis",
+    setempat: "Local reading",
+    hU0: "Centreline velocity from the head difference",
+    hRasio: "Ratio of mean to centreline",
+    hQ: "Discharge",
+    hU: "Velocity and head difference at the probe tip",
+    hR: "Reference radius and the error of an axis reading",
     dekatDindingNote:
       "The power law does not hold near the wall. Its derivative at the wall becomes infinite, whereas in reality there is a thin layer where viscosity takes over and the velocity falls smoothly to zero. A reading at this depth must not be used. Pull the probe away from the wall.",
     note:
@@ -115,6 +139,11 @@ export function TabungPitotClient() {
   const uProbe = powerLawVelocity(rProbe, R, uMax, n);
   const Q = uMean * Math.PI * R * R;
   const dekatDinding = Math.abs(rFrac) > 0.95;
+  const rStar = rMean / R;
+  const salah = (1 / rasio - 1) * 100;
+  const diAcuan = Math.abs(Math.abs(rFrac) - rStar) < 0.02;
+  const diSumbu = Math.abs(rFrac) < 0.02;
+  const A = Math.PI * R * R;
 
   const ref = useCanvas(
     (ctx, w, h) =>
@@ -128,8 +157,63 @@ export function TabungPitotClient() {
     [dh, D, n, rFrac, lang]
   );
 
+  const langkah = [
+    {
+      judul: x.hU0,
+      rumus: <span>u₀ = √( 2 g Δh )</span>,
+      isi: `√( 2 · ${fmt(G, 2)} · ${fmt(dh, 3)} )`,
+      hasil: fmt(uMax, 4),
+      satuan: "m/s",
+      tint: C.water,
+    },
+    {
+      judul: x.hRasio,
+      rumus: (<><span>V / u₀ =</span><Frac num="2 n²" den="( n + 1 )( 2n + 1 )" /><span className="ml-3">V = u₀ · ( V / u₀ )</span></>),
+      isi: `2 · ${fmt(n, 0)}² / ( ${fmt(n + 1, 0)} · ${fmt(2 * n + 1, 0)} ) = ${fmt(rasio, 4)} ;  ${fmt(uMax, 4)} · ${fmt(rasio, 4)}`,
+      hasil: fmt(uMean, 4),
+      satuan: "m/s",
+      tint: C.energy,
+    },
+    {
+      judul: x.hQ,
+      rumus: <span>Q = V · π R²</span>,
+      isi: `${fmt(uMean, 4)} · π · ${fmt(R, 4)}² = ${fmt(uMean, 4)} · ${fmt(A, 5)}`,
+      hasil: fmt(Q * 1000, 2),
+      satuan: "l/s",
+      tint: C.water,
+    },
+    {
+      judul: x.hU,
+      rumus: <span>u = u₀ ( 1 − |r| / R )^( 1/n ) ;  Δhᵣ = u² / ( 2 g )</span>,
+      isi: `${fmt(uMax, 4)} · ( 1 − ${fmt(Math.abs(rFrac), 2)} )^( 1/${fmt(n, 0)} ) = ${fmt(uProbe, 4)} m/s ;  ${fmt(uProbe, 4)}² / ( 2 · ${fmt(G, 2)} )`,
+      hasil: fmt(pitotHead(uProbe), 4),
+      satuan: "m",
+      tint: C.energy,
+    },
+    {
+      judul: x.hR,
+      rumus: <span>r* / R = 1 − ( V / u₀ )ⁿ ;  ε = 1 / ( V / u₀ ) − 1</span>,
+      isi: `1 − ${fmt(rasio, 4)}^${fmt(n, 0)} = ${fmt(rStar, 4)} ;  1 / ${fmt(rasio, 4)} − 1`,
+      hasil: fmt(salah, 1),
+      satuan: "%",
+    },
+  ];
+
+  /* Batas dekat dinding 0,95 R (dekatDinding) dan pita jari-jari acuan
+     r* per R ± 0,02, toleransi yang sama dengan kalimat "di jari-jari acuan".
+     r* per R dari powerLawMeanRadius: 0,7505 sampai 0,7633 untuk n 5 sampai 10. */
+  const bandsR = [
+    { from: 0, to: rStar - 0.02, label: x.bandPangkat, tone: "neutral" as const },
+    { from: rStar - 0.02, to: rStar + 0.02, label: x.bandAcuan, tone: "pass" as const },
+    { from: rStar + 0.02, to: 0.95, label: x.bandPangkat, tone: "neutral" as const },
+    { from: 0.95, to: 1, label: x.bandDinding, tone: "invalid" as const },
+  ];
+
   return (
     <LabShell
+      status={
+        <RegimeScale symbol="|r/R|" value={Math.abs(rFrac)} invalid={dekatDinding} digits={2} bands={bandsR} />
+      }
       sheet="FM-03"
       subject={SUBJECTS.FM[lang]}
       title={x.title}
@@ -175,7 +259,7 @@ export function TabungPitotClient() {
               <InputRow symbol="Δh" label={x.ddh} value={dh} min={0.005} max={2} step={0.005} digits={3} unit="m" onChange={setDh} tint={C.energy} />
               <InputRow symbol="D" label={x.dD} value={D * 1000} min={25} max={800} step={5} digits={0} unit="mm" onChange={(v) => setD(v / 1000)} />
               <InputRow symbol="n" label={x.dn} value={n} min={5} max={10} step={1} digits={0} onChange={setN} />
-              <InputRow symbol="r/R" label={x.dr} value={rFrac} min={-1} max={1} step={0.01} digits={2} onChange={setRFrac} tint={C.signal} />
+              <InputRow symbol="r/R" label={x.dr} value={rFrac} min={-1} max={1} step={0.01} digits={2} onChange={setRFrac} tint={dekatDinding ? C.signal : undefined} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -191,32 +275,33 @@ export function TabungPitotClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={C.water}>{`${fmt(uProbe, 3)} m/s`}</Flag>
-              {dekatDinding && <Flag alert>{x.dekatDinding}</Flag>}
-            </div>
-            {dekatDinding && (
-              <div className="mb-2.5">
-                <Note>{x.dekatDindingNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "u", label: x.rU, value: fmt(uProbe, 4), unit: "m/s", tint: C.signal, strong: true },
+                { symbol: "u", label: x.rU, value: fmt(uProbe, 4), unit: "m/s", tint: dekatDinding ? C.signal : C.water, strong: true },
                 { symbol: "Δhᵣ", label: x.rDh, value: fmt(pitotHead(uProbe), 4), unit: "m", tint: C.energy },
                 { symbol: "u₀", label: x.rUmax, value: fmt(uMax, 4), unit: "m/s", tint: C.water },
                 { symbol: "V", label: x.rUmean, value: fmt(uMean, 4), unit: "m/s", tint: C.energy, strong: true },
                 { symbol: "V/u₀", label: x.rRasio, value: fmt(rasio, 4) },
-                { symbol: "r*", label: x.rRmean, value: fmt(rMean / R, 4), unit: "R", tint: C.critical },
+                { symbol: "r*", label: x.rRmean, value: fmt(rStar, 4), unit: "R", tint: C.critical },
                 { symbol: "Q", label: x.rQ, value: fmt(Q * 1000, 2), unit: "l/s", tint: C.water },
-                { symbol: "ε", label: x.rSalah, value: fmt((1 / rasio - 1) * 100, 1), unit: "%", tint: C.signal },
+                { symbol: "ε", label: x.rSalah, value: fmt(salah, 1), unit: "%" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan langkah={langkah} />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(rFrac, rMean / R, rasio, n, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={dekatDinding ? "invalid" : diAcuan ? "pass" : "neutral"}
+            badge={dekatDinding ? x.dekatDinding : diAcuan ? x.diAcuan : diSumbu ? x.diSumbu : x.setempat}
+            state={
+              lang === "id"
+                ? `Ujung tabung di r/R ${fmt(rFrac, 2)}: u ${fmt(uProbe, 3)} m/s; rata-rata penampang ${fmt(uMean, 3)} m/s.`
+                : `Probe tip at r/R ${fmt(rFrac, 2)}: u ${fmt(uProbe, 3)} m/s; section mean ${fmt(uMean, 3)} m/s.`
+            }
+            notice={[...(dekatDinding ? [x.dekatDindingNote] : []), notice(rFrac, rStar, rasio, n, lang)]}
+          />
         </>
       }
       verification={<Verification checks={checksPitot(dh, D, n)} />}

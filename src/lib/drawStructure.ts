@@ -157,6 +157,20 @@ export type StructureSpec = {
    * setinggi beberapa piksel dan tidak ada yang terbaca.
    */
   equalScale?: boolean;
+  /**
+   * Batas pembesaran skala tegak terhadap skala mendatar, hanya berlaku bila
+   * equalScale tidak dimatikan. Bawaannya 1, yaitu skala sama persis seperti
+   * sebelumnya, jadi lembar yang tidak memintanya tidak berubah satu piksel.
+   *
+   * Dipakai untuk penampang yang lebarnya beberapa kali tingginya (bendungan
+   * urugan GW-01) pada layar sempit: dengan skala sama, penampang selebar
+   * tujuh puluh meter di bidang selebar dua ratus lima puluh piksel tinggal
+   * garis setebal empat puluh piksel dan seluruh labelnya bertumpuk. Faktor
+   * yang dipakai dibulatkan ke bilangan yang mudah dibaca (1,5; 2; 3; ...)
+   * dan DITULIS pada judul sumbu tegak, supaya bentuk yang dipertinggi tidak
+   * dibaca sebagai bentuk sebenarnya.
+   */
+  maxExaggeration?: number;
   /** Garis kedap di dasar bidang, tanda batas yang tidak dapat ditembus air */
   imperviousFloor?: boolean;
   /** Nama wilayah besar, menyatakan keadaan yang sedang digambar */
@@ -192,7 +206,10 @@ export function drawStructure(
   const spanZ = Math.max(s.zMax - s.zMin, 1e-9);
   const sama = s.equalScale !== false;
   const skalaX = sama ? Math.min(plotW / spanX, plotH / spanZ) : plotW / spanX;
-  const skalaZ = sama ? skalaX : plotH / spanZ;
+  const pembesaran = sama
+    ? faktorTegak(Math.min(s.maxExaggeration ?? 1, plotH / spanZ / skalaX))
+    : 1;
+  const skalaZ = sama ? skalaX * pembesaran : plotH / spanZ;
   const lebarPakai = spanX * skalaX;
   const tinggiPakai = spanZ * skalaZ;
   const ox = padL + (plotW - lebarPakai) / 2;
@@ -238,7 +255,11 @@ export function drawStructure(
     axisValue(ctx, fmtPlain(v, desimal(zStep)), padL - 8, Z(v), "right", "middle");
 
   axisTitle(ctx, s.axisX, padL + plotW / 2, padT + plotH + 34);
-  axisTitle(ctx, s.axisZ, 16, padT + plotH / 2, -Math.PI / 2);
+  const judulZ =
+    pembesaran > 1
+      ? `${s.axisZ} (${lang === "id" ? "skala tegak" : "vertical scale"} ×${fmtPlain(pembesaran, pembesaran % 1 ? 1 : 0)})`
+      : s.axisZ;
+  axisTitle(ctx, judulZ, 16, padT + plotH / 2, -Math.PI / 2);
 
   const taruh = createLabelPlacer(ctx, { padL, padT, plotW, plotH });
 
@@ -473,6 +494,13 @@ export function drawStructure(
     Math.round(plotW),
     Math.round(plotH)
   );
+}
+
+/** Faktor pembesaran tegak dibulatkan ke bawah ke 1; 1,5; 2; 3; 4; ... */
+function faktorTegak(mentah: number) {
+  if (!(mentah >= 1.5)) return 1;
+  if (mentah < 2) return 1.5;
+  return Math.floor(mentah);
 }
 
 /**

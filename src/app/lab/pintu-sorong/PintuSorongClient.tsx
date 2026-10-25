@@ -4,19 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawStructure, type StructureSpec } from "@/lib/drawStructure";
-import { ORIFICE_CC_SLOT, fmt, fmtPlain, sluiceGate } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { G, ORIFICE_CC_SLOT, fmt, fmtPlain, sluiceGate } from "@/lib/hydraulics";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -54,8 +55,30 @@ const TXT = {
       "Muka air hilir sudah mencapai atau melewati muka air hulu, jadi tidak ada lagi beda tinggi yang mendorong air melewati pintunya. Debitnya nol, dan bila muka air hilir dinaikkan lagi airnya justru mengalir ke arah sebaliknya. Seluruh lembar ini menganggap alirannya dari hulu ke hilir, jadi angka-angkanya tidak berlaku di sini. Gaya pada daun pintunya memang berbalik tanda, karena sekarang air hilir yang menekan pintu ke arah hulu, dan itu keadaan yang justru perlu diperiksa sendiri saat merancang batang pengangkatnya: pintu yang hanya dihitung untuk tekanan dari satu arah dapat tertekuk saat banjir hilir naik lebih cepat daripada hulunya.",
     diAtasAirNote:
       "Bukaan pintu lebih besar daripada kedalaman air di hulunya, jadi daun pintunya berada seluruhnya di atas muka air dan tidak menyentuh aliran sama sekali. Yang ada di sana saluran terbuka biasa, bukan pintu, dan tidak ada debit pintu untuk dihitung. Turunkan bukaannya di bawah kedalaman hulu.",
+    bBebas: "Bebas, loncatan terdorong ke hilir",
+    bTenggelam: "Tenggelam",
+    bTerbalik: "Muka air hilir di atas hulu",
+    badgeBebas: "Bebas",
+    sBebas: (Q: string, rasio: string) => `Bebas: Q = ${Q} m³/s, y₃/y₂′ = ${rasio}.`,
+    sTenggelam: (Q: string, rasio: string) => `Tenggelam: Q = ${Q} m³/s, y₃/y₂′ = ${rasio}.`,
+    sTerbalik: "Muka air hilir ≥ hulu: tidak ada aliran ke hilir.",
+    sDiAtasAir: "Bukaan ≥ y₁: pintu tidak menyentuh aliran.",
+    saranTerbalik: "Turunkan muka air hilir di bawah muka air hulu, lalu seluruh angka di atas kembali punya arti.",
+    saranDiAtasAir: "Turunkan bukaannya di bawah kedalaman hulu, lalu seluruh angka di atas kembali punya arti.",
+    gayaLebih: (h: string, f: string, p: string) =>
+      `Tekanan hidrostatis pada bidang daun pintu saja memberi ${h} kN tiap meter lebar, berbanding ${f} kN dari momentum: ${p} persen lebih besar. Batang pengangkat yang diukur dari tekanan saja kelebihan ukuran sebesar itu.`,
+    gayaKurang: (h: string, f: string, p: string) =>
+      `Tekanan hidrostatis pada bidang daun pintu saja memberi ${h} kN tiap meter lebar, berbanding ${f} kN dari momentum: ${p} persen lebih kecil. Batang pengangkat yang diukur dari tekanan saja kurang ukuran; gaya yang sesungguhnya dari momentum.`,
+    saranBebas: "Naikkan muka air hilirnya melewati kedalaman lawan loncatan, lalu perhatikan debit dan gayanya turun bersama-sama.",
+    saranTenggelam: "Pintunya sedang tenggelam, dan itu menurunkan debit maupun gayanya sekaligus: air hilir menekan balik.",
+    hCd: "Koefisien debit dari koefisien kontraksi",
+    hY2: "Kedalaman dan Froude di vena contracta",
+    hYc: "Kedalaman lawan loncatan, dibandingkan dengan muka air hilir",
+    hQ: "Debit, dikalikan faktor tenggelam bila tenggelam",
+    hF: "Gaya pada daun pintu dari selisih momentum",
+    hMati: "Rumus pintu tidak berlaku pada keadaan ini",
     note:
-      "Koefisien debit pintu sorong sering disajikan sebagai angka yang harus dicari di tabel, padahal ia dapat diturunkan seluruhnya dari satu besaran saja, yaitu koefisien kontraksi. Persamaan energi antara hulu dan vena contracta memberi Cd sama dengan Cc dibagi akar dari satu ditambah Cc a per y1, dan bentuk itu otomatis mengecil ketika bukaan mendekati kedalaman hulu. Tidak ada tabel yang perlu dihafal. Yang perlu diperhatikan, gaya pada daun pintu bukan sekadar tekanan hidrostatis pada bidang daunnya. Air yang dipercepat lewat bawah pintu membawa momentum, dan momentum itu mengurangi gaya yang harus ditahan batang pengangkatnya. Selisihnya tidak kecil: pada bukaan kecil di saluran dalam, tekanan hidrostatis saja dapat melebihi gaya sesungguhnya beberapa puluh persen. Menghitungnya dari momentum, bukan dari tekanan, adalah perbedaan antara batang yang kelebihan ukuran dan batang yang pas.",
+      "Koefisien debit pintu sorong sering disajikan sebagai angka yang harus dicari di tabel, padahal ia dapat diturunkan seluruhnya dari satu besaran saja, yaitu koefisien kontraksi. Persamaan energi antara hulu dan vena contracta memberi Cd sama dengan Cc dibagi akar dari satu ditambah Cc a per y1, dan bentuk itu otomatis mengecil ketika bukaan mendekati kedalaman hulu. Tidak ada tabel yang perlu dihafal. Yang perlu diperhatikan, gaya pada daun pintu bukan sekadar tekanan hidrostatis pada bidang daunnya. Air yang dipercepat lewat bawah pintu membawa momentum, dan gaya yang sesungguhnya ditahan daun pintu adalah selisih momentum di hulu dan di hilirnya. Arah dan besar selisihnya bergantung pada bukaan: pada bukaan kecil di saluran dalam keduanya hanya terpaut beberapa persen, sedangkan pada bukaan besar tekanan hidrostatis pada bidang daun saja jauh lebih kecil daripada gaya dari momentum. Batang pengangkat yang diukur dari tekanan saja karena itu bisa kurang ukuran; hitunglah dari momentum.",
   },
   en: {
     title: "Sluice gate",
@@ -87,8 +110,30 @@ const TXT = {
       "The downstream level has reached or passed the upstream level, so no head difference is left to drive water through the gate. The discharge is zero, and raising the tailwater further would drive the flow the other way. This whole sheet assumes flow from upstream to downstream, so its numbers do not apply here. The force on the leaf does reverse sign, because the tailwater now pushes the gate upstream, and that is a case worth checking on its own when sizing the hoist stem: a gate computed for pressure from one side only can buckle when a downstream flood rises faster than the upstream one.",
     diAtasAirNote:
       "The gate opening is larger than the depth of water upstream, so the gate leaf stands entirely above the surface and does not touch the flow at all. What is there is an ordinary open channel, not a gate, and there is no gate discharge to compute. Lower the opening below the upstream depth.",
+    bBebas: "Free, jump swept downstream",
+    bTenggelam: "Submerged",
+    bTerbalik: "Tailwater above headwater",
+    badgeBebas: "Free",
+    sBebas: (Q: string, rasio: string) => `Free: Q = ${Q} m³/s, y₃/y₂′ = ${rasio}.`,
+    sTenggelam: (Q: string, rasio: string) => `Submerged: Q = ${Q} m³/s, y₃/y₂′ = ${rasio}.`,
+    sTerbalik: "Tailwater ≥ headwater: no flow downstream.",
+    sDiAtasAir: "Opening ≥ y₁: the gate does not touch the flow.",
+    saranTerbalik: "Lower the tailwater below the headwater and every number above becomes meaningful again.",
+    saranDiAtasAir: "Lower the opening below the upstream depth and every number above becomes meaningful again.",
+    gayaLebih: (h: string, f: string, p: string) =>
+      `Hydrostatic pressure on the gate face alone gives ${h} kN per metre of width, against ${f} kN from momentum: ${p} per cent more. A hoist stem sized on pressure alone is oversized by that much.`,
+    gayaKurang: (h: string, f: string, p: string) =>
+      `Hydrostatic pressure on the gate face alone gives ${h} kN per metre of width, against ${f} kN from momentum: ${p} per cent less. A hoist stem sized on pressure alone is undersized; the true force comes from momentum.`,
+    saranBebas: "Raise the tailwater past the conjugate depth and watch both the discharge and the force fall together.",
+    saranTenggelam: "The gate is submerged, which lowers both the discharge and the force: the tailwater pushes back.",
+    hCd: "Discharge coefficient from the contraction coefficient",
+    hY2: "Depth and Froude number at the vena contracta",
+    hYc: "Conjugate depth, compared with the tailwater",
+    hQ: "Discharge, times the submergence factor when submerged",
+    hF: "Force on the gate leaf from the momentum difference",
+    hMati: "The gate formula does not apply in this state",
     note:
-      "The discharge coefficient of a sluice gate is often presented as a number to look up, when it can be derived entirely from one quantity, the contraction coefficient. The energy equation between the upstream section and the vena contracta gives Cd as Cc divided by the square root of one plus Cc a over y1, and that form automatically shrinks as the opening approaches the upstream depth. No table needs memorising. Note also that the force on the gate leaf is not simply the hydrostatic pressure on its face. Water accelerated under the gate carries momentum, and that momentum reduces the force the hoist stem must hold. The difference is not small: on a small opening in a deep channel, hydrostatic pressure alone can exceed the true force by tens of per cent. Computing it from momentum rather than from pressure is the difference between an oversized stem and a right-sized one.",
+      "The discharge coefficient of a sluice gate is often presented as a number to look up, when it can be derived entirely from one quantity, the contraction coefficient. The energy equation between the upstream section and the vena contracta gives Cd as Cc divided by the square root of one plus Cc a over y1, and that form automatically shrinks as the opening approaches the upstream depth. No table needs memorising. Note also that the force on the gate leaf is not simply the hydrostatic pressure on its face. Water accelerated under the gate carries momentum, and the force the gate leaf actually holds is the difference between the momentum upstream and downstream. The direction and size of the difference depend on the opening: on a small opening in a deep channel the two differ by only a few per cent, while on a large opening hydrostatic pressure on the leaf face alone is far smaller than the momentum force. A hoist stem sized on pressure alone can therefore be undersized; compute it from momentum.",
   },
 } as const;
 
@@ -136,6 +181,19 @@ export function PintuSorongClient() {
    * lembarnya berterus terang bahwa letaknya belum tentu di situ.
    */
   const terdorong = !mati && !r.submerged && y3 < r.yConjugate;
+
+  /* Pita y₃/y₂′: batas tenggelam y₃ = y₂′ (sluiceGate) dan batas terbalik
+     y₃ = y₁ (reversed), keduanya Henderson 1966 Bab 6. */
+  const rasioHilir = r.yConjugate > 0 ? y3 / r.yConjugate : NaN;
+  const batasTerbalik = r.yConjugate > 0 ? Math.min(Math.max(y1 / r.yConjugate, 1.0001), 149) : 149;
+
+  /* Nilai antara langkah debit. Lib belum menyimpan debit bebas dan faktor
+     tenggelam sebagai field (PERMINTAAN ke pengembang-model), jadi Qbebas
+     dihitung dengan rumus yang sama persis dengan lib dari r.Cd, dan ψ
+     dibaca balik dari r.Q, sehingga hasil langkah sama dengan tabel. */
+  const Qbebas = r.Cd * b * a * Math.sqrt(2 * G * y1);
+  const psi = Qbebas > 0 ? r.Q / Qbebas : NaN;
+  const keadaan = bacaKeadaan(y1, a, y3, r, terdorong, lang);
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -337,6 +395,25 @@ export function PintuSorongClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="y₃/y₂′"
+          value={r.gateAboveWater ? NaN : rasioHilir}
+          scale="log"
+          digits={3}
+          invalid={mati}
+          pesan={r.gateAboveWater ? x.diAtasAir : undefined}
+          bands={
+            r.gateAboveWater
+              ? [{ from: 0.002, to: 150, label: x.diAtasAir, tone: "invalid" }]
+              : [
+                  { from: 0.002, to: 1, label: x.bBebas, tone: "water" },
+                  { from: 1, to: batasTerbalik, label: x.bTenggelam, tone: "critical" },
+                  { from: batasTerbalik, to: 150, label: x.bTerbalik, tone: "invalid" },
+                ]
+          }
+        />
+      }
       sheet="HS-03"
       subject={SUBJECTS.HS[lang]}
       title={x.title}
@@ -401,55 +478,84 @@ export function PintuSorongClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              {!mati && (
-                <Flag tint={r.submerged ? C.critical : C.water}>
-                  {`${fmt(r.Q, 2)} m³/s`}
-                </Flag>
-              )}
-              {!mati && r.submerged && (
-                <Flag tint={C.critical}>{x.tenggelam}</Flag>
-              )}
-              {terdorong && <Flag tint={C.critical}>{x.terdorong}</Flag>}
-              {r.gateAboveWater && <Flag alert>{x.diAtasAir}</Flag>}
-              {r.reversed && <Flag alert>{x.terbalik}</Flag>}
-            </div>
-            {r.gateAboveWater && (
-              <div className="mb-2.5">
-                <Note>{x.diAtasAirNote}</Note>
-              </div>
-            )}
-            {r.reversed && (
-              <div className="mb-2.5">
-                <Note>{x.terbalikNote}</Note>
-              </div>
-            )}
-            {terdorong && (
-              <div className="mb-2.5">
-                <Note>{x.terdorongNote}</Note>
-              </div>
-            )}
-            {!mati && r.submerged && (
-              <div className="mb-2.5">
-                <Note>{x.tenggelamNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Q", label: x.rQ, value: mati ? takAda : fmt(r.Q, 3), unit: mati ? undefined : "m³/s", tint: C.water, strong: true },
-                { symbol: "Cd", label: x.rCd, value: mati ? takAda : fmt(r.Cd, 4), strong: true },
+                { symbol: "F", label: x.rGaya, value: mati ? takAda : fmt(r.gateForce / 1000, 3), unit: mati ? undefined : "kN/m", tint: C.energy, strong: true },
+                { symbol: "Cd", label: x.rCd, value: mati ? takAda : fmt(r.Cd, 4) },
                 { symbol: "y₂", label: x.rY2, value: mati ? takAda : fmt(r.y2, 4), unit: mati ? undefined : "m", tint: C.water },
                 { symbol: "y₂′", label: x.rYc, value: mati ? takAda : fmt(r.yConjugate, 4), unit: mati ? undefined : "m", tint: C.critical },
                 { symbol: "Fr₂", label: x.rFr2, value: mati ? takAda : fmt(r.Fr2, 3) },
-                { symbol: "F", label: x.rGaya, value: mati ? takAda : fmt(r.gateForce / 1000, 3), unit: mati ? undefined : "kN/m", tint: C.energy },
                 { symbol: "Ftot", label: x.rGayaTotal, value: mati ? takAda : fmt((r.gateForce * b) / 1000, 2), unit: mati ? undefined : "kN", tint: C.energy },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={
+                  mati
+                    ? [
+                        {
+                          judul: x.hMati,
+                          rumus: <span>{r.gateAboveWater ? "a ≥ y₁" : "y₃ ≥ y₁"}</span>,
+                          isi: r.gateAboveWater
+                            ? `${fmt(a, 2)} m ≥ ${fmt(y1, 1)} m`
+                            : `${fmt(y3, 2)} m ≥ ${fmt(y1, 1)} m`,
+                          hasil: "—",
+                        },
+                      ]
+                    : [
+                        {
+                          judul: x.hCd,
+                          rumus: (<><span>Cd =</span><Frac num="Cc" den="√( 1 + Cc · a / y₁ )" /></>),
+                          isi: `${fmt(Cc, 3)} / √( 1 + ${fmt(Cc, 3)} · ${fmt(a, 2)} / ${fmt(y1, 1)} )`,
+                          hasil: fmt(r.Cd, 4),
+                        },
+                        {
+                          judul: x.hY2,
+                          rumus: (<><span>y₂ = Cc · a</span><span className="ml-3">Fr₂ =</span><Frac num="q" den="y₂ · √( g · y₂ )" /></>),
+                          isi: `y₂ = ${fmt(Cc, 3)} · ${fmt(a, 2)} = ${fmt(r.y2, 5)} m; q = ${fmt(Qbebas / b, 4)} m²/s; ${fmt(Qbebas / b, 4)} / ( ${fmt(r.y2, 5)} · √( ${fmt(G, 2)} · ${fmt(r.y2, 5)} ) )`,
+                          hasil: fmt(r.Fr2, 3),
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.hYc,
+                          rumus: (<><span>y₂′ =</span><Frac num="y₂" den="2" /><span>· ( √( 1 + 8 Fr₂² ) − 1 )</span></>),
+                          isi: `( ${fmt(r.y2, 5)} / 2 ) · ( √( 1 + 8 · ${fmt(r.Fr2, 4)}² ) − 1 ) ; y₃ = ${fmt(y3, 2)} m ${r.submerged ? ">" : "≤"} y₂′ → ${r.submerged ? x.bTenggelam.toLowerCase() : x.badgeBebas.toLowerCase()}`,
+                          hasil: fmt(r.yConjugate, 4),
+                          satuan: "m",
+                          tint: C.critical,
+                        },
+                        {
+                          judul: x.hQ,
+                          rumus: r.submerged ? (
+                            <span>Q = Cd · b · a · √( 2 g y₁ ) · ψ,  ψ = √( ( y₁ − y₃ ) / ( y₁ − y₂′ ) )</span>
+                          ) : (
+                            <span>Q = Cd · b · a · √( 2 g y₁ )</span>
+                          ),
+                          isi:
+                            `${fmt(r.Cd, 5)} · ${fmt(b, 1)} · ${fmt(a, 2)} · √( 2 · ${fmt(G, 2)} · ${fmt(y1, 1)} )` +
+                            (r.submerged
+                              ? ` = ${fmt(Qbebas, 4)} m³/s; ψ = √( ( ${fmt(y1, 1)} − ${fmt(y3, 2)} ) / ( ${fmt(y1, 1)} − ${fmt(r.yConjugate, 4)} ) ) = ${fmt(psi, 4)}`
+                              : ""),
+                          hasil: fmt(r.Q, 3),
+                          satuan: "m³/s",
+                          tint: C.water,
+                        },
+                        {
+                          judul: x.hF,
+                          rumus: (<><span>F = M₁ − M₂,  M =</span><Frac num="ρ g y²" den="2" /><span>+</span><Frac num="ρ q²" den="y" /></>),
+                          isi: `q = ${fmt(r.Q / b, 4)} m²/s; y₁ = ${fmt(y1, 1)} m, ${r.submerged ? `y₃ = ${fmt(y3, 2)}` : `y₂ = ${fmt(r.y2, 4)}`} m`,
+                          hasil: fmt(r.gateForce / 1000, 3),
+                          satuan: "kN/m",
+                          tint: C.energy,
+                        },
+                      ]
+                }
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(y1, a, b, y3, Cc, r.gateForce, mati, r.submerged, lang)}</Note>
-          </Block>
+          <StateCard {...keadaan} />
         </>
       }
       verification={<Verification checks={checksSluice(y1, a, b, y3, Cc)} />}
@@ -486,29 +592,48 @@ export function PintuSorongClient() {
   );
 }
 
-function notice(
+/*
+ * Keadaan dan butirnya. Kedua bendera dikirim terpisah (CACAT 1): versi
+ * lama mengirim `gateAboveWater || reversed` sebagai satu bendera, jadi
+ * saat muka air hilir di atas hulu lembar menyarankan "turunkan bukaannya".
+ * Kalimat gaya dibangun dari tanda selisihnya (CACAT 2): hidrostatis bisa
+ * lebih besar (bukaan kecil, saluran dalam) atau jauh lebih kecil (bukaan
+ * besar) daripada gaya momentum.
+ */
+function bacaKeadaan(
   y1: number,
   a: number,
-  b: number,
   y3: number,
-  Cc: number,
-  gateForce: number,
-  gateAboveWater: boolean,
-  submerged: boolean,
+  r: ReturnType<typeof sluiceGate>,
+  terdorong: boolean,
   lang: Lang
-): string {
-  if (gateAboveWater) {
-    return lang === "id"
-      ? "Turunkan bukaannya di bawah kedalaman hulu, lalu seluruh angka di atas kembali punya arti."
-      : "Lower the opening below the upstream depth and every number above becomes meaningful again.";
-  }
+): { tone: Tone; badge: string; state: string; notice: string[] } {
+  const x = TXT[lang];
+  if (r.gateAboveWater)
+    return { tone: "invalid", badge: x.diAtasAir, state: x.sDiAtasAir, notice: [x.diAtasAirNote, x.saranDiAtasAir] };
+  if (r.reversed)
+    return { tone: "invalid", badge: x.terbalik, state: x.sTerbalik, notice: [x.terbalikNote, x.saranTerbalik] };
 
-  // Tekanan hidrostatis pada bidang daun pintu saja, sebagai pembanding.
-  const hidrostatis = (1000 * 9.81 * (y1 - a) * (y1 - a)) / 2;
-  const selisih =
-    gateForce > 0 ? ((hidrostatis - gateForce) / gateForce) * 100 : 0;
+  const hidrostatis = (1000 * G * (y1 - a) * (y1 - a)) / 2;
+  const selisih = r.gateForce > 0 ? ((hidrostatis - r.gateForce) / r.gateForce) * 100 : 0;
+  const gaya = (selisih >= 0 ? x.gayaLebih : x.gayaKurang)(
+    fmt(hidrostatis / 1000, 1),
+    fmt(r.gateForce / 1000, 1),
+    fmt(Math.abs(selisih), 0)
+  );
+  const rasio = fmt(r.yConjugate > 0 ? y3 / r.yConjugate : NaN, 3);
 
-  if (lang === "en")
-    return `Hydrostatic pressure on the gate face alone would give ${fmt(hidrostatis / 1000, 1)} kN per metre of width, against ${fmt(gateForce / 1000, 1)} kN from momentum: ${fmt(Math.abs(selisih), 0)} per cent ${selisih > 0 ? "more" : "less"}. The difference is the momentum the flow carries away under the gate, and a stem sized on pressure alone carries that margin for nothing. ${submerged ? "Note that the gate is currently submerged, which lowers both the discharge and the force: the tailwater pushes back." : "Raise the tailwater past the conjugate depth and watch both the discharge and the force fall together."}`;
-  return `Tekanan hidrostatis pada bidang daun pintu saja akan memberi ${fmt(hidrostatis / 1000, 1)} kN tiap meter lebar, berbanding ${fmt(gateForce / 1000, 1)} kN dari momentum: ${fmt(Math.abs(selisih), 0)} persen lebih ${selisih > 0 ? "besar" : "kecil"}. Selisih itu adalah momentum yang dibawa pergi aliran di bawah pintu, dan batang pengangkat yang diukur dari tekanan saja memikul kelebihan itu tanpa perlu. ${submerged ? "Perhatikan bahwa pintunya sedang tenggelam, dan itu menurunkan debit maupun gayanya sekaligus: air hilir menekan balik." : "Naikkan muka air hilirnya melewati kedalaman lawan loncatan, lalu perhatikan debit dan gayanya turun bersama-sama."}`;
+  if (r.submerged)
+    return {
+      tone: "critical",
+      badge: x.tenggelam,
+      state: x.sTenggelam(fmt(r.Q, 3), rasio),
+      notice: [x.tenggelamNote, gaya, x.saranTenggelam],
+    };
+  return {
+    tone: "water",
+    badge: terdorong ? x.terdorong : x.badgeBebas,
+    state: x.sBebas(fmt(r.Q, 3), rasio),
+    notice: [...(terdorong ? [x.terdorongNote] : []), gaya, x.saranBebas],
+  };
 }

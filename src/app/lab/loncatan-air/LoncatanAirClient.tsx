@@ -4,14 +4,16 @@ import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
+  type LangkahHitung,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawJump, makeStreaks, type Streak } from "@/lib/drawJump";
@@ -24,7 +26,7 @@ import {
   jumpEnergyLoss,
   jumpLength,
 } from "@/lib/hydraulics";
-import { C } from "@/lib/theme";
+import { C, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
@@ -55,6 +57,14 @@ const TXT = {
     rPct: "Persentase teredam",
     rLj: "Panjang loncatan",
     rq: "Debit satuan",
+    bNo: "Tak ada loncatan",
+    bUnd: "Berombak",
+    bWeak: "Lemah",
+    bOsc: "Berosilasi",
+    bSteady: "Mantap",
+    bStrong: "Kuat",
+    hPct: "Bagian energi hulu yang teredam",
+    hNoBel: "Fr₁ ≤ 1: persamaan Belanger tidak berlaku",
     note: "Persamaan kedua adalah bentuk Belanger, diturunkan dari kekekalan momentum pada saluran persegi mendatar dengan mengabaikan gesekan dasar di sepanjang loncatan. Perlu dicatat bahwa persamaan ini hanya memberi kedalaman di kedua ujung loncatan, bukan bentuk permukaan di antaranya — karena itu bagian dalam loncatan pada gambar digambar dengan titik rapat, bukan garis menerus. Panjang loncatan memakai pendekatan empiris umum L ≈ 6·y₂.",
   },
   en: {
@@ -80,6 +90,14 @@ const TXT = {
     rPct: "Percentage dissipated",
     rLj: "Jump length",
     rq: "Unit discharge",
+    bNo: "No jump",
+    bUnd: "Undular",
+    bWeak: "Weak",
+    bOsc: "Oscillating",
+    bSteady: "Steady",
+    bStrong: "Strong",
+    hPct: "Share of upstream energy dissipated",
+    hNoBel: "Fr₁ ≤ 1: the Bélanger equation does not apply",
     note: "The second equation is the Bélanger form, derived from momentum conservation in a horizontal rectangular channel with bed friction along the jump neglected. Note that it gives only the depths at the two ends of the jump, not the surface shape in between — which is why the interior of the jump is drawn with fine dots rather than a solid line. Jump length uses the common empirical approximation L ≈ 6·y₂.",
   },
 } as const;
@@ -98,6 +116,21 @@ const REFS = {
     "Henderson, F.M. (1966). Open Channel Flow. Macmillan.",
   ],
 } as const;
+
+/*
+ * Batas pita Fr₁ sama persis dengan batas classifyJump (hydraulics.ts),
+ * Chow 1959 §15-3 dan Peterka 1978 EM-25. Sumbu 0,1 sampai 20 memuat seluruh
+ * jangkauan penggeser (Fr₁ 0,15 pada y₁ 1,2 dan V₁ 0,5; 18,1 pada y₁ 0,08 dan
+ * V₁ 16). Di bawah 1 persamaan Belanger tidak berlaku, jadi pitanya invalid.
+ */
+const NADA_LONCATAN: Record<string, Tone> = {
+  subkritis: "invalid",
+  berombak: "neutral",
+  lemah: "water",
+  berosilasi: "caution",
+  mantap: "pass",
+  kuat: "caution",
+};
 
 export function LoncatanAirClient() {
   const { lang } = useLang();
@@ -129,6 +162,68 @@ export function LoncatanAirClient() {
   const Lj = hasJump ? jumpLength(y2) : 0;
   const klas = classifyJump(Fr1);
 
+  /* Hasil tiap langkah adalah variabel yang sama dengan baris tabel hasil,
+     dengan jumlah angka yang sama. Masukan ditulis sesuai langkah penggeser
+     (y₁ 0,01 m, V₁ 0,1 m/s), nilai antara satu angka lebih banyak. */
+  const langkahDasar: LangkahHitung[] = [
+    {
+      judul: x.rq,
+      rumus: <span>q = V₁ · y₁</span>,
+      isi: `${fmt(V1, 1)} · ${fmt(y1, 2)}`,
+      hasil: fmt(q),
+      satuan: "m²/s",
+    },
+    {
+      judul: x.rFr1,
+      rumus: (<><span>Fr₁ =</span><Frac num="V₁" den="√( g · y₁ )" /></>),
+      isi: `${fmt(V1, 1)} / √( ${fmt(G, 2)} · ${fmt(y1, 2)} )`,
+      hasil: fmt(Fr1),
+    },
+  ];
+  const rumusBelanger = (
+    <><span>y₂ =</span><Frac num="y₁" den="2" /><span>· ( √( 1 + 8 · Fr₁² ) − 1 )</span></>
+  );
+  const langkah: LangkahHitung[] = hasJump
+    ? [
+        ...langkahDasar,
+        {
+          judul: x.rY2,
+          rumus: rumusBelanger,
+          isi: `${fmt(y1, 2)} / 2 · ( √( 1 + 8 · ${fmt(Fr1, 3)}² ) − 1 )`,
+          hasil: fmt(y2),
+          satuan: "m",
+          tint: C.water,
+        },
+        {
+          judul: x.rDE,
+          rumus: (<><span>ΔE =</span><Frac num="( y₂ − y₁ )³" den="4 · y₁ · y₂" /></>),
+          isi: `( ${fmt(y2, 3)} − ${fmt(y1, 2)} )³ / ( 4 · ${fmt(y1, 2)} · ${fmt(y2, 3)} )`,
+          hasil: fmt(dE, 3),
+          satuan: "m",
+          tint: C.energy,
+        },
+        {
+          judul: x.hPct,
+          rumus: (<><Frac num="ΔE" den="E₁" /><span>· 100;  E₁ = y₁ +</span><Frac num="V₁²" den="2 · g" /></>),
+          isi: `${fmt(dE, 4)} / ( ${fmt(y1, 2)} + ${fmt(V1, 1)}² / ( 2 · ${fmt(G, 2)} ) ) · 100 = ${fmt(dE, 4)} / ${fmt(E1, 3)} · 100`,
+          hasil: fmt(lossPct, 1),
+          satuan: "%",
+          tint: C.energy,
+        },
+        {
+          judul: x.rLj,
+          rumus: <span>Lj ≈ 6 · y₂</span>,
+          isi: `6 · ${fmt(y2, 3)}`,
+          hasil: fmt(Lj, 1),
+          satuan: "m",
+          tint: C.critical,
+        },
+      ]
+    : [
+        ...langkahDasar,
+        { judul: x.hNoBel, rumus: rumusBelanger, isi: "—", hasil: "—" },
+      ];
+
   const ref = useCanvas(
     (ctx, w, h, tt, dt) =>
       drawJump(
@@ -150,6 +245,22 @@ export function LoncatanAirClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="Fr₁"
+          value={Fr1}
+          scale="log"
+          digits={2}
+          bands={[
+            { from: 0.1, to: 1, label: x.bNo, tone: "invalid" },
+            { from: 1, to: 1.7, label: x.bUnd, tone: "neutral" },
+            { from: 1.7, to: 2.5, label: x.bWeak, tone: "water" },
+            { from: 2.5, to: 4.5, label: x.bOsc, tone: "caution" },
+            { from: 4.5, to: 9, label: x.bSteady, tone: "pass" },
+            { from: 9, to: 20, label: x.bStrong, tone: "caution" },
+          ]}
+        />
+      }
       sheet="OC-01"
       subject={SUBJECTS.OC[lang]}
       title={x.title}
@@ -229,19 +340,16 @@ export function LoncatanAirClient() {
                 { symbol: "q", label: x.rq, value: fmt(q), unit: "m²/s" },
               ]}
             />
-          </Block>
-
-          <Block heading={t.blkCondition}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag alert={!hasJump}>{klas.label[lang]}</Flag>
-              <span className="value label text-[0.78rem] text-ink-3">{klas.range}</span>
+            <div className="mt-3">
+              <Hitungan langkah={langkah} />
             </div>
-            <Note>{klas.note[lang]}</Note>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice({ Fr1, hasJump, lossPct, Lj, y2, y1 }, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={NADA_LONCATAN[klas.key]}
+            badge={klas.label[lang]}
+            {...notice({ Fr1, hasJump, lossPct, Lj, y2, y1, klas }, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksJump(y1, V1)} />}
@@ -271,35 +379,130 @@ export function LoncatanAirClient() {
   );
 }
 
+/*
+ * Kalimat pertama menyatakan keadaan (rezim, rentang Fr₁, rasio kedalaman,
+ * energi teredam); butir-butirnya akibat yang perlu diperhatikan. Tiap rezim
+ * classifyJump punya cabangnya sendiri, termasuk loncatan lemah 1,7 sampai
+ * 2,5 yang dulu jatuh ke teks berosilasi.
+ */
 function notice(
-  s: { Fr1: number; hasJump: boolean; lossPct: number; Lj: number; y2: number; y1: number },
+  s: {
+    Fr1: number;
+    hasJump: boolean;
+    lossPct: number;
+    Lj: number;
+    y2: number;
+    y1: number;
+    klas: ReturnType<typeof classifyJump>;
+  },
   lang: Lang
-): string {
-  const rasio = s.y2 / s.y1;
-  const pct0 = fmt(s.lossPct, 0);
-  const pct1 = fmt(s.lossPct, 1);
+): { state: string; notice: string[] } {
+  const rasio = fmt(s.y2 / s.y1, 1);
+  const pct = fmt(s.lossPct, s.lossPct < 10 ? 1 : 0);
   const lj = fmt(s.Lj, 1);
-  const r1 = fmt(rasio, 1);
+  const fr = fmt(s.Fr1);
+  const key = s.klas.key;
+  // Rentang di classifyJump ditulis dengan koma desimal; EN memakai titik.
+  const rentang = lang === "en" ? s.klas.range.replace(/,/g, ".") : s.klas.range;
+  const catatan = s.klas.note[lang];
 
   if (lang === "en") {
+    const tetap =
+      "Bélanger applies to a horizontal rectangular channel with friction neglected. Lj ≈ 6 y₂ fits best in the steady range (Chow 1959 Fig. 15-4).";
     if (!s.hasJump)
-      return "The flow here is still subcritical, so no jump forms. Reduce the upstream depth or raise the velocity until Fr₁ passes 1 — and notice that changing the depth has far more effect than changing the velocity, because depth enters as a square root in the denominator.";
-    if (s.Fr1 < 1.7)
-      return `The jump is only just forming. The depth rises by a factor of ${r1} and only ${pct1} per cent of the energy is dissipated. For an energy dissipator this is not yet adequate.`;
-    if (s.Fr1 < 4.5)
-      return `Watch the rollers in the jump: the entering jet oscillates and its waves travel far downstream. Although ${pct0} per cent of the energy is already dissipated, it is those residual waves that usually damage the downstream banks — which is why this range is avoided in stilling basin design.`;
-    if (s.Fr1 < 9)
-      return `This is the range sought in design: the jump holds position, ${pct0} per cent of the energy is dissipated, and the depth rises by a factor of ${r1}. The stilling basin needs to be at least ${lj} m long so the jump finishes inside the structure rather than on the natural ground beyond it.`;
-    return `Dissipation is now very high at ${pct0} per cent, but the surface has become rough and turbulent. At this point the cost of bed and wall protection rises sharply; it is often cheaper to lower Fr₁ by changing the basin floor level than to strengthen the structure.`;
+      return {
+        state: `Fr₁ = ${fr} < 1: the flow is subcritical and no jump forms.`,
+        notice: [
+          "Reduce the upstream depth or raise the velocity until Fr₁ passes 1. Changing the depth has far more effect than changing the velocity, because depth enters as a square root in the denominator.",
+          tetap,
+        ],
+      };
+    const state = `Fr₁ = ${fr}: ${s.klas.label.en} (${rentang}); the depth rises ${rasio} times and ${pct} per cent of the energy is dissipated.`;
+    if (key === "berombak")
+      return { state, notice: [catatan, "For an energy dissipator this is not yet adequate.", tetap] };
+    if (key === "lemah")
+      return {
+        state,
+        notice: [
+          catatan,
+          "In this range a stilling basin generally needs no baffles or sills (Peterka 1978, EM-25).",
+          tetap,
+        ],
+      };
+    if (key === "berosilasi")
+      return {
+        state,
+        notice: [
+          "Watch the rollers in the jump: the entering jet oscillates and its waves travel far downstream.",
+          "Those residual waves are what usually damage the downstream banks, which is why this range is avoided in stilling basin design.",
+          tetap,
+        ],
+      };
+    if (key === "mantap")
+      return {
+        state,
+        notice: [
+          "This is the range sought in design: the jump holds its position and does not wander.",
+          `The stilling basin needs to be at least ${lj} m long so the jump finishes inside the structure rather than on the natural ground beyond it.`,
+          tetap,
+        ],
+      };
+    return {
+      state,
+      notice: [
+        "The surface has become rough and turbulent, and the cost of bed and wall protection rises sharply.",
+        "It is often cheaper to lower Fr₁ by changing the basin floor level than to strengthen the structure.",
+        tetap,
+      ],
+    };
   }
 
+  const tetap =
+    "Belanger berlaku untuk saluran persegi mendatar dengan gesekan diabaikan. Lj ≈ 6 y₂ paling sesuai pada rentang mantap (Chow 1959 Gbr. 15-4).";
   if (!s.hasJump)
-    return "Pada kondisi ini aliran masih subkritis, sehingga loncatan tidak terbentuk. Kurangi kedalaman hulu atau naikkan kecepatan sampai Fr₁ melewati 1 — dan perhatikan bahwa mengubah kedalaman jauh lebih berpengaruh daripada mengubah kecepatan, karena kedalaman masuk sebagai akar di penyebut.";
-  if (s.Fr1 < 1.7)
-    return `Loncatan baru mulai terbentuk. Kedalaman hanya naik ${r1} kali lipat dan energi yang teredam masih ${pct1} persen. Untuk keperluan peredam energi, kondisi ini belum memadai.`;
-  if (s.Fr1 < 4.5)
-    return `Perhatikan gulungan di daerah loncatan: pancaran masuk berosilasi naik-turun dan gelombangnya menjalar jauh ke hilir. Meski energi yang teredam sudah ${pct0} persen, gelombang sisa inilah yang biasanya merusak tebing di hilir — dan karena itu rentang ini dihindari dalam desain kolam olak.`;
-  if (s.Fr1 < 9)
-    return `Ini rentang yang dicari dalam desain: posisi loncatan stabil, energi teredam ${pct0} persen, dan kedalaman naik ${r1} kali lipat. Panjang kolam olak perlu setidaknya ${lj} m agar loncatan selesai di dalam struktur, bukan di atas tanah asli di hilirnya.`;
-  return `Peredaman sudah sangat besar, ${pct0} persen, tetapi permukaannya menjadi kasar dan bergolak. Pada kondisi ini biaya perlindungan dasar dan dinding naik tajam; sering kali lebih murah menurunkan Fr₁ dengan mengubah elevasi lantai olak daripada memperkuat strukturnya.`;
+    return {
+      state: `Fr₁ = ${fr} < 1: aliran subkritis, loncatan tidak terbentuk.`,
+      notice: [
+        "Kurangi kedalaman hulu atau naikkan kecepatan sampai Fr₁ melewati 1. Mengubah kedalaman jauh lebih berpengaruh daripada mengubah kecepatan, karena kedalaman masuk sebagai akar di penyebut.",
+        tetap,
+      ],
+    };
+  const state = `Fr₁ = ${fr}: ${s.klas.label.id} (${rentang}); kedalaman naik ${rasio} kali dan ${pct} persen energi teredam.`;
+  if (key === "berombak")
+    return { state, notice: [catatan, "Untuk keperluan peredam energi, kondisi ini belum memadai.", tetap] };
+  if (key === "lemah")
+    return {
+      state,
+      notice: [
+        catatan,
+        "Pada rentang ini kolam olak umumnya tidak memerlukan blok atau ambang peredam (Peterka 1978, EM-25).",
+        tetap,
+      ],
+    };
+  if (key === "berosilasi")
+    return {
+      state,
+      notice: [
+        "Perhatikan gulungan di daerah loncatan: pancaran masuk berosilasi naik-turun dan gelombangnya menjalar jauh ke hilir.",
+        "Gelombang sisa inilah yang biasanya merusak tebing di hilir, dan karena itu rentang ini dihindari dalam desain kolam olak.",
+        tetap,
+      ],
+    };
+  if (key === "mantap")
+    return {
+      state,
+      notice: [
+        "Ini rentang yang dicari dalam desain: posisi loncatan stabil dan tidak berpindah-pindah.",
+        `Panjang kolam olak perlu setidaknya ${lj} m agar loncatan selesai di dalam struktur, bukan di atas tanah asli di hilirnya.`,
+        tetap,
+      ],
+    };
+  return {
+    state,
+    notice: [
+      "Permukaan menjadi kasar dan bergolak, dan biaya perlindungan dasar serta dinding naik tajam.",
+      "Sering kali lebih murah menurunkan Fr₁ dengan mengubah elevasi lantai olak daripada memperkuat strukturnya.",
+      tetap,
+    ],
+  };
 }

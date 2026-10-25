@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -18,12 +19,13 @@ import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   ISBASH_EMBEDDED,
   ISBASH_EXPOSED,
+  G,
   SEDIMENT_S,
   fmt,
   fmtPlain,
   riprapSize,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -40,7 +42,7 @@ const TXT = {
     dChosen: "Ukuran batu yang direncanakan",
     pTertanam: "Batu tertanam rapat",
     pMenonjol: "Batu menonjol sendirian",
-    pDeras: "Hilir pelimpah, arus deras",
+    pDeras: "Hilir pelimpah, batu 400 mm kurang",
     rD50: "Ukuran batu yang dituntut",
     rMassa: "Massa satu batu terpilih",
     rTebal: "Tebal lapisan yang disyaratkan",
@@ -49,10 +51,17 @@ const TXT = {
     mantap: "Batu terpilih mantap",
     belumPilih: "Ukuran batu belum dipilih",
     belumPilihNote:
-      "Penggeser ukuran batu masih di nol, artinya belum ada ukuran yang dipilih untuk dibandingkan. Tiga baris terakhir tabel hasil karena itu dihitung dengan ukuran yang DITUNTUT alirannya, bukan dengan ukuran yang direncanakan, sehingga perbandingan kecepatan kerja terhadap kecepatan tahan pasti tepat satu. Angka satu di situ bukan hasil melainkan akibat dari belum adanya pilihan. Geser ukuran batunya ke nilai yang benar-benar akan dipakai supaya perbandingannya berarti.",
+      "Penggeser ukuran batu masih di nol, artinya belum ada ukuran yang dipilih untuk dibandingkan. Empat baris terakhir tabel hasil karena itu dihitung dengan ukuran yang DITUNTUT alirannya, bukan dengan ukuran yang direncanakan, sehingga perbandingan kecepatan kerja terhadap kecepatan tahan pasti tepat satu. Angka satu di situ bukan hasil melainkan akibat dari belum adanya pilihan. Geser ukuran batunya ke nilai yang benar-benar akan dipakai supaya perbandingannya berarti.",
     goyah: "Batu terpilih terlalu kecil",
+    bandMantap: "Batu mantap",
+    bandGerak: "Batu bergerak",
+    mD50: "Massa pada d₅₀",
+    hMassa: "Massa satu batu (bola berdiameter d)",
+    hBelum: "d belum dipilih: dipakai d₅₀, V/Vc = 1",
+    pasir:
+      "Ukuran yang dituntut kurang dari 2 mm, setara butir pasir. Rumus Isbash disusun untuk batu lapis lindung; angka sekecil ini hanya berarti aliran selambat ini tidak menuntut lapisan batu.",
     goyahNote:
-      "Ukuran batu yang direncanakan lebih kecil daripada yang dituntut kecepatan aliran ini, jadi batunya akan bergerak. Yang perlu diperhatikan tentang kegagalan lapisan batu: ia tidak pernah bertahap. Begitu beberapa batu terangkat, lubang yang ditinggalkannya memperbesar kecepatan setempat, batu tetangganya ikut terangkat, dan seluruh lapisan terbuka dalam satu banjir yang sama. Itu sebabnya perlindungan batu dirancang dengan cadangan ukuran, bukan dengan cadangan luas.",
+      "Yang perlu diperhatikan tentang kegagalan lapisan batu: ia tidak pernah bertahap. Begitu beberapa batu terangkat, lubang yang ditinggalkannya memperbesar kecepatan setempat, batu tetangganya ikut terangkat, dan seluruh lapisan terbuka dalam satu banjir yang sama. Itu sebabnya perlindungan batu dirancang dengan cadangan ukuran, bukan dengan cadangan luas.",
     note:
       "Dua hal pada lembar ini yang paling berguna diingat, dan keduanya berasal dari pangkat pada rumusnya. Pertama, kecepatan muncul berpangkat dua pada ukuran batu, sehingga menggandakan kecepatan menuntut batu empat kali lebih besar diameternya. Karena massa sebanding dengan pangkat tiga diameter, itu berarti enam puluh empat kali lebih berat. Perbedaan antara aliran dua meter per detik dan empat meter per detik karena itu bukan perbedaan derajat melainkan perbedaan antara batu yang dapat diangkat dua orang dan batu yang menuntut alat berat. Kedua, koefisien Isbash menyatakan seberapa terlindung sebuah batu oleh tetangganya, dan perbedaan antara batu yang tertanam rapat dengan batu yang menonjol sendirian hampir dua kali lipat pada ukurannya. Itu sebabnya mutu pemasangan lapisan batu sama menentukannya dengan ukuran batunya sendiri: lapisan yang dipasang asal tumpuk membuat sebagian batunya menonjol, dan batu yang menonjol itulah yang lepas lebih dulu lalu membuka seluruh lapisan.",
   },
@@ -65,7 +74,7 @@ const TXT = {
     dChosen: "Stone size planned",
     pTertanam: "Stone embedded tightly",
     pMenonjol: "Stone standing proud alone",
-    pDeras: "Below a spillway, fast flow",
+    pDeras: "Below a spillway, 400 mm stone too small",
     rD50: "Stone size required",
     rMassa: "Mass of one chosen stone",
     rTebal: "Layer thickness required",
@@ -74,10 +83,17 @@ const TXT = {
     mantap: "Chosen stone is stable",
     belumPilih: "No stone size chosen yet",
     belumPilihNote:
-      "The stone-size slider is still at zero, meaning no size has been chosen to compare against. The last three rows of the results are therefore computed with the size the flow DEMANDS rather than with a planned size, so the ratio of working velocity to resisting velocity is bound to be exactly one. That one is not a result but a consequence of nothing having been chosen. Move the stone size to the value that will actually be used, and the ratio starts to mean something.",
+      "The stone-size slider is still at zero, meaning no size has been chosen to compare against. The last four rows of the results are therefore computed with the size the flow DEMANDS rather than with a planned size, so the ratio of working velocity to resisting velocity is bound to be exactly one. That one is not a result but a consequence of nothing having been chosen. Move the stone size to the value that will actually be used, and the ratio starts to mean something.",
     goyah: "Chosen stone is too small",
+    bandMantap: "Stone stable",
+    bandGerak: "Stone moves",
+    mD50: "Mass at d₅₀",
+    hMassa: "Mass of one stone (sphere of diameter d)",
+    hBelum: "no d chosen: d₅₀ is used, V/Vc = 1",
+    pasir:
+      "The required size is below 2 mm, the size of a sand grain. The Isbash formula was built for armour stone; a size this small only means a flow this slow needs no rock layer.",
     goyahNote:
-      "The planned stone is smaller than this velocity demands, so it will move. What is worth knowing about riprap failure: it is never gradual. Once a few stones lift, the hole they leave raises the local velocity, their neighbours lift too, and the whole layer opens in the same flood. That is why rock protection is designed with a margin on size rather than a margin on area.",
+      "What is worth knowing about riprap failure: it is never gradual. Once a few stones lift, the hole they leave raises the local velocity, their neighbours lift too, and the whole layer opens in the same flood. That is why rock protection is designed with a margin on size rather than a margin on area.",
     note:
       "Two things on this sheet are the most useful to remember, and both come from the exponents in the formula. First, velocity enters the stone size squared, so doubling the velocity demands a stone four times larger in diameter. Since mass scales with the cube of diameter, that is sixty-four times heavier. The difference between a two metre per second flow and a four metre per second flow is therefore not a difference of degree but the difference between a stone two people can lift and a stone that needs machinery. Second, the Isbash coefficient states how sheltered a stone is by its neighbours, and the difference between a tightly embedded stone and one standing proud alone is nearly a factor of two in size. That is why the quality of placement matters as much as the size of the stone: a layer tipped rather than placed leaves some stones proud, and it is those proud stones that go first and then open the whole layer.",
   },
@@ -116,6 +132,9 @@ export function PerlindunganErosiClient() {
   const r = riprapSize(V, s, Cis, chosen);
   const pas = riprapSize(V, s, Cis);
   const adaPilihan = chosen > 0;
+  const dPakai = adaPilihan ? chosen : pas.d50;
+  const nada: Tone = !adaPilihan ? "neutral" : r.stable ? "pass" : "caution";
+  const badge = !adaPilihan ? x.belumPilih : r.stable ? x.mantap : x.goyah;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -162,8 +181,10 @@ export function PerlindunganErosiClient() {
         {
           xMin: V_MIN,
           xMax: V_MAX,
-          yMin: 0.002,
-          yMax: 3,
+          /* Sumbu memuat seluruh rentang penggeser: d₅₀ 0,47 mm (V 0,2,
+             C 1,40, Gs 3,20) sampai 6,66 m (V 8, C 0,70, Gs 2,00). */
+          yMin: 0.0004,
+          yMax: 8,
           xLog: true,
           yLog: true,
           axisX: T.axMeanVel,
@@ -174,7 +195,9 @@ export function PerlindunganErosiClient() {
                 {
                   axis: "y",
                   at: chosen,
-                  color: r.stable ? C.water : C.signal,
+                  /* Batu terlalu kecil masih di dalam rentang Isbash:
+                     keadaan rancangan yang gagal, oker, bukan merah sinyal. */
+                  color: r.stable ? C.water : C.caution,
                   dash: DASH.axis,
                   label: `${T.stoneLayer} ${fmtPlain(chosen, 3)} m`,
                   labelAlign: "left",
@@ -185,10 +208,10 @@ export function PerlindunganErosiClient() {
             x: V,
             y: pas.d50,
             label: `${fmtPlain(pas.d50, 3)} m`,
-            invalid: adaPilihan && !r.stable,
+            color: adaPilihan && !r.stable ? C.caution : undefined,
           },
           heading: adaPilihan && !r.stable ? x.goyah : undefined,
-          headingColor: C.signal,
+          headingColor: C.caution,
         },
         lang
       );
@@ -198,6 +221,24 @@ export function PerlindunganErosiClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas dari riprapSize: stable bila d ≥ d₅₀, setara V/Vc ≤ 1.
+           Tanpa ukuran terpilih V/Vc = 1 menurut definisi, jadi pita tidak
+           membawa informasi dan tidak ditampilkan. Sumbu 0,01 sampai 30
+           memuat rentang penggeser (0,0154 sampai 25,8). */
+        adaPilihan ? (
+          <RegimeScale
+            symbol="V/Vc"
+            value={r.utilisation}
+            scale="log"
+            digits={2}
+            bands={[
+              { from: 0.01, to: 1, label: x.bandMantap, tone: "pass" },
+              { from: 1, to: 30, label: x.bandGerak, tone: "caution" },
+            ]}
+          />
+        ) : undefined
+      }
       sheet="HS-08"
       subject={SUBJECTS.HS[lang]}
       title={x.title}
@@ -226,7 +267,9 @@ export function PerlindunganErosiClient() {
             { label: t.tbUnit, value: "SI (m, m/s, kg)" },
             { label: "V", value: `${fmt(V, 2)} m/s`, tint: C.water },
             { label: "d50", value: `${fmt(pas.d50, 3)} m`, tint: C.critical },
-            { label: "m", value: `${fmt(r.stoneMass, 1)} kg` },
+            /* Sel d50 berisi batu yang dituntut, jadi massanya juga
+               massa batu itu, bukan massa batu terpilih. */
+            { label: "m(d₅₀)", value: massa(pas.stoneMass) },
             { label: "C", value: fmt(Cis, 2) },
           ]}
         >
@@ -256,36 +299,66 @@ export function PerlindunganErosiClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={!adaPilihan || r.stable ? C.water : undefined} alert={adaPilihan && !r.stable}>
-                {adaPilihan ? (r.stable ? x.mantap : x.goyah) : `${fmt(pas.d50 * 1000, 0)} mm`}
-              </Flag>
-              {!adaPilihan && <Flag tint={C.ink2}>{x.belumPilih}</Flag>}
-            </div>
-            {adaPilihan && !r.stable && (
-              <div className="mb-2.5">
-                <Note>{x.goyahNote}</Note>
-              </div>
-            )}
-            {!adaPilihan && (
-              <div className="mb-2.5">
-                <Note>{x.belumPilihNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "d50", label: x.rD50, value: fmt(pas.d50, 4), unit: "m", tint: C.critical, strong: true },
-                { symbol: "m", label: x.rMassa, value: fmt(r.stoneMass, 2), unit: "kg", strong: true },
+                { symbol: "m", label: x.rMassa, value: massaAngka(r.stoneMass), unit: massaSatuan(r.stoneMass), strong: true },
                 { symbol: "t", label: x.rTebal, value: fmt(r.layerThickness, 3), unit: "m" },
                 { symbol: "Vc", label: x.rVtahan, value: fmt(r.capacityVelocity, 3), unit: "m/s", tint: C.water },
-                { symbol: "V/Vc", label: x.rPakai, value: fmt(r.utilisation, 3), tint: r.utilisation > 1 ? C.signal : undefined },
+                {
+                  symbol: "V/Vc",
+                  label: x.rPakai,
+                  value: fmt(r.utilisation, 3),
+                  tint: adaPilihan && !r.stable ? C.caution : undefined,
+                  strong: adaPilihan,
+                },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.rD50,
+                    rumus: (<><span>d₅₀ =</span><Frac num="V²" den="2 g C² (Gs − 1)" /></>),
+                    isi: `${fmt(V, 2)}² / ( 2 · ${fmt(G, 2)} · ${fmt(Cis, 2)}² · ( ${fmt(s, 2)} − 1 ) )`,
+                    hasil: fmt(pas.d50, 4),
+                    satuan: "m",
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.hMassa,
+                    rumus: (<><span>m = Gs · ρ ·</span><Frac num="π" den="6" /><span>· d³</span></>),
+                    isi: `${fmt(s, 2)} · 1000 · π / 6 · ${fmt(dPakai, 4)}³`,
+                    hasil: massaAngka(r.stoneMass),
+                    satuan: massaSatuan(r.stoneMass),
+                  },
+                  {
+                    judul: x.rTebal,
+                    rumus: <span>t = 2 · d</span>,
+                    isi: `2 · ${fmt(dPakai, 4)}`,
+                    hasil: fmt(r.layerThickness, 3),
+                    satuan: "m",
+                  },
+                  adaPilihan
+                    ? {
+                        judul: x.rPakai,
+                        rumus: <span>Vc = C · √( 2 g ( Gs − 1 ) d ) ;  V / Vc</span>,
+                        isi: `${fmt(Cis, 2)} · √( 2 · ${fmt(G, 2)} · ( ${fmt(s, 2)} − 1 ) · ${fmt(dPakai, 3)} ) = ${fmt(r.capacityVelocity, 3)} m/s ;  ${fmt(V, 2)} / ${fmt(r.capacityVelocity, 4)}`,
+                        hasil: fmt(r.utilisation, 3),
+                        tint: r.stable ? undefined : C.caution,
+                      }
+                    : {
+                        judul: x.rPakai,
+                        rumus: <span>Vc = C · √( 2 g ( Gs − 1 ) d₅₀ )</span>,
+                        isi: x.hBelum,
+                        hasil: fmt(r.utilisation, 3),
+                      },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(V, s, Cis, pas.d50, lang)}</Note>
-          </Block>
+          <StateCard tone={nada} badge={badge} {...keadaan(V, s, Cis, pas.d50, adaPilihan, r, x, lang)} />
         </>
       }
       verification={<Verification checks={checksRiprap(V, s, Cis, chosen)} />}
@@ -317,18 +390,82 @@ export function PerlindunganErosiClient() {
   );
 }
 
-function notice(
+/** Massa kecil ditulis dalam gram: 0,0 kg terbaca seperti tanpa batu. */
+const KECIL = 0.05;
+function massaAngka(m: number) {
+  return m < KECIL ? fmt(m * 1000, 1) : fmt(m, 2);
+}
+function massaSatuan(m: number) {
+  return m < KECIL ? "g" : "kg";
+}
+function massa(m: number) {
+  return `${massaAngka(m)} ${massaSatuan(m)}`;
+}
+/** Diameter dalam mm; di bawah 10 mm diberi satu desimal supaya tidak jadi "1 mm". */
+function mm(d: number) {
+  return fmt(d * 1000, d < 0.01 ? 1 : 0);
+}
+
+/*
+ * Kalimat keadaan dan butir yang perlu diperhatikan. Semua angka dihitung
+ * dari model pada setelan lembar, termasuk perbandingan koefisien: pada C
+ * yang sudah batu menonjol, pembandingnya batu tertanam, bukan dirinya
+ * sendiri (dulu kalimatnya menyuruh "setel ke nilai menonjol" dan menulis
+ * angka yang sama dengan kalimat pertama).
+ */
+function keadaan(
   V: number,
   s: number,
   Cis: number,
   d50: number,
+  adaPilihan: boolean,
+  r: ReturnType<typeof riprapSize>,
+  x: (typeof TXT)[Lang],
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
   const dua = riprapSize(V * 2, s, Cis);
-  const menonjol = riprapSize(V, s, ISBASH_EXPOSED);
   const pas = riprapSize(V, s, Cis);
+  const sudahMenonjol = Cis <= ISBASH_EXPOSED + 1e-9;
+  const Cbanding = sudahMenonjol ? ISBASH_EMBEDDED : ISBASH_EXPOSED;
+  const banding = riprapSize(V, s, Cbanding);
+  const lipat = fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-12), 0);
+  const en = lang === "en";
+  const dPilih = r.layerThickness / 2;
 
-  if (lang === "en")
-    return `At ${fmt(V, 2)} m/s the stone must be ${fmt(d50 * 1000, 0)} mm and weighs ${fmt(pas.stoneMass, 1)} kg. Double the velocity and it becomes ${fmt(dua.d50 * 1000, 0)} mm weighing ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} times the mass for twice the speed. Now set the Isbash coefficient to the exposed value and the same flow demands ${fmt(menonjol.d50 * 1000, 0)} mm instead. The flow did not change; only how well the stone is held by its neighbours did.`;
-  return `Pada ${fmt(V, 2)} m/s batunya harus ${fmt(d50 * 1000, 0)} mm dan beratnya ${fmt(pas.stoneMass, 1)} kg. Lipatduakan kecepatannya dan ia menjadi ${fmt(dua.d50 * 1000, 0)} mm seberat ${fmt(dua.stoneMass, 0)} kg: ${fmt(dua.stoneMass / Math.max(pas.stoneMass, 1e-9), 0)} kali massanya untuk dua kali lajunya. Sekarang setel koefisien Isbash ke nilai batu menonjol, dan aliran yang sama menuntut ${fmt(menonjol.d50 * 1000, 0)} mm. Alirannya tidak berubah; yang berubah hanya seberapa baik batunya ditahan tetangganya.`;
+  const state = !adaPilihan
+    ? en
+      ? `A flow of ${fmt(V, 2)} m/s demands a ${mm(d50)} mm stone.`
+      : `Aliran ${fmt(V, 2)} m/s menuntut batu ${mm(d50)} mm.`
+    : r.stable
+      ? en
+        ? `A ${mm(dPilih)} mm stone holds up to ${fmt(r.capacityVelocity, 2)} m/s; the working velocity is ${fmt(V, 2)} m/s (${fmt(r.utilisation, 2)} times).`
+        : `Batu ${mm(dPilih)} mm menahan sampai ${fmt(r.capacityVelocity, 2)} m/s; kecepatan kerja ${fmt(V, 2)} m/s (${fmt(r.utilisation, 2)} kali).`
+      : en
+        ? `The chosen ${mm(dPilih)} mm stone is too small: ${mm(d50)} mm is required.`
+        : `Batu terpilih ${mm(dPilih)} mm terlalu kecil: dituntut ${mm(d50)} mm.`;
+
+  const notice: string[] = [];
+  if (!adaPilihan) notice.push(x.belumPilihNote);
+  if (adaPilihan && !r.stable) notice.push(x.goyahNote);
+  if (d50 < 0.002) notice.push(x.pasir);
+  notice.push(
+    en
+      ? `At ${fmt(V, 2)} m/s the required stone weighs ${massa(pas.stoneMass)}. Double the velocity and it becomes ${mm(dua.d50)} mm weighing ${massa(dua.stoneMass)}: ${lipat} times the mass for twice the speed.`
+      : `Pada ${fmt(V, 2)} m/s batu yang dituntut seberat ${massa(pas.stoneMass)}. Lipatduakan kecepatannya dan ia menjadi ${mm(dua.d50)} mm seberat ${massa(dua.stoneMass)}: ${lipat} kali massanya untuk dua kali lajunya.`
+  );
+  notice.push(
+    sudahMenonjol
+      ? en
+        ? `C is already at the exposed-stone value. The same flow over tightly embedded stone (C ${fmt(ISBASH_EMBEDDED, 2)}) would need only ${mm(banding.d50)} mm. The flow is the same; only how well the stone is held by its neighbours differs.`
+        : `C sudah di nilai batu menonjol. Aliran yang sama di atas batu tertanam rapat (C ${fmt(ISBASH_EMBEDDED, 2)}) cukup menuntut ${mm(banding.d50)} mm. Alirannya sama; yang berbeda hanya seberapa baik batunya ditahan tetangganya.`
+      : en
+        ? `Set the Isbash coefficient to the exposed-stone value (C ${fmt(ISBASH_EXPOSED, 2)}) and the same flow demands ${mm(banding.d50)} mm. The flow did not change; only how well the stone is held by its neighbours did.`
+        : `Setel koefisien Isbash ke nilai batu menonjol (C ${fmt(ISBASH_EXPOSED, 2)}) dan aliran yang sama menuntut ${mm(banding.d50)} mm. Alirannya tidak berubah; yang berubah hanya seberapa baik batunya ditahan tetangganya.`
+  );
+  notice.push(
+    en
+      ? "Placement quality matters as much as size: a tipped layer leaves some stones proud, and those go first and open the whole layer."
+      : "Mutu pemasangan sama menentukannya dengan ukuran: lapisan yang ditumpuk asal membuat sebagian batu menonjol, dan batu itulah yang lepas lebih dulu lalu membuka seluruh lapisan."
+  );
+  return { state, notice };
 }

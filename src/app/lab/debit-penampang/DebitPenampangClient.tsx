@@ -5,12 +5,15 @@ import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
   Flag,
+  Hitungan,
   InputRow,
   InputTable,
   Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { DataEntry, ptsFromRows, rowsFromPts, type Row } from "@/components/DataEntry";
@@ -23,7 +26,8 @@ import {
   type StructureLine,
   type StructureWater,
 } from "@/lib/drawStructure";
-import { fmt, fmtPlain } from "@/lib/hydraulics";
+import { G, fmt, fmtPlain } from "@/lib/hydraulics";
+import { type Tone } from "@/lib/theme";
 import {
   RATING_STORAGE_KEY,
   SAMPLE_SECTION,
@@ -77,6 +81,24 @@ const TXT = {
     rYmaks: "pada kedalaman",
     rQrc: "Debit menurut lengkung HY-04",
     rSelisih: "Selisih terhadap Manning atau Chezy",
+    rQkap: "Debit kapasitas sampai tepi",
+    rQpenuh: "Debit kapasitas pipa penuh",
+    bSub: "Subkritis",
+    bSup: "Superkritis",
+    sub: "subkritis",
+    sup: "superkritis",
+    frTak: "Fr tidak terdefinisi, pipa penuh",
+    bTepat: "Pipa tepat penuh",
+    takUrut: "Koordinat tidak berurut",
+    takUrutNote:
+      "Ada titik yang x-nya lebih kecil daripada titik sebelumnya. Hitungan per ruas mengandaikan titik disusun dari tebing kiri ke tebing kanan dengan x naik, jadi ruas yang mundur menghitung luas dan lebar dua kali. Hasil ditahan sampai urutannya dibetulkan; titiknya tidak diurutkan diam-diam.",
+    penuhState: "Pipa penuh: Q adalah kapasitas gravitasi pipa penuh, bukan debit pada muka air yang diminta.",
+    luapState: "Muka air di atas tepi: Q adalah kapasitas sampai tepi.",
+    hGeoLingkaran: "Sudut basah, luas, dan keliling basah lingkaran",
+    hGeoPersegi: "Luas dan keliling basah persegi",
+    hGeoAlam: "Luas dan keliling basah dijumlahkan per ruas basah",
+    hFrTak: "T = 0 pada pipa penuh, Fr tidak terdefinisi",
+    rcLuarJauh: "Lengkung HY-04 dibaca di luar ekstrapolasi yang diizinkan",
     penuh: "Pipa penuh, air di atas puncaknya",
     penuhNote:
       "Muka air yang diminta lebih tinggi daripada puncak pipa, jadi pipanya penuh dan tidak lagi mengalir sebagai saluran terbuka. Debit yang ditulis adalah debit pipa penuh dengan garis energi sejajar dasar, yaitu kapasitas gravitasinya. Air yang lebih tinggi lagi di hulu tidak menambah debit lewat rumus ini: ia menambah tekanan, dan debitnya harus dihitung sebagai aliran bertekanan (lembar PI-07). Perhatikan juga bahwa pipa penuh mengalirkan LEBIH SEDIKIT daripada pipa yang terisi sekitar 94 persen.",
@@ -126,6 +148,24 @@ const TXT = {
     rYmaks: "at depth",
     rQrc: "Discharge from the HY-04 rating",
     rSelisih: "Difference from Manning or Chezy",
+    rQkap: "Capacity discharge to the rim",
+    rQpenuh: "Full-pipe capacity discharge",
+    bSub: "Subcritical",
+    bSup: "Supercritical",
+    sub: "subcritical",
+    sup: "supercritical",
+    frTak: "Fr undefined, pipe full",
+    bTepat: "Pipe just full",
+    takUrut: "Coordinates out of order",
+    takUrutNote:
+      "A point has a smaller x than the point before it. The segment-by-segment calculation assumes points run from the left bank to the right bank with x increasing, so a segment going backwards counts area and width twice. Results are held until the order is fixed; the points are not sorted silently.",
+    penuhState: "Pipe full: Q is the gravity capacity of the full pipe, not the discharge at the requested level.",
+    luapState: "Water above the rim: Q is the capacity up to the rim.",
+    hGeoLingkaran: "Wetted angle, area, and perimeter of the circle",
+    hGeoPersegi: "Wetted area and perimeter of the rectangle",
+    hGeoAlam: "Wetted area and perimeter summed over the wet segments",
+    hFrTak: "T = 0 in a full pipe, Fr is undefined",
+    rcLuarJauh: "The HY-04 rating is read beyond the permitted extrapolation",
     penuh: "Pipe full, water above its crown",
     penuhNote:
       "The requested water level is above the pipe crown, so the pipe runs full and no longer flows as an open channel. The discharge written is the full-pipe discharge with the energy line parallel to the bed, which is its gravity capacity. Water standing higher upstream does not add discharge through this formula: it adds pressure, and the discharge must be computed as pressurised flow (sheet PI-07). Notice too that a full pipe carries LESS than a pipe filled to about 94 per cent.",
@@ -235,13 +275,34 @@ export function DebitPenampangClient() {
     [shape, D, S, method, n, Cz] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const qMaks = yMaks !== null ? sectionFlow(sec, yMaks, S, res).discharge : null;
+  /* Titik penampang alam yang tidak berurut x naik membuat hitungan per
+     ruas salah (luas dan lebar terhitung dua kali). Hasilnya ditahan dan
+     ditandai, sama seperti saat titiknya belum cukup. */
+  const sah = cukup && !f.unordered;
   const cek = useMemo(
-    () => (cukup ? checksSection(sec, H, S, res) : []),
-    [shape, D, Wd, Hc, kunciTitik, H, S, method, n, Cz] // eslint-disable-line react-hooks/exhaustive-deps
+    () => (sah ? checksSection(sec, H, S, res) : []),
+    [sah, shape, D, Wd, Hc, kunciTitik, H, S, method, n, Cz] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const qRc = rc ? ratingValue(rc, f.depth) : null;
-  const rcLuar = rc !== null && (f.depth < rc.hMin || f.depth > rc.hMax);
+  const qRc = rc && sah ? ratingValue(rc, f.depth) : null;
+  const rcLuar = rc !== null && sah && (f.depth < rc.hMin || f.depth > rc.hMax);
+  /* Ekstrapolasi sampai 20 % di atas data ukur masih "terbatas" (sama
+     dengan pita HY-04); di bawah data atau lebih jauh lagi di luar rentang
+     berlaku. */
+  const rcJauh = rc !== null && sah && (f.depth < rc.hMin || f.depth > 1.2 * rc.hMax);
+  const nadaRc = rcJauh ? C.signal : C.caution;
+
+  // Fr tidak terdefinisi pada pipa penuh (T = 0): lib memberi NaN.
+  const frAda = Number.isFinite(f.froude);
+  const subkritis = frAda && f.froude < 1;
+  /* Muka air tepat di puncak pipa: T = 0, Fr NaN. Bukan sub- atau
+     superkritis, jadi badge dan kalimat tidak menyebut rezim. */
+  const tepatPenuh = sah && !f.overtopped && !frAda;
+  const nada: Tone = !sah || f.overtopped ? "invalid" : tepatPenuh ? "caution" : subkritis ? "water" : "neutral";
+  const labelQ =
+    f.overtopped ? (shape === "lingkaran" ? x.rQpenuh : x.rQkap) : x.rQ;
+  const theta = shape === "lingkaran" ? 2 * Math.acos(Math.max(-1, Math.min(1, 1 - (2 * f.depth) / D))) : 0;
+  const hasilV = method === "manning" ? `( 1 / ${fmt(n, 3)} ) · ${fmt(f.radius, 5)}^⅔ · ${fmt(S, 5)}^½` : `${fmt(Cz, 0)} · ( ${fmt(f.radius, 5)} · ${fmt(S, 5)} )^½`;
   const hMaksSlider = Math.max(0.1, tinggi * 1.25);
   const langkahH = hMaksSlider > 4 ? 0.05 : 0.01;
 
@@ -328,8 +389,10 @@ export function DebitPenampangClient() {
         zMax = Math.max(...zs, H) + (Math.max(...zs) - kaki) * 0.3;
       }
 
-      /* Air: satu genangan untuk tiap poligon basah */
-      const waters: StructureWater[] = f.wetted.map((poly) => {
+      /* Air: satu genangan untuk tiap poligon basah. Titik tak berurut:
+         penampangnya tetap digambar supaya lipatannya terlihat, tetapi air
+         dan ukurannya tidak, karena hitungannya ditahan. */
+      const waters: StructureWater[] = (f.unordered ? [] : f.wetted).map((poly) => {
         const pz = poly.map((p) => ({ x: p.x, z: p.y - geser }));
         const kiri = pz[0];
         const kanan = pz[pz.length - 1];
@@ -358,7 +421,7 @@ export function DebitPenampangClient() {
         });
       }
 
-      if (f.depth > 0) {
+      if (f.depth > 0 && !f.unordered) {
         /* Penampang alam: di luar tebing kanan, bukan di tepi air. Tebing
            yang naik curam di kanan tepi air menimpa ukurannya (uji V8) */
         const kanan = shape === "alam" ? Math.max(...pts.map((p) => p.x)) : absisUkur;
@@ -382,7 +445,7 @@ export function DebitPenampangClient() {
           xMax,
           zMin,
           /* Ruang judul keadaan bila tampil */
-          zMax: f.overtopped ? zMax + (zMax - zMin) * 0.15 : zMax,
+          zMax: f.overtopped || f.unordered ? zMax + (zMax - zMin) * 0.15 : zMax,
           /* Penampang sungai digambar dengan skala tegak dilebihkan, seperti
              kebiasaan gambar potongan sungai: lebarnya belasan sampai ratusan
              meter sedangkan dalamnya beberapa meter. Pipa dan kotak tetap
@@ -392,7 +455,13 @@ export function DebitPenampangClient() {
           waters,
           lines,
           dims,
-          heading: f.overtopped ? (shape === "lingkaran" ? x.penuh : x.luap) : undefined,
+          heading: f.unordered
+            ? x.takUrut
+            : f.overtopped
+              ? shape === "lingkaran"
+                ? x.penuh
+                : x.luap
+              : undefined,
           headingColor: C.signal,
           axisX: T.axAcrossSection,
           axisZ: T.axElevSection,
@@ -410,6 +479,26 @@ export function DebitPenampangClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas Fr = 1 (Chow 1959 §1-3, D = A/T). Tanpa pita kritis sempit:
+           pita ±2 % classifyRegime diturunkan untuk saluran persegi. */
+        <RegimeScale
+          symbol="Fr"
+          value={sah && frAda ? f.froude : NaN}
+          invalid={!sah}
+          pesan={!cukup ? x.kurangTitik : f.unordered ? x.takUrut : !frAda ? x.frTak : undefined}
+          scale="log"
+          digits={3}
+          bands={
+            sah && frAda
+              ? [
+                  { from: 0.01, to: 1, label: x.bSub, tone: "water" },
+                  { from: 1, to: 10, label: x.bSup, tone: "neutral" },
+                ]
+              : [{ from: 0.01, to: 10, label: !cukup ? x.kurangTitik : f.unordered ? x.takUrut : x.frTak, tone: "invalid" }]
+          }
+        />
+      }
       sheet="HY-03"
       subject={SUBJECTS.HY[lang]}
       title={x.title}
@@ -439,12 +528,12 @@ export function DebitPenampangClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
-            { label: "A", value: cukup ? `${fmt(f.area, 3)} m²` : "—" },
-            { label: "R", value: cukup ? `${fmt(f.radius, 3)} m` : "—" },
-            { label: "V", value: cukup ? `${fmt(f.velocity, 2)} m/s` : "—" },
+            { label: "A", value: sah ? `${fmt(f.area, 3)} m²` : "—" },
+            { label: "R", value: sah ? `${fmt(f.radius, 3)} m` : "—" },
+            { label: "V", value: sah ? `${fmt(f.velocity, 2)} m/s` : "—" },
             {
               label: "Q",
-              value: cukup ? `${fmt(f.discharge, 3)} m³/s` : "—",
+              value: sah ? `${fmt(f.discharge, 3)} m³/s` : "—",
               tint: f.overtopped ? C.signal : C.water,
             },
           ]}
@@ -525,80 +614,163 @@ export function DebitPenampangClient() {
           )}
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              {!cukup ? (
-                <Flag alert>{x.kurangTitik}</Flag>
-              ) : (
-                <>
-                  <Flag tint={C.water} alert={f.overtopped}>
-                    {`Q ${fmt(f.discharge, 3)} m³/s`}
-                  </Flag>
-                  {f.overtopped && <Flag alert>{shape === "lingkaran" ? x.penuh : x.luap}</Flag>}
-                </>
-              )}
-            </div>
-            {!cukup && (
-              <div className="mb-2.5">
-                <Note>{x.kurangTitikNote}</Note>
-              </div>
-            )}
-            {f.overtopped && (
-              <div className="mb-2.5">
-                <Note>{shape === "lingkaran" ? x.penuhNote : x.luapNote}</Note>
-              </div>
-            )}
-            {cukup && (
+            {/* Badge Q di atas tabel dibuang: angka Q sudah ditulis besar
+                oleh kartu hasil, dan keadaannya ada di kartu keadaan. */}
+            {sah && (
               <ResultTable
                 rows={[
-                  { symbol: "Q", label: x.rQ, value: fmt(f.discharge, 4), unit: "m³/s", tint: f.overtopped ? C.signal : C.water, strong: true },
+                  { symbol: "Q", label: labelQ, value: fmt(f.discharge, 4), unit: "m³/s", tint: f.overtopped ? C.signal : C.water, strong: true },
                   { symbol: "V", label: x.rV, value: fmt(f.velocity, 3), unit: "m/s" },
                   { symbol: "A", label: x.rA, value: fmt(f.area, 4), unit: "m²" },
                   { symbol: "P", label: x.rP, value: fmt(f.perimeter, 4), unit: "m" },
                   { symbol: "R", label: x.rR, value: fmt(f.radius, 4), unit: "m", tint: C.water },
                   { symbol: "T", label: x.rT, value: fmt(f.topWidth, 3), unit: "m" },
-                  { symbol: "Fr", label: x.rFr, value: fmt(f.froude, 3), tint: C.critical },
+                  { symbol: "Fr", label: x.rFr, value: fmt(f.froude, 3) },
                   ...(qMaks !== null && yMaks !== null
                     ? [{ symbol: "Qmaks", label: `${x.rQmaks}, ${x.rYmaks} ${fmt(yMaks, 3)} m`, value: fmt(qMaks, 4), unit: "m³/s" }]
                     : []),
                 ]}
               />
             )}
+            {sah && (
+              <div className="mt-3">
+                <Hitungan
+                  langkah={[
+                    shape === "lingkaran"
+                      ? {
+                          judul: `${x.hGeoLingkaran}, θ = 2 arccos( 1 − 2 · ${fmt(f.depth, 3)} / ${fmt(D, 2)} ) = ${fmt(theta, 4)} rad`,
+                          rumus: (<><span>A =</span><Frac num="D² · ( θ − sin θ )" den="8" /><span>;  P =</span><Frac num="D · θ" den="2" /></>),
+                          isi: `${fmt(D, 2)}² · ( ${fmt(theta, 4)} − sin ${fmt(theta, 4)} ) / 8;  ${fmt(D, 2)} · ${fmt(theta, 4)} / 2`,
+                          hasil: `A = ${fmt(f.area, 4)} m²;  P = ${fmt(f.perimeter, 4)}`,
+                          satuan: "m",
+                        }
+                      : shape === "persegi"
+                        ? {
+                            judul: x.hGeoPersegi,
+                            rumus: <span>A = W · y;  P = W + 2 · y</span>,
+                            isi: `${fmt(Wd, 1)} · ${fmt(f.depth, 3)};  ${fmt(Wd, 1)} + 2 · ${fmt(f.depth, 3)}`,
+                            hasil: `A = ${fmt(f.area, 4)} m²;  P = ${fmt(f.perimeter, 4)}`,
+                            satuan: "m",
+                          }
+                        : {
+                            judul: x.hGeoAlam,
+                            rumus: <span>A = Σ Aᵢ;  P = Σ Pᵢ</span>,
+                            isi: `y = ${fmt(f.depth, 3)} m, ${pts.length} ${lang === "id" ? "titik" : "points"}`,
+                            hasil: `A = ${fmt(f.area, 4)} m²;  P = ${fmt(f.perimeter, 4)}`,
+                            satuan: "m",
+                          },
+                    {
+                      judul: x.rR,
+                      rumus: (<><span>R =</span><Frac num="A" den="P" /></>),
+                      isi: `${fmt(f.area, 5)} / ${fmt(f.perimeter, 5)}`,
+                      hasil: fmt(f.radius, 4),
+                      satuan: "m",
+                      tint: C.water,
+                    },
+                    {
+                      judul: x.rV,
+                      rumus:
+                        method === "manning" ? (
+                          <><span>V =</span><Frac num="1" den="n" /><span>· R^⅔ · S^½</span></>
+                        ) : (
+                          <span>V = C · ( R · S )^½</span>
+                        ),
+                      isi: hasilV,
+                      hasil: fmt(f.velocity, 3),
+                      satuan: "m/s",
+                    },
+                    {
+                      judul: labelQ,
+                      rumus: <span>Q = V · A</span>,
+                      isi: `${fmt(f.velocity, 4)} · ${fmt(f.area, 5)}`,
+                      hasil: fmt(f.discharge, 4),
+                      satuan: "m³/s",
+                      tint: f.overtopped ? C.signal : C.water,
+                    },
+                    {
+                      judul: frAda ? `${x.rFr}, T = ${fmt(f.topWidth, 3)} m` : x.hFrTak,
+                      rumus: (<><span>Fr =</span><Frac num="V" den="√( g · A / T )" /></>),
+                      isi: frAda
+                        ? `${fmt(f.velocity, 4)} / √( ${fmt(G, 2)} · ${fmt(f.area, 5)} / ${fmt(f.topWidth, 4)} )`
+                        : "—",
+                      hasil: fmt(f.froude, 3),
+                    },
+                  ]}
+                />
+              </div>
+            )}
           </Block>
 
           <Block heading="HY-04">
-            {rc && qRc !== null ? (
+            {rc ? (
               <>
+                {/* Membaca lengkung di luar data ukur adalah soal rentang
+                    berlaku, bukan keadaan kritis: oker sampai 1,2 hMax,
+                    merah sinyal di bawah data atau lebih jauh lagi. */}
                 {rcLuar && (
                   <div className="mb-2.5">
-                    <Flag tint={C.critical}>{x.rcLuar}</Flag>
+                    <Flag tint={nadaRc} alert={rcJauh}>{rcJauh ? x.rcLuarJauh : x.rcLuar}</Flag>
                   </div>
                 )}
                 <ResultTable
                   rows={[
-                    { symbol: "Qrc", label: x.rQrc, value: fmt(qRc, 4), unit: "m³/s", tint: rcLuar ? C.critical : C.water, strong: true },
+                    { symbol: "Qrc", label: x.rQrc, value: qRc !== null ? fmt(qRc, 4) : "—", unit: "m³/s", tint: rcLuar ? nadaRc : C.water, strong: true },
                     {
                       symbol: "Δ",
                       label: x.rSelisih,
-                      value: f.discharge > 0 ? fmt(((qRc - f.discharge) / f.discharge) * 100, 1) : "—",
-                      unit: f.discharge > 0 ? "%" : undefined,
+                      value: qRc !== null && f.discharge > 0 ? fmt(((qRc - f.discharge) / f.discharge) * 100, 1) : "—",
+                      unit: qRc !== null && f.discharge > 0 ? "%" : undefined,
                     },
                   ]}
                 />
-                <div className="mt-2.5">
-                  <Note>{x.rcDatum}</Note>
-                </div>
+
               </>
             ) : (
               <Note>{x.rcNone}</Note>
             )}
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(sec, S, res, cukup, lang)}</Note>
-          </Block>
+          {!cukup ? (
+            <StateCard tone="invalid" badge={x.kurangTitik} state={x.kurangTitikNote} />
+          ) : f.unordered ? (
+            <StateCard tone="invalid" badge={x.takUrut} state={x.takUrutNote} />
+          ) : (
+            <StateCard
+              tone={nada}
+              badge={
+                f.overtopped
+                  ? shape === "lingkaran"
+                    ? x.penuh
+                    : x.luap
+                  : tepatPenuh
+                    ? x.bTepat
+                    : subkritis
+                      ? x.bSub
+                      : x.bSup
+              }
+              state={
+                f.overtopped
+                  ? shape === "lingkaran"
+                    ? x.penuhState
+                    : x.luapState
+                  : lang === "id"
+                    ? `Pada y = ${fmt(f.depth, 2)} m penampang mengalirkan ${fmt(f.discharge, 3)} m³/s${tepatPenuh ? `; ${x.hFrTak}` : ""}${tepatPenuh ? "" : `, ${subkritis ? x.sub : x.sup}`}.`
+                    : `At y = ${fmt(f.depth, 2)} m the section carries ${fmt(f.discharge, 3)} m³/s${tepatPenuh ? `; ${x.hFrTak}` : ""}${tepatPenuh ? "" : `, ${subkritis ? x.sub : x.sup}`}.`
+              }
+              notice={[
+                f.overtopped ? (shape === "lingkaran" ? x.penuhNote : x.luapNote) : null,
+                notice(sec, S, res, lang),
+                rc && qRc !== null && f.discharge > 0
+                  ? lang === "id"
+                    ? `Lengkung HY-04 memberi ${fmt(qRc, 3)} m³/s pada H = ${fmt(f.depth, 2)} m, selisih ${fmt(((qRc - f.discharge) / f.discharge) * 100, 1)} persen terhadap ${method === "manning" ? "Manning" : "Chezy"}. ${x.rcDatum}`
+                    : `The HY-04 rating gives ${fmt(qRc, 3)} m³/s at H = ${fmt(f.depth, 2)} m, ${fmt(((qRc - f.discharge) / f.discharge) * 100, 1)} per cent from ${method === "manning" ? "Manning" : "Chezy"}. ${x.rcDatum}`
+                  : null,
+              ]}
+            />
+          )}
         </>
       }
-      verification={cukup ? <Verification checks={cek} /> : undefined}
+      verification={sah ? <Verification checks={cek} /> : undefined}
       below={
         <Basis
           equations={
@@ -633,11 +805,7 @@ export function DebitPenampangClient() {
   );
 }
 
-function notice(sec: SectionInput, S: number, res: Resistance, cukup: boolean, lang: Lang): string {
-  if (!cukup)
-    return lang === "id"
-      ? "Begitu koordinat penampangnya lengkap, lembar ini menunjukkan di sini seberapa jauh debit berubah bila kekasarannya salah taksir."
-      : "Once the section coordinates are complete, this sheet shows here how far the discharge moves if the roughness is misjudged.";
+function notice(sec: SectionInput, S: number, res: Resistance, lang: Lang): string {
   const tinggi = sectionHeight(sec);
   const y = tinggi * 0.6;
   const q = sectionFlow(sec, y, S, res).discharge;

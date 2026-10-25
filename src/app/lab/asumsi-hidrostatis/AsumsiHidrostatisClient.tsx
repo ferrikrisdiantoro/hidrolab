@@ -4,18 +4,20 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawField, type FieldDim, type FieldLine } from "@/lib/drawField";
 import {
+  G,
   HYDROSTATIC_TOLERANCE,
   curvaturePressure,
   fmt,
@@ -49,6 +51,25 @@ const TXT = {
     boleh: "Anggapan hidrostatis masih boleh dipakai",
     tidak: "Anggapan hidrostatis sudah tidak berlaku",
     lepas: "Tekanan dasar habis, airnya terangkat",
+    bandBoleh: "Hidrostatis berlaku",
+    bandTidak: "Tidak hidrostatis",
+    bandTidakNaik: "Tidak hidrostatis, tekanan lebih besar",
+    bandLepas: "Air terangkat",
+    sState: (k: string, pct: string, n: string) => `${k}: simpangan ${pct} % dari hidrostatis (V²/gR = ${n}).`,
+    sLepas: (k: string, n: string) =>
+      `${k}: V²/gR = ${n}, tidak kurang dari 1, jadi lengkungan garis arus menuntut tekanan dasar nol atau kurang. Simpangan dan tekanan dasarnya tidak ditulis.`,
+    nDalam: (a: string, b: string) =>
+      `Buat alirannya tiga kali lebih dalam: simpangannya tetap ${b} % (sekarang ${a} %), karena kedalamannya saling menghapus dalam V²/gR.`,
+    nDalamLepas: "Mendalamkan aliran tidak menolong: kedalaman tidak muncul dalam V²/gR, jadi airnya tetap terangkat.",
+    nCepat: (a: string, b: string) =>
+      `Lipatduakan kecepatannya: simpangannya naik dari ${a} ke ${b} %, empat kali, karena simpangan mengikuti kuadrat kecepatan.`,
+    nCepatLepas: (n: string) =>
+      `Lipatduakan kecepatannya: V²/gR menjadi ${n}, empat kali, dan tekanan dasarnya habis. Airnya terangkat.`,
+    jP0: "Tekanan dasar bila dianggap hidrostatis",
+    jN: "Bilangan kelengkungan",
+    jDp: "Simpangan akibat kelengkungan (negatif bila cembung)",
+    jP: "Tekanan dasar yang sebenarnya",
+    jRasio: "Simpangan nisbi, dibandingkan batas",
     lepasNote:
       "Tekanan di dasar sudah turun sampai nol atau lebih rendah, dan air tidak dapat menarik. Yang terjadi bukan tekanan negatif melainkan air yang lepas dari permukaannya: tirainya terangkat, rongga terbentuk di bawahnya, dan tekanan di rongga itu ditentukan udara yang dapat masuk ke sana, bukan lagi oleh alirannya. Garis putus-putus merah di gambar hanya tuntutan rumusnya, dan karena itu angka tekanan dasarnya tidak dituliskan. Pada mercu pelimpah keadaan ini dihindari bukan karena airnya berhenti mengalir, melainkan karena rongga yang tidak berudara akan berdenyut dan menggetarkan seluruh bangunannya.",
     note:
@@ -74,6 +95,25 @@ const TXT = {
     boleh: "The hydrostatic assumption still holds",
     tidak: "The hydrostatic assumption no longer holds",
     lepas: "The bed pressure is gone, the water lifts off",
+    bandBoleh: "Hydrostatic holds",
+    bandTidak: "Not hydrostatic",
+    bandTidakNaik: "Not hydrostatic, pressure raised",
+    bandLepas: "The water lifts off",
+    sState: (k: string, pct: string, n: string) => `${k}: departure ${pct} % from hydrostatic (V²/gR = ${n}).`,
+    sLepas: (k: string, n: string) =>
+      `${k}: V²/gR = ${n}, not less than 1, so the streamline curvature demands a bed pressure of zero or less. The departure and the bed pressure are not written.`,
+    nDalam: (a: string, b: string) =>
+      `Make the flow three times as deep: the departure stays ${b} % (now ${a} %), because the depth cancels out of V²/gR.`,
+    nDalamLepas: "Deepening the flow does not help: depth does not appear in V²/gR, so the water still lifts off.",
+    nCepat: (a: string, b: string) =>
+      `Double the velocity: the departure rises from ${a} to ${b} %, four times, because the departure follows the square of the velocity.`,
+    nCepatLepas: (n: string) =>
+      `Double the velocity: V²/gR becomes ${n}, four times, and the bed pressure is gone. The water lifts off.`,
+    jP0: "Bed pressure if taken as hydrostatic",
+    jN: "Curvature number",
+    jDp: "Departure caused by curvature (negative when convex)",
+    jP: "Actual bed pressure",
+    jRasio: "Relative departure, against the threshold",
     lepasNote:
       "The bed pressure has fallen to zero or below, and water cannot pull. What happens is not a negative pressure but water leaving its surface: the nappe lifts, a cavity forms beneath it, and the pressure in that cavity is set by whatever air can reach it rather than by the flow. On a spillway crest this state is avoided not because the water stops flowing, but because an unvented cavity pulses and shakes the whole structure. The dashed red line on the drawing is only what the formula demands, which is why the bed pressure figure is not written.",
     note:
@@ -110,6 +150,13 @@ export function AsumsiHidrostatisClient() {
 
   const jari = arah === 0 ? R : -R;
   const r = curvaturePressure(V, d, jari);
+  const lepas = r.liftsOff;
+  /* Saat terangkat, simpangan, tekanan, dan nisbahnya hanya tuntutan rumus:
+     ditulis "—" lewat NaN. */
+  const tampil = (v: number) => (lepas ? NaN : v);
+  const satuan = (u: string) => (lepas ? undefined : u);
+  const keadaan = lepas ? x.lepas : r.hydrostaticValid ? x.boleh : x.tidak;
+  const BATAS = HYDROSTATIC_TOLERANCE;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -209,7 +256,9 @@ export function AsumsiHidrostatisClient() {
             : r.hydrostaticValid
               ? undefined
               : x.tidak,
-          headingColor: r.liftsOff ? C.signal : C.critical,
+          /* Tidak hidrostatis bukan kondisi kritis: nada waspada. Merah
+             sinyal hanya saat terangkat (di luar rentang berlaku). */
+          headingColor: r.liftsOff ? C.signal : C.caution,
           axisX: T.axPressureKpa,
           axisY: T.axHeightAboveBed,
         },
@@ -221,6 +270,30 @@ export function AsumsiHidrostatisClient() {
 
   return (
     <LabShell
+      status={
+        /* Batas dari HYDROSTATIC_TOLERANCE (5 %) dan liftsOff (cembung:
+           p ≤ 0 tepat bila V²/gR ≥ 1). Cekung tidak pernah terangkat.
+           Rentang hitung 5,10e-6 sampai 114,7. */
+        <RegimeScale
+          symbol="V²/gR"
+          value={r.curvatureNumber}
+          scale="log"
+          digits={4}
+          invalid={lepas}
+          bands={
+            r.convex
+              ? [
+                  { from: 5e-6, to: BATAS, label: x.bandBoleh, tone: "pass" },
+                  { from: BATAS, to: 1, label: x.bandTidak, tone: "caution" },
+                  { from: 1, to: 120, label: x.bandLepas, tone: "invalid" },
+                ]
+              : [
+                  { from: 5e-6, to: BATAS, label: x.bandBoleh, tone: "pass" },
+                  { from: BATAS, to: 120, label: x.bandTidakNaik, tone: "caution" },
+                ]
+          }
+        />
+      }
       sheet="FF-04"
       subject={SUBJECTS.FF[lang]}
       title={x.title}
@@ -254,7 +327,7 @@ export function AsumsiHidrostatisClient() {
               value: r.liftsOff ? "—" : `${fmt(r.actual, 1)} kPa`,
               tint: r.liftsOff ? C.signal : C.water,
             },
-            { label: "Δ/p₀", value: `${fmt(r.ratio * 100, 1)} %` },
+            { label: "Δ/p₀", value: lepas ? "—" : `${fmt(r.ratio * 100, 1)} %` },
           ]}
         >
           <canvas ref={ref} className="block h-full w-full" />
@@ -290,33 +363,70 @@ export function AsumsiHidrostatisClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag
-                tint={r.hydrostaticValid ? C.water : C.critical}
-                alert={r.liftsOff}
-              >
-                {r.liftsOff ? x.lepas : r.hydrostaticValid ? x.boleh : x.tidak}
-              </Flag>
-            </div>
-            {r.liftsOff && (
-              <div className="mb-2.5">
-                <Note>{x.lepasNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "p₀", label: x.rHid, value: fmt(r.hydrostatic, 2), unit: "kPa" },
-                { symbol: "Δp", label: x.rSim, value: fmt(r.deviation, 2), unit: "kPa", tint: C.critical, strong: true },
-                { symbol: "p", label: x.rAkt, value: r.liftsOff ? "—" : fmt(r.actual, 2), unit: r.liftsOff ? undefined : "kPa", tint: r.liftsOff ? C.signal : C.water, strong: true },
-                { symbol: "Δ/p₀", label: x.rNis, value: fmt(r.ratio * 100, 2), unit: "%" },
+                { symbol: "Δp", label: x.rSim, value: fmt(tampil(r.deviation), 2), unit: satuan("kPa"), tint: lepas ? C.signal : C.critical, strong: true },
+                { symbol: "p", label: x.rAkt, value: fmt(tampil(r.actual), 2), unit: satuan("kPa"), tint: lepas ? C.signal : C.water, strong: true },
+                { symbol: "Δ/p₀", label: x.rNis, value: fmt(tampil(r.ratio * 100), 2), unit: satuan("%") },
                 { symbol: "V²/gR", label: x.rBil, value: fmt(r.curvatureNumber, 4), strong: true },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jP0,
+                    rumus: <span>p₀ = ρ · g · d</span>,
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(d, 2)} / 1000`,
+                    hasil: fmt(r.hydrostatic, 2),
+                    satuan: "kPa",
+                  },
+                  {
+                    judul: x.jN,
+                    rumus: (<><Frac num="V²" den="g · R" /></>),
+                    isi: `${fmt(V, 1)}² / ( ${fmt(G, 2)} · ${fmt(R, 1)} )`,
+                    hasil: fmt(r.curvatureNumber, 4),
+                    tint: C.critical,
+                  },
+                  {
+                    judul: x.jDp,
+                    rumus: (<><span>Δp = {r.convex ? "−" : "+"}</span><Frac num="ρ · V² · d" den="R" /></>),
+                    isi: lepas ? "—" : `${r.convex ? "−" : ""}1000 · ${fmt(V, 1)}² · ${fmt(d, 2)} / ${fmt(R, 1)} / 1000`,
+                    hasil: fmt(tampil(r.deviation), 2),
+                    satuan: satuan("kPa"),
+                    tint: lepas ? C.signal : C.critical,
+                  },
+                  {
+                    judul: x.jP,
+                    rumus: <span>p = p₀ + Δp</span>,
+                    isi: lepas ? "—" : `${fmt(r.hydrostatic, 3)} + ${kurung(r.deviation, 3)}`,
+                    hasil: fmt(tampil(r.actual), 2),
+                    satuan: satuan("kPa"),
+                    tint: lepas ? C.signal : C.water,
+                  },
+                  {
+                    judul: `${x.jRasio} ${fmtPlain(BATAS * 100, 0)} %`,
+                    rumus: (<><span>|Δp| / p₀ =</span><Frac num="V²" den="g · R" /></>),
+                    isi: lepas ? "—" : `${fmt(Math.abs(r.deviation), 3)} / ${fmt(r.hydrostatic, 3)} · 100`,
+                    hasil: fmt(tampil(r.ratio * 100), 2),
+                    satuan: satuan("%"),
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(V, d, R, arah, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={lepas ? "invalid" : r.hydrostaticValid ? "pass" : "caution"}
+            badge={keadaan}
+            state={
+              lepas
+                ? x.sLepas(keadaan, fmt(r.curvatureNumber, 3))
+                : x.sState(keadaan, fmt(r.ratio * 100, 1), fmt(r.curvatureNumber, 4))
+            }
+            notice={notice(V, d, R, arah, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksCurvature(V, d, jari)} />}
@@ -349,13 +459,29 @@ export function AsumsiHidrostatisClient() {
   );
 }
 
-function notice(V: number, d: number, R: number, arah: number, lang: Lang) {
+/** Angka negatif dalam substitusi ditulis berkurung: 9,810 + (−3,000). */
+function kurung(v: number, dg: number) {
+  const t = fmt(v, dg);
+  return v < 0 && t !== fmt(0, dg) ? `(${t})` : t;
+}
+
+/*
+ * Dua butir: kedalaman ×3 (nisbah tetap) dan kecepatan ×2 (nisbah ×4).
+ * Saat terangkat tidak ada angka simpangan yang ditulis, karena angkanya
+ * tidak terjadi; butir kedua diganti catatan rongga di bawah tirai.
+ */
+function notice(V: number, d: number, R: number, arah: number, lang: Lang): string[] {
+  const x = TXT[lang];
   const jari = arah === 0 ? R : -R;
   const a = curvaturePressure(V, d, jari);
   const dalam = curvaturePressure(V, d * 3, jari);
   const cepat = curvaturePressure(V * 2, d, jari);
 
-  if (lang === "en")
-    return `The departure here is ${fmt(a.ratio * 100, 1)} per cent of the hydrostatic pressure. Make the flow three times as deep and it stays ${fmt(dalam.ratio * 100, 1)} per cent: the depth cancels, so a deep river and a shallow one with the same velocity and the same curvature depart by exactly the same fraction. Double the velocity instead and it becomes ${fmt(cepat.ratio * 100, 1)} per cent, four times over, because the departure follows the square of the velocity. That is why the assumption survives long rivers, which are slow and barely curved, and fails on spillways, which are neither.`;
-  return `Simpangannya di sini ${fmt(a.ratio * 100, 1)} persen tekanan hidrostatisnya. Buat alirannya tiga kali lebih dalam dan ia tetap ${fmt(dalam.ratio * 100, 1)} persen: kedalamannya saling menghapus, jadi sungai yang dalam dan yang dangkal dengan kecepatan dan kelengkungan yang sama menyimpang sebanyak yang sama persis. Lipatduakan kecepatannya dan ia menjadi ${fmt(cepat.ratio * 100, 1)} persen, empat kali lipat, karena simpangannya mengikuti kuadrat kecepatan. Itulah sebabnya anggapan ini bertahan di sungai panjang, yang lambat dan hampir tidak melengkung, dan gugur di pelimpah, yang bukan keduanya.`;
+  if (a.liftsOff) return [x.nDalamLepas, x.lepasNote];
+  return [
+    x.nDalam(fmt(a.ratio * 100, 1), fmt(dalam.ratio * 100, 1)),
+    cepat.liftsOff
+      ? x.nCepatLepas(fmt(cepat.curvatureNumber, 3))
+      : x.nCepat(fmt(a.ratio * 100, 1), fmt(cepat.ratio * 100, 1)),
+  ];
 }

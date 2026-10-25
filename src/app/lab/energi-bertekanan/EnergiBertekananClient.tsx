@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -21,12 +22,14 @@ import {
 } from "@/lib/drawStructure";
 import {
   ATM_HEAD,
+  G,
   ductEnergy,
   fmt,
   fmtPlain,
+  vapourHead,
   type DuctStation,
 } from "@/lib/hydraulics";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -58,6 +61,16 @@ const TXT = {
     labelPompa: "pompa",
     labelPuncak: "puncak lintasan",
     labelTengah: "titik tengah lintasan",
+    rHv: "Tinggi kecepatan, hilang saat keluar ke kolam",
+    bDidih: "Mendidih, kolom putus",
+    bHisap: "Dihisap",
+    bDorong: "Didorong dari dalam",
+    hV: "Kecepatan dan tinggi kecepatan",
+    hHf: "Kehilangan gesekan dan kehilangan setempat",
+    hHp: "Tinggi tekan pompa",
+    hP: "Tinggi tekan di puncak dan daya hidraulik",
+    rugi: (hl: string, pr: string) => `${hl} m dari tinggi pompa (${pr} %) habis untuk kehilangan: gesekan, perlengkapan, dan tinggi kecepatan yang hilang saat air keluar ke kolam.`,
+    vCepat: (v: string) => `Kecepatan ${v} m/s jauh di atas air di pipa tekan nyata, yang umumnya beberapa meter per detik. Rumusnya tetap berlaku, tetapi pompa dan pipa seperti ini tidak dapat dibuat. Perbesar diameternya atau kurangi debitnya.`,
     hisapNote:
       "Garis tekanan sudah jatuh di bawah sumbu pipa di puncaknya, jadi di situ pipa tidak lagi didorong dari dalam melainkan dihisap. Pipa yang dihisap masih boleh bekerja asal sambungannya rapat dan dindingnya kuat menahan tekanan dari luar, tetapi dua hal menjadi tidak berlaku lagi. Udara yang terlarut akan keluar di titik terendah tekanannya dan berkumpul di puncak sampai menyumbat penampangnya, dan setiap sambungan yang bocor akan menghisap udara masuk, bukan mengeluarkan air.",
     kavitasiNote:
@@ -89,6 +102,16 @@ const TXT = {
     labelPompa: "pump",
     labelPuncak: "summit",
     labelTengah: "midpoint of the route",
+    rHv: "Velocity head, lost on leaving into the pool",
+    bDidih: "Water boils, column parts",
+    bHisap: "Under suction",
+    bDorong: "Positive pressure",
+    hV: "Velocity and velocity head",
+    hHf: "Friction loss and minor losses",
+    hHp: "Pump head",
+    hP: "Pressure head at the summit and hydraulic power",
+    rugi: (hl: string, pr: string) => `${hl} m of the pump head (${pr} %) is spent on losses: friction, fittings, and the velocity head lost as the water leaves into the pool.`,
+    vCepat: (v: string) => `A velocity of ${v} m/s is far above water in a real rising main, which is usually a few metres per second. The formulas still hold, but no such pump and pipe can be built. Enlarge the diameter or reduce the discharge.`,
     hisapNote:
       "The hydraulic grade line has fallen below the pipe axis at the summit, so there the pipe is no longer pushed from inside but sucked. A pipe under suction may still work, provided its joints are tight and its wall can carry the outside pressure, but two things stop being true. Dissolved air comes out of solution at the point of lowest pressure and gathers at the summit until it blocks the section, and any leaking joint sucks air in rather than letting water out.",
     kavitasiNote:
@@ -116,6 +139,18 @@ const REFS = {
 const K_MASUK = 0.5;
 const K_PUNCAK = 0.2;
 const RHO_G = 9810;
+/* Batas mendidih yang sama dengan ductEnergy: p/γ + ATM_HEAD ≤ vapourHead(15). */
+const P_DIDIH = vapourHead(15) - ATM_HEAD;
+/* Sumbu pita p/γ −60 s.d. 60 m; nilai di atasnya tampil sebagai luapan atas. */
+const P_AXIS_MIN = -60;
+const P_AXIS_MAX = 60;
+/*
+ * Ambang kecepatan untuk butir peringatan. BUKAN angka terbitan: hanya
+ * penanda bahwa kecepatan di atasnya jauh melampaui air di pipa tekan
+ * nyata (beberapa m/s). Rumusnya tetap berlaku, jadi nadanya caution.
+ * Ambang akhirnya menunggu keputusan sesi utama.
+ */
+const V_WASPADA = 10;
 
 /** Lintasan pipanya: naik dari sumur hisap ke puncak, lalu turun ke kolam tujuan. */
 function lintasan(
@@ -173,6 +208,12 @@ export function EnergiBertekananClient() {
   const r = ductEnergy(Q, stations, 0, f);
   const puncak = r.points[2];
   const daya = (RHO_G * Q * Hp) / 1000;
+  /* Tinggi kecepatan yang hilang saat air keluar ke kolam tujuan. Dulu
+     tidak tertulis di Basis maupun tabel, padahal ikut di dalam Hp. */
+  const hvKeluar = r.points[r.points.length - 1].velocityHead;
+  const hisap = !r.cavitates && puncak.pressureHead < 0;
+  const nada: Tone = r.cavitates ? "invalid" : hisap ? "caution" : "water";
+  const warnaP = r.cavitates ? C.signal : hisap ? C.caution : C.water;
 
   /*
    * Kedua garis digambar bertangga di penampang yang punya perlengkapan atau
@@ -209,7 +250,7 @@ export function EnergiBertekananClient() {
         },
         {
           pts: bertangga("hgl"),
-          color: puncak.pressureHead < 0 ? C.critical : C.water,
+          color: puncak.pressureHead < 0 ? C.caution : C.water,
           weight: W.bold,
           dash: DASH.hidden,
           label: T.hydraulicGrade,
@@ -252,7 +293,7 @@ export function EnergiBertekananClient() {
                 from: puncak.z,
                 to: puncak.hgl,
                 text: `${fmtPlain(puncak.pressureHead, 2)} m`,
-                color: puncak.pressureHead < 0 ? C.critical : C.water,
+                color: puncak.pressureHead < 0 ? C.caution : C.water,
                 offset: 30,
               },
             ]),
@@ -307,7 +348,7 @@ export function EnergiBertekananClient() {
             : puncak.pressureHead < 0
               ? x.hisap
               : undefined,
-          headingColor: r.cavitates ? C.signal : C.critical,
+          headingColor: r.cavitates ? C.signal : C.caution,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
         },
@@ -319,6 +360,20 @@ export function EnergiBertekananClient() {
 
   return (
     <LabShell
+      status={
+        <RegimeScale
+          symbol="p/γ"
+          value={r.cavitates ? NaN : puncak.pressureHead}
+          invalid={r.cavitates}
+          pesan={r.cavitates ? x.kavitasi : undefined}
+          digits={2}
+          bands={[
+            { from: P_AXIS_MIN, to: P_DIDIH, label: x.bDidih, tone: "invalid" },
+            { from: P_DIDIH, to: 0, label: x.bHisap, tone: "caution" },
+            { from: 0, to: P_AXIS_MAX, label: x.bDorong, tone: "water" },
+          ]}
+        />
+      }
       sheet="PI-07"
       subject={SUBJECTS.PI[lang]}
       title={x.title}
@@ -350,11 +405,7 @@ export function EnergiBertekananClient() {
             {
               label: "p/γ",
               value: r.cavitates ? "—" : `${fmt(puncak.pressureHead, 2)} m`,
-              tint: r.cavitates
-                ? C.signal
-                : puncak.pressureHead < 0
-                  ? C.critical
-                  : C.water,
+              tint: warnaP,
             },
             { label: "hf", value: `${fmt(r.frictionLoss, 2)} m` },
             { label: "P", value: `${fmt(daya, 1)} kW` },
@@ -388,49 +439,69 @@ export function EnergiBertekananClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag
-                tint={puncak.pressureHead < 0 ? C.critical : C.water}
-                alert={r.cavitates}
-              >
-                {r.cavitates
-                  ? x.kavitasi
-                  : puncak.pressureHead < 0
-                    ? x.hisap
-                    : x.aman}
-              </Flag>
-            </div>
-            {(r.cavitates || puncak.pressureHead < 0) && (
-              <div className="mb-2.5">
-                <Note>{r.cavitates ? x.kavitasiNote : x.hisapNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
                 { symbol: "Hp", label: x.rHp, value: fmt(Hp, 3), unit: "m", tint: C.energy, strong: true },
-                { symbol: "V", label: x.rV, value: fmt(puncak.velocity, 3), unit: "m/s" },
-                { symbol: "hf", label: x.rHf, value: fmt(r.frictionLoss, 3), unit: "m" },
-                { symbol: "ΣhK", label: x.rHk, value: fmt(r.minorLoss, 4), unit: "m" },
                 {
                   symbol: "p/γ",
                   label: x.rPuncak,
                   value: r.cavitates ? "—" : fmt(puncak.pressureHead, 3),
                   unit: r.cavitates ? undefined : "m",
-                  tint: r.cavitates
-                    ? C.signal
-                    : puncak.pressureHead < 0
-                      ? C.critical
-                      : C.water,
+                  tint: warnaP,
                   strong: true,
                 },
+                { symbol: "V", label: x.rV, value: fmt(puncak.velocity, 3), unit: "m/s" },
+                { symbol: "hf", label: x.rHf, value: fmt(r.frictionLoss, 3), unit: "m" },
+                { symbol: "ΣhK", label: x.rHk, value: fmt(r.minorLoss, 4), unit: "m" },
+                { symbol: "hv", label: x.rHv, value: fmt(hvKeluar, 4), unit: "m" },
                 { symbol: "P", label: x.rDaya, value: fmt(daya, 2), unit: "kW" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.hV,
+                    rumus: (<><span>V =</span><Frac num="Q" den="π D² / 4" /><span className="ml-2">hv =</span><Frac num="V²" den="2g" /></>),
+                    isi: `${fmt(Q, 3)} / ( π · ${fmt(D, 2)}² / 4 ) = ${fmt(puncak.velocity, 3)} m/s;  ${fmt(puncak.velocity, 4)}² / ( 2 · ${fmt(G, 2)} ) = ${fmt(hvKeluar, 4)} m`,
+                    hasil: fmt(puncak.velocity, 3),
+                    satuan: "m/s",
+                  },
+                  {
+                    judul: x.hHf,
+                    rumus: (<><span>hf = f</span><Frac num="L" den="D" /><span>hv,</span><span className="ml-2">ΣhK = ( {fmt(K_MASUK, 1)} + {fmt(K_PUNCAK, 1)} ) hv</span></>),
+                    isi: `${fmt(f, 3)} · ${fmt(L, 0)} / ${fmt(D, 2)} · ${fmt(hvKeluar, 4)} = ${fmt(r.frictionLoss, 3)} m;  ( ${fmt(K_MASUK, 1)} + ${fmt(K_PUNCAK, 1)} ) · ${fmt(hvKeluar, 4)} = ${fmt(r.minorLoss, 4)} m`,
+                    hasil: fmt(r.frictionLoss + r.minorLoss, 3),
+                    satuan: "m",
+                  },
+                  {
+                    judul: x.hHp,
+                    rumus: <span>Hp = z₂ + hf + ΣhK + hv</span>,
+                    isi: `${fmt(zAkhir, 1)} + ${fmt(r.frictionLoss, 4)} + ${fmt(r.minorLoss, 4)} + ${fmt(hvKeluar, 4)}`,
+                    hasil: fmt(Hp, 3),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.hP,
+                    rumus: (<><Frac num="p" den="γ" /><span>= HGL − zp,</span><span className="ml-2">P = ρ g Q Hp</span></>),
+                    isi: r.cavitates
+                      ? `—;  ${fmt(RHO_G, 0)} · ${fmt(Q, 3)} · ${fmt(Hp, 3)} / 1000 = ${fmt(daya, 2)} kW`
+                      : `${fmt(puncak.hgl, 3)} − ${fmt(zPuncak, 1)};  ${fmt(RHO_G, 0)} · ${fmt(Q, 3)} · ${fmt(Hp, 3)} / 1000 = ${fmt(daya, 2)} kW`,
+                    hasil: r.cavitates ? "—" : fmt(puncak.pressureHead, 3),
+                    satuan: r.cavitates ? undefined : "m",
+                    tint: warnaP,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Q, D, L, zPuncak, zAkhir, f, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={nada}
+            badge={r.cavitates ? x.kavitasi : hisap ? x.hisap : x.aman}
+            {...notice(Q, D, L, zPuncak, zAkhir, f, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksDuct(Q, stations, 0, f)} />}
@@ -444,6 +515,11 @@ export function EnergiBertekananClient() {
                 <Frac num="V²" den="2g" />
                 <span>+ ΣK</span>
                 <Frac num="V²" den="2g" />
+                <span>+</span>
+                <Frac num="V²" den="2g" />
+                <span className="ml-3 text-ink-3">
+                  {lang === "id" ? "keluar ke kolam" : "exit into the pool"}
+                </span>
               </Eq>
               <Eq>
                 <Frac num="p" den="γ" />
@@ -464,6 +540,12 @@ export function EnergiBertekananClient() {
   );
 }
 
+/*
+ * Isi kalimatnya sama dengan catatan lama; kalimat pertama menyatakan
+ * keadaan, sisanya butir. Saat air mendidih, tekanan puncak tidak disebut
+ * sebagai angka (kop dan tabel juga "—"); dulu tombol "Puncak terlalu
+ * tinggi" menulis "dari −16,8 ke …".
+ */
 function notice(
   Q: number,
   D: number,
@@ -472,16 +554,55 @@ function notice(
   zAkhir: number,
   f: number,
   lang: Lang
-): string {
+): { state: string; notice: string[] } {
+  const x = TXT[lang];
   const di = (d: number) => {
     const hp = tinggiPompa(Q, L, d, zPuncak, zAkhir, f);
     const rr = ductEnergy(Q, lintasan(L, d, zPuncak, zAkhir, hp), 0, f);
-    return { hp, p: rr.points[2].pressureHead, daya: (RHO_G * Q * hp) / 1000 };
+    return {
+      hp,
+      p: rr.points[2].pressureHead,
+      v: rr.points[2].velocity,
+      didih: rr.cavitates,
+      daya: (RHO_G * Q * hp) / 1000,
+    };
   };
   const a = di(D);
   const b = di(D * 1.25);
+  const rugi = a.hp - zAkhir;
+  const persen = a.hp > 0 ? (rugi / a.hp) * 100 : 0;
+  const pTeks = (s: { p: number; didih: boolean }) =>
+    s.didih ? (lang === "id" ? "mendidih" : "boiling") : `${fmt(s.p, 1)} m`;
+  const cepat = a.v > V_WASPADA ? x.vCepat(fmt(a.v, 1)) : "";
+
+  const keadaan =
+    lang === "id"
+      ? a.didih
+        ? `Hp = ${fmt(a.hp, 2)} m; di puncak air mendidih, kolomnya putus dan tekanannya tidak ditulis.`
+        : `Hp = ${fmt(a.hp, 2)} m; tekanan di puncak ${fmt(a.p, 2)} m: ${a.p < 0 ? "pipa dihisap" : "aman, didorong dari dalam"}.`
+      : a.didih
+        ? `Hp = ${fmt(a.hp, 2)} m; at the summit the water boils, the column parts and its pressure is not written.`
+        : `Hp = ${fmt(a.hp, 2)} m; pressure at the summit ${fmt(a.p, 2)} m: ${a.p < 0 ? "the pipe is under suction" : "safe, pushed from inside"}.`;
+
+  const catatan = a.didih ? x.kavitasiNote : a.p < 0 ? x.hisapNote : "";
 
   if (lang === "en")
-    return `The pump must raise ${fmt(a.hp, 1)} metres to deliver this discharge, and ${fmt(a.hp - zAkhir, 1)} of those metres are spent purely on losses rather than on lifting anything. Widen the pipe by a quarter, to ${fmt(D * 1250, 0)} millimetres, and the required head drops to ${fmt(b.hp, 1)} metres and the power from ${fmt(a.daya, 1)} to ${fmt(b.daya, 1)} kilowatts. The pressure at the summit meanwhile moves from ${fmt(a.p, 1)} to ${fmt(b.p, 1)} metres. Pipe bought once, electricity paid every day for thirty years.`;
-  return `Pompanya harus menaikkan ${fmt(a.hp, 1)} meter untuk mengantarkan debit ini, dan ${fmt(a.hp - zAkhir, 1)} meter di antaranya habis untuk kehilangan saja, bukan untuk menaikkan apa pun. Besarkan pipanya seperempat, menjadi ${fmt(D * 1250, 0)} milimeter, dan tinggi yang dibutuhkan turun ke ${fmt(b.hp, 1)} meter dan dayanya dari ${fmt(a.daya, 1)} ke ${fmt(b.daya, 1)} kilowatt. Sementara itu tekanan di puncaknya berpindah dari ${fmt(a.p, 1)} ke ${fmt(b.p, 1)} meter. Pipa dibeli sekali, listriknya dibayar tiap hari selama tiga puluh tahun.`;
+    return {
+      state: keadaan,
+      notice: [
+        catatan,
+        x.rugi(fmt(rugi, 1), fmt(persen, 0)),
+        `Widen the pipe by a quarter, to ${fmt(D * 1250, 0)} mm, and the required head drops to ${fmt(b.hp, 1)} m and the power from ${fmt(a.daya, 1)} to ${fmt(b.daya, 1)} kW. The pressure at the summit meanwhile moves from ${pTeks(a)} to ${pTeks(b)}. Pipe bought once, electricity paid every day for thirty years.`,
+        cepat,
+      ],
+    };
+  return {
+    state: keadaan,
+    notice: [
+      catatan,
+      x.rugi(fmt(rugi, 1), fmt(persen, 0)),
+      `Besarkan pipanya seperempat, menjadi ${fmt(D * 1250, 0)} mm, dan tinggi yang dibutuhkan turun ke ${fmt(b.hp, 1)} m dan dayanya dari ${fmt(a.daya, 1)} ke ${fmt(b.daya, 1)} kW. Sementara itu tekanan di puncaknya berpindah dari ${pTeks(a)} ke ${pTeks(b)}. Pipa dibeli sekali, listriknya dibayar tiap hari selama tiga puluh tahun.`,
+      cepat,
+    ],
+  };
 }

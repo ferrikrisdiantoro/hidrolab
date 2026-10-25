@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
+  RegimeScale,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -19,7 +20,7 @@ import {
   type StructureDim,
   type StructureLine,
 } from "@/lib/drawStructure";
-import { ATM_HEAD, ductEnergy, fmt, fmtPlain } from "@/lib/hydraulics";
+import { ATM_HEAD, G, ductEnergy, fmt, fmtPlain, vapourHead } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -28,6 +29,9 @@ import { Verification } from "@/components/Verification";
 import { checksDuct } from "@/lib/checks";
 
 const L = 60;
+
+/** Tinggi tekan uap pada suhu yang dipakai ductEnergy (15 °C), sekitar 0,173 m. */
+const UAP = vapourHead(15);
 
 const TXT = {
   id: {
@@ -47,11 +51,41 @@ const TXT = {
     rAbs: "Tekanan mutlak di leher",
     rHmin: "Tinggi tekan terendah",
     rEgl: "Tinggi energi di hilir",
-    aman: "Tekanan di mana-mana masih di atas tekanan uap",
-    kavitasi: "Air mendidih di leher",
-    subAtm: "Tekanan di leher di bawah atmosfer",
+    aman: "Di atas atmosfer",
+    subAtm: "Di bawah atmosfer",
+    kavitasiBadge: "Kavitasi, air mendidih",
+    bandKav: "Kavitasi, air mendidih",
+    bandSub: "Di bawah atmosfer",
+    bandAtas: "Di atas atmosfer",
+    hulu: "di hulu",
+    leher: "di leher",
+    hilir: "di hilir",
+    diX: (x: string) => `pada x = ${x} m`,
+    kavitasi: (di: string) => `Air mendidih ${di}`,
     kavitasiNote:
-      "Tekanan mutlak di leher sudah turun ke tekanan uap air, jadi airnya mendidih pada suhu ruang dan gelembung terbentuk di dalam alirannya. Yang merusak bukan gelembungnya melainkan pecahnya: begitu alirannya melambat kembali dan tekanannya pulih, gelembung itu runtuh ke dalam dirinya sendiri dalam waktu sepersejuta detik, dan tumbukan yang dihasilkannya cukup keras untuk mengelupas baja. Itu sebabnya kavitasi tidak pernah diterima sebagai keadaan kerja, betapa pun kecil gelembungnya.",
+      "Begitu tekanan mutlak turun ke tekanan uap, air mendidih pada suhu ruang. Gelembungnya pecah lagi di tempat tekanannya pulih, dan tumbukannya cukup keras untuk mengelupas baja. Kavitasi tidak pernah diterima sebagai keadaan kerja.",
+    huluMustahil: (hv: string, H: string) =>
+      `Keadaan hulunya sendiri mustahil: tinggi energi hulu ${H} m lebih kecil daripada tinggi kecepatannya ${hv} m, jadi tidak ada tekanan yang tersisa di sana.`,
+    melebar: "D₂ lebih besar dari D₁: penampang tengah melebar, bukan leher. Kecepatannya turun di situ dan tekanannya naik.",
+    sAman: (p: string, a: string, hv: string) =>
+      `Tekanan di leher p/γ = ${p} m (mutlak ${a} m), V²/2g = ${hv} m. Tekanan di sepanjang saluran masih di atas atmosfer.`,
+    sSub: (p: string, a: string, hv: string, di: string) =>
+      `Tekanan di leher p/γ = ${p} m (mutlak ${a} m), V²/2g = ${hv} m. Tekanan terendah ${di} di bawah atmosfer, tetapi masih di atas tekanan uap.`,
+    sKav: (di: string, uap: string, hv: string) =>
+      `Tekanan mutlak ${di} turun sampai tekanan uap (${uap} m): air mendidih dan persamaan Bernoulli tidak berlaku lagi. V²/2g di leher = ${hv} m.`,
+    nNaik: (a: string, b: string) =>
+      `Naikkan sumbu leher 1 m: p/γ turun dari ${a} ke ${b} m, tepat 1 m, sementara garis energinya tetap.`,
+    nNaikKav: (a: string) =>
+      `Naikkan sumbu leher 1 m: p/γ ${a} m turun 1 m lagi dan tekanan mutlaknya jatuh ke tekanan uap. Air mulai mendidih.`,
+    nSempit: (a: string, b: string) =>
+      `Separuhkan D₂: V²/2g naik dari ${a} ke ${b} m, enam belas kali, karena tinggi kecepatan mengikuti pangkat empat kebalikan diameter. Tinggi tekannya yang membayar.`,
+    nSempitKav: (a: string, b: string) =>
+      `Separuhkan D₂: V²/2g naik dari ${a} ke ${b} m, enam belas kali, dan tekanan di leher jatuh ke tekanan uap. Air mendidih.`,
+    jV: "Kecepatan di leher",
+    jHv: "Tinggi kecepatan di leher",
+    jHp: "Tinggi tekan di leher",
+    jAbs: "Tekanan mutlak di leher, dibandingkan tekanan uap",
+    jEgl: "Tinggi energi di hilir, tanpa gesekan",
     note:
       "Yang paling berguna dilihat pada lembar ini bukan rumusnya melainkan pertukarannya. Tinggi energi seluruhnya tidak berubah sedikit pun di sepanjang saluran ini, dan yang berubah hanya pembagiannya ke tiga suku. Naikkan sumbu pipanya satu meter dan tinggi tekannya turun tepat satu meter, ditukar satu lawan satu, sementara garis energinya tidak bergerak. Sempitkan lehernya dan tinggi kecepatannya naik menurut pangkat empat kebalikan diameternya, sedangkan tinggi tekannya turun sebanyak itu juga. Dua hal yang mengikutinya langsung. Pertama, pipa yang naik terlalu tinggi kehabisan tekanan, bukan kehabisan tenaga, dan batasnya sepuluh koma tiga meter di atas garis energinya karena itulah seluruh tinggi tekan atmosfer. Kedua, leher yang terlalu sempit dapat menurunkan tekanan sampai di bawah tekanan uap meskipun tenaganya berlimpah. Keduanya kegagalan tekanan pada aliran yang tenaganya sama sekali tidak kurang, dan keduanya tidak akan pernah terlihat oleh orang yang hanya memeriksa neraca tenaganya.",
   },
@@ -72,11 +106,41 @@ const TXT = {
     rAbs: "Absolute pressure at the throat",
     rHmin: "Lowest pressure head",
     rEgl: "Total head downstream",
-    aman: "The pressure stays above vapour pressure everywhere",
-    kavitasi: "The water boils at the throat",
-    subAtm: "The throat pressure is below atmospheric",
+    aman: "Above atmospheric",
+    subAtm: "Below atmospheric",
+    kavitasiBadge: "Cavitation, the water boils",
+    bandKav: "Cavitation, the water boils",
+    bandSub: "Below atmospheric",
+    bandAtas: "Above atmospheric",
+    hulu: "upstream",
+    leher: "at the throat",
+    hilir: "downstream",
+    diX: (x: string) => `at x = ${x} m`,
+    kavitasi: (di: string) => `The water boils ${di}`,
     kavitasiNote:
-      "The absolute pressure at the throat has fallen to the vapour pressure of water, so the water boils at room temperature and bubbles form inside the flow. What does the damage is not the bubbles but their collapse: as soon as the flow slows again and the pressure recovers, each bubble implodes in a millionth of a second, and the impact is hard enough to strip steel. That is why cavitation is never accepted as a working condition, however small the bubbles.",
+      "Once the absolute pressure falls to vapour pressure, water boils at room temperature. The bubbles collapse again where the pressure recovers, and the impact is hard enough to strip steel. Cavitation is never accepted as a working condition.",
+    huluMustahil: (hv: string, H: string) =>
+      `The upstream state is itself impossible: the upstream total head ${H} m is smaller than its velocity head ${hv} m, so no pressure is left there.`,
+    melebar: "D₂ is larger than D₁: the middle section widens, it is not a throat. The velocity drops there and the pressure rises.",
+    sAman: (p: string, a: string, hv: string) =>
+      `Pressure at the throat p/γ = ${p} m (absolute ${a} m), V²/2g = ${hv} m. The pressure stays above atmospheric along the whole duct.`,
+    sSub: (p: string, a: string, hv: string, di: string) =>
+      `Pressure at the throat p/γ = ${p} m (absolute ${a} m), V²/2g = ${hv} m. The lowest pressure, ${di}, is below atmospheric but still above vapour pressure.`,
+    sKav: (di: string, uap: string, hv: string) =>
+      `The absolute pressure ${di} falls to vapour pressure (${uap} m): the water boils and Bernoulli's equation no longer holds. V²/2g at the throat = ${hv} m.`,
+    nNaik: (a: string, b: string) =>
+      `Raise the throat axis 1 m: p/γ falls from ${a} to ${b} m, exactly 1 m, while the energy line stays put.`,
+    nNaikKav: (a: string) =>
+      `Raise the throat axis 1 m: p/γ ${a} m falls another metre and the absolute pressure drops to vapour pressure. The water starts to boil.`,
+    nSempit: (a: string, b: string) =>
+      `Halve D₂: V²/2g rises from ${a} to ${b} m, sixteen times, because velocity head follows the fourth power of the inverse diameter. The pressure head pays for it.`,
+    nSempitKav: (a: string, b: string) =>
+      `Halve D₂: V²/2g rises from ${a} to ${b} m, sixteen times, and the throat pressure drops to vapour pressure. The water boils.`,
+    jV: "Velocity at the throat",
+    jHv: "Velocity head at the throat",
+    jHp: "Pressure head at the throat",
+    jAbs: "Absolute pressure at the throat, against vapour pressure",
+    jEgl: "Total head downstream, without friction",
     note:
       "What is worth watching on this sheet is not the formula but the exchange. The total head does not change at all along this duct, and all that changes is how it divides between the three terms. Raise the pipe axis by a metre and the pressure head falls by exactly a metre, one for one, while the energy line does not move. Narrow the throat and the velocity head rises with the fourth power of the inverse diameter, while the pressure head falls by just as much. Two things follow at once. First, a pipe raised too high runs out of pressure, not out of energy, and the limit is 10.3 metres above its energy line because that is the whole of atmospheric head. Second, a throat made too narrow can drop the pressure below vapour pressure even while energy is abundant. Both are pressure failures in a flow whose energy is in no way short, and neither will ever be seen by someone who only checks the energy balance.",
   },
@@ -119,6 +183,19 @@ export function BernoulliClient() {
   ];
   const r = ductEnergy(Q, stations, H, 0);
   const leher = r.points[2];
+  /* Tempat tekanan terendah, dari model. Kavitasi tidak selalu di leher:
+     pada D₂ > D₁ atau keadaan hulu yang mustahil, tekanan terendahnya ada
+     di ruas masuk (Q 600 l/s, D₁ 100 mm: x = 0). */
+  const tempat =
+    r.minPressureAt <= 0
+      ? x.hulu
+      : Math.abs(r.minPressureAt - L * 0.5) < 1e-9
+        ? x.leher
+        : r.minPressureAt >= L
+          ? x.hilir
+          : x.diX(fmt(r.minPressureAt, 0));
+  const hulu = r.points[0];
+  const huluMustahil = hulu.velocityHead > H;
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -259,7 +336,7 @@ export function BernoulliClient() {
                   : T.ductWall,
             },
           ],
-          heading: r.cavitates ? x.kavitasi : undefined,
+          heading: r.cavitates ? x.kavitasi(tempat) : undefined,
           headingColor: C.signal,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
@@ -272,6 +349,25 @@ export function BernoulliClient() {
 
   return (
     <LabShell
+      status={
+        /* Tekanan mutlak TERENDAH di sepanjang saluran, bukan tekanan leher:
+           kavitasi diputuskan di tempat tekanannya paling rendah, yang bisa
+           di ruas masuk. Batas dari ductEnergy: cavitates = pabs ≤ tekanan
+           uap (Antoine, 15 °C), subAtmospheric = p/γ < 0. Rentang hitung
+           −11 561 m sampai 58,33 m, jadi luapan kiri memang terjadi. */
+        <RegimeScale
+          symbol="pabs,min/γ"
+          value={r.minPressureHead + ATM_HEAD}
+          invalid={r.cavitates}
+          pesan={r.cavitates ? x.kavitasi(tempat) : undefined}
+          digits={2}
+          bands={[
+            { from: -10, to: UAP, label: x.bandKav, tone: "invalid" },
+            { from: UAP, to: ATM_HEAD, label: x.bandSub, tone: "caution" },
+            { from: ATM_HEAD, to: 60, label: x.bandAtas, tone: "water" },
+          ]}
+        />
+      }
       sheet="FF-01"
       subject={SUBJECTS.FF[lang]}
       title={x.title}
@@ -337,38 +433,88 @@ export function BernoulliClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <Flag tint={r.cavitates ? undefined : C.water} alert={r.cavitates}>
-                {r.cavitates ? x.kavitasi : x.aman}
-              </Flag>
-              {!r.cavitates && r.subAtmospheric && (
-                <Flag tint={C.critical}>{x.subAtm}</Flag>
-              )}
-            </div>
-            {r.cavitates && (
-              <div className="mb-2.5">
-                <Note>{x.kavitasiNote}</Note>
-              </div>
-            )}
             <ResultTable
               rows={[
-                { symbol: "V", label: x.rV, value: fmt(leher.velocity, 3), unit: "m/s", strong: true },
+                { symbol: "V", label: x.rV, value: fmt(leher.velocity, 3), unit: "m/s" },
                 { symbol: "V²/2g", label: x.rHv, value: fmt(leher.velocityHead, 3), unit: "m", tint: C.energy, strong: true },
                 { symbol: "p/γ", label: x.rHp, value: r.cavitates ? "—" : fmt(leher.pressureHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : C.water, strong: true },
                 /* Tekanan mutlak tidak dapat turun di bawah tekanan uap: di situ airnya
                    mendidih dan tekanannya tertahan. Angka negatif yang dihasilkan
                    persamaannya bukan tekanan melainkan tanda bahwa persamaannya
-                   sudah tidak berlaku. */
-                { symbol: "pabs", label: x.rAbs, value: r.cavitates ? "—" : fmt(leher.absoluteHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : undefined },
-                { symbol: "min", label: x.rHmin, value: fmt(r.minPressureHead, 3), unit: "m" },
+                   sudah tidak berlaku. Besaran inilah yang memutuskan kavitasi,
+                   jadi ditulis besar. */
+                { symbol: "pabs", label: x.rAbs, value: r.cavitates ? "—" : fmt(leher.absoluteHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : undefined, strong: true },
+                { symbol: "min", label: `${x.rHmin} (${tempat})`, value: r.cavitates ? "—" : fmt(r.minPressureHead, 3), unit: r.cavitates ? undefined : "m", tint: r.cavitates ? C.signal : undefined },
                 { symbol: "H", label: x.rEgl, value: fmt(r.points[r.points.length - 1].egl, 4), unit: "m", tint: C.energy },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jV,
+                    rumus: (<><span>V =</span><Frac num="Q" den="π · D₂² / 4" /></>),
+                    isi: `${fmt(Q, 3)} / ( π · ${fmt(D2, 2)}² / 4 )`,
+                    hasil: fmt(leher.velocity, 3),
+                    satuan: "m/s",
+                  },
+                  {
+                    judul: x.jHv,
+                    rumus: (<><span>V²/2g =</span><Frac num="V²" den="2 · g" /></>),
+                    isi: `${fmt(leher.velocity, 4)}² / ( 2 · ${fmt(G, 2)} )`,
+                    hasil: fmt(leher.velocityHead, 3),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                  {
+                    judul: x.jHp,
+                    rumus: <span>p/γ = H − Δz − V²/2g</span>,
+                    isi: r.cavitates ? "—" : `${fmt(H, 1)} − ${kurung(dz, 1)} − ${fmt(leher.velocityHead, 4)}`,
+                    hasil: r.cavitates ? "—" : fmt(leher.pressureHead, 3),
+                    satuan: r.cavitates ? undefined : "m",
+                    tint: r.cavitates ? C.signal : C.water,
+                  },
+                  {
+                    judul: `${x.jAbs} ${fmt(UAP, 3)} m`,
+                    rumus: <span>pabs/γ = p/γ + {fmt(ATM_HEAD, 2)}</span>,
+                    isi: r.cavitates ? "—" : `${fmt(leher.pressureHead, 4)} + ${fmt(ATM_HEAD, 2)}`,
+                    hasil: r.cavitates ? "—" : fmt(leher.absoluteHead, 3),
+                    satuan: r.cavitates ? undefined : "m",
+                    tint: r.cavitates ? C.signal : undefined,
+                  },
+                  {
+                    judul: x.jEgl,
+                    rumus: <span>H hilir = H</span>,
+                    isi: fmt(H, 1),
+                    hasil: fmt(r.points[r.points.length - 1].egl, 4),
+                    satuan: "m",
+                    tint: C.energy,
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(Q, H, D1, D2, dz, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.cavitates ? "invalid" : r.subAtmospheric ? "caution" : "water"}
+            badge={r.cavitates ? x.kavitasiBadge : r.subAtmospheric ? x.subAtm : x.aman}
+            state={
+              r.cavitates
+                ? x.sKav(tempat, fmt(UAP, 3), fmt(leher.velocityHead, 2))
+                : r.subAtmospheric
+                  ? x.sSub(fmt(leher.pressureHead, 2), fmt(leher.absoluteHead, 2), fmt(leher.velocityHead, 2), tempat)
+                  : x.sAman(fmt(leher.pressureHead, 2), fmt(leher.absoluteHead, 2), fmt(leher.velocityHead, 2))
+            }
+            notice={[
+              ...(r.cavitates
+                ? [
+                    huluMustahil ? x.huluMustahil(fmt(hulu.velocityHead, 2), fmt(H, 1)) : null,
+                    x.kavitasiNote,
+                  ]
+                : notice(Q, H, D1, D2, dz, lang)),
+              D2 > D1 ? x.melebar : null,
+            ]}
+          />
         </>
       }
       verification={<Verification checks={checksDuct(Q, stations, H, 0)} />}
@@ -403,6 +549,18 @@ export function BernoulliClient() {
   );
 }
 
+/** Angka negatif dalam substitusi ditulis berkurung: 20,0 − (−8,0). */
+function kurung(v: number, d: number) {
+  const s = fmt(v, d);
+  return v < 0 && s !== fmt(0, d) ? `(${s})` : s;
+}
+
+/*
+ * Dua butir dari catatan lama: naikkan sumbu leher 1 m, lalu separuhkan
+ * diameternya. Hanya dipanggil bila keadaan saat ini tidak berkavitasi.
+ * Keadaan yang dibandingkan bisa berkavitasi; di situ angka tinggi tekannya
+ * tidak ditulis karena tidak terjadi.
+ */
 function notice(
   Q: number,
   H: number,
@@ -410,17 +568,26 @@ function notice(
   D2: number,
   dz: number,
   lang: Lang
-): string {
+): string[] {
+  const x = TXT[lang];
   const st = (d2: number, z: number) => [
     { x: 0, z: 0, D: D1 },
     { x: L * 0.5, z, D: d2 },
     { x: L, z: 0, D: D1 },
   ];
   const asli = ductEnergy(Q, st(D2, dz), H, 0).points[1];
-  const naik = ductEnergy(Q, st(D2, dz + 1), H, 0).points[1];
-  const sempit = ductEnergy(Q, st(D2 / 2, dz), H, 0).points[1];
+  const rNaik = ductEnergy(Q, st(D2, dz + 1), H, 0);
+  const rSempit = ductEnergy(Q, st(D2 / 2, dz), H, 0);
+  const naik = rNaik.points[1];
+  const sempit = rSempit.points[1];
+  const mendidih = (p: { absoluteHead: number }) => p.absoluteHead <= UAP;
 
-  if (lang === "en")
-    return `At the throat the pressure head is ${fmt(asli.pressureHead, 2)} metres. Raise the pipe axis one metre and it becomes ${fmt(naik.pressureHead, 2)}: exactly one metre less, traded one for one, while the energy line has not moved at all. Now halve the throat diameter instead. The velocity head goes from ${fmt(asli.velocityHead, 2)} to ${fmt(sempit.velocityHead, 2)} metres, sixteen times over, because velocity head follows the fourth power of the inverse diameter. The pressure head pays for every metre of it.`;
-  return `Di leher, tinggi tekannya ${fmt(asli.pressureHead, 2)} meter. Naikkan sumbu pipanya satu meter dan ia menjadi ${fmt(naik.pressureHead, 2)}: tepat satu meter lebih rendah, ditukar satu lawan satu, sementara garis energinya tidak bergerak sama sekali. Sekarang separuhkan diameter lehernya. Tinggi kecepatannya berpindah dari ${fmt(asli.velocityHead, 2)} ke ${fmt(sempit.velocityHead, 2)} meter, enam belas kali lipat, karena tinggi kecepatan mengikuti pangkat empat kebalikan diameternya. Tinggi tekannya yang membayar setiap meternya.`;
+  return [
+    mendidih(naik)
+      ? x.nNaikKav(fmt(asli.pressureHead, 2))
+      : x.nNaik(fmt(asli.pressureHead, 2), fmt(naik.pressureHead, 2)),
+    mendidih(sempit)
+      ? x.nSempitKav(fmt(asli.velocityHead, 2), fmt(sempit.velocityHead, 2))
+      : x.nSempit(fmt(asli.velocityHead, 2), fmt(sempit.velocityHead, 2)),
+  ];
 }

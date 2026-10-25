@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -97,11 +97,22 @@ export function drawJump(
   const padL = compact ? 22 : 62;
   const padR = compact ? 22 : 34;
   const padT = compact ? 18 : 30;
-  const padB = compact ? 26 : 54;
+  /*
+   * Di bawah dasar beton, dari atas ke bawah: dimensi Lj (tulisannya di
+   * atas garis dimensi), angka sumbu jarak, judul sumbu. Dulu dimensi Lj
+   * duduk di baris yang sama dengan judul sumbu dan menimpanya.
+   */
+  const bedThk = compact ? 8 : 16;
+  const bawahDim = showDims && !compact;
+  const padB = compact ? 26 : bawahDim ? 74 : 54;
 
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
   const bedY = padT + plotH;
+  // Garis dimensi Lj, lalu angka sumbu dan judulnya di bawahnya.
+  const ljY = bedY + bedThk + 14;
+  const angkaY = bedY + bedThk + (bawahDim ? 20 : 5);
+  const judulY = angkaY + 25;
 
   const Fr1 = froude(p.V1, p.y1);
   const hasJump = Fr1 > 1;
@@ -169,9 +180,9 @@ export function drawJump(
     for (let v = 0; v <= yMax + 1e-9; v += yStep)
       axisValue(ctx, fmtPlain(v, 1), padL - 8, Y(v), "right", "middle");
     for (let x = 0; x <= bentang + 1e-9; x += xStep)
-      axisValue(ctx, String(Math.round(x)), X(x), bedY + 9, "center", "top");
+      axisValue(ctx, String(Math.round(x)), X(x), angkaY, "center", "top");
 
-    axisTitle(ctx, T.axDistance, padL + plotW / 2, bedY + 34);
+    axisTitle(ctx, T.axDistance, padL + plotW / 2, judulY);
     axisTitle(ctx, T.axDepth, 18, padT + plotH / 2, -Math.PI / 2);
   }
 
@@ -341,9 +352,33 @@ export function drawJump(
   }
 
   /* ---------------- garis energi ---------------- */
+  type Kotak = { x0: number; x1: number; y0: number; y1: number };
+  let kotakEnergi: Kotak | null = null;
+  // Garis energi sebagai deretan kotak tipis, supaya tulisan Fr₁ tidak
+  // ditaruh tepat di atas garis itu.
+  const ruasEnergi: Kotak[] = [];
   if (showEnergy) {
     const V2 = q / y2;
     const E2 = y2 + (V2 * V2) / (2 * G);
+    const eAt = (x: number) => {
+      if (!hasJump || x <= xJump) return E1;
+      if (x >= xJump + Lj) return E2;
+      const s = (x - xJump) / Lj;
+      return E1 + (E2 - E1) * (s * s * (3 - 2 * s));
+    };
+    const xsE = [0, xJump];
+    if (hasJump) for (let i = 1; i <= 24; i++) xsE.push(xJump + (Lj * i) / 24);
+    xsE.push(bentang);
+    for (let i = 1; i < xsE.length; i++) {
+      const ya = Y(eAt(xsE[i - 1]));
+      const yb = Y(eAt(xsE[i]));
+      ruasEnergi.push({
+        x0: X(xsE[i - 1]),
+        x1: X(xsE[i]),
+        y0: Math.min(ya, yb) - 2,
+        y1: Math.max(ya, yb) + 2,
+      });
+    }
 
     pen(ctx, W.thin, C.energy, DASH.hidden);
     ctx.beginPath();
@@ -360,7 +395,17 @@ export function drawJump(
     ctx.setLineDash([]);
 
     if (!compact) {
-      curveLabel(ctx, T.energyLine, X(0.35), Y(E1) - 9, C.energy);
+      /* Tulisan di atas garisnya, kecuali bila garis itu sudah berada di
+         pita nama wilayah di atas bidang gambar (kecepatan tinggi, skala
+         tegak dikuasai E₁); maka tulisannya pindah ke bawah garis supaya
+         nama wilayah superkritis tidak terdesak hilang. */
+      const yE = Y(E1) - 15 < padT + 34 && showDims ? Y(E1) + 10 : Y(E1) - 9;
+      curveLabel(ctx, T.energyLine, X(0.35), yE, C.energy);
+      // Kotak tulisan ini dicatat supaya penanda Fr₁ dan nama wilayah
+      // tidak ditaruh di atasnya (lihat bagian dimensi).
+      ctx.font = F.labelSm;
+      const lebarE = stencilWidth(ctx, T.energyLine, 0.6);
+      kotakEnergi = { x0: X(0.35) - 3, x1: X(0.35) + lebarE + 3, y0: yE - 6, y1: yE + 6 };
 
       // Kehilangan energi sebagai dimensi vertikal di hilir.
       if (hasJump && E1 - E2 > 0.02) {
@@ -371,7 +416,6 @@ export function drawJump(
   }
 
   /* ---------------- dasar saluran ---------------- */
-  const bedThk = compact ? 8 : 16;
   hatchConcrete(ctx, padL, bedY + 1, plotW, bedThk);
   pen(ctx, W.bold, C.ink);
   ctx.beginPath();
@@ -386,14 +430,80 @@ export function drawJump(
 
   /* ---------------- dimensi dan nama wilayah ---------------- */
   if (showDims && !compact) {
-    dimV(
-      ctx,
-      X(xJump * 0.62),
-      Y(p.y1),
-      Y(0),
-      `y₁ ${fmtPlain(p.y1, 2)} m`,
-      C.water
-    );
+    /*
+     * Dimensi y₁, penanda Fr₁, dan tulisan garis energi berbagi pojok kiri
+     * awal loncatan. Bila kedalaman y₁ terlalu pendek untuk memuat
+     * tulisannya, dimV menaruh tulisan itu tegak di atas tanda atasnya, dan
+     * di layar sempit tulisan Fr₁ beserta garis penunjuknya jatuh tepat di
+     * atasnya ("y₁ 0,30 m" tertutup). Pada aliran tanpa loncatan tulisan
+     * Fr₁ jatuh di atas "garis energi". Karena itu letak siku penanda Fr₁
+     * dipilih dari beberapa calon: calon pertama yang tidak menabrak tulisan
+     * lain dan tidak keluar bidang gambar.
+     */
+    const teksY1 = `y₁ ${fmtPlain(p.y1, 2)} m`;
+    const teksFr = `Fr₁ ${fmtPlain(Fr1, 2)}`;
+    ctx.font = F.label;
+    const lebarY1 = stencilWidth(ctx, teksY1);
+    const lebarFr = stencilWidth(ctx, teksFr);
+    const tinggiHuruf = 12;
+    const muatY1 = Y(0) - Y(p.y1) >= lebarY1 + 6;
+    const bahu = 14 + 4;
+    const dimX = X(xJump * 0.62);
+    const ujung = { x: X(xJump), y: Y(p.y1) };
+
+    // Tulisan y₁: di tengah dimensinya bila muat, kalau tidak di atasnya.
+    const kotakY1: Kotak = muatY1
+      ? {
+          x0: dimX - 5 - tinggiHuruf,
+          x1: dimX - 5,
+          y0: (Y(0) + Y(p.y1)) / 2 - lebarY1 / 2,
+          y1: (Y(0) + Y(p.y1)) / 2 + lebarY1 / 2,
+        }
+      : { x0: dimX - 5 - tinggiHuruf, x1: dimX - 5, y0: Y(p.y1) - 4 - lebarY1, y1: Y(p.y1) - 4 };
+
+    // Tulisan Fr₁ dan garis penunjuknya, dari siku s.
+    const kotakFr = (s: { x: number; y: number }): Kotak[] => {
+      const kanan = s.x >= ujung.x;
+      const x0 = kanan ? s.x + bahu : s.x - bahu - lebarFr;
+      return [
+        { x0, x1: x0 + lebarFr, y0: s.y - tinggiHuruf / 2, y1: s.y + tinggiHuruf / 2 },
+        {
+          x0: Math.min(s.x, ujung.x),
+          x1: Math.max(s.x, ujung.x),
+          y0: Math.min(s.y, ujung.y),
+          y1: Math.max(s.y, ujung.y),
+        },
+      ];
+    };
+    const kena = (a: Kotak, b: Kotak) =>
+      a.x0 < b.x1 + 4 && b.x0 < a.x1 + 4 && a.y0 < b.y1 + 2 && b.y0 < a.y1 + 2;
+    const tulisan: Kotak[] = [kotakY1, ...(kotakEnergi ? [kotakEnergi] : [])];
+    const lain: Kotak[] = [...tulisan, ...ruasEnergi];
+    /* Tulisan Fr₁ tidak boleh menimpa tulisan lain maupun garis energi.
+       Garis penunjuknya hanya dijaga dari tulisan: menyeberangi garis
+       energi tidak terhindarkan, karena kaki loncatan selalu di bawahnya. */
+    const layak = (s: { x: number; y: number }) => {
+      const [teks, garis] = kotakFr(s);
+      if (teks.x0 < padL + 2 || teks.x1 > padL + plotW - 2) return false;
+      if (teks.y0 < padT + 34 || teks.y1 > bedY - 2) return false;
+      return lain.every((k) => !kena(teks, k)) && tulisan.every((k) => !kena(garis, k));
+    };
+    // Siku tinggi: tepat di atas tulisan y₁, garis penunjuk hampir tegak
+    // supaya tidak menyilang tulisan y₁ di kirinya.
+    const yTinggi = Math.min(Y(p.y1) - 34, kotakY1.y0 - 14);
+    const calon = [
+      { x: ujung.x - 46, y: Y(p.y1) - 34 },
+      { x: ujung.x - 10, y: yTinggi },
+      { x: ujung.x + 46, y: Y(p.y1) - 34 },
+      { x: ujung.x + 10, y: yTinggi },
+      { x: ujung.x - 46, y: Y(p.y1) - 58 },
+      // Di sela muka air dan garis energi bila sela itu cukup lebar.
+      { x: ujung.x - 46, y: Y(p.y1) - 16 },
+      { x: ujung.x + 46, y: Y(p.y1) - 16 },
+    ];
+    const siku = calon.find(layak) ?? calon[0];
+
+    dimV(ctx, dimX, Y(p.y1), Y(0), teksY1, C.water);
 
     if (hasJump) {
       dimV(
@@ -404,14 +514,16 @@ export function drawJump(
         `y₂ ${fmtPlain(y2, 2)} m`,
         C.water
       );
+      // Di bawah beton, di atas angka sumbu; lihat padB.
       dimH(
         ctx,
-        bedY + bedThk + 16,
+        ljY,
         X(xJump),
         X(xJump + Lj),
         `Lj ≈ ${fmtPlain(Lj, 1)} m`,
         C.critical,
-        bedY + bedThk
+        bedY + bedThk,
+        [padL, padL + plotW]
       );
 
       // Garis sumbu menandai awal dan akhir loncatan.
@@ -426,27 +538,66 @@ export function drawJump(
     }
 
     /*
-     * Nama wilayah diletakkan di TENGAH wilayahnya sendiri, dan dilewati bila
-     * wilayah itu terlalu sempit untuk memuatnya.
+     * Nama wilayah diletakkan di TENGAH wilayahnya sendiri bila muat.
      *
-     * Sebelumnya letaknya dihitung dari titik awal loncatan lalu dijepit ke
-     * tepi kanan, sehingga pada loncatan panjang dua nama berdesakan di tempat
-     * yang hampir sama dan terbaca saling menimpa. Nama yang tidak muat lebih
-     * baik tidak ada sama sekali daripada ada tetapi tidak terbaca.
+     * Di layar sempit (HP 390 px) wilayah superkritis hanya sekitar 85 px
+     * dan ekor subkritis lebih sempit lagi, jadi aturan lama "lewati bila
+     * tidak muat" menghapus keduanya dan gambar kehilangan nama rezimnya.
+     * Sekarang ada dua jenjang cadangan: huruf kecil di tengah wilayah, lalu
+     * huruf kecil yang boleh melewati batas wilayahnya, dijepit ke bidang
+     * gambar, di baris kedua bila baris pertama sudah terisi di situ. Nama
+     * baru dilewati bila kedua baris sudah terpakai di tempat itu.
      */
-    const namaZona = (x0: number, x1: number, teks: string, warna: string) => {
-      const lebarZona = X(x1) - X(x0);
-      ctx.font = F.region;
-      if (stencilWidth(ctx, teks, 1.4) + 12 > lebarZona) return;
-      region(ctx, teks, X((x0 + x1) / 2), padT + 14, warna);
-    };
-
-    namaZona(0, xJump, T.supercritical, C.ink3);
+    type Zona = { x0: number; x1: number; teks: string; warna: string };
+    const zona: Zona[] = [{ x0: 0, x1: xJump, teks: T.supercritical, warna: C.ink3 }];
     if (hasJump) {
-      namaZona(xJump, xJump + Lj, T.jump, C.critical);
-      namaZona(xJump + Lj, bentang, T.subcritical, C.ink3);
+      zona.push({ x0: xJump, x1: xJump + Lj, teks: T.jump, warna: C.critical });
+      zona.push({ x0: xJump + Lj, x1: bentang, teks: T.subcritical, warna: C.ink3 });
     } else {
-      namaZona(xJump, bentang, T.noJump, C.ink3);
+      zona.push({ x0: xJump, x1: bentang, teks: T.noJump, warna: C.ink3 });
+    }
+
+    const baris = [padT + 14, padT + 27];
+    const terpakai: { x0: number; x1: number; b: number }[] = [];
+    // Tulisan garis energi juga bisa lewat di ketinggian nama wilayah.
+    const bebas = (x0: number, x1: number, b: number) =>
+      terpakai.every((u) => u.b !== b || x1 + 6 < u.x0 || u.x1 + 6 < x0) &&
+      (!kotakEnergi ||
+        !kena({ x0, x1, y0: baris[b] - 6, y1: baris[b] + 6 }, kotakEnergi));
+
+    const tunda: Zona[] = [];
+    // Jenjang pertama: huruf wilayah biasa, di tengah wilayah, baris pertama.
+    for (const z of zona) {
+      const lebarZona = X(z.x1) - X(z.x0);
+      ctx.font = F.region;
+      const lebar = stencilWidth(ctx, z.teks, 1.4);
+      const cx = X((z.x0 + z.x1) / 2);
+      if (lebar + 12 <= lebarZona && bebas(cx - lebar / 2, cx + lebar / 2, 0)) {
+        region(ctx, z.teks, cx, baris[0], z.warna);
+        terpakai.push({ x0: cx - lebar / 2, x1: cx + lebar / 2, b: 0 });
+      } else tunda.push(z);
+    }
+    // Jenjang cadangan: huruf kecil, boleh melewati batas wilayahnya.
+    for (const z of tunda) {
+      ctx.font = F.labelSm;
+      const lebar = stencilWidth(ctx, z.teks, 0.8);
+      const tengah = X((z.x0 + z.x1) / 2);
+      const cx = Math.min(
+        Math.max(tengah, padL + 4 + lebar / 2),
+        padL + plotW - 4 - lebar / 2
+      );
+      const x0 = cx - lebar / 2;
+      const x1 = cx + lebar / 2;
+      const b = bebas(x0, x1, 0) ? 0 : bebas(x0, x1, 1) ? 1 : -1;
+      if (b < 0) continue;
+      ctx.save();
+      ctx.font = F.labelSm;
+      ctx.fillStyle = z.warna;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      stencil(ctx, z.teks, cx, baris[b], 0.8);
+      ctx.restore();
+      terpakai.push({ x0, x1, b });
     }
 
     // Penanda bilangan Froude pada penampang masuk.
@@ -454,9 +605,9 @@ export function drawJump(
       ctx,
       X(xJump),
       Y(p.y1),
-      X(xJump) - 46,
-      Y(p.y1) - 34,
-      `Fr₁ ${fmtPlain(Fr1, 2)}`,
+      siku.x,
+      siku.y,
+      teksFr,
       hasJump ? C.ink : C.signal
     );
   }

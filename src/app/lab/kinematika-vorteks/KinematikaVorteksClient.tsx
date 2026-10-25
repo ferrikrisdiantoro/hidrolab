@@ -4,13 +4,13 @@ import { useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
-  Flag,
+  Hitungan,
   InputRow,
   InputTable,
-  Note,
   PresetRow,
   ResultTable,
   Sheet,
+  StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
@@ -41,8 +41,28 @@ const TXT = {
     lawan: "Berlawanan arah, pasangannya berpindah lurus",
     searah: "Searah, keduanya saling mengelilingi",
     lawanTimpang: "Berlawanan tetapi tidak sama kuat, keduanya mengelilingi titik di luar pasangannya",
+    satuNol: "Satu pusaran tanpa sirkulasi",
+    tanpa: "Tanpa pusaran",
+    sLaju: (k: string, u: string) => `${k}: U = ${u} m/s.`,
+    sPutar: (k: string, w: string, T: string) => `${k}: Ω = ${w} rad/s, satu putaran tiap ${T} s.`,
+    sSatu: (k: string, pasif: string, aktif: string, w: string, T: string) =>
+      `${k}: pusaran ${pasif} hanya terbawa dan mengelilingi pusaran ${aktif}, yang diam karena tidak ada yang membawanya. Ω = ${w} rad/s, satu putaran tiap ${T} s.`,
+    sTanpa: "Tanpa pusaran: kedua sirkulasi nol, jadi tidak ada kecepatan yang ditimbulkan dan tidak ada yang bergerak.",
+    nDekatLaju: (d1: string, d2: string, a: string, b: string) =>
+      `Separuhkan jaraknya dari ${d1} ke ${d2} m: kecepatan pindahnya naik dari ${a} ke ${b} m/s, dua kali.`,
+    nDekatPutar: (d1: string, d2: string, a: string, b: string) =>
+      `Separuhkan jaraknya dari ${d1} ke ${d2} m: kecepatan sudutnya naik dari ${a} ke ${b} rad/s, empat kali.`,
+    nBanding: (u: string, T: string) =>
+      `Dengan kekuatan sama besar berlawanan arah, pasangannya berpindah ${u} m/s dan tidak pernah berputar; dengan kekuatan sama besar searah ia tidak berpindah dan berputar satu kali tiap ${T} s.`,
+    nJarak: (dd: string) => `Jarak keduanya hanya bergeser ${dd} m selama pengamatan: pusaran titik menjaga jaraknya.`,
+    jSum: "Jumlah sirkulasi",
+    jU: "Kecepatan pindah (jumlah sirkulasi nol)",
+    jW: "Kecepatan sudut putaran",
+    jT: "Waktu satu putaran",
+    jXc: "Titik berat sirkulasi, tempat keduanya berputar",
+    jD: "Pemeriksaan: jarak di akhir pengamatan",
     note:
-      "Pusaran titik adalah salah satu benda pikiran yang paling jujur dalam mekanika fluida: ia tidak punya inti, tidak punya kekentalan, dan tidak punya massa, tetapi gerakannya meramalkan gerak pusaran sungguhan dengan ketepatan yang mengejutkan selama intinya masih rapat. Aturannya satu kalimat: setiap pusaran hanyut terbawa kecepatan yang ditimbulkan pusaran lain di tempatnya berada, dan tidak terbawa kecepatannya sendiri. Dari satu kalimat itu lahir dua perilaku yang sama sekali berbeda. Sepasang pusaran yang berlawanan arah saling mendorong ke arah yang sama, sehingga keduanya berpindah lurus sebagai satu pasangan sambil menjaga jaraknya; itulah yang membuat cincin asap melaju dan membuat pusaran ujung sayap pesawat turun perlahan di belakangnya. Sepasang yang searah sebaliknya saling memutar mengelilingi titik tengahnya, dan makin dekat keduanya makin cepat putarannya. Yang pantas diingat: jarak antar keduanya tidak berubah pada kedua keadaan itu, dan pusaran yang tampak saling mendekat pada aliran sungguhan sedang melakukan sesuatu yang lain, biasanya menyatu karena kekentalan, yang sama sekali tidak ada di dalam model ini.",
+      "Pusaran titik adalah salah satu benda pikiran yang paling jujur dalam mekanika fluida: ia tidak punya inti, tidak punya kekentalan, dan tidak punya massa, tetapi gerakannya meramalkan gerak pusaran sungguhan dengan ketepatan yang mengejutkan selama intinya masih rapat. Aturannya satu kalimat: setiap pusaran hanyut terbawa kecepatan yang ditimbulkan pusaran lain di tempatnya berada, dan tidak terbawa kecepatannya sendiri. Dari satu kalimat itu lahir dua perilaku yang sama sekali berbeda. Sepasang pusaran yang berlawanan arah saling mendorong ke arah yang sama, sehingga keduanya berpindah lurus sebagai satu pasangan sambil menjaga jaraknya; itulah yang membuat cincin asap melaju dan membuat pusaran ujung sayap pesawat turun perlahan di belakangnya. Sepasang yang searah sebaliknya saling memutar mengelilingi titik berat sirkulasinya, yang tepat di tengah hanya bila keduanya sama kuat, dan makin dekat keduanya makin cepat putarannya. Yang pantas diingat: jarak antar keduanya tidak berubah pada kedua keadaan itu, dan pusaran yang tampak saling mendekat pada aliran sungguhan sedang melakukan sesuatu yang lain, biasanya menyatu karena kekentalan, yang sama sekali tidak ada di dalam model ini.",
   },
   en: {
     title: "Vortex kinematics",
@@ -61,8 +81,28 @@ const TXT = {
     lawan: "Counter-rotating, the pair translates",
     searah: "Co-rotating, the two orbit each other",
     lawanTimpang: "Opposite but unequal, the two orbit a point outside the pair",
+    satuNol: "One vortex without circulation",
+    tanpa: "No vortices",
+    sLaju: (k: string, u: string) => `${k}: U = ${u} m/s.`,
+    sPutar: (k: string, w: string, T: string) => `${k}: Ω = ${w} rad/s, one revolution every ${T} s.`,
+    sSatu: (k: string, pasif: string, aktif: string, w: string, T: string) =>
+      `${k}: vortex ${pasif} is only carried and orbits vortex ${aktif}, which stays still because nothing carries it. Ω = ${w} rad/s, one revolution every ${T} s.`,
+    sTanpa: "No vortices: both circulations are zero, so no velocity is induced and nothing moves.",
+    nDekatLaju: (d1: string, d2: string, a: string, b: string) =>
+      `Halve the separation from ${d1} to ${d2} m: the translation speed rises from ${a} to ${b} m/s, twice.`,
+    nDekatPutar: (d1: string, d2: string, a: string, b: string) =>
+      `Halve the separation from ${d1} to ${d2} m: the angular speed rises from ${a} to ${b} rad/s, four times.`,
+    nBanding: (u: string, T: string) =>
+      `With equal and opposite strengths the pair translates at ${u} m/s and never turns; with equal like strengths it does not translate and orbits once every ${T} s.`,
+    nJarak: (dd: string) => `The separation drifts by only ${dd} m over the observation: point vortices keep their distance.`,
+    jSum: "Total circulation",
+    jU: "Translation speed (zero total circulation)",
+    jW: "Angular speed of the orbit",
+    jT: "Time for one revolution",
+    jXc: "Centre of circulation, about which both turn",
+    jD: "Check: separation at the end of the observation",
     note:
-      "The point vortex is one of the most honest thought-objects in fluid mechanics: it has no core, no viscosity, and no mass, yet its motion predicts the motion of real vortices with surprising accuracy as long as their cores stay compact. Its rule is one sentence: each vortex drifts with the velocity that the others induce at its own position, and not with its own. From that one sentence two completely different behaviours are born. A counter-rotating pair pushes itself the same way at both ends, so the two translate in a straight line as one pair while keeping their distance; this is what drives a smoke ring forward and what makes an aircraft's wingtip vortices sink slowly behind it. A co-rotating pair instead turns about the midpoint between them, and the closer they are the faster they turn. Worth remembering: the separation does not change in either case, and vortices that appear to approach each other in a real flow are doing something else, usually merging under viscosity, which is entirely absent from this model.",
+      "The point vortex is one of the most honest thought-objects in fluid mechanics: it has no core, no viscosity, and no mass, yet its motion predicts the motion of real vortices with surprising accuracy as long as their cores stay compact. Its rule is one sentence: each vortex drifts with the velocity that the others induce at its own position, and not with its own. From that one sentence two completely different behaviours are born. A counter-rotating pair pushes itself the same way at both ends, so the two translate in a straight line as one pair while keeping their distance; this is what drives a smoke ring forward and what makes an aircraft's wingtip vortices sink slowly behind it. A co-rotating pair instead turns about its centre of circulation, which lies at the midpoint only when the two are equally strong, and the closer they are the faster they turn. Worth remembering: the separation does not change in either case, and vortices that appear to approach each other in a real flow are doing something else, usually merging under viscosity, which is entirely absent from this model.",
   },
 } as const;
 
@@ -95,11 +135,21 @@ export function KinematikaVorteksClient() {
   /* Hanya pasangan yang jumlah sirkulasinya nol yang melaju lurus. Yang
      berlawanan tetapi tidak sama kuat tetap berputar, dengan pusat di luar
      ruas penghubungnya. */
-  const keadaan = r.translates
-    ? x.lawan
-    : r.counterRotating
-      ? x.lawanTimpang
-      : x.searah;
+  const sum = gA + gB;
+  const tanpa = gA === 0 && gB === 0;
+  const satuNol = !tanpa && (gA === 0 || gB === 0);
+  const berputar = !r.translates && !tanpa;
+  const keadaan = tanpa
+    ? x.tanpa
+    : satuNol
+      ? x.satuNol
+      : r.translates
+        ? x.lawan
+        : r.counterRotating
+          ? x.lawanTimpang
+          : x.searah;
+  /* Titik berat sirkulasi, dari susunan awal (−d/2, 0) dan (d/2, 0). */
+  const xc = sum !== 0 ? (gA * (-jarak / 2) + gB * (jarak / 2)) / sum : NaN;
   const ujungA = r.pathA[r.pathA.length - 1];
   const ujungB = r.pathB[r.pathB.length - 1];
 
@@ -245,28 +295,96 @@ export function KinematikaVorteksClient() {
           </Block>
 
           <Block heading={t.blkResult}>
-            <div className="mb-2.5">
-              <Flag tint={r.translates ? C.water : C.critical}>{keadaan}</Flag>
-            </div>
             <ResultTable
               rows={[
-                { symbol: "U", label: x.rPindah, value: fmt(r.translation, 4), unit: "m/s", tint: C.water, strong: true },
-                { symbol: "Ω", label: x.rSudut, value: fmt(r.angular, 4), unit: "rad/s", tint: C.critical, strong: true },
+                /* Angka besar bersyarat: U bila pasangannya melaju, Ω dan T
+                   bila berputar. Dulu U dan Ω selalu besar, salah satunya nol. */
+                { symbol: "U", label: x.rPindah, value: fmt(r.translation, 4), unit: "m/s", tint: C.water, strong: r.translates },
+                { symbol: "Ω", label: x.rSudut, value: fmt(r.angular, 4), unit: "rad/s", tint: C.critical, strong: berputar },
                 {
                   symbol: "T",
                   label: x.rPeriode,
                   value: Number.isFinite(r.period) ? fmt(r.period, 3) : "∞",
                   unit: "s",
+                  strong: berputar,
                 },
                 { symbol: "d", label: x.rAkhir, value: fmt(r.finalSeparation, 4), unit: "m" },
                 { symbol: "Δd", label: x.rHanyut, value: fmt(r.separationDrift, 5), unit: "m" },
               ]}
             />
+            <div className="mt-3">
+              <Hitungan
+                langkah={[
+                  {
+                    judul: x.jSum,
+                    rumus: <span>ΣΓ = Γ₁ + Γ₂</span>,
+                    isi: `${fmt(gA, 0)} + ${kurung(gB, 0)}`,
+                    hasil: fmt(sum, 0),
+                    satuan: "m²/s",
+                  },
+                  ...(r.translates
+                    ? [
+                        {
+                          judul: x.jU,
+                          rumus: (<><span>U =</span><Frac num="|Γ₁|" den="2π · d" /></>),
+                          isi: `${fmt(Math.abs(gA), 0)} / ( 2π · ${fmt(jarak, 1)} )`,
+                          hasil: fmt(r.translation, 4),
+                          satuan: "m/s",
+                          tint: C.water,
+                        },
+                      ]
+                    : berputar
+                      ? [
+                          {
+                            judul: x.jW,
+                            rumus: (<><span>Ω =</span><Frac num="ΣΓ" den="2π · d²" /></>),
+                            isi: `${fmt(sum, 0)} / ( 2π · ${fmt(jarak, 1)}² )`,
+                            hasil: fmt(r.angular, 4),
+                            satuan: "rad/s",
+                            tint: C.critical,
+                          },
+                          {
+                            judul: x.jT,
+                            rumus: (<><span>T =</span><Frac num="4π² · d²" den="|ΣΓ|" /></>),
+                            isi: `4π² · ${fmt(jarak, 1)}² / ${fmt(Math.abs(sum), 0)}`,
+                            hasil: fmt(r.period, 3),
+                            satuan: "s",
+                          },
+                          {
+                            judul: x.jXc,
+                            rumus: (<><span>x_c =</span><Frac num="Γ₁ · (−d/2) + Γ₂ · (d/2)" den="ΣΓ" /></>),
+                            isi: `( ${fmt(gA, 0)} · ${kurung(-jarak / 2, 2)} + ${kurung(gB, 0)} · ${fmt(jarak / 2, 2)} ) / ${fmt(sum, 0)}`,
+                            hasil: fmt(xc, 3),
+                            satuan: "m",
+                          },
+                        ]
+                      : []),
+                  {
+                    judul: x.jD,
+                    rumus: <span>d akhir = d</span>,
+                    isi: fmt(jarak, 1),
+                    hasil: fmt(r.finalSeparation, 4),
+                    satuan: "m",
+                  },
+                ]}
+              />
+            </div>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(gA, gB, jarak, lang)}</Note>
-          </Block>
+          <StateCard
+            tone={r.translates ? "water" : "neutral"}
+            badge={keadaan}
+            state={
+              tanpa
+                ? x.sTanpa
+                : satuNol
+                  ? x.sSatu(keadaan, gA === 0 ? "1" : "2", gA === 0 ? "2" : "1", fmt(r.angular, 3), fmt(r.period, 2))
+                  : r.translates
+                    ? x.sLaju(keadaan, fmt(r.translation, 3))
+                    : x.sPutar(keadaan, fmt(r.angular, 3), fmt(r.period, 2))
+            }
+            notice={notice(gA, gB, jarak, lang)}
+          />
         </>
       }
       verification={<Verification checks={checksVortexPair(gA, gB, jarak)} />}
@@ -311,13 +429,30 @@ export function KinematikaVorteksClient() {
   );
 }
 
-function notice(gA: number, gB: number, jarak: number, lang: Lang) {
+/** Angka negatif dalam substitusi ditulis berkurung. */
+function kurung(v: number, dg: number) {
+  const t = fmt(v, dg);
+  return v < 0 && t !== fmt(0, dg) ? `(${t})` : t;
+}
+
+/*
+ * Butir: (a) jarak separuh → U ×2 atau Ω ×4, (b) perbandingan lawan dan
+ * searah dengan kekuatan sama, (c) jarak tetap. Tanpa pusaran tidak ada
+ * yang dibandingkan.
+ */
+function notice(gA: number, gB: number, jarak: number, lang: Lang): string[] {
+  const x = TXT[lang];
+  if (gA === 0 && gB === 0) return [];
   const a = vortexPair(gA, gB, jarak);
   const dekat = vortexPair(gA, gB, jarak / 2);
-  const lawan = vortexPair(Math.abs(gA), -Math.abs(gA), jarak);
-  const searah = vortexPair(Math.abs(gA), Math.abs(gA), jarak);
-
-  if (lang === "en")
-    return `Halving the separation from ${fmt(jarak, 1)} to ${fmt(jarak / 2, 1)} metres ${a.translates ? `doubles the translation speed from ${fmt(a.translation, 3)} to ${fmt(dekat.translation, 3)} metres a second` : `quadruples the angular speed from ${fmt(a.angular, 3)} to ${fmt(dekat.angular, 3)} radians a second`}. Flip the sign of the second circulation and the behaviour changes completely: with equal and opposite strengths the pair translates at ${fmt(lawan.translation, 3)} metres a second and never turns, while with equal like strengths it does not translate at all and orbits once every ${fmt(searah.period, 2)} seconds. Notice that the separation drifts by only ${fmt(a.separationDrift, 5)} metres in either case: point vortices keep their distance.`;
-  return `Menyeparuhkan jaraknya dari ${fmt(jarak, 1)} ke ${fmt(jarak / 2, 1)} meter ${a.translates ? `melipatduakan kecepatan pindahnya dari ${fmt(a.translation, 3)} ke ${fmt(dekat.translation, 3)} meter tiap detik` : `melipatempatkan kecepatan sudutnya dari ${fmt(a.angular, 3)} ke ${fmt(dekat.angular, 3)} radian tiap detik`}. Balikkan tanda sirkulasi yang kedua dan perilakunya berubah sama sekali: dengan kekuatan sama besar berlawanan arah, pasangannya berpindah ${fmt(lawan.translation, 3)} meter tiap detik dan tidak pernah berputar, sedangkan dengan kekuatan sama besar searah ia sama sekali tidak berpindah dan berputar satu kali tiap ${fmt(searah.period, 2)} detik. Perhatikan bahwa jarak keduanya hanya bergeser ${fmt(a.separationDrift, 5)} meter pada kedua keadaan: pusaran titik menjaga jaraknya.`;
+  const g = Math.abs(gA) > 0 ? Math.abs(gA) : Math.abs(gB);
+  const lawan = vortexPair(g, -g, jarak);
+  const searah = vortexPair(g, g, jarak);
+  return [
+    a.translates
+      ? x.nDekatLaju(fmt(jarak, 1), fmt(jarak / 2, 2), fmt(a.translation, 3), fmt(dekat.translation, 3))
+      : x.nDekatPutar(fmt(jarak, 1), fmt(jarak / 2, 2), fmt(a.angular, 3), fmt(dekat.angular, 3)),
+    x.nBanding(fmt(lawan.translation, 3), fmt(searah.period, 2)),
+    x.nJarak(fmt(a.separationDrift, 5)),
+  ];
 }

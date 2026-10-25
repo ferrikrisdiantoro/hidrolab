@@ -1,8 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Basis, Eq, LabShell } from "@/components/LabShell";
-import { Block, Flag, InputRow, InputTable, Note, PresetRow, ResultTable, Sheet, Term } from "@/components/ui";
+import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
+import {
+  BigResult,
+  Block,
+  Flag,
+  Hitungan,
+  InputRow,
+  InputTable,
+  PresetRow,
+  ResultTable,
+  Sheet,
+  StateCard,
+  Term,
+  type LangkahHitung,
+} from "@/components/ui";
+import { type Tone } from "@/lib/theme";
 import { SeriesEntry, readSeries, type SeriesRow } from "@/components/SeriesEntry";
 import { useResetGuard } from "@/components/ResetScope";
 import { useCanvas } from "@/lib/useCanvas";
@@ -82,6 +96,7 @@ const TXT = {
     title: "Prediksi curah hujan",
     sheetTitle: "Data hujan harian, uji satu langkah, dan ramalan beberapa hari ke depan",
     blkMode: "jenis data",
+    mPilih: "variabel",
     mUv: "univariat (hujan saja)",
     mMv: "multivariat (hujan dan tinggi muka air)",
     blkData: "data masukan",
@@ -113,7 +128,24 @@ const TXT = {
     gagal: "Gagal menghitung",
     kurang: "Data belum cukup",
     kurangNote:
-      "Model membaca tujuh hari terakhir, dan ketelitiannya diuji pada seperlima data terakhir, jadi dibutuhkan paling sedikit empat belas hari berurutan. ARIMA butuh paling sedikit tiga puluh hari.",
+      "Model membaca tujuh hari terakhir, dan ketelitiannya diuji pada seperlima data terakhir (paling sedikit lima hari), jadi dibutuhkan paling sedikit empat belas hari berurutan. ARIMA butuh paling sedikit tiga puluh hari.",
+    lebihBaik: "Lebih baik daripada \"sama dengan kemarin\" pada data ini",
+    hitungState: "Menghitung ulang untuk data dan model ini; angka di bawah masih milik hitungan sebelumnya dan diredupkan.",
+    gagalState: "Model tidak dapat dijalankan pada data ini.",
+    dipotong: "Ramalan negatif dipotong ke 0 mm",
+    dipotongNote: (u: number, r: number, m: string) =>
+      `ARIMA memberi hujan di bawah nol pada ${u} hari uji dan ${r} hari ramalan (terendah ${m} mm). Hujan negatif tidak mungkin, jadi nilai itu ditulis 0 mm; skor uji dihitung dari nilai yang sudah dipotong.`,
+    bRmseM: "RMSE model",
+    bRmseP: "RMSE \"sama dengan kemarin\"",
+    bHari1: "Ramalan hari pertama",
+    hBagi: "Pembagian data uji",
+    hModel: "Uji satu langkah, tiap hari hanya melihat hari sebelumnya",
+    hSkor: "Skor model pada hari uji",
+    hPersis: "Skor \"sama dengan kemarin\", ŷ(t) = y(t − 1)",
+    hBanding: "Banding RMSE",
+    lebihBaikKata: "lebih baik",
+    lebihBurukKata: "lebih buruk",
+    hari: "hari",
     celah: "Tanggalnya tidak harian berurutan",
     celahNote:
       "Ada tanggal yang melompat lebih dari sehari atau tanggal yang ganda. Semua model di lembar ini membaca tujuh BARIS terakhir sebagai tujuh HARI terakhir, jadi pada data yang melompat, \"kemarin\" bisa berarti sebulan yang lalu. Lengkapi hari yang hilang, atau hilangkan centang baris ganda.",
@@ -154,6 +186,7 @@ const TXT = {
     title: "Rainfall prediction",
     sheetTitle: "Daily rainfall data, one-step test, and a forecast several days ahead",
     blkMode: "data type",
+    mPilih: "variables",
     mUv: "univariate (rainfall only)",
     mMv: "multivariate (rainfall and water level)",
     blkData: "input data",
@@ -185,7 +218,24 @@ const TXT = {
     gagal: "Computation failed",
     kurang: "Not enough data",
     kurangNote:
-      "The models read the last seven days, and their accuracy is tested on the last fifth of the data, so at least fourteen consecutive days are needed. ARIMA needs at least thirty.",
+      "The models read the last seven days, and their accuracy is tested on the last fifth of the data (at least five days), so at least fourteen consecutive days are needed. ARIMA needs at least thirty.",
+    lebihBaik: "Better than \"same as yesterday\" on this data",
+    hitungState: "Recomputing for this data and model; the figures below still belong to the previous run and are dimmed.",
+    gagalState: "The model could not run on this data.",
+    dipotong: "Negative forecasts clipped to 0 mm",
+    dipotongNote: (u: number, r: number, m: string) =>
+      `ARIMA gave rainfall below zero on ${u} test days and ${r} forecast days (lowest ${m} mm). Negative rainfall is impossible, so those values are written as 0 mm; the test scores are computed from the clipped values.`,
+    bRmseM: "Model RMSE",
+    bRmseP: "\"Same as yesterday\" RMSE",
+    bHari1: "First-day forecast",
+    hBagi: "Test split",
+    hModel: "One-step test, each day sees only the days before it",
+    hSkor: "Model scores on the test days",
+    hPersis: "\"Same as yesterday\" scores, ŷ(t) = y(t − 1)",
+    hBanding: "RMSE comparison",
+    lebihBaikKata: "better",
+    lebihBurukKata: "worse",
+    hari: "days",
     celah: "The dates are not consecutive days",
     celahNote:
       "Some dates jump by more than a day or are duplicated. Every model on this sheet reads the last seven ROWS as the last seven DAYS, so on jumping data \"yesterday\" may mean a month ago. Fill in the missing days, or untick duplicated rows.",
@@ -261,6 +311,8 @@ type Hasil = {
   arima: ArimaFit | null;
   onnxJs: { model: string; nilai: number; acuan: number } | null;
   pesan?: string;
+  /** ARIMA: banyaknya nilai negatif yang dipotong ke 0, dan yang terendah */
+  dipotong?: { uji: number; ramalan: number; min: number } | null;
 };
 
 export function PrediksiHujanClient() {
@@ -321,6 +373,7 @@ export function PrediksiHujanClient() {
         let ramalan: number[];
         let fit: ArimaFit | null = null;
         let onnxJs: Hasil["onnxJs"] = null;
+        let dipotong: Hasil["dipotong"] = null;
 
         if (model === "arima") {
           const cocok = (yy: number[]) =>
@@ -333,10 +386,17 @@ export function PrediksiHujanClient() {
           }
           const latih = simpan.latih;
           if (!latih) throw new Error("ARIMA");
-          p = oneStepPredictions(latih, s.rain).slice(dari).map((v) => Math.max(0, v));
+          /* Hujan negatif dipotong ke 0, tetapi tidak diam-diam: banyaknya
+             dicatat dan ditandai di kartu keadaan. */
+          const pMentah = oneStepPredictions(latih, s.rain).slice(dari);
+          p = pMentah.map((v) => Math.max(0, v));
           fit = simpan.penuh;
           if (!fit) throw new Error("ARIMA");
-          ramalan = forecastArima(fit, h).map((v) => Math.max(0, v));
+          const rMentah = forecastArima(fit, h);
+          ramalan = rMentah.map((v) => Math.max(0, v));
+          const nU = pMentah.filter((v) => v < 0).length;
+          const nR = rMentah.filter((v) => v < 0).length;
+          dipotong = nU + nR > 0 ? { uji: nU, ramalan: nR, min: Math.min(...pMentah, ...rMentah) } : null;
         } else {
           const k = model as ModelKey;
           p = await oneStep(k, s, dari, UV_SC, MV_SC, browserRunner);
@@ -357,6 +417,7 @@ export function PrediksiHujanClient() {
           uji: { dari, y, p, skor: score(y, p), persistensi: score(y, yPersist), yPersist },
           arima: fit,
           onnxJs,
+          dipotong,
         });
       } catch (e) {
         if (saya !== token.current) return;
@@ -391,6 +452,10 @@ export function PrediksiHujanClient() {
   const kalah =
     hasil.uji !== null && hasil.uji.skor.rmse > hasil.uji.persistensi.rmse && hasil.status === "selesai";
   const bermasalah = seri.gaps > 0 || seri.dup > 0;
+  /* Selama menghitung, hasil lama masih tersimpan; angkanya diredupkan dan
+     kop serta kartu besar menulis "—" supaya tidak terbaca sebagai milik
+     data yang baru. */
+  const siap = hasil.status === "selesai";
 
   const gambar: Draw = (ctx, w, hh) => {
     if (!cukup) {
@@ -409,7 +474,7 @@ export function PrediksiHujanClient() {
     const hariKe = (tt: number) => Math.round((tt - t0) / HARI);
     const hist = seri.t.slice(awal).map((tt, i) => ({ x: hariKe(tt), y: seri.rain[awal + i] }));
     const tAkhir = seri.t[n - 1];
-    const ram = hasil.ramalan.map((v, i) => ({ x: hariKe(tAkhir) + i + 1, y: v }));
+    const ram = siap ? hasil.ramalan.map((v, i) => ({ x: hariKe(tAkhir) + i + 1, y: v })) : [];
     const uji =
       hasil.uji && hasil.status === "selesai"
         ? hasil.uji.p.map((v, i) => ({ x: hariKe(seri.t[hasil.uji!.dari + i]), y: v })).filter((q) => q.x >= 0)
@@ -442,7 +507,8 @@ export function PrediksiHujanClient() {
 
     const deret: ChartSeries[] = [
       { pts: hist, color: C.ink, weight: W.thin, dash: DASH.solid },
-      ...(uji.length ? [{ pts: uji, color: C.critical, weight: W.thin, dash: DASH.hidden }] : []),
+      /* Deret uji bukan keadaan kritis: tinta kedua, garis putus. */
+      ...(uji.length ? [{ pts: uji, color: C.ink2, weight: W.thin, dash: DASH.hidden }] : []),
       ...(ram.length ? [{ pts: [{ x: hariKe(tAkhir), y: seri.rain[n - 1] }, ...ram], color: C.water, weight: W.bold, dash: DASH.hidden }] : []),
     ];
 
@@ -468,7 +534,7 @@ export function PrediksiHujanClient() {
         rules: [{ axis: "x", at: hariKe(tAkhir), color: C.ink3, weight: W.hair, dash: DASH.axis }],
         legend: [
           { text: nama.hist, color: C.ink, line: { weight: W.thin }, marker: true },
-          ...(uji.length ? [{ text: x.lblUji, color: C.critical, line: { weight: W.thin, dash: DASH.hidden } }] : []),
+          ...(uji.length ? [{ text: x.lblUji, color: C.ink2, line: { weight: W.thin, dash: DASH.hidden } }] : []),
           ...(ram.length ? [{ text: nama.pred, color: C.water, line: { weight: W.bold, dash: DASH.hidden }, marker: true, hollow: true }] : []),
         ],
         heading: hasil.status === "gagal" ? x.gagal : bermasalah ? x.celah : undefined,
@@ -520,6 +586,59 @@ export function PrediksiHujanClient() {
   ];
   const s = hasil.uji?.skor;
   const pr = hasil.uji?.persistensi;
+  const redup = siap ? undefined : { opacity: 0.45 };
+  const urutArima = hasil.arima
+    ? `ARIMA(${hasil.arima.order.p},${hasil.arima.order.d},${hasil.arima.order.q})${hasil.arima.order.s ? `(${hasil.arima.order.P},${hasil.arima.order.D},${hasil.arima.order.Q})${hasil.arima.order.s}` : ""}`
+    : "";
+  const wUji = Math.max(5, Math.round(n * 0.2));
+  const mx = lang === "id" ? "maks" : "max";
+  const dr = lang === "id" ? "dari" : "from";
+  const langkah: LangkahHitung[] =
+    siap && hasil.uji && s && pr
+      ? [
+          {
+            judul: x.hBagi,
+            rumus: <span>w = {mx}( 5; round( {fmt(0.2, 1)} · n ) );  {dr} = {mx}( 7; n − w )</span>,
+            isi: `${mx}( 5; round( ${fmt(0.2, 1)} · ${n} ) ) = ${wUji};  ${mx}( 7; ${n} − ${wUji} )`,
+            hasil: `w = ${wUji};  ${dr} = ${hasil.uji.dari}`,
+          },
+          {
+            judul: x.hModel,
+            rumus: <span>ŷ(t) = f( y(t − 1), …, y(t − 7) )</span>,
+            isi: hasil.arima ? `${urutArima}, AICc ${fmt(hasil.arima.aicc, 1)}` : NAMA[model],
+            hasil: `${hasil.uji.p.length} ${x.hari}`,
+          },
+          {
+            judul: x.hSkor,
+            rumus: (<><span>MAE, RMSE, NSE = 1 −</span><Frac num="Σ( y − ŷ )²" den="Σ( y − ȳ )²" /></>),
+            isi: `n = ${s.n}`,
+            hasil: `${fmt(s.mae, 3)};  ${fmt(s.rmse, 3)};  ${fmt(s.nse, 3)}`,
+            satuan: "mm; mm; —",
+          },
+          {
+            judul: x.hPersis,
+            rumus: <span>MAE, RMSE, NSE</span>,
+            isi: `n = ${pr.n}`,
+            hasil: `${fmt(pr.mae, 3)};  ${fmt(pr.rmse, 3)};  ${fmt(pr.nse, 3)}`,
+            satuan: "mm; mm; —",
+          },
+          {
+            judul: x.hBanding,
+            rumus: <span>RMSE model ⋚ RMSE {lang === "id" ? "kemarin" : "yesterday"}</span>,
+            isi: `${fmt(s.rmse, 3)} ${kalah ? ">" : "≤"} ${fmt(pr.rmse, 3)}`,
+            hasil: kalah ? x.lebihBurukKata : x.lebihBaikKata,
+            tint: kalah ? C.caution : undefined,
+          },
+        ]
+      : [];
+  const bocorIni = mode === "uv" && BOCOR.includes(uvModel);
+  const nadaKeadaan: Tone = !cukup || hasil.status === "gagal" || bermasalah
+    ? "invalid"
+    : !siap
+      ? "neutral"
+      : kalah || bocorIni || hasil.dipotong || mode === "mv"
+        ? "caution"
+        : "pass";
 
   return (
     <LabShell
@@ -532,14 +651,14 @@ export function PrediksiHujanClient() {
             Model dari cl42 meramal <Term tint={C.water}>hujan beberapa hari ke depan</Term>{" "}
             dari tujuh hari terakhir. Ketelitiannya tidak diambil dari angka lama,
             melainkan diuji ulang pada data yang dimasukkan, lewat{" "}
-            <Term tint={C.critical}>uji satu langkah</Term>, dan dibandingkan dengan
+            <Term tint={C.ink2}>uji satu langkah</Term>, dan dibandingkan dengan
             tebakan paling sederhana: hujan besok sama dengan hari ini.
           </p>
         ) : (
           <p>
             Models from cl42 forecast <Term tint={C.water}>rainfall several days ahead</Term>{" "}
             from the last seven days. Their accuracy is not taken from old figures but
-            re-tested on the data entered, by a <Term tint={C.critical}>one-step test</Term>,
+            re-tested on the data entered, by a <Term tint={C.ink2}>one-step test</Term>,
             and compared with the simplest guess there is: tomorrow's rain equals today's.
           </p>
         )
@@ -554,8 +673,8 @@ export function PrediksiHujanClient() {
               { label: t.tbUnit, value: lang === "id" ? "mm/hari" : "mm/day" },
               { label: lang === "id" ? "Model" : "Model", value: NAMA[model] },
               { label: "n", value: String(n) },
-              { label: "RMSE", value: s ? fmt(s.rmse, 3) : "—", tint: kalah ? C.signal : C.critical },
-              { label: "NSE", value: s && Number.isFinite(s.nse) ? fmt(s.nse, 3) : "—" },
+              { label: "RMSE", value: siap && s ? fmt(s.rmse, 3) : "—", tint: kalah ? C.caution : undefined },
+              { label: "NSE", value: siap && s && Number.isFinite(s.nse) ? fmt(s.nse, 3) : "—" },
             ]}
           >
             <canvas ref={ref} className="block h-full w-full" />
@@ -582,7 +701,7 @@ export function PrediksiHujanClient() {
         <>
           <Block heading={x.blkMode}>
             <PresetRow
-              label={x.blkMode}
+              label={x.mPilih}
               active={mode === "uv" ? 0 : 1}
               presets={[
                 { label: x.mUv, apply: () => setMode("uv") },
@@ -637,35 +756,64 @@ export function PrediksiHujanClient() {
                 <InputRow symbol="h" label={x.dH} value={h} min={1} max={30} step={1} digits={0} unit={lang === "id" ? "hari" : "days"} onChange={setH} tint={C.water} />
               </InputTable>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {!cukup && <Flag alert>{x.kurang}</Flag>}
-              {bermasalah && <Flag alert>{x.celah}</Flag>}
-              {mode === "uv" && BOCOR.includes(uvModel) && <Flag alert>{x.bocor}</Flag>}
-              {mode === "uv" && uvModel !== "arima" && <Flag tint={C.critical}>{x.tigaBulan}</Flag>}
-              {mode === "mv" && <Flag tint={C.critical}>{x.tanpaKemampuan}</Flag>}
-              {kalah && <Flag alert>{x.kalah}</Flag>}
-              {hasil.arima && (
-                <Flag tint={C.ink2}>
-                  {x.arimaPakai(
-                    `ARIMA(${hasil.arima.order.p},${hasil.arima.order.d},${hasil.arima.order.q})${hasil.arima.order.s ? `(${hasil.arima.order.P},${hasil.arima.order.D},${hasil.arima.order.Q})${hasil.arima.order.s}` : ""}`,
-                    fmt(hasil.arima.aicc, 1)
-                  )}
-                </Flag>
-              )}
-            </div>
-            <div className="mt-2.5 flex flex-col gap-2.5">
-              {!cukup && <Note>{x.kurangNote}</Note>}
-              {bermasalah && <Note>{x.celahNote}</Note>}
-              {mode === "uv" && BOCOR.includes(uvModel) && <Note>{x.bocorNote}</Note>}
-              {mode === "uv" && uvModel !== "arima" && <Note>{x.tigaBulanNote}</Note>}
-              {mode === "mv" && <Note>{x.tanpaKemampuanNote}</Note>}
-              {hasil.status === "gagal" && <Note>{`${x.gagal}: ${hasil.pesan ?? ""}`}</Note>}
-            </div>
+            {/* Penanda keadaan pindah ke kartu keadaan. Yang tetap di sini
+                hanya sifat model yang dipilih, bernada oker: model tetap
+                berjalan, angkanya perlu dibaca dengan hati-hati. */}
+            {(bocorIni || (mode === "uv" && uvModel !== "arima") || mode === "mv" || hasil.arima) && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {bocorIni && <Flag tint={C.caution}>{x.bocor}</Flag>}
+                {mode === "uv" && uvModel !== "arima" && <Flag tint={C.caution}>{x.tigaBulan}</Flag>}
+                {mode === "mv" && <Flag tint={C.caution}>{x.tanpaKemampuan}</Flag>}
+                {hasil.arima && <Flag tint={C.ink2}>{x.arimaPakai(urutArima, fmt(hasil.arima.aicc, 1))}</Flag>}
+              </div>
+            )}
           </Block>
+
+          {cukup && (
+            <StateCard
+              tone={nadaKeadaan}
+              badge={
+                hasil.status === "gagal"
+                  ? x.gagal
+                  : bermasalah
+                    ? x.celah
+                    : !siap
+                      ? x.menghitung
+                      : kalah
+                        ? x.kalah
+                        : x.lebihBaik
+              }
+              state={
+                hasil.status === "gagal"
+                  ? `${x.gagalState} ${hasil.pesan ?? ""}`
+                  : !siap || !s || !pr
+                    ? x.hitungState
+                    : lang === "id"
+                      ? `${NAMA[model]} pada ${s.n} hari uji: RMSE ${fmt(s.rmse, 3)} mm, "sama dengan kemarin" ${fmt(pr.rmse, 3)} mm, ${kalah ? x.lebihBurukKata : x.lebihBaikKata}.`
+                      : `${NAMA[model]} on ${s.n} test days: RMSE ${fmt(s.rmse, 3)} mm, "same as yesterday" ${fmt(pr.rmse, 3)} mm, ${kalah ? x.lebihBurukKata : x.lebihBaikKata}.`
+              }
+              notice={[
+                bermasalah ? x.celahNote : null,
+                siap && hasil.dipotong
+                  ? x.dipotongNote(hasil.dipotong.uji, hasil.dipotong.ramalan, fmt(hasil.dipotong.min, 2))
+                  : null,
+                bocorIni ? x.bocorNote : null,
+                mode === "uv" && uvModel !== "arima" ? x.tigaBulanNote : null,
+                mode === "mv" ? x.tanpaKemampuanNote : null,
+                notice(mode, lang),
+              ]}
+            />
+          )}
+          {!cukup && <StateCard tone="invalid" badge={x.kurang} state={x.kurangNote} />}
 
           {hasil.ramalan.length > 0 && (
             <Block heading={x.blkHasil}>
-              <div className="overflow-y-auto" style={{ maxHeight: "14rem" }}>
+              {siap && hasil.dipotong && hasil.dipotong.ramalan > 0 && (
+                <div className="mb-2.5">
+                  <Flag tint={C.caution}>{x.dipotong}</Flag>
+                </div>
+              )}
+              <div className="overflow-y-auto" aria-busy={!siap} style={{ maxHeight: "14rem", ...redup }}>
                 <ResultTable
                   caption={x.tglR}
                   rows={hasil.ramalan.map((v, i) => ({
@@ -681,7 +829,16 @@ export function PrediksiHujanClient() {
 
           {s && pr && (
             <Block heading={x.blkUji}>
-              <table className="data">
+              <div className="mb-3">
+                <BigResult
+                  items={[
+                    { symbol: "RMSE", label: NAMA[model], value: siap ? fmt(s.rmse, 3) : "—", unit: "mm", tint: siap && kalah ? C.caution : undefined },
+                    { symbol: "RMSE", label: x.kolPersis, value: siap ? fmt(pr.rmse, 3) : "—", unit: "mm" },
+                    { symbol: "ŷ₁", label: x.bHari1, value: siap && hasil.ramalan.length ? fmt(hasil.ramalan[0], 2) : "—", unit: "mm", tint: C.water },
+                  ]}
+                />
+              </div>
+              <table className="data" aria-busy={!siap} style={redup}>
                 <thead>
                   <tr>
                     <th />
@@ -699,7 +856,7 @@ export function PrediksiHujanClient() {
                   ].map(([l, a, b, d]) => (
                     <tr key={String(l)}>
                       <td className="text-ink-2">{l as string}</td>
-                      <td className="n font-semibold" style={{ color: (a as number) !== null && (l === x.rRmse) && kalah ? "var(--color-signal)" : undefined }}>
+                      <td className="n font-semibold" style={{ color: (a as number) !== null && (l === x.rRmse) && kalah ? C.caution : undefined }}>
                         {a === null || !Number.isFinite(a as number) ? "—" : fmt(a as number, d as number)}
                       </td>
                       <td className="n text-ink-2">{b === null || !Number.isFinite(b as number) ? "—" : fmt(b as number, d as number)}</td>
@@ -712,6 +869,11 @@ export function PrediksiHujanClient() {
                   </tr>
                 </tbody>
               </table>
+              {langkah.length > 0 && (
+                <div className="mt-3">
+                  <Hitungan langkah={langkah} />
+                </div>
+              )}
             </Block>
           )}
 
@@ -762,9 +924,6 @@ export function PrediksiHujanClient() {
             </table>
           </Block>
 
-          <Block heading={t.blkNotice}>
-            <Note>{notice(mode, lang)}</Note>
-          </Block>
         </>
       }
       verification={<Verification checks={cek} />}
@@ -806,6 +965,7 @@ function notice(mode: "uv" | "mv", lang: Lang): string {
   }
   const u = UKUR.uv_lengkap;
   return lang === "id"
-    ? `Pada ${u._uji.n} hari uji data latih lengkap, tebakan "sama dengan kemarin" mencapai MAE ${fmt(u.persistensi.mae, 3)} mm. LSTM ${fmt(u.lstm.mae, 3)}, BiLSTM ${fmt(u.bilstm.mae, 3)}, XGBoost ${fmt(u.xgb.mae, 3)}, Gradient Boosting ${fmt(u.gbr.mae, 3)}. Tidak satu pun model univariat cl42 mengalahkan tebakan kemarin pada MAE; LSTM hanya menyamainya pada NSE. Artinya model-model ini, dalam bentuk sekarang, belum menambah informasi tentang hujan besok di atas apa yang sudah terlihat hari ini.`
-    : `On ${u._uji.n} test days of the full training data, "same as yesterday" reaches an MAE of ${fmt(u.persistensi.mae, 3)} mm. LSTM ${fmt(u.lstm.mae, 3)}, BiLSTM ${fmt(u.bilstm.mae, 3)}, XGBoost ${fmt(u.xgb.mae, 3)}, Gradient Boosting ${fmt(u.gbr.mae, 3)}. None of the cl42 univariate models beats yesterday's value on MAE; LSTM only matches it on NSE. In their current form these models add no information about tomorrow's rain beyond what is already visible today.`;
+    ? `Pada ${u._uji.n} hari uji data latih lengkap, tebakan "sama dengan kemarin" mencapai MAE ${fmt(u.persistensi.mae, 3)} mm, RMSE ${fmt(u.persistensi.rmse, 3)} mm, NSE ${fmt(u.persistensi.nse, 3)}. LSTM dan BiLSTM sedikit lebih baik pada RMSE (${fmt(u.lstm.rmse, 3)} dan ${fmt(u.bilstm.rmse, 3)}) dan NSE (${fmt(u.lstm.nse, 3)} dan ${fmt(u.bilstm.nse, 3)}), tetapi kalah pada MAE (${fmt(u.lstm.mae, 3)} dan ${fmt(u.bilstm.mae, 3)}). XGBoost dan Gradient Boosting kalah pada ketiganya (MAE ${fmt(u.xgb.mae, 3)} dan ${fmt(u.gbr.mae, 3)}). Selisih yang tipis itu berarti model terbaik pun hanya menambah sedikit di atas apa yang sudah terlihat hari ini.`
+    : `On ${u._uji.n} test days of the full training data, "same as yesterday" reaches an MAE of ${fmt(u.persistensi.mae, 3)} mm, RMSE ${fmt(u.persistensi.rmse, 3)} mm, NSE ${fmt(u.persistensi.nse, 3)}. LSTM and BiLSTM are slightly better on RMSE (${fmt(u.lstm.rmse, 3)} and ${fmt(u.bilstm.rmse, 3)}) and NSE (${fmt(u.lstm.nse, 3)} and ${fmt(u.bilstm.nse, 3)}), but worse on MAE (${fmt(u.lstm.mae, 3)} and ${fmt(u.bilstm.mae, 3)}). XGBoost and Gradient Boosting are worse on all three (MAE ${fmt(u.xgb.mae, 3)} and ${fmt(u.gbr.mae, 3)}). Margins this thin mean even the best model adds only a little beyond what is already visible today.`;
+
 }
