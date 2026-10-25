@@ -15,8 +15,13 @@ import {
   Term,
   type LangkahHitung,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawJump, makeStreaks, type Streak } from "@/lib/drawJump";
+import { usePlate } from "@/lib/usePlate";
+import {
+  createJumpMotion,
+  drawJump,
+  drawJumpMotion,
+  type JumpMotion,
+} from "@/lib/drawJump";
 import {
   G,
   classifyJump,
@@ -45,8 +50,6 @@ const TXT = {
     pStrong: "Kuat",
     showE: "Sembunyikan garis energi",
     hideE: "Tampilkan garis energi",
-    stopF: "Hentikan alur aliran",
-    startF: "Jalankan alur aliran",
     rFr1: "Bilangan Froude hulu",
     rY2: "Kedalaman konjugat",
     rV2: "Kecepatan hilir",
@@ -65,7 +68,7 @@ const TXT = {
     bStrong: "Kuat",
     hPct: "Bagian energi hulu yang teredam",
     hNoBel: "Fr₁ ≤ 1: persamaan Belanger tidak berlaku",
-    note: "Persamaan kedua adalah bentuk Belanger, diturunkan dari kekekalan momentum pada saluran persegi mendatar dengan mengabaikan gesekan dasar di sepanjang loncatan. Perlu dicatat bahwa persamaan ini hanya memberi kedalaman di kedua ujung loncatan, bukan bentuk permukaan di antaranya — karena itu bagian dalam loncatan pada gambar digambar dengan titik rapat, bukan garis menerus. Panjang loncatan memakai pendekatan empiris umum L ≈ 6·y₂.",
+    note: "Persamaan kedua adalah bentuk Belanger, diturunkan dari kekekalan momentum pada saluran persegi mendatar dengan mengabaikan gesekan dasar di sepanjang loncatan. Perlu dicatat bahwa persamaan ini hanya memberi kedalaman di kedua ujung loncatan, bukan bentuk permukaan di antaranya — karena itu bagian dalam loncatan pada gambar digambar dengan titik rapat, bukan garis menerus. Panjang loncatan memakai pendekatan empiris umum L ≈ 6·y₂. Letak loncatan pada gambar skematik: di saluran sebenarnya posisinya ditentukan muka air hilir, yang tidak dihitung di lembar ini.",
   },
   en: {
     title: "Hydraulic jump",
@@ -78,8 +81,6 @@ const TXT = {
     pStrong: "Strong",
     showE: "Hide energy line",
     hideE: "Show energy line",
-    stopF: "Stop flow streaks",
-    startF: "Start flow streaks",
     rFr1: "Upstream Froude number",
     rY2: "Conjugate depth",
     rV2: "Downstream velocity",
@@ -98,7 +99,7 @@ const TXT = {
     bStrong: "Strong",
     hPct: "Share of upstream energy dissipated",
     hNoBel: "Fr₁ ≤ 1: the Bélanger equation does not apply",
-    note: "The second equation is the Bélanger form, derived from momentum conservation in a horizontal rectangular channel with bed friction along the jump neglected. Note that it gives only the depths at the two ends of the jump, not the surface shape in between — which is why the interior of the jump is drawn with fine dots rather than a solid line. Jump length uses the common empirical approximation L ≈ 6·y₂.",
+    note: "The second equation is the Bélanger form, derived from momentum conservation in a horizontal rectangular channel with bed friction along the jump neglected. Note that it gives only the depths at the two ends of the jump, not the surface shape in between — which is why the interior of the jump is drawn with fine dots rather than a solid line. Jump length uses the common empirical approximation L ≈ 6·y₂. The jump position in the drawing is schematic: in a real channel it is set by the tailwater level, which this sheet does not compute.",
   },
 } as const;
 
@@ -140,14 +141,13 @@ export function LoncatanAirClient() {
   const [y1, setY1] = useState(0.3);
   const [V1, setV1] = useState(7.0);
   const [showEnergy, setShowEnergy] = useState(true);
-  const [showFlow, setShowFlow] = useState(true);
-  // Goresan aliran dibuat sekali saja.
-  //
-  // Nilai awal useRef tetap dihitung ulang pada SETIAP render walaupun hanya
-  // yang pertama yang dipakai, jadi menaruh makeStreaks langsung di dalamnya
-  // membuang seratus lima puluh objek tiap kali slider digeser.
-  const streaks = useRef<Streak[] | null>(null);
-  if (streaks.current === null) streaks.current = makeStreaks(150);
+  // Lapis gerak berjalan sejak awal bila peramban mengizinkan gerak; tombol
+  // putar/jeda ada di pojok bidang gambar (Sheet motion).
+  const [playing, setPlaying] = useState(true);
+  // Keadaan goresan dibuat sekali saja. Nilai awal useRef tetap dihitung
+  // ulang pada SETIAP render, jadi pembuatannya dijaga di sini.
+  const gerak = useRef<JumpMotion | null>(null);
+  if (gerak.current === null) gerak.current = createJumpMotion(150);
 
   const Fr1 = froude(V1, y1);
   const hasJump = Fr1 > 1;
@@ -228,23 +228,16 @@ export function LoncatanAirClient() {
         { judul: x.hNoBel, rumus: rumusBelanger, isi: "—", hasil: "—" },
       ];
 
-  const ref = useCanvas(
+  /* Lapis statis digambar hanya saat masukan berubah; goresan aliran ada
+     di lapis gerak. `flow: true` membuat lapis statis sama persis dengan
+     gambar lama saat goresan belum bergerak (tanpa panah aliran), jadi
+     jeda dan reduced-motion menampilkan gambar yang identik. */
+  const plate = usePlate(
+    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy, flow: true, lang }),
     (ctx, w, h, tt, dt) =>
-      drawJump(
-        ctx,
-        w,
-        h,
-        { y1, V1 },
-        {
-          showEnergy,
-          streaks: showFlow ? streaks.current : null,
-          t: tt,
-          dt,
-          lang,
-        }
-      ),
-    [y1, V1, showEnergy, showFlow, lang],
-    { animate: showFlow }
+      drawJumpMotion(ctx, w, h, tt, dt, { y1, V1 }, { showEnergy }, gerak.current!),
+    [y1, V1, showEnergy, lang],
+    { playing }
   );
 
   return (
@@ -297,8 +290,14 @@ export function LoncatanAirClient() {
             { label: "Fr₁", value: fmt(Fr1, digFr) },
             { label: t.tbRegime, value: klas.label[lang] },
           ]}
+          motion={{
+            playing,
+            onToggle: () => setPlaying((v) => !v),
+            allowed: plate.motionAllowed,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
@@ -323,7 +322,6 @@ export function LoncatanAirClient() {
                 label={t.presetView}
                 presets={[
                   { label: showEnergy ? x.showE : x.hideE, apply: () => setShowEnergy((v) => !v) },
-                  { label: showFlow ? x.stopF : x.startF, apply: () => setShowFlow((v) => !v) },
                 ]}
               />
             </div>
