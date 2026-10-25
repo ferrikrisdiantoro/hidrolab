@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -13,10 +13,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { G, conjugateDepth, froude, jumpLength, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { G, conjugateDepth, froude, jumpLength, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type JumpParams = {
   /** Kedalaman hulu, meter */
@@ -79,7 +80,7 @@ export function drawJump(
   h: number,
   p: JumpParams,
   opt: JumpOptions = {}
-) {
+): PlateOut {
   const {
     showEnergy = true,
     showDims = true,
@@ -428,6 +429,45 @@ export function drawJump(
   ctx.lineTo(padL + plotW, bedY + bedThk + 0.5);
   ctx.stroke();
 
+  /* ---------------- keluaran untuk lapis di atas gambar ----------------
+     Dihitung di sini, sebelum cabang dimensi yang bisa berakhir lebih awal.
+     Tidak menggambar apa pun. Titik bernama:
+     - `upstreamSurface`: muka air hulu (tengah ruas superkritis), kedalaman y1
+     - `downstreamSurface`: muka air hilir (tengah ekor), kedalaman y2
+     - `toe`: kaki loncatan, awal loncatan pada muka air hulu
+     - `jumpEnd`: akhir loncatan pada muka air hilir (sama dengan toe bila
+       tidak ada loncatan)
+     - `energyUpstream`: garis energi hulu, hanya bila garis energi tampil
+     `water` = badan air yang sama dengan isi biru (dasar ke muka air). */
+  const keluar = (() => {
+    const map = mapFrom(
+      X,
+      Y,
+      { x0: padL, y0: padT, x1: padL + plotW, y1: bedY },
+      [0, bentang],
+      [0, yMax]
+    );
+    const xAkhir = hasJump ? xJump + Lj : xJump;
+    const anchors: Record<string, PlateAnchor> = {
+      upstreamSurface: { x: X(xJump / 2), y: Y(p.y1) },
+      downstreamSurface: { x: X((xAkhir + bentang) / 2), y: Y(y2) },
+      toe: { x: X(xJump), y: Y(p.y1) },
+      jumpEnd: { x: X(xAkhir), y: Y(y2) },
+    };
+    if (showEnergy) anchors.energyUpstream = { x: X(xJump / 2), y: Y(E1) };
+    const water = new Float64Array(pts.length * 2 + 4);
+    let k = 0;
+    water[k++] = pts[0][0];
+    water[k++] = bedY;
+    for (const [x, y] of pts) {
+      water[k++] = x;
+      water[k++] = y;
+    }
+    water[k++] = pts[pts.length - 1][0];
+    water[k++] = bedY;
+    return { map, anchors, water, waters: [water] } as PlateOut;
+  })();
+
   /* ---------------- dimensi dan nama wilayah ---------------- */
   if (showDims && !compact) {
     /*
@@ -611,6 +651,8 @@ export function drawJump(
       hasJump ? C.ink : C.signal
     );
   }
+
+  return keluar;
 }
 
 /** Panah aliran: batang tipis dengan kepala terbuka. */

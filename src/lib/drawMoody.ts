@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -7,15 +7,16 @@ import {
   ruling,
   pen,
   region,
-} from "./plate";
+} from "./plate.ts";
 import {
   RE_LAMINAR_MAX,
   RE_TURBULENT_MIN,
   colebrookFriction,
   fmtPlain
-} from "./hydraulics";
-import { cl } from "./strings";
+} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 const RE_MIN = 1e3;
 const RE_MAX = 1e8;
@@ -52,7 +53,7 @@ export function drawMoody(
   h: number,
   s: MoodyState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   const padL = 62;
   const padR = 74;
@@ -321,6 +322,27 @@ export function drawMoody(
   axisTitle(ctx, T.axReynolds, padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.axFriction, 20, padT + plotH / 2, -Math.PI / 2);
   axisTitle(ctx, T.axRoughness, w - 16, padT + plotH / 2, -Math.PI / 2);
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta log-log: Re dan f.
+   * - `point`: titik kerja (Re, f), hanya bila di dalam diagram
+   * - `roughnessEnd`: ujung kanan kurva kekasaran yang dipakai (Re 10^8),
+   *   tempat namanya ditulis, bila di dalam rentang f
+   */
+  const map = mapFrom(
+    X,
+    Y,
+    { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH },
+    [RE_MIN, RE_MAX],
+    [F_MIN, F_MAX],
+    { xLog: true, yLog: true }
+  );
+  const anchors: Record<string, PlateAnchor> = {};
+  if (s.Re >= RE_MIN && s.Re <= RE_MAX && s.f >= F_MIN && s.f <= F_MAX)
+    anchors.point = { x: X(s.Re), y: Y(s.f) };
+  const fUjung = colebrookFriction(RE_MAX, Math.max(s.relRough, 0));
+  if (fUjung >= F_MIN && fUjung <= F_MAX) anchors.roughnessEnd = { x: X(RE_MAX), y: Y(fUjung) };
+  return { map, anchors };
 }
 
 function fmtRe(Re: number): string {

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -15,10 +15,11 @@ import {
   niceStep,
   pen,
   ruling,
-} from "./plate";
-import { fmtPlain } from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { fmtPlain } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { anchorsFrom, mapFrom, rectsFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 /**
  * PENGGAMBAR POTONGAN MELINTANG — keluarga D, lalu keluarga G.
@@ -178,6 +179,12 @@ export type StructureSpec = {
   headingColor?: string;
   axisX: string;
   axisZ: string;
+  /**
+   * Titik bernama dalam meter (x, z), diteruskan ke PlateOut.anchors dalam
+   * piksel. Tidak digambar; dipakai lembar untuk pegangan seret pada titik
+   * yang hanya lembar itu yang tahu artinya.
+   */
+  anchors?: Record<string, { x: number; z: number }>;
 };
 
 export function drawStructure(
@@ -186,7 +193,7 @@ export function drawStructure(
   h: number,
   s: StructureSpec,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -526,6 +533,106 @@ export function drawStructure(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  return keluaranStruktur(s, X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, taruh.boxes());
+}
+
+/**
+ * PlateOut potongan melintang. Tidak menggambar apa pun.
+ *
+ * Titik bernama umum, dihitung dari bentuknya sendiri:
+ * - `crest`: titik tertinggi seluruh badan bangunan (puncak bendung, mercu)
+ * - `body{i}Top`: titik tertinggi badan ke-i
+ * - `water{i}Start`, `water{i}End`: ujung awal dan akhir muka air genangan
+ *   ke-i, urut seperti ditulis lembarnya (biasanya hulu lalu hilir)
+ * - `water{i}Top`: titik tertinggi muka air genangan ke-i
+ * - `upstreamSurface`, `downstreamSurface`: awal muka air genangan pertama
+ *   dan akhir muka air genangan terakhir
+ * - `vector{i}`, `vector{i}Tip`: pangkal dan ujung panah gaya ke-i
+ * ditambah titik bernama yang dikirim lembar lewat `s.anchors`.
+ * Titik di luar bidang gambar tidak ikut, karena tidak ada yang bisa diseret.
+ */
+function keluaranStruktur(
+  s: StructureSpec,
+  X: (x: number) => number,
+  Z: (z: number) => number,
+  frame: { x0: number; y0: number; x1: number; y1: number },
+  boxes: { x0: number; x1: number; atas: number; bawah: number }[]
+): PlateOut {
+  const map = mapFrom(X, Z, frame, [s.xMin, s.xMax], [s.zMin, s.zMax]);
+  const anchors: Record<string, PlateAnchor> = {};
+  const di = (x: number, y: number) =>
+    x >= frame.x0 - 0.5 && x <= frame.x1 + 0.5 && y >= frame.y0 - 0.5 && y <= frame.y1 + 0.5;
+  const taruhTitik = (nama: string, x: number, z: number) => {
+    const a = { x: X(x), y: Z(z) };
+    if (Number.isFinite(a.x) && Number.isFinite(a.y) && di(a.x, a.y)) anchors[nama] = a;
+  };
+  const tertinggi = (pts: { x: number; z: number }[]) =>
+    pts.reduce((m, p) => (p.z > m.z ? p : m), pts[0]);
+
+  let puncak: { x: number; z: number } | null = null;
+  s.bodies.forEach((b, i) => {
+    if (b.pts.length < 3) return;
+    const t = tertinggi(b.pts);
+    taruhTitik(`body${i}Top`, t.x, t.z);
+    if (!puncak || t.z > puncak.z) puncak = t;
+  });
+  if (puncak) taruhTitik("crest", (puncak as { x: number; z: number }).x, (puncak as { x: number; z: number }).z);
+
+  const water: Float64Array[] = [];
+  const genangan = (s.waters ?? []).filter((a) => a.surface.length >= 2);
+  genangan.forEach((a, i) => {
+    const m = a.surface;
+    taruhTitik(`water${i}Start`, m[0].x, m[0].z);
+    taruhTitik(`water${i}End`, m[m.length - 1].x, m[m.length - 1].z);
+    const t = tertinggi(m);
+    taruhTitik(`water${i}Top`, t.x, t.z);
+    // Poligon sama dengan jalur isi air di atas: muka air maju, dasar maju.
+    const dasar = a.bed ?? [
+      { x: m[m.length - 1].x, z: s.zMin },
+      { x: m[0].x, z: s.zMin },
+    ];
+    const poli = new Float64Array((m.length + dasar.length) * 2);
+    let k = 0;
+    for (const p of m) {
+      poli[k++] = X(p.x);
+      poli[k++] = Z(p.z);
+    }
+    for (const p of dasar) {
+      poli[k++] = X(p.x);
+      poli[k++] = Z(p.z);
+    }
+    water.push(poli);
+  });
+  if (genangan.length) {
+    const awal = genangan[0].surface[0];
+    const akhirG = genangan[genangan.length - 1].surface;
+    const akhir = akhirG[akhirG.length - 1];
+    taruhTitik("upstreamSurface", awal.x, awal.z);
+    taruhTitik("downstreamSurface", akhir.x, akhir.z);
+  }
+
+  (s.vectors ?? []).forEach((v, i) => {
+    const x0 = X(v.x);
+    const y0 = Z(v.z);
+    if (di(x0, y0)) anchors[`vector${i}`] = { x: x0, y: y0 };
+    if (di(x0 + v.dx, y0 + v.dy)) anchors[`vector${i}Tip`] = { x: x0 + v.dx, y: y0 + v.dy };
+  });
+
+  if (s.anchors) {
+    const dariLembar = anchorsFrom(map, Object.fromEntries(
+      Object.entries(s.anchors).map(([k, p]) => [k, { x: p.x, y: p.z }])
+    ));
+    Object.assign(anchors, dariLembar);
+  }
+
+  return {
+    map,
+    anchors,
+    water: water[0],
+    waters: water,
+    labels: rectsFrom(boxes),
+  };
 }
 
 /** Faktor pembesaran tegak dibulatkan ke bawah ke 1; 1,5; 2; 3; 4; ... */
@@ -576,4 +683,4 @@ function panah(
   ctx.stroke();
 }
 
-export { bendGeometry, bendPlan } from "./bendPlan";
+export { bendGeometry, bendPlan } from "./bendPlan.ts";

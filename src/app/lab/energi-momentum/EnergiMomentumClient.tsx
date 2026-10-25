@@ -359,21 +359,24 @@ function notice(
   noJumpNote: string,
   lang: Lang
 ): { state: string; notice: string[] } {
-  const fr = fmt(Fr1, 2);
+  // Dekat Fr₁ = 1 dua angka menulis "1,00 < 1"; tambah angka seperlunya.
+  let digFr = 2;
+  while (digFr < 4 && Number(Fr1.toFixed(digFr)) === 1 && Fr1 !== 1) digFr++;
+  const fr = fmt(Fr1, digFr);
   // Rentang di classifyJump ditulis dengan koma desimal; EN memakai titik.
   const rentang = lang === "en" ? klas.range.replace(/,/g, ".") : klas.range;
 
   if (Fr1 <= 1) {
     return lang === "id"
       ? {
-          state: `Fr₁ = ${fr} < 1: aliran belum superkritis, jadi tidak ada loncatan yang perlu digambar.`,
+          state: `Fr₁ = ${fr} ≤ 1: aliran belum superkritis, jadi tidak ada loncatan yang perlu digambar.`,
           notice: [
             noJumpNote,
             "Yang tetap dapat dibaca sekarang: keduanya mencapai titik terkecil pada kedalaman yang sama, dan kedua nilai terkecil itu punya rumus tertutup yang berbeda, satu setengah kali kedalaman kritis untuk energi dan satu setengah kali kuadratnya untuk momentum. Kedua rumus itu diperiksa terhadap hitungan kami di blok verifikasi.",
           ],
         }
       : {
-          state: `Fr₁ = ${fr} < 1: the flow is not yet supercritical, so there is no jump to draw.`,
+          state: `Fr₁ = ${fr} ≤ 1: the flow is not yet supercritical, so there is no jump to draw.`,
           notice: [
             noJumpNote,
             "What can still be read: both curves reach their smallest value at the same depth, and those two minima have different closed forms, one and a half times critical depth for energy and one and a half times its square for momentum. Both are checked against our own computation in the verification block.",

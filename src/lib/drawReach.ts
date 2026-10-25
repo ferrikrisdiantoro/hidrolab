@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -13,8 +13,9 @@ import {
   region,
   ruling,
   splitLabel,
-} from "./plate";
-import { fmtPlain } from "./hydraulics";
+} from "./plate.ts";
+import { fmtPlain } from "./hydraulics.ts";
+import { anchorsFrom, mapFrom, rectsFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type ReachPoint = {
   /** Jarak dari ujung hulu, meter */
@@ -85,6 +86,11 @@ export type ReachState = {
   axisZ: string;
   /** Batas atas sumbu tegak; dihitung sendiri bila tidak diberikan */
   zTop?: number;
+  /**
+   * Titik bernama dalam meter (x jarak, z elevasi), diteruskan ke
+   * PlateOut.anchors dalam piksel. Tidak digambar.
+   */
+  anchors?: Record<string, { x: number; z: number }>;
 };
 
 /**
@@ -107,7 +113,7 @@ export function drawReach(
   w: number,
   h: number,
   s: ReachState
-) {
+): PlateOut {
   const padL = 62;
   const padR = 34;
   const padT = 28;
@@ -482,4 +488,64 @@ export function drawReach(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /* ---------------- keluaran untuk lapis di atas gambar ----------------
+     Tidak menggambar apa pun. Titik bernama umum:
+     - `upstreamSurface`, `downstreamSurface`: muka air di ujung hulu dan hilir
+     - `upstreamBed`, `downstreamBed`: dasar di kedua ujung
+     - `marker{i}`: muka air pada penampang bertanda ke-i (dasar bila muka
+       air tidak sampai ke situ)
+     ditambah `s.anchors` dari lembar. `water` = jalur isi air yang sama. */
+  const frame = { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH };
+  const map = mapFrom(X, Z, frame, [0, L], [0, zTop]);
+  const anchors: Record<string, PlateAnchor> = {};
+  const di = (a: PlateAnchor) =>
+    a.x >= frame.x0 - 0.5 && a.x <= frame.x1 + 0.5 && a.y >= frame.y0 - 0.5 && a.y <= frame.y1 + 0.5;
+  const taruhTitik = (nama: string, x: number, z: number) => {
+    const a = { x: X(x), y: Z(z) };
+    if (Number.isFinite(a.x) && Number.isFinite(a.y) && di(a)) anchors[nama] = a;
+  };
+  const muka0 = s.water[0];
+  const muka1 = s.water[s.water.length - 1];
+  taruhTitik("upstreamSurface", muka0.x, muka0.z);
+  taruhTitik("downstreamSurface", muka1.x, muka1.z);
+  const dasar0 = bedTerurut[0];
+  const dasar1 = bedTerurut[bedTerurut.length - 1];
+  taruhTitik("upstreamBed", dasar0.x, dasar0.z);
+  taruhTitik("downstreamBed", dasar1.x, dasar1.z);
+  const sisip = (deret: ReachPoint[], x: number): number | null => {
+    for (let k = 1; k < deret.length; k++) {
+      const a = deret[k - 1];
+      const c = deret[k];
+      if ((x - a.x) * (x - c.x) <= 0) {
+        const t = Math.abs(c.x - a.x) < 1e-12 ? 0 : (x - a.x) / (c.x - a.x);
+        return a.z + (c.z - a.z) * t;
+      }
+    }
+    return null;
+  };
+  (s.markers ?? []).forEach((m, i) => {
+    const z = sisip(s.water, m.x) ?? sisip(bedTerurut, m.x);
+    if (z !== null) taruhTitik(`marker${i}`, m.x, z);
+  });
+  Object.assign(
+    anchors,
+    anchorsFrom(
+      map,
+      s.anchors &&
+        Object.fromEntries(Object.entries(s.anchors).map(([k, p]) => [k, { x: p.x, y: p.z }]))
+    )
+  );
+
+  // Poligon air: muka air ke hilir, lalu dasar di dalam rentangnya ke hulu.
+  const poli: number[] = [];
+  for (const p of s.water) poli.push(X(p.x), Z(p.z));
+  for (let i = bedTerurut.length - 1; i >= 0; i--) {
+    const p = bedTerurut[i];
+    if (p.x > airAkhir + 1e-9 || p.x < airAwal - 1e-9) continue;
+    poli.push(X(p.x), Z(p.z));
+  }
+  const water = Float64Array.from(poli);
+
+  return { map, anchors, water, waters: [water], labels: rectsFrom(dipakai) };
 }

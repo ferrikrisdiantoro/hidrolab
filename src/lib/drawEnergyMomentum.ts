@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -9,9 +9,9 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { momentumFunction, specificEnergy, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { momentumFunction, specificEnergy, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 
 export type EnergyMomentumState = {

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -13,10 +13,11 @@ import {
   region,
   ruling,
   type PipeWall,
-} from "./plate";
-import { powerLawVelocity, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { powerLawVelocity, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateOut } from "./plateOut.ts";
 
 export type PitotDrawState = {
   /** Diameter pipa, meter */
@@ -54,7 +55,7 @@ export function drawPitot(
   h: number,
   s: PitotDrawState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -274,4 +275,32 @@ export function drawPitot(
     Math.round(kurvaW),
     Math.round(plotH)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta utama = potongan pipa (jarak
+   * sepanjang pipa dan jari-jari dari sumbu, meter). Profil kecepatan di
+   * `maps.profile` (kecepatan m/s, jari-jari m; sumbu tegak sama).
+   * - `probe`: ujung tabung (titik stagnasi), jari-jari rProbe
+   * - `probeReading`: bacaan tabung pada kurva profil
+   * - `meanRadius`: jari-jari acuan rMean pada garis kecepatan rata-rata
+   * - `wall`: dinding atas pipa di dimensi D
+   * `water` = isi pipa.
+   */
+  const frameY = { y0: padT, y1: padT + plotH };
+  const map = mapFrom(X, Y, { x0: pipaX0, ...frameY, x1: pipaX0 + pipaW }, [0, Lpipa], [-rMax, rMax]);
+  const water = Float64Array.of(X(0), Y(R), X(Lpipa), Y(R), X(Lpipa), Y(-R), X(0), Y(-R));
+  return {
+    map,
+    anchors: {
+      probe: { x: X(xProbe) - 16, y: Y(s.rProbe) },
+      probeReading: { x: XU(s.uProbe), y: Y(s.rProbe) },
+      meanRadius: { x: XU(s.uMean), y: Y(s.rMean) },
+      wall: { x: X(Lpipa * 0.1), y: Y(R) },
+    },
+    water,
+    waters: [water],
+    maps: {
+      profile: mapFrom(XU, Y, { x0: kurvaX0, ...frameY, x1: kurvaX0 + kurvaW }, [0, uTop], [-rMax, rMax]),
+    },
+  };
 }

@@ -72,7 +72,7 @@ export const S = {
     tbRev: "rev",
     tbScale: "skala",
     tbUnit: "satuan",
-    tbRegime: "regime",
+    tbRegime: "rezim",
     tbAxis: "sumbu",
     tbSlope: "kemiringan",
 
@@ -99,6 +99,10 @@ export const S = {
     offScale: "di luar skala",
     showCalc: "Tunjukkan hitungan",
     hideCalc: "Sembunyikan hitungan",
+    /* tombol gerak di pojok gambar (Sheet) */
+    motionToggle: "Animasi",
+    motionPlay: "Putar animasi",
+    motionPause: "Jeda animasi",
   },
 
   en: {
@@ -186,6 +190,9 @@ export const S = {
     offScale: "off scale",
     showCalc: "Show calculation",
     hideCalc: "Hide calculation",
+    motionToggle: "Animation",
+    motionPlay: "Play animation",
+    motionPause: "Pause animation",
   },
 } as const;
 

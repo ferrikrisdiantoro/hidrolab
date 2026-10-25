@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -13,10 +13,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { G, orificeTrajectory, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { G, orificeTrajectory, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type OrificeDrawState = {
   /** Tinggi muka air di atas sumbu lubang, meter */
@@ -60,7 +61,7 @@ export function drawOrifice(
   hCanvas: number,
   s: OrificeDrawState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, hCanvas);
 
@@ -356,4 +357,31 @@ export function drawOrifice(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta: jarak dari bidang lubang (m)
+   * dan elevasi dari lantai (m).
+   * - `surface`: muka air bak di garis dimensi H (z0 + H)
+   * - `orifice`: sumbu lubang pada bidang dinding (0, z0)
+   * - `orificeTop`: bibir atas lubang (tinggi bukaan a)
+   * - `vena`: sumbu pancaran di vena contracta
+   * - `jetEnd`: ujung sumbu pancaran yang tergambar
+   * `water` = air di dalam bak; `waters` menambah pancarannya.
+   */
+  const map = mapFrom(X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [xKiri, xKanan], [0, zAtas]);
+  const anchors: Record<string, PlateAnchor> = {
+    surface: { x: X(xKiri) + 28, y: Z(zMuka) },
+    orifice: { x: X(0), y: Z(s.z0) },
+    orificeTop: { x: X(0), y: Z(zAtasLubang) },
+    vena: { x: X(s.xVena), y: Z(s.z0) },
+  };
+  if (atas.length) {
+    const i = atas.length - 1;
+    anchors.jetEnd = { x: X(atas[i][0]), y: Z((atas[i][1] + bawah[i][1]) / 2) };
+  }
+  const bak = Float64Array.of(X(xKiri), Z(0), X(xKiri), Z(zMuka), X(0), Z(zMuka), X(0), Z(0));
+  const pancaran: number[] = [];
+  for (const [x, z] of atas) pancaran.push(X(x), Z(z));
+  for (let i = bawah.length - 1; i >= 0; i--) pancaran.push(X(bawah[i][0]), Z(bawah[i][1]));
+  return { map, anchors, water: bak, waters: [bak, Float64Array.from(pancaran)] };
 }

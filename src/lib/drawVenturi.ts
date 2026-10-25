@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -12,10 +12,11 @@ import {
   region,
   ruling,
   type PipeWall,
-} from "./plate";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
-import { fmtPlain } from "./hydraulics";
+import { fmtPlain } from "./hydraulics.ts";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type VenturiDrawState = {
   /** Diameter pipa, meter */
@@ -54,7 +55,7 @@ export function drawVenturi(
   h: number,
   s: VenturiDrawState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -297,4 +298,37 @@ export function drawVenturi(
     Math.round(plotW),
     Math.round(tinggiBawah)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta utama = potongan pipa (jarak
+   * sepanjang pipa dan jari-jari dari sumbu, meter). Garis tinggi tekan di
+   * `maps.head` (jarak, tinggi tekan relatif, meter).
+   * - `pipeWall`: dinding atas pipa di dimensi D1
+   * - `throatWall`: dinding atas leher di dimensi D2
+   * - `headInlet`, `headThroat`: garis tinggi tekan di pipa dan di leher,
+   *   hanya bila garis itu digambar (leher lebih sempit dari pipa)
+   * `water` = isi pipa.
+   */
+  const map = mapFrom(X, R, { x0: padL, y0: bawahY, x1: padL + plotW, y1: bawahY + tinggiBawah }, [0, L], [-rMax, rMax]);
+  const anchors: Record<string, PlateAnchor> = {
+    pipeWall: { x: X(a1 * 0.25), y: R(s.D1 / 2) },
+    throatWall: { x: X((a2 + a3) / 2), y: R(s.D2 / 2) },
+  };
+  if (!s.notVenturi) {
+    anchors.headInlet = { x: X(a1 * 0.5), y: Z(zMasuk) };
+    anchors.headThroat = { x: X((a2 + a3) / 2), y: Z(zLeher) };
+  }
+  const isi: number[] = [];
+  for (const p of wall) isi.push(X(p.x), R(p.r));
+  for (let i = wall.length - 1; i >= 0; i--) isi.push(X(wall[i].x), R(-wall[i].r));
+  const water = Float64Array.from(isi);
+  return {
+    map,
+    anchors,
+    water,
+    waters: [water],
+    maps: {
+      head: mapFrom(X, Z, { x0: padL, y0: atasY, x1: padL + plotW, y1: atasY + tinggiAtas }, [0, L], [0, zTop]),
+    },
+  };
 }

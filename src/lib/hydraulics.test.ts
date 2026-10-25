@@ -198,6 +198,12 @@ describe("Loncatan air — persamaan Belanger", () => {
     assert.equal(classifyJump(4.5).key, "mantap");
     assert.equal(classifyJump(9).key, "kuat");
   });
+
+  it("Fr₁ = 1 tepat: belum ada loncatan (kritis), sama dengan hasJump Fr₁ > 1", () => {
+    assert.equal(classifyJump(1).key, "subkritis");
+    assert.equal(classifyJump(1).level, 0);
+    assert.equal(classifyJump(1.0001).key, "berombak");
+  });
 });
 
 /* ------------------------------------------------------------------ */

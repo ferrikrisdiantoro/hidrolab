@@ -1,8 +1,9 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
-import { axisTitle, axisValue, fitHeading, ground, niceStep, pen, region, ruling, splitLabel } from "./plate";
-import { fmtPlain } from "./hydraulics";
-import { cl } from "./strings";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
+import { axisTitle, axisValue, fitHeading, ground, niceStep, pen, region, ruling, splitLabel } from "./plate.ts";
+import { fmtPlain } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { anchorsFrom, mapFrom, rectsFrom, type PlateOut } from "./plateOut.ts";
 
 /**
  * PENGGAMBAR KURVA X-Y UMUM — keluarga B.
@@ -147,6 +148,11 @@ export type ChartSpec = {
   headingColor?: string;
   /** Ruang tambahan di kanan, untuk lembar yang labelnya panjang */
   padRight?: number;
+  /**
+   * Titik bernama dalam nilai sumbu, diteruskan ke PlateOut.anchors dalam
+   * piksel. Tidak digambar; dipakai lembar untuk pegangan seret.
+   */
+  anchors?: Record<string, { x: number; y: number }>;
 };
 
 export function drawChart(
@@ -155,7 +161,7 @@ export function drawChart(
   h: number,
   s: ChartSpec,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -748,6 +754,21 @@ export function drawChart(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /* ---------------- keluaran untuk lapis di atas gambar ----------------
+     Tidak menggambar apa pun. `point` = titik kerja, hanya bila berada di
+     dalam bidang (di luar bidang ia hanya ditulis, tidak ada yang diseret). */
+  const map = mapFrom(
+    X,
+    Y,
+    { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH },
+    [s.xMin, s.xMax],
+    [s.yMin, s.yMax],
+    { xLog: s.xLog, yLog: s.yLog }
+  );
+  const anchors = anchorsFrom(map, s.anchors);
+  if (s.point && titikDidalam) anchors.point = { x: X(s.point.x), y: Y(s.point.y) };
+  return { map, anchors, labels: rectsFrom(dipakai) };
 }
 
 /** Angka dasawarsa ditulis sebagai pangkat sepuluh, seperti kertas log. */

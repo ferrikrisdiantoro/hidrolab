@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -14,10 +14,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { jetTrajectory, wesNappe, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { jetTrajectory, wesNappe, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateOut } from "./plateOut.ts";
 
 export type NappeState = {
   /** Tinggi muka air di atas puncak mercu, meter */
@@ -54,7 +55,7 @@ export function drawNappe(
   hCanvas: number,
   s: NappeState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, hCanvas);
 
@@ -332,4 +333,37 @@ export function drawNappe(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta: stasiun dari mercu (m) dan
+   * elevasi dari lantai hilir (m).
+   * - `crest`: puncak mercu (0, P)
+   * - `headwater`: muka air hulu di garis dimensi h (P + h)
+   * - `tailwater`: muka air hilir di tengah genangan hilir (0 bila kering)
+   * - `nappeLanding`: ujung bawah tirai yang tergambar
+   * `water` = air hulu beserta tirainya; `waters` menambah genangan hilir.
+   */
+  const map = mapFrom(X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [xKiri, xKanan], [0, zAtas]);
+  const ujungTirai = tirai[tirai.length - 1];
+  const anchors = {
+    crest: { x: X(0), y: Z(s.P) },
+    headwater: { x: X(xKiri) + 26, y: Z(s.P + s.h) },
+    tailwater: { x: X((xJatuh * 0.2 + xKanan) / 2), y: Z(Math.max(0, s.tail)) },
+    nappeLanding: { x: X(ujungTirai[0]), y: Z(ujungTirai[1]) },
+  };
+  const hulu: number[] = [X(xKiri), Z(0), X(xKiri), Z(mukaHulu(xKiri))];
+  for (let i = 0; i <= 60; i++) {
+    const x = xKiri + ((0 - xKiri) * i) / 60;
+    hulu.push(X(x), Z(mukaHulu(x)));
+  }
+  for (const [x, z] of tirai) hulu.push(X(x), Z(z));
+  hulu.push(X(ujungTirai[0]), Z(0), X(0), Z(0), X(0), Z(s.P), X(xKiri), Z(0));
+  const water = Float64Array.from(hulu);
+  const waters: Float64Array[] = [water];
+  if (s.tail > 0) {
+    const xa = X(xJatuh * 0.2);
+    const xb = X(xKanan);
+    waters.push(Float64Array.of(xa, Z(0), xa, Z(s.tail), xb, Z(s.tail), xb, Z(0)));
+  }
+  return { map, anchors, water, waters };
 }

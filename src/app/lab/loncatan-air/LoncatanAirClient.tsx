@@ -161,6 +161,10 @@ export function LoncatanAirClient() {
   const lossPct = E1 > 0 ? (dE / E1) * 100 : 0;
   const Lj = hasJump ? jumpLength(y2) : 0;
   const klas = classifyJump(Fr1);
+  // Dekat Fr₁ = 1 dua angka menulis "1,00 < 1"; tambah angka sampai
+  // nilainya tidak lagi terbaca tepat 1.
+  let digFr = 2;
+  while (digFr < 4 && Number(Fr1.toFixed(digFr)) === 1 && Fr1 !== 1) digFr++;
 
   /* Hasil tiap langkah adalah variabel yang sama dengan baris tabel hasil,
      dengan jumlah angka yang sama. Masukan ditulis sesuai langkah penggeser
@@ -177,7 +181,7 @@ export function LoncatanAirClient() {
       judul: x.rFr1,
       rumus: (<><span>Fr₁ =</span><Frac num="V₁" den="√( g · y₁ )" /></>),
       isi: `${fmt(V1, 1)} / √( ${fmt(G, 2)} · ${fmt(y1, 2)} )`,
-      hasil: fmt(Fr1),
+      hasil: fmt(Fr1, digFr),
     },
   ];
   const rumusBelanger = (
@@ -250,7 +254,7 @@ export function LoncatanAirClient() {
           symbol="Fr₁"
           value={Fr1}
           scale="log"
-          digits={2}
+          digits={digFr}
           bands={[
             { from: 0.1, to: 1, label: x.bNo, tone: "invalid" },
             { from: 1, to: 1.7, label: x.bUnd, tone: "neutral" },
@@ -290,7 +294,7 @@ export function LoncatanAirClient() {
             { label: t.tbScale, value: "1 : 20" },
             { label: t.tbUnit, value: "SI (m, m/s)" },
             { label: "q", value: `${fmt(q)} m²/s` },
-            { label: "Fr₁", value: fmt(Fr1) },
+            { label: "Fr₁", value: fmt(Fr1, digFr) },
             { label: t.tbRegime, value: klas.label[lang] },
           ]}
         >
@@ -328,12 +332,12 @@ export function LoncatanAirClient() {
           <Block heading={t.blkResult}>
             <ResultTable
               rows={[
-                { symbol: "Fr₁", label: x.rFr1, value: fmt(Fr1), strong: true },
+                { symbol: "Fr₁", label: x.rFr1, value: fmt(Fr1, digFr), strong: true },
                 { symbol: "y₂", label: x.rY2, value: hasJump ? fmt(y2) : "—", unit: "m", tint: C.water, strong: true },
-                { symbol: "V₂", label: x.rV2, value: fmt(V2), unit: "m/s" },
-                { symbol: "Fr₂", label: x.rFr2, value: fmt(Fr2) },
+                { symbol: "V₂", label: x.rV2, value: hasJump ? fmt(V2) : "—", unit: "m/s" },
+                { symbol: "Fr₂", label: x.rFr2, value: hasJump ? fmt(Fr2) : "—" },
                 { symbol: "E₁", label: x.rE1, value: fmt(E1), unit: "m", tint: C.energy },
-                { symbol: "E₂", label: x.rE2, value: fmt(E2), unit: "m", tint: C.energy },
+                { symbol: "E₂", label: x.rE2, value: hasJump ? fmt(E2) : "—", unit: "m", tint: C.energy },
                 { symbol: "ΔE", label: x.rDE, value: hasJump ? fmt(dE, 3) : "—", unit: "m", tint: C.energy },
                 { label: x.rPct, value: hasJump ? fmt(lossPct, 1) : "—", unit: "%", tint: C.energy },
                 { symbol: "Lj", label: x.rLj, value: hasJump ? fmt(Lj, 1) : "—", unit: "m", tint: C.critical },
@@ -348,7 +352,7 @@ export function LoncatanAirClient() {
           <StateCard
             tone={NADA_LONCATAN[klas.key]}
             badge={klas.label[lang]}
-            {...notice({ Fr1, hasJump, lossPct, Lj, y2, y1, klas }, lang)}
+            {...notice({ Fr1, digFr, hasJump, lossPct, Lj, y2, y1, klas }, lang)}
           />
         </>
       }
@@ -388,6 +392,7 @@ export function LoncatanAirClient() {
 function notice(
   s: {
     Fr1: number;
+    digFr: number;
     hasJump: boolean;
     lossPct: number;
     Lj: number;
@@ -400,7 +405,7 @@ function notice(
   const rasio = fmt(s.y2 / s.y1, 1);
   const pct = fmt(s.lossPct, s.lossPct < 10 ? 1 : 0);
   const lj = fmt(s.Lj, 1);
-  const fr = fmt(s.Fr1);
+  const fr = fmt(s.Fr1, s.digFr);
   const key = s.klas.key;
   // Rentang di classifyJump ditulis dengan koma desimal; EN memakai titik.
   const rentang = lang === "en" ? s.klas.range.replace(/,/g, ".") : s.klas.range;
@@ -411,10 +416,10 @@ function notice(
       "Bélanger applies to a horizontal rectangular channel with friction neglected. Lj ≈ 6 y₂ fits best in the steady range (Chow 1959 Fig. 15-4).";
     if (!s.hasJump)
       return {
-        state: `Fr₁ = ${fr} < 1: the flow is subcritical and no jump forms.`,
+        state: `Fr₁ = ${fr} ≤ 1: the flow is not supercritical and no jump forms.`,
         notice: [
-          "Reduce the upstream depth or raise the velocity until Fr₁ passes 1. Changing the depth has far more effect than changing the velocity, because depth enters as a square root in the denominator.",
-          tetap,
+          "Raise the upstream velocity or reduce the upstream depth until Fr₁ passes 1. Velocity has the larger effect: Fr₁ is proportional to V₁ but only to 1/√y₁, so a 10 per cent rise in V₁ raises Fr₁ by 10 per cent, while a 10 per cent cut in y₁ raises it by only about 5 per cent.",
+          "For a jump to form the upstream flow must be supercritical; in the field this happens at the toe of a spillway or below a sluice gate.",
         ],
       };
     const state = `Fr₁ = ${fr}: ${s.klas.label.en} (${rentang}); the depth rises ${rasio} times and ${pct} per cent of the energy is dissipated.`;
@@ -461,10 +466,10 @@ function notice(
     "Belanger berlaku untuk saluran persegi mendatar dengan gesekan diabaikan. Lj ≈ 6 y₂ paling sesuai pada rentang mantap (Chow 1959 Gbr. 15-4).";
   if (!s.hasJump)
     return {
-      state: `Fr₁ = ${fr} < 1: aliran subkritis, loncatan tidak terbentuk.`,
+      state: `Fr₁ = ${fr} ≤ 1: aliran belum superkritis, loncatan tidak terbentuk.`,
       notice: [
-        "Kurangi kedalaman hulu atau naikkan kecepatan sampai Fr₁ melewati 1. Mengubah kedalaman jauh lebih berpengaruh daripada mengubah kecepatan, karena kedalaman masuk sebagai akar di penyebut.",
-        tetap,
+        "Naikkan kecepatan hulu atau kurangi kedalaman hulu sampai Fr₁ melewati 1. Kecepatan lebih berpengaruh: Fr₁ sebanding V₁ tetapi hanya sebanding 1/√y₁, jadi menaikkan V₁ 10 persen menaikkan Fr₁ 10 persen, sedangkan mengurangi y₁ 10 persen hanya menaikkannya sekitar 5 persen.",
+        "Untuk membentuk loncatan aliran hulu harus superkritis; di lapangan ini dicapai di kaki pelimpah atau di bawah pintu sorong.",
       ],
     };
   const state = `Fr₁ = ${fr}: ${s.klas.label.id} (${rentang}); kedalaman naik ${rasio} kali dan ${pct} persen energi teredam.`;

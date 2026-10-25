@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -9,11 +9,12 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import type { TracerPoint } from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import type { TracerPoint } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
-import { fmtPlain } from "./hydraulics";
+import { fmtPlain } from "./hydraulics.ts";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type TracerDrawState = {
   points: TracerPoint[];
@@ -51,7 +52,7 @@ export function drawTracer(
   h: number,
   s: TracerDrawState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -250,4 +251,18 @@ export function drawTracer(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta: waktu (s) dan kepekatan
+   * (mg/l). Gambar ini grafik, bukan potongan, jadi tanpa `water`.
+   * - `peak`: puncak awan (tPeak, cPeak)
+   * - `travel`: waktu tempuh rata-rata di sumbu waktu, bila di dalam rentang
+   * - `plateau`: garis laju tetap di tepi kanan, bila tergambar
+   */
+  const map = mapFrom(X, Y, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [t0, t1], [0, cTop]);
+  const anchors: Record<string, PlateAnchor> = { peak: { x: X(s.tPeak), y: Y(s.cPeak) } };
+  if (s.tTravel >= t0 && s.tTravel <= t1) anchors.travel = { x: X(s.tTravel), y: Y(0) };
+  if (s.plateau !== undefined && s.plateau > 0 && !plateauDiLuar)
+    anchors.plateau = { x: padL + plotW - 4, y: Y(s.plateau) };
+  return { map, anchors };
 }

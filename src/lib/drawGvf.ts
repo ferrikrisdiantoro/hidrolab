@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -12,11 +12,12 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import type { GvfResult } from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import type { GvfResult } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
-import { fmtPlain } from "./hydraulics";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
+import { fmtPlain } from "./hydraulics.ts";
 
 export type GvfDrawState = {
   result: GvfResult;
@@ -52,7 +53,7 @@ export function drawGvf(
   h: number,
   s: GvfDrawState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   const { result: r, length: L, S0 } = s;
 
@@ -359,4 +360,40 @@ export function drawGvf(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta: jarak (m) dan elevasi (m).
+   * - `control`: muka air di penampang kendali (kedalaman kendali, masukan)
+   * - `controlBed`: dasar di penampang kendali
+   * - `upstreamBed`, `downstreamBed`: dasar di kedua ujung (kemiringan S0)
+   * - `normalDepth`, `criticalDepth`: garis y0 dan yc di tengah bentang
+   *   (`normalDepth` hanya bila kedalaman normal ada)
+   * `water` = badan air profil, hanya bila profilnya dapat dihitung.
+   */
+  const map = mapFrom(X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [0, L], [0, zTop]);
+  const anchors: Record<string, PlateAnchor> = {
+    control: { x: X(ctrl.x), y: Z(zb(ctrl.x) + ctrl.y) },
+    controlBed: { x: X(ctrl.x), y: Z(zb(ctrl.x)) },
+    upstreamBed: { x: X(0), y: Z(zb(0)) },
+    downstreamBed: { x: X(L), y: Z(zb(L)) },
+    criticalDepth: { x: X(L / 2), y: Z(zb(L / 2) + r.yc) },
+  };
+  if (!takAda) {
+    anchors.normalDepth = { x: X(L / 2), y: Z(zb(L / 2) + r.y0) };
+    const n = r.points.length;
+    const water = new Float64Array((2 * n + 1) * 2);
+    let k = 0;
+    water[k++] = X(r.points[0].x);
+    water[k++] = Z(zb(r.points[0].x));
+    for (const p of r.points) {
+      water[k++] = X(p.x);
+      water[k++] = Z(zb(p.x) + p.y);
+    }
+    for (let i = n - 1; i >= 0; i--) {
+      water[k++] = X(r.points[i].x);
+      water[k++] = Z(zb(r.points[i].x));
+    }
+    return { map, anchors, water, waters: [water] };
+  }
+  return { map, anchors };
 }

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -12,10 +12,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { specificEnergy, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { specificEnergy, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 export type EnergyState = {
   /** Debit satuan, m2/s */
@@ -45,7 +46,7 @@ export function drawEnergy(
   h: number,
   s: EnergyState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -183,9 +184,30 @@ export function drawEnergy(
   axisTitle(ctx, T.axDepthShort, 18, padT + plotH / 2, -Math.PI / 2);
 
   /* ---------------- penampang melintang ---------------- */
-  if (wide) {
-    drawSection(ctx, curveW, sectionW, s, T, Y, baseY, padT);
-  }
+  const penampang = wide ? drawSection(ctx, curveW, sectionW, s, T, Y, baseY, padT) : null;
+
+  /*
+   * PlateOut, tidak menggambar apa pun. Peta utama = kurva (E, y).
+   * - `critical`: titik energi minimum (Emin, yc)
+   * - `normal`: titik kedalaman normal (E0, y0), hanya bila tergambar
+   * - `sectionSurface`: tengah muka air pada penampang (layar lebar, y0 ada)
+   * - `sectionCritical`: tengah garis yc pada penampang (layar lebar)
+   * `water` = air di dalam penampang. Penampang memakai skala tegak yang
+   * sama dengan kurva, jadi `maps.section` hanya beda sumbu mendatarnya
+   * (meter dari tepi kiri saluran).
+   */
+  const map = mapFrom(X, Y, { x0: padL, y0: padT, x1: padL + plotW, y1: baseY }, [0, eMax], [0, yMax]);
+  const anchors: Record<string, PlateAnchor> = { critical: { x: X(Emin), y: Y(s.yc) } };
+  if (adaY0 && E0 <= eMax && s.y0 <= yMax) anchors.normal = { x: X(E0), y: Y(s.y0) };
+  if (!penampang) return { map, anchors };
+  Object.assign(anchors, penampang.anchors);
+  return {
+    map,
+    anchors,
+    water: penampang.water,
+    waters: penampang.water ? [penampang.water] : [],
+    maps: { section: penampang.map },
+  };
 }
 
 /** Penanda titik ukur: belah ketupat, isi kertas supaya kurva tidak tembus. */
@@ -310,4 +332,15 @@ function drawSection(
     C.ink2,
     baseY + thk
   );
+
+  const Xs = (x: number) => left + (x / Math.max(s.b, 1e-9)) * bw;
+  const anchors: Record<string, PlateAnchor> = {
+    sectionCritical: { x: cx, y: Y(s.yc) },
+  };
+  if (adaY0) anchors.sectionSurface = { x: cx, y: wl };
+  return {
+    map: mapFrom(Xs, Y, { x0: ox, y0: padT, x1: ox + w, y1: baseY }, [0, Math.max(s.b, 1e-9)], [0, 1]),
+    anchors,
+    water: adaY0 ? Float64Array.of(left, wl, right, wl, right, baseY, left, baseY) : undefined,
+  };
 }

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -10,10 +10,11 @@ import {
   niceStep,
   pen,
   ruling,
-} from "./plate";
-import { fmtPlain } from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { fmtPlain } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { anchorsFrom, mapFrom, rectsFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
 
 /**
  * PENGGAMBAR MEDAN ALIRAN — keluarga FF dan FP.
@@ -148,6 +149,11 @@ export type FieldSpec = {
   /** Garis kisi disembunyikan pada lembar yang medannya sudah penuh */
   noGrid?: boolean;
   padRight?: number;
+  /**
+   * Titik bernama dalam satuan bidang, diteruskan ke PlateOut.anchors dalam
+   * piksel. Tidak digambar; dipakai lembar untuk pegangan seret.
+   */
+  anchors?: Record<string, { x: number; y: number }>;
 };
 
 export function drawField(
@@ -156,7 +162,7 @@ export function drawField(
   h: number,
   s: FieldSpec,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -440,6 +446,43 @@ export function drawField(
     Math.round(plotW),
     Math.round(plotH)
   );
+
+  /* ---------------- keluaran untuk lapis di atas gambar ----------------
+     Tidak menggambar apa pun. Titik bernama umum:
+     - `marker{i}`: penanda partikel ke-i (yang tergambar, di dalam bidang)
+     - `arrow{i}`, `arrow{i}Tip`: pangkal dan ujung panah kecepatan ke-i
+     - `body{i}`: titik berat sudut benda pejal ke-i
+     ditambah `s.anchors` dari lembar. `water` = seluruh medan, karena di
+     sini fluida mengisi bidang; benda pejal digambar di atasnya. */
+  const frame = { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH };
+  const map = mapFrom(X, Y, frame, [s.xMin, s.xMax], [s.yMin, s.yMax]);
+  const anchors: Record<string, PlateAnchor> = {};
+  const di = (x: number, y: number) =>
+    x >= frame.x0 - 0.5 && x <= frame.x1 + 0.5 && y >= frame.y0 - 0.5 && y <= frame.y1 + 0.5;
+  (s.markers ?? []).forEach((m, i) => {
+    if (didalam(m.x, m.y)) anchors[`marker${i}`] = { x: X(m.x), y: Y(m.y) };
+  });
+  (s.arrows ?? []).forEach((a, i) => {
+    const p0 = { x: X(a.x), y: Y(a.y) };
+    const p1 = { x: X(a.x + a.dx), y: Y(a.y + a.dy) };
+    if (di(p0.x, p0.y)) anchors[`arrow${i}`] = p0;
+    if (di(p1.x, p1.y)) anchors[`arrow${i}Tip`] = p1;
+  });
+  (s.bodies ?? []).forEach((b, i) => {
+    if (b.pts.length < 3) return;
+    const cx = b.pts.reduce((a, q) => a + q.x, 0) / b.pts.length;
+    const cy = b.pts.reduce((a, q) => a + q.y, 0) / b.pts.length;
+    if (didalam(cx, cy)) anchors[`body${i}`] = { x: X(cx), y: Y(cy) };
+  });
+  Object.assign(anchors, anchorsFrom(map, s.anchors));
+
+  const kiri = Math.max(frame.x0, X(s.xMin));
+  const kanan = Math.min(frame.x1, X(s.xMax));
+  const atas = Math.max(frame.y0, Y(s.yMax));
+  const bawah = Math.min(frame.y1, Y(s.yMin));
+  const water = Float64Array.of(kiri, atas, kanan, atas, kanan, bawah, kiri, bawah);
+
+  return { map, anchors, water, waters: [water], labels: rectsFrom(taruh.boxes()) };
 }
 
 /**

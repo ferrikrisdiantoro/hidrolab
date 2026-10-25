@@ -65,6 +65,70 @@ export type TitleBlockCell = { label: string; value: string; tint?: string };
  * blok inilah yang membuat sebuah gambar bisa dipertanggungjawabkan,
  * karena ia menyimpan skala, satuan, dan asumsi yang dipakai.
  */
+export type SheetMotion = {
+  /** Lapis gerak sedang berjalan (usePlate opts.playing). */
+  playing: boolean;
+  onToggle: () => void;
+  /**
+   * Gerak boleh tampil: ada fungsi gerak dan peramban tidak meminta
+   * pengurangan gerak (usePlate motionAllowed). Bila salah, tombol dan
+   * catatan tidak dirender sama sekali.
+   */
+  allowed: boolean;
+  /** Catatan skala waktu, misalnya "waktu dipercepat ×60", sudah dua bahasa. */
+  note?: string;
+  /** Pojok bidang gambar tempat tombol. Bawaan: kanan atas. */
+  corner?: "tl" | "tr" | "bl" | "br";
+};
+
+const POJOK: Record<NonNullable<SheetMotion["corner"]>, string> = {
+  tl: "left-1 top-1",
+  tr: "right-1 top-1 flex-row-reverse",
+  bl: "bottom-1 left-1",
+  br: "bottom-1 right-1 flex-row-reverse",
+};
+
+/**
+ * Tombol putar/jeda kecil di pojok bidang gambar. Target sentuh 44 px,
+ * kotak tampak 26 px bergaris tipis seperti kotak angka; warnanya tinta,
+ * karena tombol ini krom, bukan data. Label tetap ("Animasi") dengan
+ * aria-pressed = sedang berjalan; title menyebut tindakan berikutnya.
+ */
+function MotionToggle({ motion }: { motion: SheetMotion }) {
+  const t = str(useLang().lang);
+  const { playing, onToggle, note, corner = "tr" } = motion;
+  return (
+    <div className={`pointer-events-none absolute z-10 flex items-center ${POJOK[corner]}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={playing}
+        aria-label={t.motionToggle}
+        title={playing ? t.motionPause : t.motionPlay}
+        className="group pointer-events-auto flex h-11 w-11 items-center justify-center outline-none"
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-[26px] w-[26px] items-center justify-center border border-rule-strong bg-sheet text-ink transition-colors group-hover:border-ink group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-water"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            {playing ? (
+              <path d="M2 1h2v8H2zM6 1h2v8H6z" fill="currentColor" />
+            ) : (
+              <path d="M2.5 1 9 5l-6.5 4z" fill="currentColor" />
+            )}
+          </svg>
+        </span>
+      </button>
+      {note && (
+        <span className="label bg-sheet/90 px-1 text-[0.68rem] leading-tight text-ink-2">
+          {note}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function Sheet({
   number,
   title,
@@ -72,6 +136,7 @@ export function Sheet({
   children,
   height = "clamp(360px, 56vh, 620px)",
   rev = "—",
+  motion,
 }: {
   number: string;
   title: string;
@@ -79,6 +144,11 @@ export function Sheet({
   children: ReactNode;
   height?: string;
   rev?: string;
+  /**
+   * Tombol putar/jeda dan catatan skala waktu di pojok bidang gambar.
+   * Tanpa prop ini tampilan Sheet persis seperti sebelumnya.
+   */
+  motion?: SheetMotion;
 }) {
   const { lang } = useLang();
   const t = str(lang);
@@ -87,6 +157,7 @@ export function Sheet({
     <figure className="sheet">
       <div className="relative w-full" style={{ height }}>
         {children}
+        {motion?.allowed && <MotionToggle motion={motion} />}
       </div>
 
       <figcaption className="border-t border-ink">

@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 
 /**
  * Perkakas gambar teknik yang dipakai bersama oleh semua lembar.
@@ -932,5 +932,8 @@ export function createLabelPlacer(
     dipakai.push({ x0, x1, atas, bawah });
   };
 
-  return { place, alas, write, reserve };
+  /** Salinan seluruh kotak terpakai sejauh ini, untuk PlateOut.labels. */
+  const boxes = () => dipakai.map((d) => ({ ...d }));
+
+  return { place, alas, write, reserve, boxes };
 }

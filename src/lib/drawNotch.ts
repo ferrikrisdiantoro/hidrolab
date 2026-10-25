@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil } from "./theme";
+import { C, DASH, F, W, stencil } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -11,10 +11,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { NOTCH_H_MAX, NOTCH_H_MIN, notchDischarge, fmtPlain } from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { NOTCH_H_MAX, NOTCH_H_MIN, notchDischarge, fmtPlain } from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateMap, type PlateOut } from "./plateOut.ts";
 
 export type NotchState = {
   /** Tinggi muka air di atas titik terendah takik, meter */
@@ -41,23 +42,35 @@ export function drawNotch(
   h: number,
   s: NotchState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
   const wide = w > 620;
   const frontW = wide ? Math.min(300, w * 0.42) : w;
 
-  drawFront(ctx, 0, frontW, h, s, T);
+  const muka = drawFront(ctx, 0, frontW, h, s, T);
 
+  let kurva: { map: PlateMap; anchors: Record<string, PlateAnchor> } | null = null;
   if (wide) {
     pen(ctx, W.hair, C.rule);
     ctx.beginPath();
     ctx.moveTo(Math.round(frontW) + 0.5, 14);
     ctx.lineTo(Math.round(frontW) + 0.5, h - 14);
     ctx.stroke();
-    drawRating(ctx, frontW, w - frontW, h, s, T);
+    kurva = drawRating(ctx, frontW, w - frontW, h, s, T);
   }
+
+  /* PlateOut: peta utama = tampak muka (jarak mendatar dari sumbu takik dan
+     tinggi di atas dasar takik, meter, skala sama). Kurva debit di
+     `maps.rating` (Q, H) bila layar lebar. */
+  return {
+    map: muka.map,
+    anchors: { ...muka.anchors, ...(kurva?.anchors ?? {}) },
+    water: muka.water,
+    waters: [muka.water],
+    maps: kurva ? { rating: kurva.map } : undefined,
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -71,7 +84,7 @@ function drawFront(
   h: number,
   s: NotchState,
   T: ReturnType<typeof cl>
-) {
+): { map: PlateMap; anchors: Record<string, PlateAnchor>; water: Float64Array } {
   const padT = 34;
   const padB = 46;
   const plotH = Math.max(10, h - padT - padB);
@@ -186,6 +199,22 @@ function drawFront(
   ctx.lineTo(cx, apexY + 18);
   ctx.stroke();
   ctx.setLineDash([]);
+
+  /* Titik bernama (tidak menggambar apa pun):
+     - `surface`: muka air di sumbu takik, tinggi H
+     - `apex`: dasar takik
+     - `notchEdge`: tepi kanan takik di puncak pelat, arah sudut θ */
+  const Xf = (x: number) => cx + x * scale;
+  const Yf = (z: number) => apexY - z * scale;
+  return {
+    map: mapFrom(Xf, Yf, { x0: ox, y0: padT, x1: ox + w, y1: apexY }, [0, 1], [0, 1]),
+    anchors: {
+      surface: { x: cx, y: wl },
+      apex: { x: cx, y: apexY },
+      notchEdge: { x: cx + topHalfPx, y: topY },
+    },
+    water: Float64Array.of(cx, apexY, cx + halfPx, wl, cx - halfPx, wl),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -199,7 +228,7 @@ function drawRating(
   h: number,
   s: NotchState,
   T: ReturnType<typeof cl>
-) {
+): { map: PlateMap; anchors: Record<string, PlateAnchor> } {
   const padL = 56;
   const padR = 26;
   const padT = 30;
@@ -311,4 +340,12 @@ function drawRating(
 
   axisTitle(ctx, T.axDischarge, ox + padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.axHead, ox + 16, padT + plotH / 2, -Math.PI / 2);
+
+  /* `point`: titik kerja (Q, H) pada kurva debit, hanya bila tergambar. */
+  const anchors: Record<string, PlateAnchor> = {};
+  if (s.H > 0 && s.H <= hMax && s.Q <= qMax) anchors.point = { x: X(s.Q), y: Y(s.H) };
+  return {
+    map: mapFrom(X, Y, { x0: ox + padL, y0: padT, x1: ox + padL + plotW, y1: padT + plotH }, [0, qMax], [0, hMax]),
+    anchors,
+  };
 }

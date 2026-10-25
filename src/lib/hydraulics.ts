@@ -70,11 +70,11 @@ export type JumpClass = {
 
 /** Klasifikasi loncatan air berdasarkan bilangan Froude hulu. */
 export function classifyJump(Fr1: number): JumpClass {
-  if (Fr1 < 1)
+  if (Fr1 <= 1)
     return {
       key: "subkritis",
       label: { id: "Aliran subkritis", en: "Subcritical flow" },
-      range: "Fr₁ < 1",
+      range: "Fr₁ ≤ 1",
       note: { id: "Aliran belum superkritis, sehingga loncatan air tidak terbentuk. Naikkan kecepatan hulu atau kurangi kedalaman hulu.", en: "The flow is not yet supercritical, so no jump forms. Raise the upstream velocity or reduce the upstream depth." },
       level: 0,
     };
@@ -82,7 +82,7 @@ export function classifyJump(Fr1: number): JumpClass {
     return {
       key: "berombak",
       label: { id: "Loncatan berombak", en: "Undular jump" },
-      range: "1 ≤ Fr₁ < 1,7",
+      range: "1 < Fr₁ < 1,7",
       note: { id: "Permukaan hanya bergelombang halus. Kehilangan energi masih sangat kecil, di bawah 5 persen.", en: "The surface only ripples gently. Energy loss is still very small, under 5 per cent." },
       level: 1,
     };

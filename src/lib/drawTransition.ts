@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -11,10 +11,11 @@ import {
   pen,
   region,
   ruling,
-} from "./plate";
-import { criticalDepth, specificEnergy, type TransitionResult, fmtPlain} from "./hydraulics";
-import { cl } from "./strings";
+} from "./plate.ts";
+import { criticalDepth, specificEnergy, type TransitionResult, fmtPlain} from "./hydraulics.ts";
+import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
+import { mapFrom, type PlateAnchor, type PlateMap, type PlateOut } from "./plateOut.ts";
 
 export type TransitionState = {
   r: TransitionResult;
@@ -43,7 +44,7 @@ export function drawTransition(
   h: number,
   s: TransitionState,
   lang: Lang
-) {
+): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
 
@@ -52,17 +53,46 @@ export function drawTransition(
   const kiriW = w - kurvaW;
 
   const potonganH = wide ? h * 0.64 : h * 0.62;
-  drawLongitudinal(ctx, 0, 0, kiriW, potonganH, s, T);
-  drawPlan(ctx, 0, potonganH, kiriW, h - potonganH, s, T);
+  const memanjang = drawLongitudinal(ctx, 0, 0, kiriW, potonganH, s, T);
+  const atas = drawPlan(ctx, 0, potonganH, kiriW, h - potonganH, s, T);
 
+  let kurva: Panel | null = null;
   if (wide) {
     pen(ctx, W.hair, C.rule);
     ctx.beginPath();
     ctx.moveTo(Math.round(kiriW) + 0.5, 12);
     ctx.lineTo(Math.round(kiriW) + 0.5, h - 12);
     ctx.stroke();
-    drawEnergyCurve(ctx, kiriW, kurvaW, h, s, T);
+    kurva = drawEnergyCurve(ctx, kiriW, kurvaW, h, s, T);
   }
+
+  /*
+   * PlateOut: peta utama = potongan memanjang, sumbu mendatar berupa PECAHAN
+   * bentang 0..1 (bukan meter, gambar ini tidak berskala panjang) dan sumbu
+   * tegak elevasi dari dasar hulu, meter. Panel lain di `maps`: `plan`
+   * (pecahan bentang, jarak dari sumbu saluran dalam meter) dan `energy`
+   * (E, y) bila layar lebar.
+   */
+  const maps: Record<string, PlateMap> = { plan: atas.map };
+  if (kurva) maps.energy = kurva.map;
+  return {
+    map: memanjang.map,
+    anchors: { ...memanjang.anchors, ...atas.anchors, ...(kurva?.anchors ?? {}) },
+    water: memanjang.water,
+    waters: [memanjang.water as Float64Array, atas.water as Float64Array],
+    maps,
+  };
+}
+
+type Panel = { map: PlateMap; anchors: Record<string, PlateAnchor>; water?: Float64Array };
+
+/** Poligon piksel dari pengisi yang menerima fungsi titik. */
+function poligon(isi: (titik: (x: number, y: number) => void) => void): Float64Array {
+  const xs: number[] = [];
+  isi((x, y) => {
+    xs.push(x, y);
+  });
+  return Float64Array.from(xs);
 }
 
 /* ------------------------------------------------------------------ *
@@ -77,7 +107,7 @@ function drawLongitudinal(
   h: number,
   s: TransitionState,
   T: ReturnType<typeof cl>
-) {
+): Panel {
   const { r, y1, dz } = s;
   const padL = 54;
   const padR = 26;
@@ -237,6 +267,33 @@ function drawLongitudinal(
     oy + padT + 12,
     r.choked ? C.signal : C.ink3
   );
+
+  /* Titik bernama (tidak menggambar apa pun):
+     - `upstreamSurface`: muka air hulu, kedalaman y1
+     - `downstreamSurface`: muka air hilir (kedalaman yang digambar)
+     - `step`: dasar hilir sesudah transisi, elevasi Δz
+     - `energyLine`: garis energi E1 di tengah hulu */
+  const yHilir = depthAt(1);
+  return {
+    map: mapFrom(
+      X,
+      Z,
+      { x0: ox + padL, y0: oy + padT, x1: ox + padL + plotW, y1: baseY },
+      [0, 1],
+      [0, zTop]
+    ),
+    anchors: {
+      upstreamSurface: { x: X(xa / 2), y: Z(y1) },
+      downstreamSurface: { x: X((xb + 1) / 2), y: Z(dz + yHilir) },
+      step: { x: X((xb + 1) / 2), y: Z(dz) },
+      energyLine: { x: X(xa / 2), y: Z(r.E1) },
+    },
+    water: poligon((titik) => {
+      titik(X(0), Z(bedAt(0)));
+      for (let i = 0; i <= N; i++) titik(X(i / N), Z(bedAt(i / N) + depthAt(i / N)));
+      for (let i = N; i >= 0; i--) titik(X(i / N), Z(bedAt(i / N)));
+    }),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -312,6 +369,28 @@ function drawPlan(
   /* dimensi lebar */
   dimV(ctx, X(xa * 0.45), cy - half(s.b1), cy + half(s.b1), `b₁ ${fmtPlain(s.b1, 2)} m`, C.ink2);
   dimV(ctx, X(0.78), cy - half(s.b2), cy + half(s.b2), `b₂ ${fmtPlain(s.b2, 2)} m`, C.ink2);
+
+  /* Titik bernama: `b1Edge`, `b2Edge` = tepi atas (dinding kiri arah aliran)
+     saluran hulu dan hilir, tempat lebar b₁ dan b₂ diseret. Sumbu tegak
+     peta = jarak dari sumbu saluran, meter, positif ke atas gambar. */
+  const Yp = (v: number) => cy - v * skala;
+  return {
+    map: mapFrom(
+      X,
+      Yp,
+      { x0: ox + padL, y0: oy, x1: ox + padL + plotW, y1: oy + h },
+      [0, 1],
+      [0, bMax / 2]
+    ),
+    anchors: {
+      b1Edge: { x: X(xa / 2), y: cy - half(s.b1) },
+      b2Edge: { x: X((xb + 1) / 2), y: cy - half(s.b2) },
+    },
+    water: poligon((titik) => {
+      for (let i = 0; i <= N; i++) titik(X(i / N), cy - half(bAt(i / N)));
+      for (let i = N; i >= 0; i--) titik(X(i / N), cy + half(bAt(i / N)));
+    }),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -325,7 +404,7 @@ function drawEnergyCurve(
   h: number,
   s: TransitionState,
   T: ReturnType<typeof cl>
-) {
+): Panel {
   const { r } = s;
   const padL = 50;
   const padR = 20;
@@ -468,4 +547,22 @@ function drawEnergyCurve(
   );
   axisTitle(ctx, T.axEnergy, ox + padL + plotW / 2, baseY + 32);
   axisTitle(ctx, T.axDepthShort, ox + 14, padT + plotH / 2, -Math.PI / 2);
+
+  /* Titik bernama: `pointUpstream` (E1, y1) dan `pointDownstream` (E2, y2),
+     hanya yang tergambar (syarat sama dengan titik()). */
+  const anchors: Record<string, PlateAnchor> = {};
+  const tergambar = (E: number, y: number) =>
+    Number.isFinite(y) && y > 0 && E <= eMax && y <= yMax;
+  if (tergambar(r.E1, s.y1)) anchors.pointUpstream = { x: X(r.E1), y: Y(s.y1) };
+  if (tergambar(r.E2, r.y2)) anchors.pointDownstream = { x: X(r.E2), y: Y(r.y2) };
+  return {
+    map: mapFrom(
+      X,
+      Y,
+      { x0: ox + padL, y0: padT, x1: ox + padL + plotW, y1: baseY },
+      [0, eMax],
+      [0, yMax]
+    ),
+    anchors,
+  };
 }

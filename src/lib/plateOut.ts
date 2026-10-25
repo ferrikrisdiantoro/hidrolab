@@ -43,15 +43,82 @@ export type PlateAnchor = { x: number; y: number };
 export type PlateRect = { x: number; y: number; w: number; h: number };
 
 export type PlateOut = {
+  /** Pemetaan bidang utama (bidang tempat air atau titik kerja berada) */
   map: PlateMap;
   anchors?: Record<string, PlateAnchor>;
   /**
    * Poligon badan air dalam piksel, berurutan x0,y0,x1,y1,...
    * Dipakai lapis gerak untuk memotong goresan ke dalam air.
+   * Bila gambar punya beberapa genangan terpisah, ini genangan pertama dan
+   * seluruhnya ada di `waters`.
    */
   water?: ArrayLike<number>;
+  /** Seluruh genangan terpisah, masing-masing poligon x0,y0,x1,y1,... */
+  waters?: ArrayLike<number>[];
   labels?: PlateRect[];
+  /**
+   * Pemetaan bidang lain pada lembar berpanel banyak, misalnya kurva energi
+   * di samping potongan memanjang. Kuncinya nama panel.
+   */
+  maps?: Record<string, PlateMap>;
 };
+
+/**
+ * PlateMap dari fungsi pemetaan yang BENAR-BENAR dipakai penggambar.
+ *
+ * X dan Y diteruskan apa adanya, jadi piksel pegangan sama persis dengan
+ * piksel gambar. Kebalikannya diturunkan dari dua titik ujung rentang:
+ * linier, atau linier pada logaritma bila sumbunya logaritmik.
+ */
+export function mapFrom(
+  X: (v: number) => number,
+  Y: (v: number) => number,
+  frame: PlateFrame,
+  xDomain: readonly [number, number],
+  yDomain: readonly [number, number],
+  opts: { xLog?: boolean; yLog?: boolean } = {}
+): PlateMap {
+  return {
+    X,
+    Y,
+    invX: kebalikan(X, xDomain, !!opts.xLog),
+    invY: kebalikan(Y, yDomain, !!opts.yLog),
+    frame,
+  };
+}
+
+function kebalikan(
+  f: (v: number) => number,
+  [d0, d1]: readonly [number, number],
+  log: boolean
+): (px: number) => number {
+  const p0 = f(d0);
+  const p1 = f(d1);
+  if (log) {
+    const l0 = Math.log10(d0);
+    const k = (p1 - p0) / (Math.log10(d1) - l0 || 1);
+    return (px) => Math.pow(10, l0 + (px - p0) / (k || 1));
+  }
+  const k = (p1 - p0) / (d1 - d0 || 1);
+  return (px) => d0 + (px - p0) / (k || 1);
+}
+
+/** Kotak tulisan dari penempat (x0, x1, atas, bawah) ke PlateRect. */
+export function rectsFrom(
+  boxes: readonly { x0: number; x1: number; atas: number; bawah: number }[]
+): PlateRect[] {
+  return boxes.map((b) => ({ x: b.x0, y: b.atas, w: b.x1 - b.x0, h: b.bawah - b.atas }));
+}
+
+/** Titik bernama dari titik fisik, lewat pemetaan bidangnya. */
+export function anchorsFrom(
+  map: PlateMap,
+  pts: Record<string, { x: number; y: number }> | undefined
+): Record<string, PlateAnchor> {
+  const out: Record<string, PlateAnchor> = {};
+  if (pts) for (const k in pts) out[k] = { x: map.X(pts[k].x), y: map.Y(pts[k].y) };
+  return out;
+}
 
 /**
  * PlateMap linier dari kotak plot dan rentang nilai kedua sumbu.
