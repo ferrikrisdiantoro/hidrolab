@@ -1,6 +1,35 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+
+const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
+
+function subscribeReduce(cb: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mq = window.matchMedia(REDUCE_QUERY);
+  // Safari < 14 hanya punya addListener.
+  if (mq.addEventListener) {
+    mq.addEventListener("change", cb);
+    return () => mq.removeEventListener("change", cb);
+  }
+  mq.addListener(cb);
+  return () => mq.removeListener(cb);
+}
+
+function readReduce() {
+  return typeof window !== "undefined" && !!window.matchMedia
+    ? window.matchMedia(REDUCE_QUERY).matches
+    : false;
+}
+
+/**
+ * Apakah peramban meminta pengurangan gerak, dan ikut berubah bila
+ * pengguna mengganti setelan itu selagi halaman terbuka.
+ * Di server selalu false; React menyamakan nilainya saat hidrasi.
+ */
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribeReduce, readReduce, () => false);
+}
 
 export type DrawFn = (
   ctx: CanvasRenderingContext2D,
@@ -40,7 +69,11 @@ export function useCanvas(
   const drawRef = useRef(draw);
   drawRef.current = draw;
 
-  const animate = opts.animate ?? false;
+  // Gelung hanya berjalan bila diminta DAN peramban tidak meminta
+  // pengurangan gerak. Selain itu kanvas digambar diam (t = 0), tetapi
+  // tetap digambar ulang setiap kali masukan atau ukuran berubah.
+  const reduced = useReducedMotion();
+  const animate = (opts.animate ?? false) && !reduced;
   const startRef = useRef(0);
   const lastRef = useRef(0);
 
@@ -70,6 +103,14 @@ export function useCanvas(
 
   // Gambar ulang saat nilai masukan berubah.
   //
+  // Dulu `animate` di sini adalah opsi mentah, sedangkan pemeriksaan
+  // reduced-motion ada di dalam efek gelung dan hanya menggambar SEKALI.
+  // Akibatnya lembar beranimasi (OC-01, lembar pembuka) dengan
+  // reduced-motion tidak pernah digambar ulang: penggeser V₁ mengubah kop
+  // tetapi gambar tetap menunjukkan Fr₁ lama (dibuktikan 25 Okt 2026,
+  // alat-uji/s1-reduksi.mjs). Sekarang `animate` sudah memperhitungkan
+  // reduced-motion, jadi jalur diam ini yang dipakai.
+  //
   // Daftar kebergantungan dipakai sungguhan di sini. Sebelumnya efek ini
   // ditulis tanpa daftar sama sekali, sehingga berjalan pada SETIAP render,
   // dan parameter deps yang diminta dari pemanggil tidak berarti apa pun.
@@ -83,13 +124,6 @@ export function useCanvas(
   // Gelung gambar, hanya bila ada yang benar-benar bergerak.
   useEffect(() => {
     if (!animate) return;
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      paint.current(0, 0);
-      return;
-    }
 
     let raf = 0;
     const loop = (now: number) => {
@@ -104,7 +138,10 @@ export function useCanvas(
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      startRef.current = 0;
+    };
   }, [animate]);
 
   // Gambar ulang saat ukuran berubah, dan sekali lagi setelah huruf

@@ -15,6 +15,7 @@ import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { fmt, fmtPlain, getNumberLocale } from "@/lib/hydraulics";
 import { TONE, type Tone } from "@/lib/theme";
+import { keLangkah, sliderBounds, snap, type ParamDef } from "@/lib/rentang";
 import { ResetButton } from "./ResetScope";
 
 /* ------------------------------------------------------------------ *
@@ -41,6 +42,18 @@ import { ResetButton } from "./ResetScope";
 type PresetScope = { gen: number; touch: () => void };
 
 const PresetContext = createContext<PresetScope | null>(null);
+
+const tanpaLingkup = () => {};
+
+/**
+ * Fungsi untuk memadamkan tanda kondisi contoh di blok ini, sama seperti
+ * menggeser penggeser. Untuk masukan di luar InputRow, misalnya pegangan
+ * seret di kanvas. Di luar Block fungsinya tidak berbuat apa-apa.
+ */
+export function usePresetTouch(): () => void {
+  const lingkup = useContext(PresetContext);
+  return lingkup?.touch ?? tanpaLingkup;
+}
 
 export type TitleBlockCell = { label: string; value: string; tint?: string };
 
@@ -226,16 +239,8 @@ export function InputRow({
   const fokus = useRef(false);
   const awal = useRef(value);
 
-  const beda = (a: number, b: number) =>
-    Math.abs(a - b) > 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
-  const dLangkah = desimal(step);
-  const grid = (k: number) => Number((k * step).toFixed(dLangkah));
-  const diGrid = (v: number) => !beda(grid(Math.round(v / step)), v);
-  const minGeser = diGrid(min) ? min : grid(Math.floor(min / step));
-  const maxGeser = diGrid(max) ? max : grid(Math.ceil(max / step));
-  const bulat = (v: number) => {
-    return Math.min(max, Math.max(min, grid(Math.round(v / step))));
-  };
+  const rentang: ParamDef = { min, max, step, digits };
+  const { min: minGeser, max: maxGeser } = sliderBounds(rentang);
   const polos = (v: number) => fmtPlain(v, digits);
   /*
    * Di bahasa Indonesia titik adalah pemisah ribuan, jadi "1.250" bisa
@@ -256,12 +261,12 @@ export function InputRow({
   };
   /** Mengirim ketikan sah v dan mencatat bila yang berlaku berbeda. */
   const terapkan = (v: number, teks: string) => {
-    const luar = v < min || v > max;
-    const akhir = luar ? (v < min ? min : max) : bulat(v);
+    const hasil = snap(v, rentang);
+    const akhir = hasil.value;
     kirim(akhir);
     const tafsir = ambigu(teks) ? v : undefined;
-    if (luar) setCatatan({ jenis: "potong", nilai: akhir, tafsir });
-    else if (beda(akhir, v)) setCatatan({ jenis: "bulat", nilai: akhir, tafsir });
+    if (hasil.clamped !== 0) setCatatan({ jenis: "potong", nilai: akhir, tafsir });
+    else if (hasil.rounded) setCatatan({ jenis: "bulat", nilai: akhir, tafsir });
     else if (tafsir !== undefined) setCatatan({ jenis: "pas", nilai: akhir, tafsir });
     else setCatatan(null);
     return akhir;
@@ -275,7 +280,7 @@ export function InputRow({
     setDraf(tetapFokus ? polos(akhir) : null);
   };
   const langkahi = (arah: number) => {
-    const nv = bulat(value + arah * step);
+    const nv = keLangkah(value + arah * step, rentang);
     kirim(nv);
     setCatatan(null);
     setDraf(polos(nv));
@@ -431,16 +436,6 @@ export function InputRow({
       </td>
     </tr>
   );
-}
-
-/** Banyak angka di belakang koma sebuah langkah, untuk membulatkan tanpa sisa biner. */
-function desimal(x: number): number {
-  if (!Number.isFinite(x)) return 0;
-  const s = String(x);
-  const e = s.indexOf("e-");
-  if (e >= 0) return Number(s.slice(e + 2)) + desimal(Number(s.slice(0, e)));
-  const i = s.indexOf(".");
-  return i < 0 ? 0 : s.length - i - 1;
 }
 
 /**
