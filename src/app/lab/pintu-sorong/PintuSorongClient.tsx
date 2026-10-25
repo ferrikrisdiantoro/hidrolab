@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  usePresetTouch,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import { drawStructure, type StructureSpec } from "@/lib/drawStructure";
 import { G, ORIFICE_CC_SLOT, fmt, fmtPlain, sluiceGate } from "@/lib/hydraulics";
 import { C, DASH, W, type Tone } from "@/lib/theme";
@@ -33,6 +36,7 @@ const TXT = {
     dB: "Lebar saluran",
     dY3: "Kedalaman hilir",
     dCc: "Koefisien kontraksi",
+    gA: "Bukaan pintu a, seret tepi bawah daun pintu naik atau turun",
     pBebas: "Aliran bebas",
     pTenggelam: "Aliran tenggelam",
     pBukaBesar: "Bukaan besar",
@@ -88,6 +92,7 @@ const TXT = {
     dB: "Channel width",
     dY3: "Downstream depth",
     dCc: "Contraction coefficient",
+    gA: "Gate opening a, drag the bottom edge of the gate leaf up or down",
     pBebas: "Free flow",
     pTenggelam: "Submerged flow",
     pBukaBesar: "Large opening",
@@ -152,6 +157,28 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang bukaan pintu: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan seret di tepi bawah daun pintu (aturan 4, satu sumber nilai).
+ * Batasnya tetap, tidak bergantung pada y₁: bukaan di atas y₁ tetap boleh
+ * dipasang dan ditandai sebagai keadaan "pintu tidak menyentuh aliran".
+ */
+const P_A: ParamDef = { min: 0.02, max: 6, step: 0.02, digits: 2 };
+
+/*
+ * Jembatan ke pencacah tanda contoh blok masukan. Pegangan seret duduk di
+ * dalam Sheet, di luar Block masukan, jadi usePresetTouch di DragLayer tidak
+ * menemukan lingkupnya dan tanda contoh tidak padam. Komponen kosong ini
+ * duduk di dalam Block dan menyerahkan fungsi padamnya ke lembar.
+ */
+function SentuhContoh({ sentuh }: { sentuh: RefObject<() => void> }) {
+  const touch = usePresetTouch();
+  useEffect(() => {
+    sentuh.current = touch;
+  }, [sentuh, touch]);
+  return null;
+}
+
 export function PintuSorongClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -195,7 +222,9 @@ export function PintuSorongClient() {
   const psi = Qbebas > 0 ? r.Q / Qbebas : NaN;
   const keadaan = bacaKeadaan(y1, a, y3, r, terdorong, lang);
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const xKiri = -Math.max(y1 * 2.2, 3);
       const xKanan = Math.max(y1 * 2.6, 4);
@@ -218,12 +247,16 @@ export function PintuSorongClient() {
       const xLoncatAwal = terdorong ? xKanan * 0.72 : xKanan * 0.5;
       const xLoncatAkhir = terdorong ? xKanan * 0.88 : xKanan * 0.68;
 
-      // Daun pintu: bidang tegak dari bukaan ke atas muka air.
+      // Daun pintu: bidang tegak dari bukaan ke atas muka air. Puncaknya
+      // ikut naik bila bukaan melewati 1,25 y₁ (pegangan seret membawanya
+      // ke sana); sebelumnya puncak tetap di 1,25 y₁ dan daunnya tergambar
+      // terbalik, menggantung di bawah tepi bawahnya sendiri.
+      const puncakDaun = Math.max(y1 * 1.25, a + y1 * 0.25);
       const daun: { x: number; z: number }[] = [
         { x: -tebalPintu / 2, z: a },
         { x: tebalPintu / 2, z: a },
-        { x: tebalPintu / 2, z: y1 * 1.25 },
-        { x: -tebalPintu / 2, z: y1 * 1.25 },
+        { x: tebalPintu / 2, z: puncakDaun },
+        { x: -tebalPintu / 2, z: puncakDaun },
       ];
 
       // Muka air: mendatar di hulu, turun tajam lewat bukaan, lalu keadaan
@@ -386,10 +419,13 @@ export function PintuSorongClient() {
         headingColor: mati ? C.signal : C.critical,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
+        /* Tepi bawah daun pintu, tempat pegangan bukaan a. Tidak digambar. */
+        anchors: { gateLip: { x: 0, z: a } },
       };
 
-      drawStructure(ctx, w, ch, spec, lang);
+      return drawStructure(ctx, w, ch, spec, lang);
     },
+    null,
     [y1, a, b, y3, Cc, lang]
   );
 
@@ -451,7 +487,39 @@ export function PintuSorongClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer
+            out={plate.outRef.current}
+            handles={[
+              {
+                id: "a",
+                anchor: "gateLip",
+                axis: "y",
+                label: x.gA,
+                param: P_A,
+                value: a,
+                /*
+                 * Skala tegak gambar hanya bergantung pada y₁ (dan y₃ saat
+                 * terbalik), bukan pada a, jadi pegangan tidak saling kejar
+                 * dengan sumbunya. Ke atas seretnya berhenti satu jari-jari
+                 * pegangan (22 px) di bawah tepi atas bidang gambar: pegangan
+                 * tetap utuh di dalam bidang, potongan daun pintu di atasnya
+                 * masih terlihat, dan pijakan tidak membulatkannya keluar
+                 * bidang sehingga pegangan hilang di tengah seret. Bukaan
+                 * setinggi itu sudah di atas y₁ (pintu tidak menyentuh
+                 * aliran); sisa rentang sampai 6 m tetap lewat penggeser dan
+                 * kotak angka.
+                 */
+                toValue: (_px, py, m) =>
+                  Math.min(m.invY(py), m.invY(m.frame.y0 + 22)),
+                onChange: (v) => {
+                  sentuh.current();
+                  setA(v);
+                },
+                format: (v) => `${fmt(v, 2)} m`,
+              },
+            ]}
+          />
         </Sheet>
       }
       side={
@@ -459,12 +527,13 @@ export function PintuSorongClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="y₁" label={x.dY1} value={y1} min={0.2} max={12} step={0.1} digits={1} unit="m" onChange={setY1} tint={C.water} />
-              <InputRow symbol="a" label={x.dA} value={a} min={0.02} max={6} step={0.02} digits={2} unit="m" onChange={setA} />
+              <InputRow symbol="a" label={x.dA} value={a} {...P_A} unit="m" onChange={setA} />
               <InputRow symbol="b" label={x.dB} value={b} min={0.5} max={30} step={0.5} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="y₃" label={x.dY3} value={y3} min={0.02} max={12} step={0.02} digits={2} unit="m" onChange={setY3} tint={C.water} />
               <InputRow symbol="Cc" label={x.dCc} value={Cc} min={0.55} max={0.75} step={0.005} digits={3} onChange={setCc} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
