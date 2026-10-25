@@ -37,10 +37,10 @@ export type JumpOptions = {
   compact?: boolean;
   lang?: Lang;
   /**
-   * Aliran digambar oleh lapis gerak (drawJumpMotion). Panah aliran diam
-   * tidak digambar, karena goresan sudah membawa informasi yang sama; tanpa
-   * lapis gerak (jeda, reduced-motion) gambar tetap persis seperti dulu
-   * saat goresan dinyalakan tetapi belum bergerak.
+   * Aliran sedang digambar oleh lapis gerak (drawJumpMotion). Panah aliran
+   * diam tidak digambar, karena goresan sudah membawa informasi yang sama.
+   * Pemanggil memberi false saat dijeda atau reduced-motion, supaya arah
+   * dan laju tetap terbaca dari panah.
    */
   flow?: boolean;
 };
@@ -321,7 +321,7 @@ export function drawJump(
   }
 
   /* ---------------- panah aliran ---------------- */
-  // Hanya bila goresan dimatikan; kalau keduanya tampil, informasinya dobel.
+  // Hanya bila goresan tidak bergerak; kalau keduanya tampil, informasinya dobel.
   if (!compact && !flow) {
     flowArrow(ctx, X(xJump * 0.28), Y(p.y1 * 0.5), Math.min(46, 6 + p.V1 * 4));
     if (hasJump) {
@@ -816,7 +816,11 @@ export function drawJumpMotion(
       const xm = pool.x[i] * bentang;
       const inRoller = adaGulungan && xm > xJump && xm < xJump + Lj;
       if (inRoller !== roller) continue;
-      const wob = inRoller ? amp * Math.sin(omega * t + pool.seed[i] * 40) : 0;
+      // Selubung sin(πs): goyangan mulai dan berakhir nol di kedua ujung
+      // gulungan, jadi goresan tidak meloncat tegak saat keluar-masuk.
+      const wob = inRoller
+        ? amp * Math.sin((Math.PI * (xm - xJump)) / Lj) * Math.sin(omega * t + pool.seed[i] * 40)
+        : 0;
       const yr = Math.min(0.97, Math.max(0.03, pool.y[i] + wob));
       const len = Math.max(GORES_MIN, pool.u[i] * k);
       const hx = X(xm);

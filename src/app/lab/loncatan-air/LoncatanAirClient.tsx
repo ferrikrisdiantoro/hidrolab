@@ -16,6 +16,7 @@ import {
   type LangkahHitung,
 } from "@/components/ui";
 import { usePlate } from "@/lib/usePlate";
+import { useReducedMotion } from "@/lib/useCanvas";
 import {
   createJumpMotion,
   drawJump,
@@ -68,7 +69,7 @@ const TXT = {
     bStrong: "Kuat",
     hPct: "Bagian energi hulu yang teredam",
     hNoBel: "Fr₁ ≤ 1: persamaan Belanger tidak berlaku",
-    note: "Persamaan kedua adalah bentuk Belanger, diturunkan dari kekekalan momentum pada saluran persegi mendatar dengan mengabaikan gesekan dasar di sepanjang loncatan. Perlu dicatat bahwa persamaan ini hanya memberi kedalaman di kedua ujung loncatan, bukan bentuk permukaan di antaranya — karena itu bagian dalam loncatan pada gambar digambar dengan titik rapat, bukan garis menerus. Panjang loncatan memakai pendekatan empiris umum L ≈ 6·y₂. Letak loncatan pada gambar skematik: di saluran sebenarnya posisinya ditentukan muka air hilir, yang tidak dihitung di lembar ini.",
+    note: "Persamaan kedua adalah bentuk Belanger, diturunkan dari kekekalan momentum pada saluran persegi mendatar dengan mengabaikan gesekan dasar di sepanjang loncatan. Perlu dicatat bahwa persamaan ini hanya memberi kedalaman di kedua ujung loncatan, bukan bentuk permukaan di antaranya — karena itu bagian dalam loncatan pada gambar digambar dengan titik rapat, bukan garis menerus. Panjang loncatan memakai pendekatan empiris umum L ≈ 6·y₂. Letak loncatan pada gambar bersifat skematik: di saluran sebenarnya posisinya ditentukan muka air hilir, yang tidak dihitung di lembar ini.",
   },
   en: {
     title: "Hydraulic jump",
@@ -229,14 +230,17 @@ export function LoncatanAirClient() {
       ];
 
   /* Lapis statis digambar hanya saat masukan berubah; goresan aliran ada
-     di lapis gerak. `flow: true` membuat lapis statis sama persis dengan
-     gambar lama saat goresan belum bergerak (tanpa panah aliran), jadi
-     jeda dan reduced-motion menampilkan gambar yang identik. */
+     di lapis gerak. Selagi bergerak lapis statis tanpa panah aliran
+     (informasinya dobel dengan goresan). */
+  // Saat dijeda atau reduced-motion lapis gerak kosong; panah aliran diam
+  // menggantikan goresan supaya arah dan laju tetap terbaca.
+  const reduced = useReducedMotion();
+  const bergerak = playing && !reduced;
   const plate = usePlate(
-    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy, flow: true, lang }),
+    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy, flow: bergerak, lang }),
     (ctx, w, h, tt, dt) =>
       drawJumpMotion(ctx, w, h, tt, dt, { y1, V1 }, { showEnergy }, gerak.current!),
-    [y1, V1, showEnergy, lang],
+    [y1, V1, showEnergy, lang, bergerak],
     { playing }
   );
 

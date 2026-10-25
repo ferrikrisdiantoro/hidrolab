@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Sheet, Term } from "@/components/ui";
 import { usePlate } from "@/lib/usePlate";
+import { useReducedMotion } from "@/lib/useCanvas";
 import {
   createJumpMotion,
   drawJump,
@@ -68,11 +69,15 @@ export function OpeningPlate() {
   const gerak = useRef<JumpMotion | null>(null);
   if (gerak.current === null) gerak.current = createJumpMotion(150);
 
+  // Saat dijeda atau reduced-motion lapis gerak kosong; panah aliran diam
+  // menggantikan goresan supaya arah dan laju tetap terbaca.
+  const reduced = useReducedMotion();
+  const bergerak = playing && !reduced;
   const plate = usePlate(
-    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy: true, flow: true, lang }),
+    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy: true, flow: bergerak, lang }),
     (ctx, w, h, tt, dt) =>
       drawJumpMotion(ctx, w, h, tt, dt, { y1, V1 }, { showEnergy: true }, gerak.current!),
-    [V1, lang],
+    [V1, lang, bergerak],
     { playing }
   );
 
