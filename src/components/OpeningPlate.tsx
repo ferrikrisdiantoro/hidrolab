@@ -2,8 +2,13 @@
 
 import { useRef, useState } from "react";
 import { Sheet, Term } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawJump, makeStreaks, type Streak } from "@/lib/drawJump";
+import { usePlate } from "@/lib/usePlate";
+import {
+  createJumpMotion,
+  drawJump,
+  drawJumpMotion,
+  type JumpMotion,
+} from "@/lib/drawJump";
 import {
   classifyJump,
   conjugateDepth,
@@ -58,19 +63,17 @@ export function OpeningPlate() {
   const dE = Fr1 > 1 ? jumpEnergyLoss(y1, y2) : 0;
   const klas = classifyJump(Fr1);
 
-  const streaks = useRef<Streak[]>(makeStreaks(150));
+  // Lapis statis + lapis gerak, sama dengan OC-01 (LoncatanAirClient).
+  const [playing, setPlaying] = useState(true);
+  const gerak = useRef<JumpMotion | null>(null);
+  if (gerak.current === null) gerak.current = createJumpMotion(150);
 
-  const ref = useCanvas(
+  const plate = usePlate(
+    (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy: true, flow: true, lang }),
     (ctx, w, h, tt, dt) =>
-      drawJump(
-        ctx,
-        w,
-        h,
-        { y1, V1 },
-        { showEnergy: true, streaks: streaks.current, t: tt, dt, lang }
-      ),
+      drawJumpMotion(ctx, w, h, tt, dt, { y1, V1 }, { showEnergy: true }, gerak.current!),
     [V1, lang],
-    { animate: true }
+    { playing }
   );
 
   return (
@@ -87,8 +90,14 @@ export function OpeningPlate() {
           { label: "Fr₁", value: fmt(Fr1) },
           { label: t.tbRegime, value: klas.label[lang] },
         ]}
+        motion={{
+          playing,
+          onToggle: () => setPlaying((v) => !v),
+          allowed: plate.motionAllowed,
+        }}
       >
-        <canvas ref={ref} className="block h-full w-full" />
+        <canvas ref={plate.ref} className="block h-full w-full" />
+        <canvas ref={plate.motionRef} />
       </Sheet>
 
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">

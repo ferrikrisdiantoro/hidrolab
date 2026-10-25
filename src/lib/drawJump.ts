@@ -18,6 +18,7 @@ import { G, conjugateDepth, froude, jumpLength, fmtPlain} from "./hydraulics.ts"
 import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
+import { createPool, type Pool } from "./motion.ts";
 
 export type JumpParams = {
   /** Kedalaman hulu, meter */
@@ -25,29 +26,6 @@ export type JumpParams = {
   /** Kecepatan hulu, m/s */
   V1: number;
 };
-
-/**
- * Satu goresan aliran.
- *
- * Bukan partikel hiasan: posisinya dimajukan memakai kecepatan setempat
- * V = q / y, sehingga goresan benar-benar melambat saat melewati loncatan
- * dan masuk ke bagian yang lebih dalam. Panjang goresan dibuat sebanding
- * dengan kecepatan itu, seperti jejak pada foto berpajanan lama — jadi
- * gerakannya sekaligus berlaku sebagai skala kecepatan yang bisa dibaca.
- */
-export type Streak = { x: number; yr: number; seed: number };
-
-export function makeStreaks(n: number): Streak[] {
-  const out: Streak[] = [];
-  for (let i = 0; i < n; i++) {
-    out.push({
-      x: i / n,
-      yr: 0.1 + ((i * 0.6180339887) % 1) * 0.8,
-      seed: (i * 0.7548776662) % 1,
-    });
-  }
-  return out;
-}
 
 export type JumpOptions = {
   showEnergy?: boolean;
@@ -58,42 +36,27 @@ export type JumpOptions = {
   domain?: number;
   compact?: boolean;
   lang?: Lang;
-  /** Goresan aliran; bila tidak diberikan, gambar diam sepenuhnya */
-  streaks?: Streak[] | null;
-  /** Selang waktu sejak frame sebelumnya, detik */
-  dt?: number;
-  t?: number;
+  /**
+   * Aliran digambar oleh lapis gerak (drawJumpMotion). Panah aliran diam
+   * tidak digambar, karena goresan sudah membawa informasi yang sama; tanpa
+   * lapis gerak (jeda, reduced-motion) gambar tetap persis seperti dulu
+   * saat goresan dinyalakan tetapi belum bergerak.
+   */
+  flow?: boolean;
 };
 
-/**
- * POTONGAN MEMANJANG — loncatan air pada saluran persegi mendatar.
- *
- * Catatan penting soal kejujuran gambar: persamaan Belanger hanya
- * memberi kedalaman di kedua UJUNG loncatan, bukan bentuk permukaan
- * di antaranya. Karena itu bagian dalam loncatan digambar dengan garis
- * titik rapat — konvensi untuk "di luar jangkauan rumus" — bukan garis
- * menerus yang berpura-pura tahu.
- */
-export function drawJump(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  p: JumpParams,
-  opt: JumpOptions = {}
-): PlateOut {
-  const {
-    showEnergy = true,
-    showDims = true,
-    ghost = null,
-    domain = 16,
-    compact = false,
-    lang = "id",
-    streaks = null,
-    dt = 0,
-    t = 0,
-  } = opt;
+/** Batas atas loncatan berombak (Chow 1959 §15-3), sama dengan classifyJump. */
+const FR_BEROMBAK = 1.7;
 
-  const T = cl(lang);
+/**
+ * Tata letak dan bentuk loncatan, dipakai bersama oleh lapis statis
+ * (drawJump) dan lapis gerak (drawJumpMotion) supaya goresan berjalan di
+ * badan air yang persis sama dengan yang digambar.
+ */
+export type JumpLayout = ReturnType<typeof jumpLayout>;
+
+export function jumpLayout(w: number, h: number, p: JumpParams, opt: JumpOptions = {}) {
+  const { showEnergy = true, showDims = true, domain = 16, compact = false } = opt;
 
   const padL = compact ? 22 : 62;
   const padR = compact ? 22 : 34;
@@ -155,13 +118,81 @@ export function drawJump(
   const xJump = bentang * 0.33;
   const q = p.V1 * p.y1;
 
+  /*
+   * Loncatan berombak (1 < Fr₁ < 1,7) tidak punya gulungan: muka airnya
+   * naik lalu bergelombang tegak dan meluruh ke y₂ (Chow 1959 §15-3).
+   * Bentuk itu juga tidak diberikan Belanger, jadi tetap digambar titik
+   * rapat; amplitudonya sebanding y₂ − y₁ dan gelombangnya hilang tepat di
+   * akhir bentang loncatan sehingga ekor hilir tetap y₂ hasil hitungan.
+   *
+   * d = y₂ − (y₂ − y₁)·(1 − s)²·(0,3 + 0,7·cos 3πs), s = 0..1: berangkat
+   * landai dari y₁, puncak pertama ≈ 0,18 (y₂ − y₁) di atas y₂ pada
+   * sepertiga Lj, lalu gelombang yang meluruh kuadratis; lembah tidak
+   * pernah di bawah y₁. Satu setengah gelombang saja: skala tegak gambar
+   * jauh lebih besar dari skala mendatar, dan gelombang yang lebih rapat
+   * tampak sebagai paku, bukan undulasi.
+   */
+  const undular = hasJump && Fr1 < FR_BEROMBAK;
+
   const depthAt = (x: number): number => {
     if (!hasJump) return p.y1;
     if (x <= xJump) return p.y1;
     if (x >= xJump + Lj) return y2;
     const s = (x - xJump) / Lj;
+    if (undular) {
+      const u = 1 - s;
+      return y2 - (y2 - p.y1) * u * u * (0.3 + 0.7 * Math.cos(3 * Math.PI * s));
+    }
     return p.y1 + (y2 - p.y1) * (s * s * (3 - 2 * s));
   };
+
+  // Badan air: muka air disampel tiap `step` piksel.
+  const step = Math.max(1, Math.floor(plotW / 320));
+  const pts: [number, number][] = [];
+  for (let px = 0; px <= plotW; px += step) {
+    const xm = (px / plotW) * bentang;
+    pts.push([padL + px, Y(depthAt(xm))]);
+  }
+
+  return {
+    padL, padR, padT, padB, bedThk, bawahDim, plotW, plotH, bedY, ljY, angkaY, judulY,
+    Fr1, hasJump, undular, y2, Lj, E1, bentang, yMax, sx, sy, X, Y, xJump, q,
+    depthAt, step, pts,
+  };
+}
+
+/**
+ * POTONGAN MEMANJANG — loncatan air pada saluran persegi mendatar.
+ *
+ * Catatan penting soal kejujuran gambar: persamaan Belanger hanya
+ * memberi kedalaman di kedua UJUNG loncatan, bukan bentuk permukaan
+ * di antaranya. Karena itu bagian dalam loncatan digambar dengan garis
+ * titik rapat — konvensi untuk "di luar jangkauan rumus" — bukan garis
+ * menerus yang berpura-pura tahu.
+ */
+export function drawJump(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  p: JumpParams,
+  opt: JumpOptions = {}
+): PlateOut {
+  const {
+    showEnergy = true,
+    showDims = true,
+    ghost = null,
+    compact = false,
+    lang = "id",
+    flow = false,
+  } = opt;
+
+  const T = cl(lang);
+  const L = jumpLayout(w, h, p, opt);
+  const {
+    padL, padT, bedThk, plotW, plotH, bedY, ljY, angkaY, judulY,
+    Fr1, hasJump, undular, y2, Lj, E1, bentang, yMax, sx, X, Y, xJump, q,
+    depthAt, step, pts,
+  } = L;
 
   ground(ctx, w, h);
 
@@ -188,13 +219,6 @@ export function drawJump(
   }
 
   /* ---------------- badan air ---------------- */
-  const step = Math.max(1, Math.floor(plotW / 320));
-  const pts: [number, number][] = [];
-  for (let px = 0; px <= plotW; px += step) {
-    const xm = (px / plotW) * bentang;
-    pts.push([padL + px, Y(depthAt(xm))]);
-  }
-
   const clipWater = () => {
     ctx.beginPath();
     ctx.moveTo(pts[0][0], bedY);
@@ -211,49 +235,7 @@ export function drawJump(
 
   hatchWater(ctx, clipWater, padL, padL + plotW, padT + 4, bedY);
 
-  /* ---------------- goresan aliran ---------------- */
-  /* Setiap goresan dimajukan dengan kecepatan setempat V = q / y, dan
-     panjangnya dibuat sebanding kecepatan itu. Jadi goresan yang rapat
-     dan pendek di hilir bukan pilihan gaya — itu memang tanda aliran
-     yang melambat setelah kedalamannya bertambah. */
-  if (streaks && dt > 0) {
-    ctx.save();
-    clipWater();
-    ctx.clip();
-
-    for (const st of streaks) {
-      const xm = st.x * bentang;
-      const d = depthAt(xm);
-      const V = q / Math.max(d, 0.02);
-
-      st.x += (V * dt) / bentang;
-      if (st.x > 1) {
-        st.x -= 1;
-        st.yr = 0.1 + ((st.seed * 7.3) % 1) * 0.8;
-      }
-
-      const inRoller = hasJump && xm > xJump && xm < xJump + Lj;
-      // Di daerah gulungan, jalur air memang tidak lagi sejajar dasar.
-      const wobble = inRoller
-        ? Math.sin(t * 5.5 + st.seed * 40) * 0.2
-        : Math.sin(t * 1.1 + st.seed * 12) * 0.012;
-      const yr = Math.min(0.97, Math.max(0.03, st.yr + wobble));
-
-      const px = X(xm);
-      const py = Y(d * yr);
-      const len = Math.max(2, Math.min(26, V * 2.6));
-
-      pen(ctx, W.hair, C.water);
-      ctx.globalAlpha = inRoller ? 0.5 : 0.34;
-      ctx.beginPath();
-      ctx.moveTo(px - len, py);
-      ctx.lineTo(px, py);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 1;
-    ctx.restore();
-  }
+  /* Goresan aliran ada di lapis gerak, drawJumpMotion di bawah. */
 
   /* ---------------- kondisi pembanding ---------------- */
   if (ghost) {
@@ -314,7 +296,8 @@ export function drawJump(
 
   /* ---------------- gulungan loncatan ---------------- */
   // Digambar sebagai busur berputar, cara buku teks menandai roller.
-  if (hasJump && Fr1 > 1.7 && !compact) {
+  // Tidak untuk loncatan berombak: rentang itu tidak punya gulungan.
+  if (hasJump && !undular && !compact) {
     pen(ctx, W.thin, C.water);
     ctx.globalAlpha = 0.65;
     const n = Math.min(7, Math.max(3, Math.round(Fr1 / 1.4)));
@@ -339,7 +322,7 @@ export function drawJump(
 
   /* ---------------- panah aliran ---------------- */
   // Hanya bila goresan dimatikan; kalau keduanya tampil, informasinya dobel.
-  if (!compact && !streaks) {
+  if (!compact && !flow) {
     flowArrow(ctx, X(xJump * 0.28), Y(p.y1 * 0.5), Math.min(46, 6 + p.V1 * 4));
     if (hasJump) {
       const V2 = q / y2;
@@ -489,7 +472,9 @@ export function drawJump(
     const muatY1 = Y(0) - Y(p.y1) >= lebarY1 + 6;
     const bahu = 14 + 4;
     const dimX = X(xJump * 0.62);
-    const ujung = { x: X(xJump), y: Y(p.y1) };
+    /* Tanpa loncatan tidak ada kaki loncatan yang bisa ditunjuk; penanda
+       Fr₁ menunjuk muka air di tengah bentang, wilayah tunggal yang sama. */
+    const ujung = { x: X(hasJump ? xJump : bentang / 2), y: Y(p.y1) };
 
     // Tulisan y₁: di tengah dimensinya bila muat, kalau tidak di atasnya.
     const kotakY1: Kotak = muatY1
@@ -554,17 +539,48 @@ export function drawJump(
         `y₂ ${fmtPlain(y2, 2)} m`,
         C.water
       );
-      // Di bawah beton, di atas angka sumbu; lihat padB.
+      /* Di bawah beton, di atas angka sumbu; lihat padB. Pada loncatan
+         berombak Lj ≈ 6 y₂ di luar rentang ujinya (paling sesuai pada
+         rentang mantap, Chow 1959 Gbr. 15-4), jadi ditulis sebagai
+         pendekatan, tanpa angka yang terkesan pasti. */
+      const teksLj = undular
+        ? `Lj ≈ 6 y₂ ${T.ljApprox}`
+        : `Lj ≈ ${fmtPlain(Lj, 1)} m`;
       dimH(
         ctx,
         ljY,
         X(xJump),
         X(xJump + Lj),
-        `Lj ≈ ${fmtPlain(Lj, 1)} m`,
+        teksLj,
         C.critical,
         bedY + bedThk,
         [padL, padL + plotW]
       );
+
+      /* Letak kaki loncatan pada sepertiga bentang adalah pilihan gambar,
+         bukan hasil hitungan: posisinya ditentukan muka air hilir
+         (tailwater), yang tidak dimodelkan lembar ini. Keterangannya ditulis
+         kecil di kiri garis sumbu kaki, sebaris dengan dimensi Lj, dan
+         tidak digambar bila tidak muat di antara tepi kanvas dan tulisan Lj
+         (catatan dasar teori lembar menyebutkannya juga). */
+      // Tepi kiri tulisan Lj, dengan penjepit yang sama seperti di dimH.
+      ctx.font = F.label;
+      const separuhLj = stencilWidth(ctx, teksLj) / 2;
+      const kiriLj =
+        Math.min(
+          Math.max((X(xJump) + X(xJump + Lj)) / 2, padL + separuhLj + 6),
+          Math.max(padL + separuhLj + 6, padL + plotW - separuhLj - 6)
+        ) - separuhLj;
+      ctx.save();
+      ctx.font = F.labelSm;
+      const kananSk = Math.min(X(xJump) - 6, kiriLj - 8);
+      if (kananSk - ctx.measureText(T.jumpSchematic).width >= 4) {
+        ctx.fillStyle = C.ink3;
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(T.jumpSchematic, kananSk, ljY - 5);
+      }
+      ctx.restore();
 
       // Garis sumbu menandai awal dan akhir loncatan.
       pen(ctx, W.hair, C.critical, DASH.axis);
@@ -589,13 +605,15 @@ export function drawJump(
      * baru dilewati bila kedua baris sudah terpakai di tempat itu.
      */
     type Zona = { x0: number; x1: number; teks: string; warna: string };
-    const zona: Zona[] = [{ x0: 0, x1: xJump, teks: T.supercritical, warna: C.ink3 }];
-    if (hasJump) {
-      zona.push({ x0: xJump, x1: xJump + Lj, teks: T.jump, warna: C.critical });
-      zona.push({ x0: xJump + Lj, x1: bentang, teks: T.subcritical, warna: C.ink3 });
-    } else {
-      zona.push({ x0: xJump, x1: bentang, teks: T.noJump, warna: C.ink3 });
-    }
+    /* Fr₁ ≤ 1: alirannya subkritis sepanjang bentang, jadi satu wilayah
+       saja. Dulu bagian kirinya tetap bertuliskan "superkritis". */
+    const zona: Zona[] = hasJump
+      ? [
+          { x0: 0, x1: xJump, teks: T.supercritical, warna: C.ink3 },
+          { x0: xJump, x1: xJump + Lj, teks: T.jump, warna: C.critical },
+          { x0: xJump + Lj, x1: bentang, teks: T.subcritical, warna: C.ink3 },
+        ]
+      : [{ x0: 0, x1: bentang, teks: `${T.subcritical} · ${T.noJump}`, warna: C.ink3 }];
 
     const baris = [padT + 14, padT + 27];
     const terpakai: { x0: number; x1: number; b: number }[] = [];
@@ -643,8 +661,8 @@ export function drawJump(
     // Penanda bilangan Froude pada penampang masuk.
     leader(
       ctx,
-      X(xJump),
-      Y(p.y1),
+      ujung.x,
+      ujung.y,
       siku.x,
       siku.y,
       teksFr,
@@ -653,6 +671,165 @@ export function drawJump(
   }
 
   return keluar;
+}
+
+/* ================================================================== *
+ * LAPIS GERAK: goresan aliran
+ * ================================================================== */
+
+/**
+ * Keadaan lapis gerak OC-01. Dibuat sekali per lembar (createJumpMotion);
+ * drawJumpMotion tidak mengalokasikan apa pun per frame kecuali saat
+ * ukuran atau masukan berubah (tata letak dan Path2D badan air dihitung
+ * ulang sekali).
+ *
+ * Isi pool (motion.ts): x = posisi sebagai bagian bentang (0..1), supaya
+ * goresan tidak meloncat saat bentang berubah mengikuti Lj; y = kedalaman
+ * relatif y/d (0..1). Dengan u = q/d(x) dan y = (y/d)·d(x), lintasan
+ * goresan adalah garis arus medan dua dimensi yang memenuhi kontinuitas
+ * (w = u·(y/d)·d'), jadi goresan naik mengikuti muka air di loncatan
+ * tanpa pernah keluar dari badan air.
+ */
+export type JumpMotion = {
+  pool: Pool;
+  lay: JumpLayout | null;
+  clip: Path2D | null;
+  // Kunci tata letak terakhir (angka, bukan string, supaya tanpa alokasi).
+  kw: number;
+  kh: number;
+  ky1: number;
+  kV1: number;
+  kE: boolean;
+  kD: boolean;
+};
+
+const PHI_GERAK = 0.6180339887;
+
+export function createJumpMotion(n = 150): JumpMotion {
+  const pool = createPool(n);
+  // Sebaran awal sama dengan makeStreaks lama: lajur tetap, fase merata.
+  for (let i = 0; i < n; i++) {
+    pool.x[i] = i / n;
+    pool.y[i] = 0.1 + ((i * PHI_GERAK) % 1) * 0.8;
+  }
+  return { pool, lay: null, clip: null, kw: -1, kh: -1, ky1: -1, kV1: -1, kE: false, kD: false };
+}
+
+/** Panjang goresan per m/s pada bidang gambar selebar 700 px atau lebih. */
+const PX_PER_MPS = 2.6;
+/** Goresan terpendek agar partikel lambat tetap tampak, px. */
+const GORES_MIN = 2;
+
+/**
+ * Menggambar satu frame goresan aliran di kanvas lapis gerak.
+ *
+ * Semua laju diturunkan dari hasil model, waktu nyata (tanpa pengali):
+ * - Laju partikel = q / d(x): V₁ di hulu, V₂ = q / y₂ di hilir.
+ * - Panjang goresan sebanding laju setempat sampai V₁ maksimum penggeser
+ *   (16 m/s), tanpa batas atas. Skalanya 2,6 px per m/s, diperkecil
+ *   sebanding lebar bidang gambar di bawah 700 px supaya goresan V₁ 16 m/s
+ *   tidak menutupi gambar di HP.
+ * - Goyangan tegak di daerah gulungan: amplitudo sebanding (y₂ − y₁)/y₂
+ *   (kedalaman relatif), nol untuk loncatan berombak yang tidak punya
+ *   gulungan; frekuensi sudut V₁/y₂ (rad/s), skala waktu alami gulungan.
+ *   Di luar gulungan tidak ada goyangan: aliran di sana sejajar.
+ */
+export function drawJumpMotion(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  dt: number,
+  p: JumpParams,
+  opt: JumpOptions,
+  st: JumpMotion
+): void {
+  const showEnergy = opt.showEnergy ?? true;
+  const showDims = opt.showDims ?? true;
+  if (
+    !st.lay ||
+    st.kw !== w ||
+    st.kh !== h ||
+    st.ky1 !== p.y1 ||
+    st.kV1 !== p.V1 ||
+    st.kE !== showEnergy ||
+    st.kD !== showDims
+  ) {
+    st.lay = jumpLayout(w, h, p, opt);
+    st.kw = w;
+    st.kh = h;
+    st.ky1 = p.y1;
+    st.kV1 = p.V1;
+    st.kE = showEnergy;
+    st.kD = showDims;
+    st.clip = null;
+    if (typeof Path2D !== "undefined") {
+      const c = new Path2D();
+      const pts = st.lay.pts;
+      c.moveTo(pts[0][0], st.lay.bedY);
+      for (const [x, y] of pts) c.lineTo(x, y);
+      c.lineTo(pts[pts.length - 1][0], st.lay.bedY);
+      c.closePath();
+      st.clip = c;
+    }
+  }
+  const L = st.lay;
+  const { bentang, depthAt, q, hasJump, undular, xJump, Lj, y2, X, Y } = L;
+  const pool = st.pool;
+  const n = pool.n;
+
+  // Majukan semua partikel.
+  for (let i = 0; i < n; i++) {
+    const xm = pool.x[i] * bentang;
+    const V = q / Math.max(depthAt(xm), 0.02);
+    pool.u[i] = V;
+    let f = pool.x[i] + (V * dt) / bentang;
+    if (f > 1) {
+      f -= 1;
+      // Lahir ulang di hulu pada lajur baru (geser golden ratio).
+      const s = (pool.seed[i] + PHI_GERAK) % 1;
+      pool.seed[i] = s;
+      pool.y[i] = 0.1 + s * 0.8;
+    }
+    pool.x[i] = f;
+  }
+
+  const k = PX_PER_MPS * Math.min(1, L.plotW / 700);
+  // 0,25 memberi ≈ 0,2 pada keadaan awal (Fr₁ 4,1), sama dengan goyangan lama.
+  const amp = hasJump && !undular ? 0.25 * ((y2 - p.y1) / y2) : 0;
+  const omega = hasJump ? p.V1 / y2 : 0;
+
+  ctx.save();
+  if (st.clip) ctx.clip(st.clip);
+  pen(ctx, W.hair, C.water);
+  ctx.lineCap = "butt";
+  // Dua lintasan: di luar gulungan (tipis), di dalam gulungan (lebih pekat,
+  // karena air bergolak di sana). Satu path, satu stroke per lintasan.
+  // Loncatan berombak tidak punya gulungan, jadi hanya lintasan pertama.
+  const adaGulungan = hasJump && !undular;
+  for (let pass = 0; pass < 2; pass++) {
+    const roller = pass === 1;
+    if (roller && !adaGulungan) break;
+    ctx.globalAlpha = roller ? 0.5 : 0.34;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const xm = pool.x[i] * bentang;
+      const inRoller = adaGulungan && xm > xJump && xm < xJump + Lj;
+      if (inRoller !== roller) continue;
+      const wob = inRoller ? amp * Math.sin(omega * t + pool.seed[i] * 40) : 0;
+      const yr = Math.min(0.97, Math.max(0.03, pool.y[i] + wob));
+      const len = Math.max(GORES_MIN, pool.u[i] * k);
+      const hx = X(xm);
+      const hy = Y(depthAt(xm) * yr);
+      // Ekor mengikuti garis arus yang sama, mundur sepanjang `len` px.
+      const xt = xm - len / L.sx;
+      const ty = Y(depthAt(xt < 0 ? 0 : xt) * yr);
+      ctx.moveTo(hx - len, ty);
+      ctx.lineTo(hx, hy);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** Panah aliran: batang tipis dengan kepala terbuka. */
