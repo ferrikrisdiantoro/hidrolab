@@ -1306,10 +1306,10 @@ export function Hitungan({
               {l.judul && (
                 <div className="label mb-1 text-[0.74rem] text-ink-2">{l.judul}</div>
               )}
-              <div className="label value overflow-x-auto text-[0.9rem] text-ink">
+              <div className="label value overflow-x-auto overflow-y-hidden text-[0.9rem] text-ink">
                 <div className="flex min-w-max items-center gap-1">{l.rumus}</div>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto overflow-y-hidden">
                 <code className="value block min-w-max py-0.5 text-[0.8rem] leading-snug text-ink-2">
                   = {l.isi}
                 </code>
