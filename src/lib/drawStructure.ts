@@ -1,4 +1,4 @@
-import { C, DASH, F, W } from "./theme";
+import { C, DASH, F, W, stencilWidth } from "./theme";
 import {
   axisTitle,
   axisValue,
@@ -421,15 +421,47 @@ export function drawStructure(
   /* ---------------- nama bagian ---------------- */
 
   for (const c of s.callouts ?? []) {
-    leader(
-      ctx,
-      X(c.x),
-      Z(c.z),
-      X(c.x) + c.dx,
-      Z(c.z) + c.dy,
-      c.text,
-      c.color ?? C.ink2
-    );
+    const fx = X(c.x);
+    const fy = Z(c.z);
+    ctx.font = F.label;
+    const lebar = stencilWidth(ctx, c.text) + 18;
+    /* Siku paling jauh yang masih membuat tulisannya utuh di dalam bidang,
+       untuk tulisan yang menjulur ke kanan (+1) atau ke kiri (-1). */
+    const batas = (d: 1 | -1) => (d > 0 ? padL + plotW - 2 - lebar : padL + 2 + lebar);
+    const muat = (d: 1 | -1, x: number) => (d > 0 ? x <= batas(1) : x >= batas(-1));
+    let d: 1 | -1 = c.dx >= 0 ? 1 : -1;
+    let tx = fx + c.dx;
+    if (muat(d, tx)) {
+      // Tulisan yang sudah utuh di dalam bidang digambar persis seperti dulu.
+      leader(ctx, fx, fy, tx, fy + c.dy, c.text, c.color ?? C.ink2);
+      continue;
+    }
+    /*
+     * Tulisan yang akan keluar bingkai (layar HP) ditarik ke dalam: sikunya
+     * digeser ke arah bendanya, paling jauh 24 px melewatinya. Bila itu
+     * belum cukup, arahnya dibalik bila sisi seberangnya muat. Hanya
+     * tulisan yang dipindah yang diberi alas kertas dan didaftarkan ke
+     * penempat bersama, supaya tulisan sesudahnya menghindarinya.
+     */
+    const mundur = (dd: 1 | -1, x: number) =>
+      muat(dd, x) ? 0 : dd > 0 ? fx - batas(1) : batas(-1) - fx;
+    const balikD: 1 | -1 = d > 0 ? -1 : 1;
+    const balikX = fx - c.dx;
+    if (mundur(d, tx) <= 24) tx = batas(d);
+    else if (muat(balikD, balikX)) {
+      d = balikD;
+      tx = balikX;
+    } else if (mundur(balikD, balikX) <= 24) {
+      d = balikD;
+      tx = batas(balikD);
+    } else tx = batas(d);
+    const ty = fy + c.dy;
+    const kx0 = d > 0 ? tx + 14 : tx - lebar;
+    const kx1 = d > 0 ? tx + lebar : tx - 14;
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(kx0 + 2, ty - 6, kx1 - kx0 - 2, 12);
+    leader(ctx, fx, fy, tx, ty, c.text, c.color ?? C.ink2, d);
+    taruh.reserve(kx0, kx1, ty - 7, ty + 7);
   }
 
   /* ---------------- nama gaya ----------------

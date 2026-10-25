@@ -219,9 +219,11 @@ export function leader(
   toX: number,
   toY: number,
   label: string,
-  color: string
+  color: string,
+  /** Arah tulisan; bawaannya mengikuti arah garis miringnya */
+  arahTulisan?: 1 | -1
 ) {
-  const dir = toX >= fromX ? 1 : -1;
+  const dir = arahTulisan ?? (toX >= fromX ? 1 : -1);
   const shoulder = 14;
 
   pen(ctx, W.thin, color);
@@ -642,6 +644,104 @@ export function clampLabelX(
   return Math.min(Math.max(x, x0 + separuh), x1 - separuh);
 }
 
+/**
+ * Memilih ukuran dan pemecahan baris untuk judul keadaan (huruf besar,
+ * jarak huruf 2) supaya muat di bidang selebar `lebarBidang`.
+ *
+ * Judul keadaan yang lebih lebar daripada bidangnya dikecilkan, tidak
+ * dibiarkan terpotong di kedua tepi. FP-02 pernah menulis
+ * "...ANAN TETAPI TIDAK SAMA KUAT..." dengan awal kalimat hilang.
+ *
+ * Yang masih terlalu lebar sesudah dikecilkan (layar HP: DM-01 menulis
+ * "...LTAN KELUAR DARI SEPERTIGA TENGAH" terpotong di kedua tepi) dipecah
+ * menjadi dua baris pada spasi yang paling dekat ke tengah. Baris
+ * terpanjang yang masih melewati bidang dikecilkan lagi, paling kecil 10
+ * piksel, supaya tidak menjulur keluar bingkai menutupi angka sumbu.
+ *
+ * Judul yang muat dikembalikan apa adanya: satu baris, fon `F.heading`.
+ * Dipakai bersama oleh `createLabelPlacer().write` dan `drawChart`, supaya
+ * kedua jalur judul berperilaku sama.
+ */
+export function fitHeading(
+  ctx: CanvasRenderingContext2D,
+  teks: string,
+  lebarBidang: number,
+  spacing = 2
+): { font: string; lines: string[] } {
+  ctx.font = F.heading;
+  let font: string = F.heading;
+  if (stencilWidth(ctx, teks, spacing) + 14 <= lebarBidang) return { font, lines: [teks] };
+  font = F.heading.replace("15px", "12px");
+  ctx.font = font;
+  const kata = teks.split(" ");
+  if (kata.length < 2 || stencilWidth(ctx, teks, spacing) + 14 <= lebarBidang) {
+    if (kata.length < 2 && stencilWidth(ctx, teks, spacing) + 14 > lebarBidang) {
+      const px = Math.max(10, Math.floor((12 * (lebarBidang - 14)) / stencilWidth(ctx, teks, spacing)));
+      font = F.heading.replace("15px", `${px}px`);
+    }
+    return { font, lines: [teks] };
+  }
+  let pecah = 1;
+  let selisih = Infinity;
+  for (let i = 1; i < kata.length; i++) {
+    const d = Math.abs(
+      stencilWidth(ctx, kata.slice(0, i).join(" "), spacing) -
+        stencilWidth(ctx, kata.slice(i).join(" "), spacing)
+    );
+    if (d < selisih) {
+      selisih = d;
+      pecah = i;
+    }
+  }
+  const lines = [kata.slice(0, pecah).join(" "), kata.slice(pecah).join(" ")];
+  const terpanjang = Math.max(...lines.map((l) => stencilWidth(ctx, l, spacing)));
+  if (terpanjang + 14 > lebarBidang) {
+    const px = Math.max(10, Math.floor((12 * (lebarBidang - 14)) / terpanjang));
+    font = F.heading.replace("15px", `${px}px`);
+  }
+  return { font, lines };
+}
+
+/**
+ * Memecah tulisan wilayah kecil (fon `F.region`) yang lebih lebar daripada
+ * `lebarMaks` menjadi dua baris. Titik dua atau koma dipilih lebih dulu
+ * sebagai tempat pecah, karena di situ kalimatnya memang berhenti; kalau
+ * tidak ada, dipilih spasi yang membuat kedua baris paling seimbang.
+ * Tulisan yang muat dikembalikan utuh sebagai satu baris.
+ *
+ * Layar HP 390 px: "SUPERKRITIS, PROFIL TIDAK DAPAT DIHITUNG" (HS-10) dan
+ * "TITIK OPERASI DI LUAR DIAGRAM: θ 2,0000" (SD-01) dulu mulai di luar
+ * bingkai bidang.
+ */
+export function splitLabel(
+  ctx: CanvasRenderingContext2D,
+  teks: string,
+  lebarMaks: number,
+  spacing = 1.4
+): string[] {
+  ctx.font = F.region;
+  if (stencilWidth(ctx, teks, spacing) + 8 <= lebarMaks) return [teks];
+  for (const tanda of [": ", ", "]) {
+    const i = teks.indexOf(tanda);
+    if (i > 0) return [teks.slice(0, i + 1), teks.slice(i + 2)];
+  }
+  const kata = teks.split(" ");
+  if (kata.length < 2) return [teks];
+  let pecah = 1;
+  let selisih = Infinity;
+  for (let i = 1; i < kata.length; i++) {
+    const d = Math.abs(
+      stencilWidth(ctx, kata.slice(0, i).join(" "), spacing) -
+        stencilWidth(ctx, kata.slice(i).join(" "), spacing)
+    );
+    if (d < selisih) {
+      selisih = d;
+      pecah = i;
+    }
+  }
+  return [kata.slice(0, pecah).join(" "), kata.slice(pecah).join(" ")];
+}
+
 /* ------------------------------------------------------------------ *
  * Penempat tulisan bersama
  * ------------------------------------------------------------------ */
@@ -823,5 +923,14 @@ export function createLabelPlacer(
     return pos;
   };
 
-  return { place, alas, write };
+  /**
+   * Mendaftarkan kotak tulisan yang digambar di luar penempat ini (misalnya
+   * nama bagian bergaris penunjuk yang ditarik masuk bingkai), supaya tulisan
+   * yang ditempatkan sesudahnya menghindarinya. Kotaknya tidak digeser.
+   */
+  const reserve = (x0: number, x1: number, atas: number, bawah: number) => {
+    dipakai.push({ x0, x1, atas, bawah });
+  };
+
+  return { place, alas, write, reserve };
 }

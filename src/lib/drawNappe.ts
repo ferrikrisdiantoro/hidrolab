@@ -5,6 +5,7 @@ import {
   curveLabel,
   dimH,
   dimV,
+  fitHeading,
   ground,
   hatchConcrete,
   hatchWater,
@@ -301,18 +302,25 @@ export function drawNappe(
   // tetap. "Tirai luapan bebas" pada ambang yang tenggelam adalah kalimat
   // yang dibantah oleh penanda merah di sebelahnya.
   const judul = tenggelam ? T.drownedNappe : T.freeNappe;
+  // Aturan muat judul yang sama dengan penggambar lain (fitHeading): judul
+  // yang lebih lebar daripada bidangnya dikecilkan lalu dipecah dua baris.
+  // Judul yang muat tetap satu baris 15 px seperti sebelumnya.
+  const muatJudul = fitHeading(ctx, judul, plotW);
   ctx.fillStyle = tenggelam ? C.signal : C.ink;
-  ctx.font = F.heading;
+  ctx.font = muatJudul.font;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   // Judul keadaan tenggelam jauh lebih panjang daripada judul biasa, dan
   // dipusatkan pada tengah tirai ia keluar bingkai di sisi kanan.
-  const wJudul = stencilWidth(ctx, judul, 2);
-  const xJudul = Math.min(
-    Math.max(X((0 + xKanan) / 2), padL + wJudul / 2 + 6),
-    padL + plotW - wJudul / 2 - 6
-  );
-  stencil(ctx, judul, xJudul, padT + 20, 2);
+  const ukuranJudul = Number(/(\d+)px/.exec(muatJudul.font)?.[1] ?? 15);
+  muatJudul.lines.forEach((baris, i) => {
+    const wJudul = stencilWidth(ctx, baris, 2);
+    const xJudul = Math.min(
+      Math.max(X((0 + xKanan) / 2), padL + wJudul / 2 + 6),
+      padL + plotW - wJudul / 2 - 6
+    );
+    stencil(ctx, baris, xJudul, padT + 20 + i * (ukuranJudul + 6), 2);
+  });
 
   region(ctx, T.upstream, X(xKiri * 0.55), Z(s.P + s.h) - 16, C.ink3);
 

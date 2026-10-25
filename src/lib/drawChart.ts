@@ -1,5 +1,5 @@
 import { C, DASH, F, W, stencil, stencilWidth } from "./theme";
-import { axisTitle, axisValue, ground, niceStep, pen, region, ruling } from "./plate";
+import { axisTitle, axisValue, fitHeading, ground, niceStep, pen, region, ruling, splitLabel } from "./plate";
 import { fmtPlain } from "./hydraulics";
 import { cl } from "./strings";
 import type { Lang } from "./i18n";
@@ -347,8 +347,10 @@ export function drawChart(
     // Tinggi tulisan ikut diperhitungkan: huruf besar bergaris dasar bawah
     // dan huruf biasa bergaris dasar tengah tidak dapat dibandingkan dengan
     // satu jarak tetap.
-    const besar = (font ?? "").includes("15px");
-    const naik = besar ? 17 : 7;
+    // Judul besar (turunan F.heading, tebal 700) mendapat kotak setinggi
+    // hurufnya; judul yang dikecilkan fitHeading ikut terbaca ukurannya.
+    const besar = (font ?? "").startsWith("700 ");
+    const naik = besar ? Number(/(\d+)px/.exec(font as string)?.[1] ?? 15) + 2 : 7;
     const turun = besar ? 3 : 7;
 
     let yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
@@ -369,6 +371,81 @@ export function drawChart(
   const alas = (pos: { x0: number; x1: number; atas: number; bawah: number }) => {
     ctx.fillStyle = C.sheet;
     ctx.fillRect(pos.x0 + 3, pos.atas, pos.x1 - pos.x0 - 6, pos.bawah - pos.atas);
+  };
+
+  /*
+   * Menempatkan beberapa baris pecahan satu tulisan sebagai SATU blok, supaya
+   * tidak diselingi tulisan lain. Bila salah satu baris terdorong, blok
+   * dicabut dan dicoba 12 px lebih rendah, tetapi tidak sampai keluar bawah
+   * bidang: bila turun berarti keluar, blok kembali ke tempat semula. Satu
+   * baris sama persis dengan tempatkan().
+   */
+  const tempatkanBlok = (
+    baris: string[],
+    x: number,
+    y: number,
+    spacing: number,
+    font?: string
+  ) => {
+    const awal = dipakai.length;
+    const susun = (y0: number) => {
+      const hasil: ReturnType<typeof tempatkan>[] = [];
+      let yb = y0;
+      let utuh = true;
+      for (const b of baris) {
+        const pos = tempatkan(b, x, yb, spacing, "center", font);
+        if (hasil.length && pos.y !== yb) utuh = false;
+        hasil.push(pos);
+        yb = pos.bawah + (pos.bawah - pos.atas) - (font ? 2 : 6);
+      }
+      return { hasil, utuh };
+    };
+    let coba = susun(y);
+    for (let k = 1; k < 10 && !coba.utuh && baris.length > 1; k++) {
+      const yBaru = coba.hasil[0].y + 12;
+      dipakai.length = awal;
+      const lagi = susun(yBaru);
+      if (lagi.hasil[lagi.hasil.length - 1].bawah > padT + plotH - 2) {
+        dipakai.length = awal;
+        coba = susun(y);
+        break;
+      }
+      coba = lagi;
+    }
+    return coba.hasil;
+  };
+
+  /*
+   * Judul besar memakai aturan muat yang sama dengan
+   * createLabelPlacer().write (fitHeading): dikecilkan, lalu dipecah dua
+   * baris bila masih lebih lebar daripada bidangnya. Layar HP 390 px:
+   * judul keadaan panjang dulu terpotong di kedua tepi kanvas. Judul yang
+   * muat tetap satu baris 15 px di tempat yang sama.
+   */
+  const judulBesar = (teks: string, x: number, y: number, warna: string) => {
+    const muat = fitHeading(ctx, teks, plotW);
+    const daftar = tempatkanBlok(muat.lines, x, y, 2, muat.font);
+    muat.lines.forEach((baris, i) => {
+      const pos = daftar[i];
+      alas(pos);
+      ctx.fillStyle = warna;
+      ctx.font = muat.font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      stencil(ctx, baris, pos.x, pos.y, 2);
+    });
+  };
+
+  /* Tulisan wilayah kecil yang lebih lebar daripada bidangnya dipecah dua
+     baris (splitLabel); yang muat tetap satu baris di tempat yang sama. */
+  const tulisKecil = (teks: string, x: number, y: number, warna: string) => {
+    const baris = splitLabel(ctx, teks, plotW);
+    const daftar = tempatkanBlok(baris, x, y, 1.4);
+    baris.forEach((b, i) => {
+      const pos = daftar[i];
+      alas(pos);
+      region(ctx, b, pos.x, pos.y, warna);
+    });
   };
 
   /* ---------------- nama daerah arsir ---------------- */
@@ -542,17 +619,11 @@ export function drawChart(
   /* ---------------- nama wilayah ---------------- */
 
   for (const g of s.regions ?? []) {
-    const pos = g.big
-      ? tempatkan(g.text, X(g.x), Y(g.y), 2, "center", F.heading)
-      : tempatkan(g.text, X(g.x), Y(g.y), 1.4);
-    alas(pos);
     if (g.big) {
-      ctx.fillStyle = g.color ?? C.ink;
-      ctx.font = F.heading;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      stencil(ctx, g.text, pos.x, pos.y, 2);
+      judulBesar(g.text, X(g.x), Y(g.y), g.color ?? C.ink);
     } else {
+      const pos = tempatkan(g.text, X(g.x), Y(g.y), 1.4);
+      alas(pos);
       region(ctx, g.text, pos.x, pos.y, g.color ?? C.ink3);
     }
   }
@@ -607,29 +678,14 @@ export function drawChart(
       // Titik di luar bidang tidak boleh sekadar hilang: pembaca akan
       // mengira gambarnya tidak menanggapi masukan.
       const teks = `${T.pointOffChart}${p.label ? `: ${p.label}` : ""}`;
-      const pos = tempatkan(teks, padL + plotW / 2, padT + 14, 1.4);
-      alas(pos);
-      region(ctx, teks, pos.x, pos.y, C.signal);
+      tulisKecil(teks, padL + plotW / 2, padT + 14, C.signal);
     }
   }
 
   /* ---------------- nama keadaan ---------------- */
 
   if (s.heading) {
-    const pos = tempatkan(
-      s.heading,
-      padL + plotW / 2,
-      padT + 24,
-      2,
-      "center",
-      F.heading
-    );
-    alas(pos);
-    ctx.fillStyle = s.headingColor ?? C.ink;
-    ctx.font = F.heading;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    stencil(ctx, s.heading, pos.x, pos.y, 2);
+    judulBesar(s.heading, padL + plotW / 2, padT + 24, s.headingColor ?? C.ink);
   }
 
   /* ---------------- judul dan legenda ---------------- */

@@ -4,6 +4,7 @@ import {
   axisValue,
   curveLabel,
   dimV,
+  fitHeading,
   ground,
   hatchConcrete,
   hatchWater,
@@ -11,6 +12,7 @@ import {
   pen,
   region,
   ruling,
+  splitLabel,
 } from "./plate";
 import { fmtPlain } from "./hydraulics";
 
@@ -231,8 +233,10 @@ export function drawReach(
      * Selama keduanya dibandingkan dengan satu jarak tetap sebelas piksel,
      * tulisan besar yang sudah digeser pun tetap menindih tetangganya dari atas.
      */
-    const besar = (font ?? "").includes("15px");
-    const naik = besar ? 17 : 7;
+    // Judul besar (turunan F.heading, tebal 700) mendapat kotak setinggi
+    // hurufnya; judul yang dikecilkan fitHeading ikut terbaca ukurannya.
+    const besar = (font ?? "").startsWith("700 ");
+    const naik = besar ? Number(/(\d+)px/.exec(font as string)?.[1] ?? 15) + 2 : 7;
     const turun = besar ? 3 : 7;
 
     let yy = y;
@@ -266,6 +270,63 @@ export function drawReach(
   }) => {
     ctx.fillStyle = C.sheet;
     ctx.fillRect(pos.x0 + 3, pos.atas, pos.x1 - pos.x0 - 6, pos.bawah - pos.atas);
+  };
+
+  /*
+   * Menulis nama wilayah atau nama penampang. Tulisan yang lebih lebar
+   * daripada bidangnya dipecah dua baris (judul besar dikecilkan dulu,
+   * fitHeading), dan baris-barisnya ditempatkan sebagai satu blok: bila
+   * salah satunya terdorong, blok dicoba 12 px lebih rendah, tetapi tidak
+   * sampai keluar bawah bidang. Tulisan yang muat tetap satu baris di tempat
+   * yang sama seperti sebelumnya.
+   */
+  const tulis = (
+    teks: string,
+    x: number,
+    y: number,
+    warna: string,
+    big = false
+  ) => {
+    const muat = big ? fitHeading(ctx, teks, plotW) : null;
+    const baris = muat ? muat.lines : splitLabel(ctx, teks, plotW);
+    const awal = dipakai.length;
+    const susun = (y0: number) => {
+      const hasil: ReturnType<typeof tempatkan>[] = [];
+      let yb = y0;
+      let utuh = true;
+      for (const b of baris) {
+        const pos = muat
+          ? tempatkan(b, x, yb, 2, "center", muat.font)
+          : tempatkan(b, x, yb, 1.4, "center");
+        if (hasil.length && pos.y !== yb) utuh = false;
+        hasil.push(pos);
+        yb = pos.bawah + (pos.bawah - pos.atas) - (muat ? 2 : 6);
+      }
+      return { hasil, utuh };
+    };
+    let coba = susun(y);
+    for (let k = 1; k < 10 && !coba.utuh && baris.length > 1; k++) {
+      const yBaru = coba.hasil[0].y + 12;
+      dipakai.length = awal;
+      const lagi = susun(yBaru);
+      if (lagi.hasil[lagi.hasil.length - 1].bawah > padT + plotH - 2) {
+        dipakai.length = awal;
+        coba = susun(y);
+        break;
+      }
+      coba = lagi;
+    }
+    baris.forEach((b, i) => {
+      const pos = coba.hasil[i];
+      alas(pos);
+      if (muat) {
+        ctx.fillStyle = warna;
+        ctx.font = muat.font;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        stencil(ctx, b, pos.x, pos.y, 2);
+      } else region(ctx, b, pos.x, pos.y, warna);
+    });
   };
 
   /* ---------------- garis tambahan ---------------- */
@@ -381,9 +442,7 @@ export function drawReach(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    const pos = tempatkan(m.label, xp, padT + 12, 1.4, "center");
-    alas(pos);
-    region(ctx, m.label, pos.x, pos.y, m.color);
+    tulis(m.label, xp, padT + 12, m.color);
 
     if (m.dim) {
       dimV(
@@ -412,19 +471,7 @@ export function drawReach(
     // Nama wilayah ikut daftar kotak terpakai yang sama dengan nama penampang.
     // Keduanya berebut baris teratas bidang, dan sebelum ini nama wilayah
     // digambar tanpa memeriksa apa pun, jadi "Fr = 1" selalu menimpa "leher".
-    const pos = g.big
-      ? tempatkan(g.text, X(g.x), yg, 2, "center", F.heading)
-      : tempatkan(g.text, X(g.x), yg, 1.4, "center");
-    alas(pos);
-    if (g.big) {
-      ctx.fillStyle = g.color ?? C.ink;
-      ctx.font = F.heading;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      stencil(ctx, g.text, pos.x, pos.y, 2);
-    } else {
-      region(ctx, g.text, pos.x, pos.y, g.color ?? C.ink3);
-    }
+    tulis(g.text, X(g.x), yg, g.color ?? (g.big ? C.ink : C.ink3), !!g.big);
   }
 
   /* ---------------- bingkai ---------------- */
