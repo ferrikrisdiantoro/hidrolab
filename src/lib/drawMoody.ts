@@ -325,9 +325,12 @@ export function drawMoody(
 
   /*
    * PlateOut, tidak menggambar apa pun. Peta log-log: Re dan f.
-   * - `point`: titik kerja (Re, f), hanya bila di dalam diagram
+   * - `point`: titik kerja (Re, f)
    * - `roughnessEnd`: ujung kanan kurva kekasaran yang dipakai (Re 10^8),
-   *   tempat namanya ditulis, bila di dalam rentang f
+   *   tempat namanya ditulis
+   * Keduanya dikeluarkan juga di luar bidang (posisi asli, tidak dipotong):
+   * DragLayer menjepit pegangan ke tepi dan mengukur seret dari posisi asli,
+   * jadi pegangan tidak lenyap di tengah seret.
    */
   const map = mapFrom(
     X,
@@ -338,10 +341,9 @@ export function drawMoody(
     { xLog: true, yLog: true }
   );
   const anchors: Record<string, PlateAnchor> = {};
-  if (s.Re >= RE_MIN && s.Re <= RE_MAX && s.f >= F_MIN && s.f <= F_MAX)
-    anchors.point = { x: X(s.Re), y: Y(s.f) };
+  if (s.Re > 0 && s.f > 0) anchors.point = { x: X(s.Re), y: Y(s.f) };
   const fUjung = colebrookFriction(RE_MAX, Math.max(s.relRough, 0));
-  if (fUjung >= F_MIN && fUjung <= F_MAX) anchors.roughnessEnd = { x: X(RE_MAX), y: Y(fUjung) };
+  if (fUjung > 0) anchors.roughnessEnd = { x: X(RE_MAX), y: Y(fUjung) };
   return { map, anchors };
 }
 

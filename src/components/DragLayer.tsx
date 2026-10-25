@@ -99,11 +99,15 @@ function kirimNilai(spec: HandleSpec, v: NilaiSeret) {
 function Pegangan({
   spec,
   at,
+  asli,
   map,
   touchLembar,
 }: {
   spec: HandleSpec;
+  /** Posisi tampil, sudah dijepit ke bidang plot. */
   at: PlateAnchor;
+  /** Posisi asli nilai (bisa di luar bidang); dasar ukuran seret. */
+  asli: PlateAnchor;
   map: PlateMap;
   touchLembar?: () => void;
 }) {
@@ -115,8 +119,8 @@ function Pegangan({
 
   // Handler membaca nilai terbaru lewat ref, karena selama seret komponen
   // dirender ulang tiap kali pemanggil menyimpan nilai baru.
-  const kini = useRef({ spec, at, map });
-  kini.current = { spec, at, map };
+  const kini = useRef({ spec, asli, map });
+  kini.current = { spec, asli, map };
 
   const seret = useRef<{
     id: number;
@@ -153,7 +157,9 @@ function Pegangan({
     e.currentTarget.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = titikLapis(e);
-    const a = kini.current.at;
+    // Diukur dari posisi asli, bukan posisi jepit: meraih pegangan yang
+    // terjepit di tepi tidak meloncatkan nilai ke tepi bidang.
+    const a = kini.current.asli;
     seret.current = {
       id: e.pointerId,
       geser: { x: a.x - p.x, y: a.y - p.y },
@@ -352,7 +358,7 @@ export function DragLayer({
       {handles.map((h) => {
         const at = anchors[h.anchor];
         if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return null;
-        return <Pegangan key={h.id} spec={h} at={jepit(at)} map={out.map} touchLembar={touch} />;
+        return <Pegangan key={h.id} spec={h} at={jepit(at)} asli={at} map={out.map} touchLembar={touch} />;
       })}
     </div>
   );
