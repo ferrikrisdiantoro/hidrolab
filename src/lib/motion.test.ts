@@ -5,6 +5,7 @@ import {
   advect,
   createPool,
   drawStreaks,
+  hash01,
   respawnInlet,
   scatter,
   type Domain,
@@ -127,5 +128,85 @@ describe("motion: drawStreaks", () => {
     const { ctx, seg } = rekam();
     drawStreaks(ctx, p, map, { lenPerMps: 0.2, minPx: 2 });
     assert.ok(Math.abs(seg[0] - 2) < 1e-6);
+  });
+});
+
+/** Korelasi Pearson dua deret sama panjang. */
+function korelasi(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  const n = a.length;
+  let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+  ma /= n; mb /= n;
+  let sab = 0, saa = 0, sbb = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - ma, db = b[i] - mb;
+    sab += da * db; saa += da * da; sbb += db * db;
+  }
+  return sab / Math.sqrt(saa * sbb);
+}
+
+/** |korelasi| terbesar antara deret dan dirinya sendiri digeser 1..maksLag. */
+function korelasiLagMaks(s: number[], maksLag = 12): number {
+  let m = 0;
+  for (let lag = 1; lag <= maksLag; lag++)
+    m = Math.max(m, Math.abs(korelasi(s.slice(0, -lag), s.slice(lag))));
+  return m;
+}
+
+describe("motion: lajur lahir ulang tak berpola (T2)", () => {
+  type P = ReturnType<typeof createPool>;
+  // Lajur dicatat berurutan menurut saat lahir ulang.
+  function urutanLahir(respawn: (p: P, i: number, d: Domain) => void) {
+    const p = createPool(150);
+    scatter(p, dom);
+    const lajur: number[] = [];
+    const indeks: number[] = [];
+    const catat = (q: P, i: number, d: Domain) => {
+      respawn(q, i, d);
+      lajur.push(q.y[i]);
+      indeks.push(i);
+    };
+    for (let k = 0; k < 3000; k++) advect(p, seragam(3), 1 / 60, dom, catat);
+    return { lajur, indeks };
+  }
+
+  it("lajur beruntun tidak berkorelasi satu sama lain maupun dengan indeks", () => {
+    const { lajur, indeks } = urutanLahir(respawnInlet);
+    assert.ok(lajur.length > 1000, `sampel ${lajur.length}`);
+    const lag = korelasiLagMaks(lajur);
+    assert.ok(lag < 0.2, `korelasi lag ${lag}`);
+    const ki = Math.abs(korelasi(lajur, indeks));
+    assert.ok(ki < 0.2, `korelasi indeks ${ki}`);
+    // Tersebar ke seluruh tinggi domain, tidak menumpuk.
+    const bin = new Array(10).fill(0);
+    for (const y of lajur) bin[Math.min(9, Math.floor((y / dom.y1) * 10))]++;
+    for (const b of bin) assert.ok(b > lajur.length * 0.05, `bin ${bin}`);
+  });
+
+  it("kontrol: geseran golden ratio lama memang gagal uji ini", () => {
+    const PHI = 0.6180339887498949;
+    const lama = (q: P, i: number, d: Domain) => {
+      const s = (((i * 0.7548776662) % 1) + PHI * ++q.gen[i]) % 1;
+      q.x[i] = d.x0;
+      q.y[i] = d.y0 + s * (d.y1 - d.y0);
+    };
+    const { lajur } = urutanLahir(lama);
+    assert.ok(korelasiLagMaks(lajur) > 0.5, `${korelasiLagMaks(lajur)}`);
+  });
+
+  it("sebar awal: tetangga mendatar tidak berbaris (korelasi < 0,2)", () => {
+    const p = createPool(150);
+    scatter(p, dom);
+    const k = korelasiLagMaks(Array.from(p.y));
+    assert.ok(k < 0.2, `${k}`);
+  });
+
+  it("hash01 di [0, 1) dan deterministik", () => {
+    for (let i = 0; i < 500; i++)
+      for (let k = 0; k < 5; k++) {
+        const h = hash01(i, k);
+        assert.ok(h >= 0 && h < 1);
+        assert.equal(h, hash01(i, k));
+      }
   });
 });

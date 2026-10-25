@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { createJumpMotion, drawJump, drawJumpMotion, jumpLayout } from "./drawJump.ts";
+import {
+  createJumpMotion,
+  drawJump,
+  drawJumpMotion,
+  jumpLayout,
+  rollerMarks,
+} from "./drawJump.ts";
 import { conjugateDepth, froude } from "./hydraulics.ts";
 
 /*
@@ -117,6 +123,67 @@ describe("drawJump: loncatan berombak (G2) dan posisi skematik (G4)", () => {
   });
 });
 
+describe("rollerMarks: tanda gulungan (T1, T4)", () => {
+  const kasus = [
+    { y1: 0.3, V1: 7 }, // bawaan, Fr₁ ≈ 4,08
+    { y1: 0.15, V1: 12 },
+    { y1: 0.08, V1: 16 },
+    { y1: 0.6, V1: 4.5 },
+    { y1: 0.3, V1: 3.3 }, // Fr₁ ≈ 1,92, tepat di atas berombak
+  ];
+
+  it("busur dan kepala panah selalu di dalam badan air", () => {
+    for (const w of [1180, 820, 358])
+      for (const p of kasus) {
+        const L = jumpLayout(w, 504, p);
+        const m = rollerMarks(L);
+        // Muka air di kolom piksel x (pts disampel tiap `step` px).
+        const muka = (x: number) => {
+          const k = Math.round((x - L.padL) / L.step);
+          return L.pts[Math.max(0, Math.min(L.pts.length - 1, k))][1];
+        };
+        for (const g of m) {
+          for (let a = 0; a <= 64; a++) {
+            const t = (Math.PI * 2 * a) / 64;
+            const x = g.cx + g.r * Math.cos(t);
+            const y = g.cy + g.r * Math.sin(t);
+            assert.ok(y > muka(x) + 1, `${w} ${p.y1}/${p.V1}: busur di atas muka air`);
+            assert.ok(y < L.bedY - 1, `${w} ${p.y1}/${p.V1}: busur di bawah dasar`);
+          }
+          for (let k = 0; k < 6; k += 2) {
+            assert.ok(g.head[k + 1] > muka(g.head[k]), "kepala panah di atas muka air");
+            assert.ok(g.head[k + 1] < L.bedY, "kepala panah di bawah dasar");
+          }
+          assert.ok(g.r >= 2.5 && g.r <= 7);
+        }
+      }
+  });
+
+  it("kepala panah menunjukkan putaran berlawanan jarum jam (atas ke hulu)", () => {
+    const L = jumpLayout(820, 504, { y1: 0.3, V1: 7 });
+    const m = rollerMarks(L);
+    assert.ok(m.length >= 3);
+    for (const g of m) {
+      const [ax, ay, tx, ty, bx, by] = g.head;
+      // Arah kepala: dari tengah kedua kaki ke ujung.
+      const ux = tx - (ax + bx) / 2;
+      const uy = ty - (ay + by) / 2;
+      // Ujung di kanan bawah pusat; berlawanan jarum jam di layar (y ke
+      // bawah) di titik itu bergerak ke kanan atas.
+      assert.ok(tx > g.cx && ty > g.cy);
+      assert.ok(ux > 0 && uy < 0, `arah ${ux},${uy}`);
+      // Tangen berlawanan jarum jam: silang (r, u) < 0 pada sumbu y ke bawah.
+      const rx = tx - g.cx;
+      const ry = ty - g.cy;
+      assert.ok(rx * uy - ry * ux < 0);
+    }
+  });
+
+  it("tidak ada gulungan pada loncatan berombak", () => {
+    assert.equal(rollerMarks(jumpLayout(820, 504, { y1: 0.3, V1: 2.2 })).length, 0);
+  });
+});
+
 describe("drawJumpMotion: laju dan goresan dari model (G3)", () => {
   // Panjang mendatar ruas goresan (kepala − ekor), px.
   const panjang = (r: Rekam) => r.ruas.map((s) => s[2] - s[0]);
@@ -162,6 +229,47 @@ describe("drawJumpMotion: laju dan goresan dari model (G3)", () => {
     const b = konteks(820);
     drawJumpMotion(b.ctx, 820, 504, 1, 0.016, { y1: 0.3, V1: 7 }, {}, createJumpMotion(150));
     assert.deepEqual(b.rekam.alpha, [0.34, 0.5]);
+  });
+
+  it("lajur awal dan lajur lahir ulang tidak berpola (korelasi < 0,2)", () => {
+    const korelasi = (a: number[], b: number[]) => {
+      const n = a.length;
+      const ma = a.reduce((s, v) => s + v, 0) / n;
+      const mb = b.reduce((s, v) => s + v, 0) / n;
+      let sab = 0, saa = 0, sbb = 0;
+      for (let i = 0; i < n; i++) {
+        sab += (a[i] - ma) * (b[i] - mb);
+        saa += (a[i] - ma) ** 2;
+        sbb += (b[i] - mb) ** 2;
+      }
+      return sab / Math.sqrt(saa * sbb);
+    };
+    const lagMaks = (s: number[]) => {
+      let m = 0;
+      for (let lag = 1; lag <= 12; lag++)
+        m = Math.max(m, Math.abs(korelasi(s.slice(0, -lag), s.slice(lag))));
+      return m;
+    };
+    const st = createJumpMotion(150);
+    // Awal: urut menurut x (x = i/n), jadi lag pada indeks = tetangga mendatar.
+    assert.ok(lagMaks(Array.from(st.pool.y)) < 0.2, "sebar awal");
+    const p = { y1: 0.3, V1: 7 };
+    const lajur: number[] = [];
+    const urut: number[] = [];
+    const gen = Uint32Array.from(st.pool.gen);
+    for (let k = 0; k < 4000; k++) {
+      drawJumpMotion(konteks(820).ctx, 820, 504, k / 60, 1 / 60, p, {}, st);
+      for (let i = 0; i < st.pool.n; i++)
+        if (st.pool.gen[i] !== gen[i]) {
+          gen[i] = st.pool.gen[i];
+          lajur.push(st.pool.y[i]);
+          urut.push(i);
+        }
+    }
+    assert.ok(lajur.length > 500, `sampel ${lajur.length}`);
+    assert.ok(lagMaks(lajur) < 0.2, `lag ${lagMaks(lajur)}`);
+    assert.ok(Math.abs(korelasi(lajur, urut)) < 0.2, "indeks");
+    for (const y of lajur) assert.ok(y >= 0.1 && y <= 0.9);
   });
 
   it("tata letak lapis gerak sama dengan lapis statis (badan air yang sama)", () => {

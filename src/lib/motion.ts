@@ -21,8 +21,10 @@ export type Pool = {
   y: Float32Array;
   /** Umur sejak terakhir lahir, detik waktu fisik */
   age: Float32Array;
-  /** Bilangan acak tetap per partikel, 0..1 */
+  /** Bilangan acak per partikel, 0..1; diganti tiap lahir ulang (relane) */
   seed: Float32Array;
+  /** Jumlah lahir ulang per partikel, masukan hash lajur berikutnya */
+  gen: Uint32Array;
   /** Kecepatan mendatar pada langkah advect terakhir, m/s */
   u: Float32Array;
   /** Kecepatan tegak pada langkah advect terakhir, m/s */
@@ -41,11 +43,41 @@ export type VelocityField = (x: number, y: number, out: Float32Array) => void;
 /** Menempatkan ulang partikel i yang keluar domain. */
 export type Respawn = (p: Pool, i: number, dom: Domain) => void;
 
-const PHI = 0.6180339887498949;
+/**
+ * Hash bilangan bulat (i, k) ke [0, 1), deterministik, tanpa Math.random dan
+ * tanpa alokasi (pengaduk gaya lowbias32 dengan dua masukan).
+ *
+ * Dipakai untuk lajur partikel. Dulu lajur memakai urutan golden ratio
+ * frac(i·φ) dan geseran seed + φ tiap lahir ulang. Urutan itu kisi:
+ * partikel yang lewat beruntun mendapat selisih lajur yang tetap, jadi di
+ * daerah perlambatan goresannya berbaris membentuk garis miring palsu.
+ * Hash tidak berkorelasi dengan indeks maupun urutan lewat.
+ */
+export function hash01(i: number, k: number): number {
+  let h = Math.imul(i | 0, 0x9e3779b1) ^ Math.imul((k | 0) + 0x632be5ab, 0x85ebca77);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
 
 /**
- * Pool n partikel tersebar rata semu (urutan golden ratio) di domain
- * satuan; posisi diisi lewat `scatter` atau respawn pertama.
+ * Lajur baru partikel i saat lahir ulang: menaikkan hitungan lahir ulang,
+ * mengisi seed dengan hash (i, hitungan), lalu mengembalikannya (0..1).
+ */
+export function relane(p: Pool, i: number): number {
+  const g = (p.gen[i] + 1) >>> 0;
+  p.gen[i] = g;
+  const s = hash01(i, g);
+  p.seed[i] = s;
+  return s;
+}
+
+/**
+ * Pool n partikel; seed awal hash (i, 0). Posisi diisi lewat `scatter`
+ * atau respawn pertama.
  */
 export function createPool(n: number): Pool {
   const p: Pool = {
@@ -56,30 +88,34 @@ export function createPool(n: number): Pool {
     seed: new Float32Array(n),
     u: new Float32Array(n),
     v: new Float32Array(n),
+    gen: new Uint32Array(n),
   };
-  for (let i = 0; i < n; i++) p.seed[i] = (i * 0.7548776662) % 1;
+  for (let i = 0; i < n; i++) p.seed[i] = hash01(i, 0);
   return p;
 }
 
-/** Sebar partikel merata semu ke seluruh domain (keadaan awal). */
+/**
+ * Sebar partikel ke seluruh domain (keadaan awal): x merata berurutan,
+ * tinggi dari hash supaya tetangga mendatar tidak berbaris miring.
+ */
 export function scatter(p: Pool, dom: Domain): void {
   const wx = dom.x1 - dom.x0;
   const wy = dom.y1 - dom.y0;
   for (let i = 0; i < p.n; i++) {
     p.x[i] = dom.x0 + ((i + 0.5) / p.n) * wx;
-    p.y[i] = dom.y0 + ((i * PHI) % 1) * wy;
+    p.y[i] = dom.y0 + p.seed[i] * wy;
     p.age[i] = 0;
   }
 }
 
 /**
  * Respawn bawaan: lahir di tepi hulu (x0 untuk aliran ke kanan, x1 untuk
- * aliran ke kiri), tinggi dari seed yang digeser golden ratio supaya
- * jalurnya tidak berulang. Deterministik, tanpa Math.random.
+ * aliran ke kiri), tinggi dari relane (hash indeks dan hitungan lahir
+ * ulang) supaya lajurnya tidak berulang dan tidak berpola. Deterministik,
+ * tanpa Math.random.
  */
 export const respawnInlet: Respawn = (p, i, dom) => {
-  const s = (p.seed[i] + PHI) % 1;
-  p.seed[i] = s;
+  const s = relane(p, i);
   p.x[i] = p.u[i] < 0 ? dom.x1 : dom.x0;
   p.y[i] = dom.y0 + s * (dom.y1 - dom.y0);
   p.age[i] = 0;
