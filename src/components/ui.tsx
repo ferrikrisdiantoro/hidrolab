@@ -4,12 +4,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
@@ -53,6 +55,20 @@ const tanpaLingkup = () => {};
 export function usePresetTouch(): () => void {
   const lingkup = useContext(PresetContext);
   return lingkup?.touch ?? tanpaLingkup;
+}
+
+/**
+ * Jembatan pemadam tanda contoh untuk pegangan seret. Pegangan duduk di
+ * Sheet, di luar Block masukan, jadi tidak menemukan lingkup contoh.
+ * Taruh komponen kosong ini di dalam Block masukan; ia menyerahkan fungsi
+ * padamnya ke ref milik lembar, yang lalu diberikan ke DragLayer `touch`.
+ */
+export function SentuhContoh({ sentuh }: { sentuh: RefObject<() => void> }) {
+  const touch = usePresetTouch();
+  useEffect(() => {
+    sentuh.current = touch;
+  }, [sentuh, touch]);
+  return null;
 }
 
 export type TitleBlockCell = { label: string; value: string; tint?: string };

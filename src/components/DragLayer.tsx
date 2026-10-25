@@ -94,13 +94,18 @@ function Pegangan({
   spec,
   at,
   map,
+  touchLembar,
 }: {
   spec: HandleSpec;
   at: PlateAnchor;
   map: PlateMap;
+  touchLembar?: () => void;
 }) {
   const t = str(useLang().lang);
-  const touch = usePresetTouch();
+  // Pegangan duduk di Sheet, di luar Block, jadi konteks contoh sering
+  // tidak sampai; lembar boleh memberi fungsi padamnya sendiri.
+  const touchBlok = usePresetTouch();
+  const touch = touchLembar ?? touchBlok;
 
   // Handler membaca nilai terbaru lewat ref, karena selama seret komponen
   // dirender ulang tiap kali pemanggil menyimpan nilai baru.
@@ -137,7 +142,9 @@ function Pegangan({
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
-    e.currentTarget.focus({ preventScroll: true });
+    // Fokus supaya panah bisa langsung dipakai, tanpa cincin fokus: cincin
+    // hanya untuk pemilihan dengan keyboard.
+    e.currentTarget.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = titikLapis(e);
     const a = kini.current.at;
@@ -217,6 +224,9 @@ function Pegangan({
           transform: `translate(${at.x - R}px, ${at.y - R}px)`,
           touchAction: "none",
           cursor: kursor,
+          // :focus-visible global di globals.css berada di luar layer dan
+          // mengalahkan outline-none Tailwind; cincin sendiri ada di SVG.
+          outline: "none",
         }}
       >
         <svg
@@ -297,23 +307,39 @@ function Pegangan({
 export function DragLayer({
   out,
   handles,
+  touch,
 }: {
   out: PlateOut | null;
   handles: HandleSpec[];
+  /** Pemadam tanda contoh dari lembar (useTouch di Block masukan). */
+  touch?: () => void;
 }) {
   if (!out) return null;
   const anchors = out.anchors ?? {};
-  // Pegangan hanya di dalam salah satu bidang plot; nilai ekstrem bisa
-  // membuat titik (garis energi, puncak) keluar sumbu.
+  // Nilai ekstrem bisa membawa titik (garis energi, puncak, pintu terbuka
+  // lebar) keluar sumbu. Pegangan dijepit ke tepi bidang plot terdekat,
+  // bukan dihilangkan: seret tidak putus dan fokus keyboard tidak hilang.
   const frames = [out.map.frame, ...Object.values(out.maps ?? {}).map((m) => m.frame)];
-  const diBidang = (p: { x: number; y: number }) =>
-    frames.some((f) => p.x >= f.x0 - 0.5 && p.x <= f.x1 + 0.5 && p.y >= f.y0 - 0.5 && p.y <= f.y1 + 0.5);
+  const jepit = (p: PlateAnchor): PlateAnchor => {
+    let best = p;
+    let jarak = Infinity;
+    for (const f of frames) {
+      const x = Math.min(Math.max(p.x, f.x0), f.x1);
+      const y = Math.min(Math.max(p.y, f.y0), f.y1);
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d < jarak) {
+        jarak = d;
+        best = { x, y };
+      }
+    }
+    return best;
+  };
   return (
     <div className="pointer-events-none absolute inset-0">
       {handles.map((h) => {
         const at = anchors[h.anchor];
-        if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || !diBidang(at)) return null;
-        return <Pegangan key={h.id} spec={h} at={at} map={out.map} />;
+        if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return null;
+        return <Pegangan key={h.id} spec={h} at={jepit(at)} map={out.map} touchLembar={touch} />;
       })}
     </div>
   );

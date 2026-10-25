@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,7 +13,7 @@ import {
   Sheet,
   StateCard,
   Term,
-  usePresetTouch,
+  SentuhContoh,
 } from "@/components/ui";
 import { DragLayer } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
@@ -164,20 +164,6 @@ const REFS = {
  * dipasang dan ditandai sebagai keadaan "pintu tidak menyentuh aliran".
  */
 const P_A: ParamDef = { min: 0.02, max: 6, step: 0.02, digits: 2 };
-
-/*
- * Jembatan ke pencacah tanda contoh blok masukan. Pegangan seret duduk di
- * dalam Sheet, di luar Block masukan, jadi usePresetTouch di DragLayer tidak
- * menemukan lingkupnya dan tanda contoh tidak padam. Komponen kosong ini
- * duduk di dalam Block dan menyerahkan fungsi padamnya ke lembar.
- */
-function SentuhContoh({ sentuh }: { sentuh: RefObject<() => void> }) {
-  const touch = usePresetTouch();
-  useEffect(() => {
-    sentuh.current = touch;
-  }, [sentuh, touch]);
-  return null;
-}
 
 export function PintuSorongClient() {
   const { lang } = useLang();
@@ -490,6 +476,7 @@ export function PintuSorongClient() {
           <canvas ref={plate.ref} className="block h-full w-full" />
           <DragLayer
             out={plate.outRef.current}
+            touch={() => sentuh.current()}
             handles={[
               {
                 id: "a",
@@ -501,21 +488,12 @@ export function PintuSorongClient() {
                 /*
                  * Skala tegak gambar hanya bergantung pada y₁ (dan y₃ saat
                  * terbalik), bukan pada a, jadi pegangan tidak saling kejar
-                 * dengan sumbunya. Ke atas seretnya berhenti satu jari-jari
-                 * pegangan (22 px) di bawah tepi atas bidang gambar: pegangan
-                 * tetap utuh di dalam bidang, potongan daun pintu di atasnya
-                 * masih terlihat, dan pijakan tidak membulatkannya keluar
-                 * bidang sehingga pegangan hilang di tengah seret. Bukaan
-                 * setinggi itu sudah di atas y₁ (pintu tidak menyentuh
-                 * aliran); sisa rentang sampai 6 m tetap lewat penggeser dan
-                 * kotak angka.
+                 * dengan sumbunya. Bukaan di atas bidang gambar: DragLayer
+                 * menjepit pegangan ke tepi atas, nilainya tetap jalan
+                 * sampai 6 m.
                  */
-                toValue: (_px, py, m) =>
-                  Math.min(m.invY(py), m.invY(m.frame.y0 + 22)),
-                onChange: (v) => {
-                  sentuh.current();
-                  setA(v);
-                },
+                toValue: (_px, py, m) => m.invY(py),
+                onChange: setA,
                 format: (v) => `${fmt(v, 2)} m`,
               },
             ]}
