@@ -42,6 +42,12 @@ type HandleBase = {
   label: string;
   /** Warna garis pegangan; samakan dengan tint InputRow-nya. Bawaan: tinta. */
   tint?: string;
+  /**
+   * Cincin pegangan tanpa isi, supaya tanda data yang digambar penggambar
+   * di titik yang sama (misalnya belah ketupat titik kerja PI-01) tetap
+   * terlihat di dalamnya. Bawaan: berisi warna kertas.
+   */
+  hollow?: boolean;
 };
 
 export type HandleSpec1 = HandleBase & {
@@ -261,7 +267,14 @@ function Pegangan({
               <path d={`M${R - 3} ${R - 13}l3 -3 3 3M${R - 3} ${R + 13}l3 3 3 -3`} />
             )}
           </g>
-          <circle cx={R} cy={R} r={6} fill="var(--color-sheet)" stroke={garis} strokeWidth={W.thin} />
+          <circle
+            cx={R}
+            cy={R}
+            r={spec.hollow ? 8 : 6}
+            fill={spec.hollow ? "none" : "var(--color-sheet)"}
+            stroke={garis}
+            strokeWidth={W.thin}
+          />
           {/* Titik tengah: menyala saat disentuh, diseret, atau difokus. */}
           <circle
             cx={R}

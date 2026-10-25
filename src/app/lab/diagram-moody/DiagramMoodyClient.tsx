@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -8,6 +8,7 @@ import {
   InputRow,
   InputTable,
   PresetRow,
+  SentuhContoh,
   RegimeScale,
   ResultTable,
   Sheet,
@@ -15,8 +16,10 @@ import {
   Term,
   type LangkahHitung,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
 import { drawMoody } from "@/lib/drawMoody";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import {
   G,
   RE_LAMINAR_MAX,
@@ -68,6 +71,8 @@ const TXT = {
     hRes: "Colebrook terselesaikan (Newton-Raphson): sisa persamaan",
     hHf: "Kehilangan tinggi tekan",
     hS: "Kemiringan hidraulik",
+    hdlPoint: "Titik kerja: geser mendatar untuk mengubah Re lewat kecepatan V",
+    hdlRough: "Ujung kurva kekasaran: geser tegak untuk mengubah kekasaran ε",
     note: "Persamaan Colebrook-White bersifat implisit — f muncul di kedua sisi. Di sini diselesaikan dengan iterasi Newton-Raphson pada peubah 1/√f, memakai pendekatan eksplisit Swamee-Jain sebagai tebakan awal; biasanya tiga sampai empat putaran sudah mencapai ketelitian mesin. Pita di antara Re 2.000 dan 4.000 sengaja dibiarkan kosong tanpa kurva, sebagaimana pada diagram aslinya: di rentang itu aliran dapat berbalik-balik antara laminar dan turbulen tergantung gangguan di hulu, sehingga tidak ada satu nilai yang bisa dipertanggungjawabkan.",
   },
   en: {
@@ -102,6 +107,8 @@ const TXT = {
     hRes: "Colebrook solved (Newton-Raphson): equation residual",
     hHf: "Head loss",
     hS: "Hydraulic gradient",
+    hdlPoint: "Operating point: drag sideways to change Re through velocity V",
+    hdlRough: "Roughness curve end: drag up or down to change roughness ε",
     note: "The Colebrook-White equation is implicit — f appears on both sides. Here it is solved by Newton-Raphson iteration on the variable 1/√f, using the explicit Swamee-Jain approximation as a starting guess; three or four passes usually reach machine precision. The band between Re 2,000 and 4,000 is deliberately left empty of curves, as on the original chart: in that range the flow can switch back and forth between laminar and turbulent depending on upstream disturbance, so no single value can be defended.",
   },
 } as const;
@@ -130,6 +137,25 @@ function nuWater(T: number): number {
    D 0,02, T 4; 2,41·10⁷ pada V 8, D 2, T 40). */
 const RE_AXIS_MIN = 1e2;
 const RE_AXIS_MAX = 1e8;
+/*
+ * Rentang masukan yang dipakai bersama oleh penggeser, kotak angka, dan
+ * pegangan seret di diagram (aturan 4: satu sumber nilai).
+ */
+const P_V: ParamDef = { min: 0.02, max: 8, step: 0.01, digits: 2 };
+const P_EPS: ParamDef = { min: 0, max: 3, step: 0.0005, digits: 4 };
+
+/*
+ * Kebalikan Colebrook pada Re tetap: ε/D yang membuat kurva Colebrook lewat
+ * f di Re itu. Dari 1/√f = −2 log₁₀(ε/D / 3,7 + 2,51 / (Re √f)):
+ *   ε/D = 3,7 · ( 10^(−1/(2√f)) − 2,51 / (Re √f) )
+ * Hasil negatif berarti f di bawah kurva pipa licin; snap memotongnya ke
+ * ε = 0 dengan penanda "dibatasi ke".
+ */
+function rrDariF(f: number, Re: number): number {
+  const sf = Math.sqrt(f);
+  return 3.7 * (Math.pow(10, -1 / (2 * sf)) - 2.51 / (Re * sf));
+}
+
 /** Kurva kekasaran terbesar pada diagram Moody (1944) dan drawMoody (FAMILY). */
 const RR_MAX_MOODY = 0.05;
 
@@ -175,6 +201,8 @@ export function DiagramMoodyClient() {
   const [epsMm, setEpsMm] = useState(0.26);
   const [L, setL] = useState(120);
   const [T, setT] = useState(20);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
 
   const nu = nuWater(T);
   const Re = reynolds(V, D, nu);
@@ -254,10 +282,50 @@ export function DiagramMoodyClient() {
             ];
           })();
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, h) => drawMoody(ctx, w, h, { Re, relRough, f, regime }, lang),
+    null,
     [Re, relRough, f, regime, lang]
   );
+
+  /*
+   * Pegangan seret. Posisi tegak titik kerja adalah f HASIL hitungan, jadi
+   * titik kerja hanya diseret mendatar (Re). Re bukan masukan; yang diubah
+   * adalah V, satu-satunya masukan yang tidak ikut mengubah ε/D:
+   *   V = Re · ν / D   (D dan T tetap)
+   * Kekasaran diseret lewat pegangan kedua di ujung kanan kurvanya (Re 10⁸,
+   * tepat di depan skala ε/D sumbu kanan): f di ujung → ε/D lewat kebalikan
+   * Colebrook → ε = ε/D · D (D tetap). Keduanya memakai ParamDef yang sama
+   * dengan InputRow V dan ε, dan memanggil setter yang sama.
+   */
+  const reDariV = (v: number) => reynolds(v, D, nu);
+  const handles: HandleSpec[] = [
+    {
+      id: "titik",
+      anchor: "point",
+      axis: "x",
+      label: x.hdlPoint,
+      // Belah ketupat titik kerja tetap terlihat di dalam cincin.
+      hollow: true,
+      param: P_V,
+      value: V,
+      toValue: (px, _py, m) => (m.invX(px) * nu) / D,
+      onChange: setV,
+      format: (v) => `V ${fmt(v, 2)} m/s, Re ${fmtSci(reDariV(v))}`,
+    },
+    {
+      id: "kekasaran",
+      anchor: "roughnessEnd",
+      axis: "y",
+      label: x.hdlRough,
+      tint: C.water,
+      param: P_EPS,
+      value: epsMm,
+      toValue: (_px, py, m) => rrDariF(m.invY(py), RE_AXIS_MAX) * D * 1000,
+      onChange: setEpsMm,
+      format: (v) => `ε ${fmt(v, 4)} mm, ε/D ${fmtSci(v / 1000 / D)}`,
+    },
+  ];
 
   return (
     <LabShell
@@ -306,16 +374,22 @@ export function DiagramMoodyClient() {
             { label: t.tbRegime, value: regimeLabel },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* usePlate menaikkan `version` (state) tiap lapis statis digambar
+              ulang, jadi Client dirender ulang dan pegangan membaca anchor
+              baru dari outRef. Tanpa key: pegangan tidak boleh dipasang
+              ulang di tengah seret (pointer capture hilang). */}
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="V" label={x.dV} value={V} min={0.02} max={8} step={0.01} unit="m/s" onChange={setV} />
+              <InputRow symbol="V" label={x.dV} value={V} {...P_V} unit="m/s" onChange={setV} />
               <InputRow symbol="D" label={x.dD} value={D} min={0.02} max={2} step={0.005} digits={3} unit="m" onChange={setD} />
-              <InputRow symbol="ε" label={x.dE} value={epsMm} min={0} max={3} step={0.0005} digits={4} unit="mm" onChange={setEpsMm} tint={C.water} />
+              <InputRow symbol="ε" label={x.dE} value={epsMm} {...P_EPS} unit="mm" onChange={setEpsMm} tint={C.water} />
               <InputRow symbol="L" label={x.dL} value={L} min={5} max={2000} step={5} digits={0} unit="m" onChange={setL} />
               <InputRow symbol="T" label={x.dT} value={T} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setT} />
             </InputTable>
