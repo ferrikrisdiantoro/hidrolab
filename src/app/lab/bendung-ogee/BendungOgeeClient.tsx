@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,9 +13,12 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawStructure,
   type StructureLine,
@@ -50,6 +53,8 @@ const TXT = {
     pRancang: "Pada tinggi rancangan",
     pRendah: "Jauh di bawah rancangan",
     pBanjir: "Banjir di atas rancangan",
+    gH: "Tinggi muka air h, seret muka air hulu naik atau turun",
+    gP: "Tinggi mercu P, seret dasar hulu naik atau turun",
     rQ: "Debit",
     rHe: "Tinggi energi",
     rCd: "Koefisien debit",
@@ -96,6 +101,8 @@ const TXT = {
     pRancang: "At the design head",
     pRendah: "Far below the design head",
     pBanjir: "Flood above the design head",
+    gH: "Water level h, drag the upstream water surface up or down",
+    gP: "Crest height P, drag the upstream bed up or down",
     rQ: "Discharge",
     rHe: "Energy head",
     rCd: "Discharge coefficient",
@@ -149,6 +156,16 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang h dan P: satu definisi untuk penggeser, kotak angka, dan pegangan
+ * seret di gambar (aturan 4, satu sumber nilai).
+ */
+const P_H: ParamDef = { min: 0.05, max: 12, step: 0.05, digits: 2 };
+const P_P: ParamDef = { min: 0.5, max: 40, step: 0.5, digits: 1 };
+
+/** Batas bidang gambar dalam meter, dikunci selama pegangan diseret. */
+type Bidang = { xMin: number; xMax: number; zMin: number; zMax: number };
+
 export function BendungOgeeClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -163,7 +180,19 @@ export function BendungOgeeClient() {
   const r = ogeeWeir(h, Hd, L, P);
   const takKendali = !r.controlled;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Batas bidang dikunci selama pegangan diseret. Tanpa kunci, ujung atas
+   * sumbu tegak mengikuti h (zMax = max(He, h) + 0,6 Hd) dan ujung bawahnya
+   * serta ujung kanannya mengikuti P (kaki muka WES), sedangkan skala
+   * dijaga sama di kedua sumbu: tiap piksel geseran mengubah skala, titik
+   * yang ditunjuk jari berganti nilai, dan pegangan saling kejar dengan
+   * sumbunya. Dilepas = bidang kembali dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<Bidang | null>(null);
+  const bidangRef = useRef<Bidang | null>(null);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       /* Geometri, dengan puncak mercu di titik asal:
          hulu di x negatif, muka hilir mengikuti bentuk WES ke kanan. */
@@ -238,11 +267,21 @@ export function BendungOgeeClient() {
         });
       }
 
-      const spec: StructureSpec = {
+      const bebas: Bidang = {
         xMin: xHulu,
         xMax: xKaki,
         zMin: zDasar,
         zMax: Math.max(r.He, h) + 0.6 * Math.max(Hd, 0.5),
+      };
+      bidangRef.current = bebas;
+      const bidang = kunci ?? bebas;
+      /* Selama dikunci, garis ukur dipotong ke bidang supaya tidak menembus
+         bingkai; teksnya tetap nilai sebenarnya. Tanpa kunci tidak berubah. */
+      const potongZ = (z: number) =>
+        kunci ? Math.min(Math.max(z, kunci.zMin), kunci.zMax) : z;
+
+      const spec: StructureSpec = {
+        ...bidang,
         bodies: [{ pts: badan }],
         waters: takKendali
           ? [
@@ -279,7 +318,7 @@ export function BendungOgeeClient() {
             axis: "v",
             at: xHulu * 0.75,
             from: 0,
-            to: h,
+            to: potongZ(h),
             text: `h ${fmtPlain(h, 2)} m`,
             color: C.water,
             offset: 0,
@@ -287,7 +326,7 @@ export function BendungOgeeClient() {
           {
             axis: "v",
             at: xHulu * 0.35,
-            from: -P,
+            from: potongZ(-P),
             to: 0,
             text: `P ${fmtPlain(P, 1)} m`,
             color: C.ink,
@@ -314,12 +353,66 @@ export function BendungOgeeClient() {
         headingColor: takKendali ? C.signal : C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
+        /*
+         * Tempat pegangan, tidak digambar. Keduanya di tengah sisi hulu,
+         * di antara garis ukur h dan garis ukur P, pada muka air hulu yang
+         * datar (z = h) dan pada dasar hulu (z = −P).
+         */
+        anchors: {
+          muka: { x: xHulu * 0.55, z: h },
+          dasar: { x: xHulu * 0.55, z: -P },
+        },
       };
 
-      drawStructure(ctx, w, ch, spec, lang);
+      return drawStructure(ctx, w, ch, spec, lang);
     },
-    [h, Hd, L, P, lang]
+    null,
+    [
+      h,
+      Hd,
+      L,
+      P,
+      lang,
+      kunci ? kunci.xMin : NaN,
+      kunci ? kunci.xMax : NaN,
+      kunci ? kunci.zMin : NaN,
+      kunci ? kunci.zMax : NaN,
+    ]
   );
+
+  /*
+   * Pemetaan balik:
+   * - muka: sumbu tegak adalah elevasi dengan mercu di z = 0, jadi tinggi
+   *   muka air di atas mercu h = z jari langsung. Hanya tegak.
+   * - dasar: dasar hulu berada di z = −P, jadi P = −z jari (seret ke bawah
+   *   meninggikan mercu). Hanya tegak.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "muka",
+      anchor: "muka",
+      axis: "y",
+      label: x.gH,
+      tint: C.water,
+      param: P_H,
+      value: h,
+      toValue: (_px, py, m) => m.invY(py),
+      onChange: setH,
+      format: (v) => `h ${fmt(v, 2)} m`,
+    },
+    {
+      id: "dasar",
+      anchor: "dasar",
+      axis: "y",
+      label: x.gP,
+      param: P_P,
+      value: P,
+      toValue: (_px, py, m) => -m.invY(py),
+      onChange: setP,
+      format: (v) => `P ${fmt(v, 1)} m`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -371,19 +464,37 @@ export function BendungOgeeClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci bidang. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (bidangRef.current) setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="h" label={x.dH} value={h} min={0.05} max={12} step={0.05} digits={2} unit="m" onChange={setH} tint={C.water} />
+              <InputRow symbol="h" label={x.dH} value={h} {...P_H} unit="m" onChange={setH} tint={C.water} />
               <InputRow symbol="Hd" label={x.dHd} value={Hd} min={0.3} max={8} step={0.1} digits={1} unit="m" onChange={setHd} tint={C.critical} />
               <InputRow symbol="L" label={x.dL} value={L} min={2} max={120} step={1} digits={0} unit="m" onChange={setL} />
-              <InputRow symbol="P" label={x.dP} value={P} min={0.5} max={40} step={0.5} digits={1} unit="m" onChange={setP} />
+              <InputRow symbol="P" label={x.dP} value={P} {...P_P} unit="m" onChange={setP} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
