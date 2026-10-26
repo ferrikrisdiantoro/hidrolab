@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,7 +14,12 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createDeformMotion,
+  drawDeformMotion,
+  type DeformMotion,
+} from "@/lib/drawFieldMotion";
 import {
   drawField,
   type FieldArrow,
@@ -28,6 +33,9 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksDeformation } from "@/lib/checks";
+
+/** Lapis gerak: waktu diperlambat empat kali (t paling lama 1 s). */
+const SKALA_WAKTU = 0.25;
 
 const TXT = {
   id: {
@@ -79,6 +87,7 @@ const TXT = {
     jSudut: "Arah regangan utama terbesar",
     jBagi: "Bagian gerak yang berupa putaran",
     jLuas: "Luas elemen satuan sesudah t (Liouville)",
+    motionNote: "diputar ulang 0 sampai t, waktu diperlambat ×4",
     mampat: "Medan ini memuai, dan air tidak dapat memuai",
     mampatNote:
       "Jumlah kedua regangan searah sumbunya tidak nol, jadi elemen ini berubah volumenya. Air pada tekanan biasa tidak dapat melakukannya: seluruh medan kecepatan air yang benar selalu memenuhi ∂u/∂x + ∂v/∂y = 0. Medan yang sedang digambar sekarang bukan medan yang mustahil dihitung, melainkan medan yang mustahil ada. Nilainya sebagai alat ajar justru di situ: syarat tak mampat bukan rumus tambahan yang dihafal, melainkan satu-satunya yang menjaga luas elemen tetap sepanjang gerakannya, dan di sini luas itu terlihat berubah.",
@@ -134,6 +143,7 @@ const TXT = {
     jSudut: "Direction of the larger principal strain",
     jBagi: "Share of the motion that is rotation",
     jLuas: "Area of the unit element after t (Liouville)",
+    motionNote: "replayed from 0 to t, time slowed ×4",
     mampat: "This field expands, and water cannot expand",
     mampatNote:
       "The two axial strain rates do not sum to zero, so this element changes its volume. Water at ordinary pressures cannot do that: every correct velocity field for water satisfies ∂u/∂x + ∂v/∂y = 0. The field now being drawn is not one that is impossible to compute but one that is impossible to exist. Its worth as a teaching case lies exactly there: the incompressibility condition is not an extra formula to memorise but the one thing that keeps an element's area constant through its motion, and here that area is visibly changing.",
@@ -179,7 +189,15 @@ export function DeformasiFluidaClient() {
    */
   const adaSumbu = r.principal[0] - r.principal[1] > 1e-9;
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): elemen berkisi dibawa medan dari 0 sampai t,
+     dan pelacak yang mengikuti u = A x. Selagi bergerak, panah kecepatan
+     di lapis statis diganti goresan pelacaknya. */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<DeformMotion | null>(null);
+  if (gerak.current === null) gerak.current = createDeformMotion();
+  const bergerak = playing;
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const asli = [
         { x: -0.5, y: -0.5 },
@@ -255,7 +273,7 @@ export function DeformasiFluidaClient() {
           });
         }
 
-      drawField(
+      return drawField(
         ctx,
         w,
         ch,
@@ -266,7 +284,7 @@ export function DeformasiFluidaClient() {
           yMax: tepi + atasJudul,
           patches: bidang,
           lines: garis,
-          arrows: panah,
+          arrows: bergerak ? [] : panah,
           regions: [
             { x: 0, y: 0.34, text: T.fluidElement, color: C.ink3 },
             {
@@ -284,7 +302,17 @@ export function DeformasiFluidaClient() {
         lang
       );
     },
-    [a, b, c, d, waktu, lang]
+    (ctx, _w, _h, tt, dt, out) =>
+      drawDeformMotion(
+        ctx,
+        tt,
+        dt,
+        out,
+        { a, b, c, d, waktu, invalid: !r.incompressible },
+        gerak.current!
+      ),
+    [a, b, c, d, waktu, lang, bergerak],
+    { playing, timeScale: SKALA_WAKTU }
   );
 
   const keadaan = r.still
@@ -356,8 +384,15 @@ export function DeformasiFluidaClient() {
               tint: r.incompressible ? undefined : C.signal,
             },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
