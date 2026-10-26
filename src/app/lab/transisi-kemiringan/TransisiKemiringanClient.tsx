@@ -260,7 +260,9 @@ export function TransisiKemiringanClient() {
   const gerak = useRef<ReachMotion | null>(null);
   if (gerak.current === null) gerak.current = createReachMotion(170);
   const aliran = useMemo(() => {
-    if (!terjangkau) return null;
+    // Loncatan tenggelam: profil yang digambar tidak berlaku (ruas curam
+    // berisi S1 dan loncatan), jadi tanpa gerak dan tanpa tombol.
+    if (!terjangkau || r.jumpDrowned) return null;
     const g = geometri(r, La, Lb, Sa, Sb, okA, okB);
     const st: ReachStation[] = g.air.map((p) => {
       const d = p.z - g.zb(p.x);

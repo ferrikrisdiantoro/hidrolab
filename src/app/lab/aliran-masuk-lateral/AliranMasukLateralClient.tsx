@@ -194,7 +194,9 @@ export function AliranMasukLateralClient() {
   const gerak = useRef<ReachMotion | null>(null);
   if (gerak.current === null) gerak.current = createReachMotion(170);
   const aliran = useMemo(() => {
-    if (r.outletSupercritical || !(r.Qend > 0)) return null;
+    // Profil melewati kritis: persamaan aliran berubah beraturan gugur
+    // (1 − Fr² → 0, V sampai ratusan m/s), jadi tanpa gerak.
+    if (r.outletSupercritical || r.crossesCritical || !(r.Qend > 0)) return null;
     const zb = (xx: number) => (L - xx) * S0;
     const air: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: zb(p.x) + p.y }));
     const st: ReachStation[] = r.points.map((p) => ({ x: p.x, zb: zb(p.x), zs: zb(p.x) + p.y, V: p.V, Q: p.Q }));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -250,6 +250,11 @@ export function PengaruhHilirClient() {
    * berpengaruh), dan jangkauannya terhitung.
    */
   const adaPegangan = bendung && !lonc && !r.beyondSearch && Math.abs(yCtl - y0) > 1e-6;
+  // Pegangan yang copot di tengah seret tidak mengirim pointerup ke
+  // pembungkus; lepas kunci di sini supaya sumbu tidak macet terkunci.
+  useEffect(() => {
+    if (!adaPegangan) setKunci(null);
+  }, [adaPegangan]);
   const dy = yCtl - y0;
   /*
    * Profil pemetaan balik: tiga kali bentang gambar supaya jari yang ditarik
@@ -550,7 +555,7 @@ export function PengaruhHilirClient() {
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.05} max={10} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
               <InputRow symbol="P" label={x.dP} value={P} min={0.1} max={5} step={0.05} unit="m" onChange={setP} />
-              <InputRow symbol="ε" label={x.dF} value={pers} {...P_EPS} unit="%" onChange={setPers} />
+              <InputRow symbol="ε" label={x.dF} value={pers} {...P_EPS} unit="%" onChange={setPers} tint={C.water} />
             </InputTable>
 
             <SentuhContoh sentuh={sentuh} />

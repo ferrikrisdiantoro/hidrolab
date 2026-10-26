@@ -91,8 +91,8 @@ const TXT = {
     curam:
       "Curamkan dasar: kedalaman di pangkal berkurang, tetapi dasar pangkal naik S₀L, jadi muka air di pangkal ikut naik dan jagaan menyusut.",
     exagg: "pelebihan tegak",
-    motion: (n: string) => `partikel bergerak dengan V = Q(x)/A, lahir di sepanjang mercu sebanding Q(x), waktu dipercepat ×${n}`,
-    motionReal: "partikel bergerak dengan V = Q(x)/A, lahir di sepanjang mercu sebanding Q(x), waktu nyata",
+    motion: (n: string) => `partikel bergerak dengan V = Q(x)/A, lahir merata di sepanjang mercu, fluks sebanding Q(x), waktu dipercepat ×${n}`,
+    motionReal: "partikel bergerak dengan V = Q(x)/A, lahir merata di sepanjang mercu, fluks sebanding Q(x), waktu nyata",
     note:
       "Yang dipakai di sini bentuk beda hingga dari persamaan momentum, bukan bentuk diferensial, dan itu bukan pilihan gaya melainkan keharusan. Kendali saluran pengumpul berada tepat pada kondisi kritis di ujung keluarnya, dan di titik itu bentuk diferensial membagi dengan satu dikurangi kuadrat bilangan Froude yang menuju nol, sehingga penelusuran meledak pada langkah pertama. Bentuk beda hingga tidak pernah membagi dengan suku itu. Bentuk yang dipakai juga sudah dirapikan supaya tidak membagi dengan debit di hulu, sehingga pangkal saluran yang debitnya nol tetap dapat dihitung. Yang membuat saluran pengumpul dalam bukan gesekan melainkan momentum: air yang jatuh dari mercu masuk tegak lurus terhadap arah saluran dan harus dibelokkan serta dipercepat oleh aliran yang sudah ada di bawahnya. Biaya itu diambil dari tinggi tekan, dan hasilnya muka air yang justru naik ke arah pangkal walaupun dasarnya juga naik ke arah itu. Karena kedua permukaan naik bersamaan, kedalaman di pangkal tidak sebesar kenaikan muka airnya, dan itulah yang membuat pembacaan sepintas pada gambar mudah keliru.",
   },
@@ -140,8 +140,8 @@ const TXT = {
     curam:
       "Steepen the trough: the head depth falls, but the head bed rises by S₀L, so the head water level rises too and the freeboard shrinks.",
     exagg: "vertical exaggeration",
-    motion: (n: string) => `particles move at V = Q(x)/A, born along the crest in proportion to Q(x), time sped up ×${n}`,
-    motionReal: "particles move at V = Q(x)/A, born along the crest in proportion to Q(x), real time",
+    motion: (n: string) => `particles move at V = Q(x)/A, born uniformly along the crest, flux in proportion to Q(x), time sped up ×${n}`,
+    motionReal: "particles move at V = Q(x)/A, born uniformly along the crest, flux in proportion to Q(x), real time",
     note:
       "What is used here is the finite-difference form of the momentum equation rather than the differential form, and that is not a matter of style but a necessity. The control of a collector trough sits exactly at critical conditions at its outlet, and there the differential form divides by one minus the square of the Froude number, which tends to zero, so the traverse explodes on the first step. The finite-difference form never divides by that term. The form used has also been rearranged so that it does not divide by the upstream discharge, which keeps the head of the trough, where the discharge is zero, computable. What makes a collector trough deep is not friction but momentum: water falling off the crest enters at right angles to the channel and has to be turned and accelerated by the flow already beneath it. That cost is taken from head, and the result is a water surface that rises toward the head even though the bed rises that way too. Because both surfaces rise together, the depth at the head is smaller than the rise in level, and that is what makes a quick reading of the drawing easy to get wrong.",
   },
