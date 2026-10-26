@@ -54,8 +54,17 @@ describe("HS-06 lapis gerak tirai: laju = Bernoulli dari model lembar", () => {
   const P = 0.6;
   const b = 2;
   const r = rectWeirDischarge(h, b, P);
-  const s = { h, P, V0: r.V0, q: r.Q / b, tail: 0.2 };
-  const E = P + h + (r.V0 * r.V0) / (2 * G);
+  const s = { h, P, q: r.Q / b, tail: 0.2 };
+  // Bernoulli dari genangan hulu: kecepatan DATANG Va = q/(h + P), bukan
+  // V₀ = q/h di atas mercu (Henderson 1966 §6).
+  const Va = s.q / (h + P);
+  const E = P + h + (Va * Va) / (2 * G);
+
+  it("E memakai kecepatan datang Va = q/(h + P): laju di mercu 2,451 m/s (bukan 2,639 dari V₀)", () => {
+    assert.ok(Math.abs(nappeSpeed(s, P) - Math.sqrt(2 * G * (h + (Va * Va) / (2 * G)))) < 1e-12);
+    assert.ok(Math.abs(nappeSpeed(s, P) - 2.451) < 5e-4, `${nappeSpeed(s, P)}`);
+    assert.ok(Math.abs(nappeSpeed(s, P) - 2.639) > 0.1);
+  });
 
   it("tabel mengikuti sisi bawah tirai WES yang digambar, sampai muka air hilir", () => {
     const p = createJetPath("normal");
@@ -69,7 +78,7 @@ describe("HS-06 lapis gerak tirai: laju = Bernoulli dari model lembar", () => {
     assert.ok(Math.abs(p.z[p.n - 1] - s.tail) < 1e-9, "berhenti di muka air hilir");
   });
 
-  it("laju tiap titik = √(2g(E − z)), E dari h dan V₀ rectWeirDischarge; tebal × laju = q", () => {
+  it("laju tiap titik = √(2g(E − z)), E dari h dan Va = q/(h + P); tebal × laju = q", () => {
     const p = createJetPath("normal");
     fillNappePath(p, s);
     for (let k = 0; k < p.n; k++) {
@@ -78,8 +87,8 @@ describe("HS-06 lapis gerak tirai: laju = Bernoulli dari model lembar", () => {
       assert.ok(Math.abs(p.v[k] - nappeSpeed(s, p.z[k])) < 1e-12);
       assert.ok(Math.abs(p.off1[k] * p.v[k] - s.q) < 1e-9, `q ${k}`);
     }
-    // Di bibir mercu laju = √(2g(h + V₀²/2g)).
-    assert.ok(Math.abs(p.v[0] - Math.sqrt(2 * G * (h + (r.V0 * r.V0) / (2 * G)))) < 1e-9);
+    // Di bibir mercu laju = √(2g(h + Va²/2g)).
+    assert.ok(Math.abs(p.v[0] - Math.sqrt(2 * G * (h + (Va * Va) / (2 * G)))) < 1e-9);
   });
 
   it("butir pada waktu tempuh τ melaju √(2g(E − z)) di letaknya (lajur 0)", () => {

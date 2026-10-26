@@ -179,7 +179,8 @@ export function TiraiLuapanClient() {
   const tampil = (v: number) => (gugur ? NaN : v);
 
   /* Lapis gerak (Phase 2): butir air jatuh di lembaran tirai dengan laju
-     dari Bernoulli, √(2g(E − z)), E dari h dan V₀ model; tebal lembaran
+     dari Bernoulli, √(2g(E − z)), E = P + h + Va²/2g dengan kecepatan
+     datang Va = q/(h + P) (bukan V₀ di atas mercu); tebal lembaran
      q/v. Lapis statis tidak punya penanda arah, jadi sama saja saat
      berputar maupun dijeda. Berputar sendiri kecuali "kurangi animasi". */
   const { playing, toggle: togglePutar } = usePutar();
@@ -200,7 +201,7 @@ export function TiraiLuapanClient() {
     // tanpa lapis gerak dan tanpa tombol, sama seperti FP-01 di bawah Re 47.
     aerated
       ? (ctx, _w, _h, tt, _dt, out) =>
-          drawNappeMotion(ctx, tt, out, { h, P, V0: r.V0, q: qSatuan, tail }, gerak.current!)
+          drawNappeMotion(ctx, tt, out, { h, P, q: qSatuan, tail }, gerak.current!)
       : null,
     [h, P, b, tail, aerated, lang],
     { playing, timeScale: SKALA_WAKTU }

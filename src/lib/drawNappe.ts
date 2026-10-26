@@ -385,8 +385,6 @@ export type NappeMotionState = {
   h: number;
   /** Tinggi mercu di atas lantai hilir, m */
   P: number;
-  /** Kecepatan datang di atas mercu, m/s (rectWeirDischarge V0) */
-  V0: number;
   /** Debit per meter lebar, m²/s (Q/b dari rectWeirDischarge) */
   q: number;
   /** Muka air hilir di atas lantai, m */
@@ -394,16 +392,29 @@ export type NappeMotionState = {
 };
 
 /**
+ * Garis energi di atas lantai hilir, m: E = P + h + Va²/2g.
+ *
+ * Bernoulli ditarik dari genangan hulu, jadi kecepatannya kecepatan DATANG
+ * Va = q/(h + P) di penampang hulu yang dalamnya h + P, bukan V₀ = q/h di
+ * atas mercu (Henderson 1966 §6). V₀ dipakai lembar untuk lintasan peluru
+ * pembanding; memasukkannya ke E menaikkan laju di mercu (h 0,3; P 0,6;
+ * b 2: 2,639 m/s, seharusnya 2,451 m/s).
+ */
+export function nappeEnergy(s: Pick<NappeMotionState, "h" | "P" | "q">): number {
+  const Va = s.h + s.P > 0 ? s.q / (s.h + s.P) : 0;
+  return s.P + s.h + (Va * Va) / (2 * G);
+}
+
+/**
  * Laju butir di tirai pada elevasi z, m/s.
  *
  * Di dalam tirai yang diberi udara tekanannya atmosfer di kedua sisinya,
- * jadi Bernoulli dari muka air hulu memberi v = √(2g(E − z)), dengan
- * garis energi E = P + h + V0²/2g di atas lantai (V0 kecepatan datang
- * dari rectWeirDischarge, persamaan yang sama yang mengisi kop lembar).
+ * jadi Bernoulli dari muka air hulu memberi v = √(2g(E − z)), dengan E dari
+ * nappeEnergy (q dari rectWeirDischarge, persamaan yang sama yang mengisi
+ * kop lembar).
  */
 export function nappeSpeed(s: NappeMotionState, z: number): number {
-  const E = s.P + s.h + (s.V0 * s.V0) / (2 * G);
-  return Math.sqrt(2 * G * Math.max(E - z, 0));
+  return Math.sqrt(2 * G * Math.max(nappeEnergy(s) - z, 0));
 }
 
 /**
@@ -449,7 +460,7 @@ export function drawNappeMotion(
   m: JetMotion
 ): void {
   if (!out) return;
-  if (jetKeyChanged(m, s.h, s.P, s.V0, s.q, s.tail)) m.vMax = fillNappePath(m.path, s);
+  if (jetKeyChanged(m, s.h, s.P, s.q, s.tail)) m.vMax = fillNappePath(m.path, s);
   const f = out.map.frame;
   ctx.save();
   ctx.beginPath();
