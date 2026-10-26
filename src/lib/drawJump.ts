@@ -18,7 +18,7 @@ import { G, conjugateDepth, froude, jumpLength, fmtPlain} from "./hydraulics.ts"
 import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
-import { createPool, type Pool } from "./motion.ts";
+import { createPool, relane, type Pool } from "./motion.ts";
 
 export type JumpParams = {
   /** Kedalaman hulu, meter */
@@ -161,6 +161,91 @@ export function jumpLayout(w: number, h: number, p: JumpParams, opt: JumpOptions
   };
 }
 
+/** Busur gulungan dari sudut ROLL_A0 ke ROLL_A1 (arah canvas), celah di kanan. */
+const ROLL_A0 = Math.PI * 0.25;
+const ROLL_A1 = Math.PI * 1.75;
+/** Jarak bebas tanda gulungan ke muka air dan dasar, px (memuat kaki panah). */
+const ROLL_TEPI = 2.5;
+/** Jari-jari terkecil yang masih terbaca sebagai busur berpanah, px. */
+const ROLL_R_MIN = 2.5;
+
+export type RollerMark = {
+  cx: number;
+  cy: number;
+  r: number;
+  /** Kepala panah terbuka: kaki 1 (x, y), ujung (x, y), kaki 2 (x, y), px */
+  head: [number, number, number, number, number, number];
+};
+
+/**
+ * Tanda gulungan (roller) di dalam loncatan, px.
+ *
+ * Arah putaran: pada aliran ke kanan gulungan berputar BERLAWANAN arah
+ * jarum jam. Permukaan gulungan mengalir balik ke hulu menuju kaki
+ * loncatan, bagian bawahnya terbawa semburan ke hilir (Chow 1959 §15-1).
+ * Busur digambar dari 45° lewat bawah, kiri, atas sampai 315° (sudut
+ * canvas, sumbu y ke bawah); bergerak berlawanan jarum jam berarti
+ * berakhir di ujung 45° (kanan bawah), jadi kepala panah ada di situ,
+ * menunjuk ke kanan atas.
+ *
+ * Jari-jari dan pusat dibatasi supaya busur selalu di dalam badan air:
+ * dekat kaki loncatan airnya dangkal, dan busur 7 px pada 0,82 d dulu
+ * menonjol di atas muka air. Busur yang tak muat sama sekali (jari-jari di
+ * bawah ROLL_R_MIN) tidak digambar.
+ */
+export function rollerMarks(L: JumpLayout): RollerMark[] {
+  if (!L.hasJump || L.undular) return [];
+  const { Fr1, xJump, Lj, sx, depthAt, X, Y, bedY } = L;
+  const n = Math.min(7, Math.max(3, Math.round(Fr1 / 1.4)));
+  const out: RollerMark[] = [];
+  for (let i = 0; i < n; i++) {
+    const xm = xJump + ((i + 0.5) / n) * Lj;
+    const r0 = Math.min(7, (Lj * sx) / (n * 2.4));
+    // Muka air terendah di sepanjang lebar busur (px terbesar).
+    const dx = r0 / sx;
+    let dmin = Infinity;
+    for (let k = -4; k <= 4; k++) dmin = Math.min(dmin, depthAt(xm + (k * dx) / 4));
+    const muka = Y(dmin);
+    const r = Math.min(r0, (bedY - muka - 2 * ROLL_TEPI) / 2);
+    if (!(r >= ROLL_R_MIN)) continue;
+    const cx = X(xm);
+    // Dekat muka air (gulungan gejala permukaan), dijepit ke dalam badan air.
+    let cy = Y(depthAt(xm) * 0.82);
+    cy = Math.max(cy, muka + ROLL_TEPI + r);
+    cy = Math.min(cy, bedY - ROLL_TEPI - r);
+
+    // Kepala panah di ujung ROLL_A0. Arah gerak = tali busur dari titik
+    // sepanjang kepala sebelumnya ke ujung, supaya kepala mengikuti
+    // lengkungan pada jari-jari kecil.
+    const hl = Math.min(4, Math.max(2.5, r * 0.75));
+    const tx = cx + r * Math.cos(ROLL_A0);
+    const ty = cy + r * Math.sin(ROLL_A0);
+    const aq = ROLL_A0 + hl / r;
+    let ux = tx - (cx + r * Math.cos(aq));
+    let uy = ty - (cy + r * Math.sin(aq));
+    const ul = Math.hypot(ux, uy) || 1;
+    ux /= ul;
+    uy /= ul;
+    const a = 0.45; // setengah sudut kepala, rad (≈ 26°)
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    out.push({
+      cx,
+      cy,
+      r,
+      head: [
+        tx - hl * (ux * ca - uy * sa),
+        ty - hl * (ux * sa + uy * ca),
+        tx,
+        ty,
+        tx - hl * (ux * ca + uy * sa),
+        ty - hl * (-ux * sa + uy * ca),
+      ],
+    });
+  }
+  return out;
+}
+
 /**
  * POTONGAN MEMANJANG — loncatan air pada saluran persegi mendatar.
  *
@@ -295,29 +380,28 @@ export function drawJump(
   }
 
   /* ---------------- gulungan loncatan ---------------- */
-  // Digambar sebagai busur berputar, cara buku teks menandai roller.
-  // Tidak untuk loncatan berombak: rentang itu tidak punya gulungan.
-  if (hasJump && !undular && !compact) {
-    pen(ctx, W.thin, C.water);
-    ctx.globalAlpha = 0.65;
-    const n = Math.min(7, Math.max(3, Math.round(Fr1 / 1.4)));
-    for (let i = 0; i < n; i++) {
-      const f = (i + 0.5) / n;
-      const xm = xJump + f * Lj;
-      const d = depthAt(xm);
-      const cx = X(xm);
-      const cy = Y(d * 0.82);
-      const r = Math.min(7, (Lj * sx) / (n * 2.4));
+  // Digambar sebagai busur berputar berkepala panah, cara buku teks
+  // menandai roller. Tidak untuk loncatan berombak (rollerMarks kosong).
+  if (!compact) {
+    const marks = rollerMarks(L);
+    if (marks.length) {
+      ctx.save();
+      // Pengaman: tanda gulungan tidak pernah keluar dari badan air.
+      clipWater();
+      ctx.clip();
+      pen(ctx, W.thin, C.water);
+      ctx.globalAlpha = 0.65;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, Math.PI * 0.25, Math.PI * 1.75);
+      for (const m of marks) {
+        ctx.moveTo(m.cx + m.r * Math.cos(ROLL_A0), m.cy + m.r * Math.sin(ROLL_A0));
+        ctx.arc(m.cx, m.cy, m.r, ROLL_A0, ROLL_A1);
+        ctx.moveTo(m.head[0], m.head[1]);
+        ctx.lineTo(m.head[2], m.head[3]);
+        ctx.lineTo(m.head[4], m.head[5]);
+      }
       ctx.stroke();
-      // Anak panah kecil di ujung busur, menunjukkan arah putaran.
-      ctx.beginPath();
-      ctx.moveTo(cx + r * 0.5, cy - r * 0.86);
-      ctx.lineTo(cx + r * 0.86, cy - r * 0.5);
-      ctx.stroke();
+      ctx.restore();
     }
-    ctx.globalAlpha = 1;
   }
 
   /* ---------------- panah aliran ---------------- */
@@ -703,14 +787,14 @@ export type JumpMotion = {
   kD: boolean;
 };
 
-const PHI_GERAK = 0.6180339887;
-
 export function createJumpMotion(n = 150): JumpMotion {
   const pool = createPool(n);
-  // Sebaran awal sama dengan makeStreaks lama: lajur tetap, fase merata.
+  /* Sebaran awal: posisi mendatar merata berurutan, lajur dari hash (seed
+     createPool). Lajur frac(i·φ) yang dulu dipakai membuat tetangga
+     mendatar berbaris miring. */
   for (let i = 0; i < n; i++) {
     pool.x[i] = i / n;
-    pool.y[i] = 0.1 + ((i * PHI_GERAK) % 1) * 0.8;
+    pool.y[i] = 0.1 + pool.seed[i] * 0.8;
   }
   return { pool, lay: null, clip: null, kw: -1, kh: -1, ky1: -1, kV1: -1, kE: false, kD: false };
 }
@@ -786,10 +870,9 @@ export function drawJumpMotion(
     let f = pool.x[i] + (V * dt) / bentang;
     if (f > 1) {
       f -= 1;
-      // Lahir ulang di hulu pada lajur baru (geser golden ratio).
-      const s = (pool.seed[i] + PHI_GERAK) % 1;
-      pool.seed[i] = s;
-      pool.y[i] = 0.1 + s * 0.8;
+      // Lahir ulang di hulu pada lajur baru: hash (i, hitungan lahir ulang),
+      // tidak berkorelasi dengan urutan lewat (lihat motion.ts hash01).
+      pool.y[i] = 0.1 + relane(pool, i) * 0.8;
     }
     pool.x[i] = f;
   }
