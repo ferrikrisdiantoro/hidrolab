@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,8 +14,15 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawVenturi } from "@/lib/drawVenturi";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createVenturiMotion,
+  drawVenturi,
+  drawVenturiMotion,
+  venturiTimeScale,
+  venturiTransitTime,
+  type VenturiMotion,
+} from "@/lib/drawVenturi";
 import {
   G,
   VENTURI_BETA_MAX,
@@ -37,6 +44,11 @@ import { checksVenturi } from "@/lib/checks";
 const TXT = {
   id: {
     title: "Venturi",
+    motionNote: (lipat: string, skala: string) =>
+      `goresan air di pipa: kecepatan u = Q/A setempat, di leher ${lipat}× kecepatan di pipa; ${skala}`,
+    waktuNyata: "waktu nyata",
+    diperlambat: (k: string) => `waktu diperlambat ×${k}`,
+    dipercepat: (k: string) => `waktu dipercepat ×${k}`,
     sheetTitle: "Tabung venturi klasik — garis tinggi tekan dan potongan pipa",
     dD1: "Diameter pipa",
     dD2: "Diameter leher",
@@ -76,6 +88,11 @@ const TXT = {
       "Satu suku pada rumus ini yang paling sering hilang, dan hilangnya selalu ke arah yang sama. Beda tekanan yang terbaca bukan mengukur tinggi kecepatan di leher melainkan SELISIH tinggi kecepatan antara leher dan pipa, karena air di pipa sudah bergerak sebelum masuk. Mengabaikan hal itu membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya, dan besarnya kesalahan naik cepat terhadap perbandingan diameter: pada 0,5 sekitar tiga persen, pada 0,75 sekitar tujuh belas persen. Faktor kecepatan datang pada tabel di samping adalah suku itu, dan lembar ini menghitung debit dengan dan tanpa suku itu supaya selisihnya terbaca sebagai angka. Hal kedua yang membedakan venturi dari pelat lubang terbaca pada panel atas: garis tinggi tekan menukik di leher lalu naik kembali hampir setinggi semula. Bagian yang tidak pulih itulah kehilangan tetap, dan kecilnya bagian itu berutang pada bagian membesar yang sengaja dibuat panjang dan landai, sehingga aliran tidak sempat terlepas dari dinding.",
   },
   en: {
+    motionNote: (lipat: string, skala: string) =>
+      `water streaks in the pipe: local speed u = Q/A, ${lipat}× the pipe speed in the throat; ${skala}`,
+    waktuNyata: "real time",
+    diperlambat: (k: string) => `time slowed ×${k}`,
+    dipercepat: (k: string) => `time sped up ×${k}`,
     title: "Venturi meter",
     sheetTitle: "Classical Venturi tube — pressure head line and pipe section",
     dD1: "Pipe diameter",
@@ -148,7 +165,18 @@ export function VenturiClient() {
   const salah = bukan ? 0 : ((r.Q - tanpaFaktor) / r.Q) * 100;
   const takAda = "—";
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): goresan air di dalam pipa dengan kecepatan
+     u(x) = Q/A(x) dari venturiDischarge, jadi di leher tepat (D₁/D₂)² kali
+     lebih cepat. Skala waktu dari waktu tempuh fisik seluruh pipa (tangga
+     1-2-5) dan ditulis di bawah gambar. Panah aliran diam hanya saat
+     dijeda atau reduced-motion; bukan venturi = tanpa gerak, panah tetap. */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<VenturiMotion | null>(null);
+  if (gerak.current === null) gerak.current = createVenturiMotion(70);
+  const Qgerak = bukan ? 0 : r.Q;
+  const skalaWaktu = venturiTimeScale(venturiTransitTime(D1, D2, Qgerak));
+  const bergerak = playing && !bukan;
+  const plate = usePlate(
     (ctx, w, h) =>
       drawVenturi(
         ctx,
@@ -163,11 +191,24 @@ export function VenturiClient() {
           permanentLoss: r.permanentLoss,
           outOfRange: r.outOfRange,
           notVenturi: bukan,
+          flow: bergerak,
         },
         lang
       ),
-    [D1, D2, dh, Cc, lang]
+    bukan
+      ? null
+      : (ctx, _w, _h, tt, _dt, out) =>
+          drawVenturiMotion(ctx, tt, out, { D1, D2, Q: Qgerak, notVenturi: bukan }, gerak.current!),
+    [D1, D2, dh, Cc, lang, bergerak],
+    { playing: bergerak, timeScale: skalaWaktu }
   );
+  const teksSkala =
+    skalaWaktu === 1
+      ? x.waktuNyata
+      : skalaWaktu < 1
+        ? x.diperlambat(fmt(1 / skalaWaktu, 0))
+        : x.dipercepat(fmt(skalaWaktu, 0));
+  const catatanGerak = x.motionNote(fmt((D1 / D2) * (D1 / D2), 2), teksSkala);
 
   const alasan =
     r.reason === "beta-kecil"
@@ -289,8 +330,15 @@ export function VenturiClient() {
             { label: "Q", value: bukan ? takAda : `${fmt(r.Q * 1000, 1)} l/s`, tint: r.outOfRange ? C.signal : C.water },
             { label: "C", value: fmt(Cc, 3) },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
