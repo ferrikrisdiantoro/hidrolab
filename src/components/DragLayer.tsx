@@ -126,6 +126,8 @@ function Pegangan({
     id: number;
     geser: { x: number; y: number };
     awal: { x: number; y: number };
+    /** Pojok lapis di layar saat seret dimulai. */
+    lapis: { left: number; top: number };
   } | null>(null);
   const [aktif, setAktif] = useState(false);
   const [potong, setPotong] = useState<NilaiSeret | null>(null);
@@ -137,11 +139,23 @@ function Pegangan({
     kirimNilai(s, v);
   };
 
-  const titikLapis = (e: PointerEvent<HTMLDivElement>) => {
+  const pojokLapis = (e: PointerEvent<HTMLDivElement>) => {
     const lapis = e.currentTarget.parentElement;
     const r = lapis ? lapis.getBoundingClientRect() : { left: 0, top: 0 };
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { left: r.left, top: r.top };
   };
+  /*
+   * Selama seret, jari diukur terhadap pojok lapis SAAT SERET DIMULAI, bukan
+   * pojok sekarang. Nilai yang diseret bisa mengubah tinggi unsur di atas
+   * gambar (label pita rezim yang terlipat ke dua baris di 390 px), dan
+   * gambarnya bergeser di bawah jari yang diam. Diukur dari pojok sekarang,
+   * geseran itu terbaca sebagai seret baru, nilainya melompat balik, label
+   * kembali satu baris, dan nilainya berayun tiap gerakan (HS-01, 26 Okt).
+   */
+  const titikLapis = (
+    e: PointerEvent<HTMLDivElement>,
+    r: { left: number; top: number } = pojokLapis(e)
+  ) => ({ x: e.clientX - r.left, y: e.clientY - r.top });
 
   const selesai = () => {
     seret.current = null;
@@ -156,7 +170,8 @@ function Pegangan({
     // hanya untuk pemilihan dengan keyboard.
     e.currentTarget.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     e.currentTarget.setPointerCapture(e.pointerId);
-    const p = titikLapis(e);
+    const pojok = pojokLapis(e);
+    const p = titikLapis(e, pojok);
     // Diukur dari posisi asli, bukan posisi jepit: meraih pegangan yang
     // terjepit di tepi tidak meloncatkan nilai ke tepi bidang.
     const a = kini.current.asli;
@@ -164,6 +179,7 @@ function Pegangan({
       id: e.pointerId,
       geser: { x: a.x - p.x, y: a.y - p.y },
       awal: { x: a.x, y: a.y },
+      lapis: pojok,
     };
     setAktif(true);
   };
@@ -172,7 +188,7 @@ function Pegangan({
     const g = seret.current;
     if (!g || g.id !== e.pointerId) return;
     const { spec: s, map: m } = kini.current;
-    const q = titikSeret(titikLapis(e), g.geser, g.awal, s.axis);
+    const q = titikSeret(titikLapis(e, g.lapis), g.geser, g.awal, s.axis);
     const hasil =
       s.axis === "xy"
         ? snapSeret(s.toValue(q.x, q.y, m), s.param)
