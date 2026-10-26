@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import { drawPitot } from "@/lib/drawPitot";
 import {
   G,
@@ -36,6 +39,7 @@ const TXT = {
   id: {
     title: "Tabung Pitot",
     sheetTitle: "Tabung Pitot statik di dalam pipa — potongan dan profil kecepatan",
+    gR: "Ujung tabung Pitot, seret naik atau turun untuk mengubah letaknya r/R",
     ddh: "Beda tinggi tekan terbaca di sumbu",
     dD: "Diameter pipa",
     dn: "Pangkat pada hukum pangkat",
@@ -69,6 +73,7 @@ const TXT = {
       "Alat ini mengukur satu titik, dan seluruh persoalannya berasal dari kenyataan itu. Lubang depan menghadap aliran dan menahannya sampai berhenti, sehingga ia membaca tekanan stagnasi; lubang samping membaca tekanan statik. Selisih keduanya persis tinggi kecepatan, tanpa koefisien yang perlu dikalibrasi, dan itulah kekuatan tabung Pitot. Kelemahannya juga persis di situ: yang terbaca kecepatan di satu titik, bukan debit. Mengubah satu bacaan menjadi debit memerlukan pengetahuan tentang bentuk profilnya. Pada aliran turbulen di pipa licin, profil itu mengikuti hukum pangkat, dan dari bentuk itu dapat diturunkan dua angka yang menyelesaikan persoalan. Pertama, kecepatan rata-rata penampang selalu 0,8167 kali kecepatan di sumbu untuk pangkat satu per tujuh. Kedua, ada satu jari-jari tempat kecepatan setempat kebetulan sama dengan kecepatan rata-rata, dan letaknya sekitar 0,758 kali jari-jari pipa. Meletakkan tabung di situ membuat satu bacaan langsung menjadi kecepatan rata-rata tanpa faktor koreksi apa pun, dan itulah yang dilakukan juru ukur yang hanya sempat mengambil satu titik.",
   },
   en: {
+    gR: "Pitot tube tip, drag up or down to change its position r/R",
     title: "Pitot tube",
     sheetTitle: "Pitot-static tube in a pipe — section and velocity profile",
     ddh: "Head difference read on the axis",
@@ -120,6 +125,12 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Letak ujung tabung r/R: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan seret di ujung tabung (aturan 4, satu sumber nilai).
+ */
+const P_R: ParamDef = { min: -1, max: 1, step: 0.01, digits: 2 };
+
 export function TabungPitotClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -145,7 +156,8 @@ export function TabungPitotClient() {
   const diSumbu = Math.abs(rFrac) < 0.02;
   const A = Math.PI * R * R;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  const plate = usePlate(
     (ctx, w, h) =>
       drawPitot(
         ctx,
@@ -154,8 +166,29 @@ export function TabungPitotClient() {
         { D, uMax, uMean, n, rProbe, rMean, uProbe },
         lang
       ),
+    null,
     [dh, D, n, rFrac, lang]
   );
+
+  /*
+   * Pegangan ujung tabung (anchor `probe`, titik stagnasi). Sumbu tegak
+   * potongan pipa adalah jari-jari, dan skalanya hanya bergantung pada D
+   * (rMax = 1,5 R), bukan pada letak tabung: tanpa kunci skala, jari
+   * memberi r = invY(py) langsung, r/R = invY(py)/R. Hanya tegak.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "ujung",
+      anchor: "probe",
+      axis: "y",
+      label: x.gR,
+      param: P_R,
+      value: rFrac,
+      toValue: (_px, py, m) => m.invY(py) / R,
+      onChange: setRFrac,
+      format: (v) => `r/R ${fmt(v, 2)}`,
+    },
+  ];
 
   const langkah = [
     {
@@ -249,7 +282,8 @@ export function TabungPitotClient() {
             { label: "Q", value: `${fmt(Q * 1000, 1)} l/s`, tint: C.water },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
@@ -259,9 +293,10 @@ export function TabungPitotClient() {
               <InputRow symbol="Δh" label={x.ddh} value={dh} min={0.005} max={2} step={0.005} digits={3} unit="m" onChange={setDh} tint={C.energy} />
               <InputRow symbol="D" label={x.dD} value={D * 1000} min={25} max={800} step={5} digits={0} unit="mm" onChange={(v) => setD(v / 1000)} />
               <InputRow symbol="n" label={x.dn} value={n} min={5} max={10} step={1} digits={0} onChange={setN} />
-              <InputRow symbol="r/R" label={x.dr} value={rFrac} min={-1} max={1} step={0.01} digits={2} onChange={setRFrac} tint={dekatDinding ? C.signal : undefined} />
+              <InputRow symbol="r/R" label={x.dr} value={rFrac} {...P_R} onChange={setRFrac} tint={dekatDinding ? C.signal : undefined} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
