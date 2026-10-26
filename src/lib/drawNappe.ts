@@ -582,8 +582,9 @@ export function fillNappePath(path: JetPath, s: NappeMotionState): number {
     // Jarak mendatar sama. Dulu √f (rapat di ujung yang curam), tetapi ruas
     // pertama lalu 6 % xEnd panjangnya dan sisi atas lembaran yang digambar
     // dari tabel ini patah di dekat bibir, tepat di tempat tebalnya paling
-    // cepat berubah. Kemiringan tirai sampai muka air hilir tidak sampai 2,
-    // jadi ruas terpanjang paling banyak dua kali yang terpendek.
+    // cepat berubah. Di bagian curam ruas memanjang mengikuti √(1+s²),
+    // s = dz/dx sampai ±7 atau lebih di ujung rentang penggeser; dengan
+    // 241 titik tabel tetap cukup rapat.
     const x = (xEnd * k) / (n - 1);
     const z = Math.max(s.P - wesNappe(s.h, x), zEnd);
     const t = nappeThickness(s, x);
