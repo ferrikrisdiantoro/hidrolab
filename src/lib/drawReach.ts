@@ -571,7 +571,8 @@ export function drawReach(
      * paling membutuhkan pemisahan.
      */
     const yDasar = Math.max(Z(g.z), padT + 14);
-    const yg = Math.min(yDasar + (g.dy ?? 0), padT + plotH - 8);
+    // Geseran negatif (naik) juga ditahan di dalam bidang.
+    const yg = Math.min(Math.max(yDasar + (g.dy ?? 0), padT + 14), padT + plotH - 8);
     // Nama wilayah ikut daftar kotak terpakai yang sama dengan nama penampang.
     // Keduanya berebut baris teratas bidang, dan sebelum ini nama wilayah
     // digambar tanpa memeriksa apa pun, jadi "Fr = 1" selalu menimpa "leher".

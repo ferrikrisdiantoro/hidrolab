@@ -738,10 +738,22 @@ function susun(
    * Tak terjangkau: nama profil "—" seperti tabel hasil. Regime hanya untuk
    * ruas yang terjangkau, dibaca dari y0 terhadap yc.
    */
+  /*
+   * Loncatan di dalam ruas hilir membelah ruas itu menjadi dua sub-ruas
+   * dengan rezim berlawanan: profil M3 superkritis dari patahan sampai kaki
+   * loncatan, lalu kedalaman normal subkritis sampai ujung. Keduanya ditulis
+   * di sub-ruasnya masing-masing. Sebelumnya satu label di 55 % ruas hilir
+   * membaca titik tengah profil M3 dan menulis SUPERKRITIS di tempat yang
+   * airnya sudah subkritis sesudah loncatan.
+   */
+  const belah = terjangkau && r.jumpAt !== null && r.hilir.profile !== null;
+  const xj = La + (r.jumpAt ?? 0);
   const xHulu = La * 0.45;
-  const xHilir = La + Lb * 0.55;
+  const xHilir = belah ? xj + (La + Lb - xj) * 0.5 : La + Lb * 0.55;
   const zHulu = zb(xHulu) + Math.max(okA ? r.hulu.y0 : 0, r.yc) * 1.5;
   const zHilir = zb(xHilir) + Math.max(okB ? r.hilir.y0 : 0, r.yc) * 1.5;
+  const xM3 = (La + xj) / 2;
+  const zM3 = zb(xM3) + Math.max(r.hilir.y0, r.yc) * 1.5;
   const wilayah: ReachRegion[] = [
     {
       x: xHulu,
@@ -750,14 +762,26 @@ function susun(
       color: C.ink,
       big: true,
     },
-    {
-      x: xHilir,
-      z: zHilir,
-      text: !terjangkau ? "—" : r.hilir.profile ? r.hilir.name : T.uniform,
-      color: C.ink,
-      big: true,
-    },
   ];
+  /* Sub-ruas M3 biasanya pendek (belasan meter) dan diapit dimensi patahan
+     dan loncatan. Kedua pasangan label dinaikkan dalam piksel (M3 lebih
+     tinggi daripada sub-ruas sesudahnya) supaya tidak menutup dimensi itu
+     dan tidak saling tindih pada layar sempit. */
+  const naikM3 = belah ? -80 : 0;
+  const naikHilir = belah ? -40 : 0;
+  if (belah)
+    wilayah.push(
+      { x: xM3, z: zM3, dy: naikM3, text: r.hilir.name, color: C.ink, big: true },
+      { x: xM3, z: zM3, dy: naikM3 + 15, text: T.supercritical, color: C.ink3 }
+    );
+  wilayah.push({
+    x: xHilir,
+    z: zHilir,
+    ...(belah ? { dy: naikHilir } : {}),
+    text: !terjangkau ? "—" : belah ? T.uniform : r.hilir.profile ? r.hilir.name : T.uniform,
+    color: C.ink,
+    big: true,
+  });
   if (okA)
     wilayah.push({
       x: xHulu,
@@ -770,8 +794,9 @@ function susun(
     wilayah.push({
       x: xHilir,
       z: zHilir,
-      dy: 15,
-      text: terjangkau ? regime(r.hilir, r.yc, T) : r.hilir.y0 > r.yc ? T.subcritical : T.supercritical,
+      dy: naikHilir + 15,
+      // Sesudah loncatan: kedalaman normal hilir, subkritis.
+      text: terjangkau && !belah ? regime(r.hilir, r.yc, T) : r.hilir.y0 > r.yc ? T.subcritical : T.supercritical,
       color: C.ink3,
     });
 
