@@ -7,6 +7,9 @@ import {
   drawReachMotion,
   reachFlow,
   reachTimeScale,
+  rollerPhase,
+  rollerSpins,
+  PUTAR_MAKS,
   scatterReach,
   velocityAt,
   along,
@@ -69,6 +72,23 @@ describe("drawReachMotion: laju partikel = V model", () => {
     const f = reachFlow(st, [], [])!;
     for (const p of r.points) dekat(velocityAt(f, p.x), Math.max(0, p.V), 1e-9);
     assert.ok(f.pInlet < 1e-6, `pInlet ${f.pInlet}`);
+    // V(0) = 0: ∫dx/V divergen; waktu tinggal = ∫A dx / Q_L = ∫b·y dx / Q_L.
+    let vol = 0;
+    for (let k = 1; k < r.points.length; k++)
+      vol += (6 * (r.points[k - 1].y + r.points[k].y) / 2) * (r.points[k].x - r.points[k - 1].x);
+    // Pangkal diam memakai A tetangganya: selisih paling banyak satu sel.
+    dekat(f.crossTime, vol / 50, 1e-4 * (vol / 50), "waktu tinggal");
+    const N = reachTimeScale(f.crossTime);
+    assert.ok(f.crossTime / N >= 6 && f.crossTime / N <= 16, `×${N}`);
+  });
+
+  it("debit tetap: waktu tinggal = waktu tempuh ∫dx/V", () => {
+    const r = reachEnergy(12, 5, 0.025, 0.0015, 2.8, 1500);
+    const f = reachFlow(r.points.map((p) => ({ x: p.x, zb: p.zb, zs: p.wsl, V: p.V })), [], [])!;
+    let T = 0;
+    for (let k = 1; k < r.points.length; k++)
+      T += ((1 / r.points[k - 1].V + 1 / r.points[k].V) / 2) * (r.points[k].x - r.points[k - 1].x);
+    dekat(f.crossTime, T, 1e-9 * T);
   });
 
   it("OC-06 curam ke landai: sebelum loncatan V₁ = Q/(b y₁), sesudahnya V₂ = Q/(b y₂)", () => {
@@ -149,7 +169,7 @@ describe("drawReachMotion: gerak partikel", () => {
 });
 
 describe("drawReachMotion: frame lengkap", () => {
-  it("semua koordinat terhingga, gulungan berputar pada jam waktu nyata", () => {
+  it("semua koordinat terhingga, gulungan pada jam partikel", () => {
     const { st, air, bed } = stasiunLateral(4, 0.02, 5, 0.025, 0.0012, 500, 2.2);
     const f = reachFlow(st, air, bed, [{ x: 251.3, omega: 2 }])!;
     const ruas: number[][] = [];
@@ -171,13 +191,28 @@ describe("drawReachMotion: frame lengkap", () => {
     // Tidak ada titik deret air pada x = 251,3, jadi tanpa gulungan.
     assert.equal(busur.length, 0);
 
-    // Deret air dengan muka loncatan pada x = 250: gulungan digambar, dan
-    // sudutnya = π/4 − ω·t_nyata dengan t_nyata = t / timeScale.
+    // Deret air dengan muka loncatan pada x = 250: gulungan digambar pada jam
+    // partikel. ω = 0,5 rad/s ×2 = 0,16 putaran/detik layar: berputar,
+    // sudut = π/4 − ω·t dengan t fisik.
     const air2: ReachPoint[] = [{ x: 0, z: 2.6 }, { x: 250, z: 1.3 }, { x: 250, z: 2.4 }, { x: 500, z: 2.2 }];
-    const f2 = reachFlow(st, air2, bed, [{ x: 250, omega: 2 }])!;
-    const st2 = createReachMotion(10);
-    drawReachMotion(ctx, 50, 0, out, f2, 50, st2);
+    const f2 = reachFlow(st, air2, bed, [{ x: 250, omega: 0.5 }])!;
+    drawReachMotion(ctx, 3, 0, out, f2, 2, createReachMotion(10));
     assert.equal(busur.length, 1);
-    dekat(busur[0][3], Math.PI / 4 - 2 * (50 / 50), 1e-9, "sudut gulungan");
+    dekat(busur[0][3], Math.PI / 4 - 0.5 * 3, 1e-9, "sudut gulungan, jam partikel");
+
+    // ω = 2 rad/s ×50 = 15,9 putaran/detik layar: digambar diam (sudut π/4).
+    const f3 = reachFlow(st, air2, bed, [{ x: 250, omega: 2 }])!;
+    drawReachMotion(ctx, 50, 0, out, f3, 50, createReachMotion(10));
+    assert.equal(busur.length, 2);
+    dekat(busur[1][3], Math.PI / 4, 1e-12, "gulungan terlalu cepat: diam");
+  });
+
+  it("rollerSpins: batas PUTAR_MAKS putaran per detik layar", () => {
+    assert.equal(PUTAR_MAKS, 1);
+    assert.ok(rollerSpins(2 * Math.PI, 1));
+    assert.ok(!rollerSpins(2 * Math.PI, 1.01));
+    assert.ok(!rollerSpins(1, 20));
+    assert.equal(rollerPhase(1, 7, 20), 0);
+    assert.equal(rollerPhase(1, 7, 2), 7);
   });
 });

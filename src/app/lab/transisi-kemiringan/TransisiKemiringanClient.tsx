@@ -25,6 +25,7 @@ import {
   drawReachMotion,
   reachFlow,
   reachTimeScale,
+  rollerSpins,
   type ReachMotion,
   type ReachStation,
 } from "@/lib/drawReachMotion";
@@ -109,7 +110,8 @@ const TXT = {
     gLa: "Panjang ruas hulu L₁, seret titik patah kemiringan ke kiri atau kanan",
     motion: (n: string) => `partikel bergerak dengan V = Q/A, waktu dipercepat ×${n}`,
     motionReal: "partikel bergerak dengan V = Q/A, waktu nyata",
-    motionRoll: "; gulungan loncatan berputar ω = V₁/y₂, waktu nyata",
+    motionRoll: "; gulungan loncatan berputar ω = V₁/y₂ pada jam yang sama",
+    motionRollStill: "; gulungan loncatan digambar diam, putarannya lebih dari satu kali per detik",
     note:
       "Yang menentukan seluruh gambar adalah letak penampang kendalinya, dan letak itu tidak dipilih melainkan jatuh dari jenis patahannya. Pada patahan landai ke curam, aliran melewati kondisi kritis tepat di patahan, sehingga di situlah kendalinya dan kedua ruas ditelusuri menjauh dari titik yang sama. Pada ruas hulu yang curam, aliran superkritis dikendalikan dari hulu, sehingga apa pun yang terjadi di seberang patahan tidak dapat menjalar naik dan ruas hulu tetap seragam pada kedalaman normalnya. Pada patahan curam ke landai, aliran superkritis meneruskan perjalanannya melewati patahan sebagai profil M3, melambat, lalu naik lewat loncatan air. Letak loncatannya dicari, bukan ditaruh di patahan begitu saja: loncatan berdiri di tempat kedalaman konjugat aliran superkritis sudah setinggi muka air hilir. Bila konjugat terbesar pun masih di bawah muka air hilir, loncatan tidak muat di ruas hilir dan terdorong ke hulu, dan keadaan itu dinyatakan apa adanya alih-alih digambar seolah tidak terjadi.",
   },
@@ -167,7 +169,8 @@ const TXT = {
     gLa: "Upstream reach length L₁, drag the slope break left or right",
     motion: (n: string) => `particles move at V = Q/A, time sped up ×${n}`,
     motionReal: "particles move at V = Q/A, real time",
-    motionRoll: "; the jump roller turns at ω = V₁/y₂, real time",
+    motionRoll: "; the jump roller turns at ω = V₁/y₂ on the same clock",
+    motionRollStill: "; the jump roller is drawn still, it would turn more than once per second",
     note:
       "What decides the whole drawing is where the control section sits, and that position is not chosen but follows from the type of break. At a mild-to-steep break the flow passes through critical conditions exactly at the break, so the control is there and both reaches are computed away from the same point. Where the upstream reach is steep, supercritical flow is controlled from upstream, so nothing on the far side of the break can travel back up and the upstream reach stays uniform at its normal depth. At a steep-to-mild break the supercritical flow carries on past the break as an M3 profile, decelerates, then rises through a hydraulic jump. The jump position is found rather than simply placed at the break: the jump stands where the conjugate depth of the supercritical flow has risen to the tailwater level. If even the largest conjugate depth stays below the tailwater, the jump does not fit in the downstream reach and is pushed upstream, and that condition is stated plainly instead of being drawn as though it had not happened.",
   },
@@ -248,7 +251,8 @@ export function TransisiKemiringanClient() {
    * Lapis gerak: partikel di badan air bergerak dengan V = Q / (b·y) dari
    * kedalaman yang dihitung model di tiap stasiun profil (ReachStation), dan
    * tanda gulungan di loncatan berputar ω = V₁/y₂ (laju putar alami
-   * gulungan, sama dengan OC-01). Saat dijeda lapis gerak kosong, dan lapis
+   * gulungan, sama dengan OC-01) pada jam partikel yang sama; bila itu lebih
+   * dari satu putaran per detik layar, gulungan digambar diam. Saat dijeda lapis gerak kosong, dan lapis
    * statis menggambar panah arah aliran serta gulungan yang diam.
    */
   const { playing, toggle: togglePutar } = usePutar();
@@ -274,7 +278,11 @@ export function TransisiKemiringanClient() {
   const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
   const catatanGerak =
     (skala === 1 ? x.motionReal : x.motion(faktor(skala))) +
-    (aliran && aliran.rollers.length ? x.motionRoll : "");
+    (aliran && aliran.rollers.length
+      ? rollerSpins(aliran.rollers[0].omega, skala)
+        ? x.motionRoll
+        : x.motionRollStill
+      : "");
 
   /*
    * Batas sumbu dikunci selama titik patah diseret. Tanpa kunci, ujung kanan

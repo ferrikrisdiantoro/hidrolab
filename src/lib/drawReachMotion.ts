@@ -55,7 +55,13 @@ export type ReachFlow = {
   cum: Float64Array;
   /** Peluang lahir di ujung hulu, Q(hulu) / Q(hilir) */
   pInlet: number;
-  /** Waktu tempuh hulu ke hilir ∫ dx / V, detik fisik */
+  /**
+   * Waktu tinggal rata-rata air di bentang, ∫ A dx / Q(hilir), detik fisik.
+   * Debit tetap: sama dengan waktu tempuh hulu ke hilir ∫ dx / V. Debit
+   * bertambah dari nol (saluran samping): ∫ dx / V divergen karena V(0) = 0,
+   * sedangkan volume / debit keluar tetap terhingga dan itulah umur rata-rata
+   * air yang keluar.
+   */
   crossTime: number;
   /** Loncatan air: absis dan laju putar gulungan ω = V₁ / y₂, rad/s */
   rollers: { x: number; omega: number }[];
@@ -107,18 +113,27 @@ export function reachFlow(
     if (f.egl) f.egl[k] = s.egl as number;
   }
   if (!(f.x[n - 1] - f.x[0] > 0)) return null;
-  let T = 0;
+  // Luas basah A = Q / V di tiap stasiun. Stasiun diam (Q = V = 0, pangkal
+  // saluran samping) memakai A stasiun bergerak terdekat.
+  const A = new Float64Array(n).fill(NaN);
+  for (let k = 0; k < n; k++) if (f.V[k] > 1e-9) A[k] = f.Q[k] / f.V[k];
+  for (let k = 0; k < n; k++) {
+    if (Number.isFinite(A[k])) continue;
+    for (let j = 1; j < n; j++) {
+      if (k + j < n && Number.isFinite(A[k + j]) && f.V[k + j] > 1e-9) { A[k] = A[k + j]; break; }
+      if (k - j >= 0 && Number.isFinite(A[k - j]) && f.V[k - j] > 1e-9) { A[k] = A[k - j]; break; }
+    }
+  }
+  let vol = 0;
   for (let k = 1; k < n; k++) {
     const dx = f.x[k] - f.x[k - 1];
     const d0 = f.zs[k - 1] - f.zb[k - 1];
     const d1 = f.zs[k] - f.zb[k];
     f.cum[k] = f.cum[k - 1] + ((d0 + d1) / 2) * dx;
-    // Trapesium pada 1/V; V nol (ujung buntu) memberi waktu tak hingga.
-    const v0 = Math.max(f.V[k - 1], 1e-6);
-    const v1 = Math.max(f.V[k], 1e-6);
-    T += (dx * (1 / v0 + 1 / v1)) / 2;
+    vol += ((A[k - 1] + A[k]) / 2) * dx;
   }
-  f.crossTime = T;
+  const qOut = f.Q[n - 1];
+  f.crossTime = qOut > 0 && Number.isFinite(vol) ? vol / qOut : Infinity;
   const qa = f.Q[0];
   const qb = f.Q[n - 1];
   f.pInlet = qb > 0 ? Math.min(1, Math.max(0, qa / qb)) : 1;
@@ -173,6 +188,20 @@ const PAJANAN = 0.3;
 const GORES_MIN = 2;
 /** Tiap partikel ke-k membawa tanda energi di garis energi. */
 const TIAP_ENERGI = 7;
+
+/** Putaran gulungan tercepat yang masih dipertahankan, putaran per detik layar. */
+export const PUTAR_MAKS = 1;
+
+/** Gulungan ikut berputar pada jam partikel ×timeScale? */
+export function rollerSpins(omega: number, timeScale: number): boolean {
+  const putaranPerDetik = (Math.abs(omega) * Math.max(timeScale, 0)) / (2 * Math.PI);
+  return Number.isFinite(putaranPerDetik) && putaranPerDetik <= PUTAR_MAKS;
+}
+
+/** Sudut gulungan pada waktu fisik t; 0 (diam) bila terlalu cepat untuk diputar. */
+export function rollerPhase(omega: number, t: number, timeScale: number): number {
+  return rollerSpins(omega, timeScale) ? omega * t : 0;
+}
 
 export type ReachMotion = {
   pool: Pool;
@@ -247,10 +276,11 @@ export function advanceReach(p: Pool, f: ReachFlow, dt: number): void {
  * - Tanda energi (bila flow.egl): partikel ke-7 membawa goresan merah bata
  *   di garis energi pada absis yang sama, karena tinggi energi adalah milik
  *   air yang sedang lewat di situ. Lajunya laju air, bukan laju hias.
- * - Gulungan loncatan berputar ω = V₁/y₂ pada jam WAKTU NYATA (t dibagi
- *   timeScale), karena pada jam yang dipercepat ia berputar belasan kali
- *   per detik dan terbaca diam atau mundur (stroboskop). Lembar menulis dua
- *   jam itu di catatan.
+ * - Gulungan loncatan berputar ω = V₁/y₂ pada JAM YANG SAMA dengan partikel
+ *   (t fisik, dipercepat ×N), jadi lembar cukup menulis satu jam. Bila
+ *   putaran yang dihasilkan melebihi PUTAR_MAKS putaran per detik layar,
+ *   gulungan digambar diam: lebih cepat dari itu ia terbaca diam atau mundur
+ *   (stroboskop), dan gerak palsu lebih buruk daripada tanda diam.
  */
 export function drawReachMotion(
   ctx: CanvasRenderingContext2D,
@@ -331,11 +361,8 @@ export function drawReachMotion(
   }
   ctx.stroke();
 
-  // Gulungan loncatan, jam waktu nyata.
-  if (st.roll.length) {
-    const tNyata = timeScale > 0 ? t / timeScale : t;
-    for (const r of st.roll) rollerIcon(ctx, r.cx, r.cy, r.r, r.omega * tNyata);
-  }
+  // Gulungan loncatan, jam yang sama dengan partikel (t fisik).
+  for (const r of st.roll) rollerIcon(ctx, r.cx, r.cy, r.r, rollerPhase(r.omega, t, timeScale));
   ctx.restore();
 
   // Tanda energi di garis energi: dipotong ke bingkai saja (garis energi di
