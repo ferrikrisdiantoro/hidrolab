@@ -48,7 +48,7 @@ const TXT = {
     pBaku: "Rancangan baku",
     pCuram: "Terlalu curam",
     pLebar: "Palung lebar, debit besar",
-    gY: "Kedalaman aliran y, seret muka air naik atau turun",
+    gY: "Kedalaman aliran y tegak lurus dasar, seret muka air naik atau turun",
     gS: "Kemiringan palung S, seret ujung hilir lantai palung naik atau turun",
     rQ: "Debit yang lewat",
     rVmean: "Kecepatan rata-rata",
@@ -93,7 +93,7 @@ const TXT = {
     pBaku: "Standard design",
     pCuram: "Too steep",
     pLebar: "Wide trough, large discharge",
-    gY: "Flow depth y, drag the water surface up or down",
+    gY: "Flow depth y normal to the invert, drag the water surface up or down",
     gS: "Trough slope S, drag the downstream end of the trough floor up or down",
     rQ: "Discharge through the trough",
     rVmean: "Mean velocity",
@@ -197,6 +197,9 @@ export function TanggaIkanDenilClient() {
       const tebal = Math.max(b * 0.06, 0.03);
 
       const dasarDi = (xx: number) => -S * xx;
+      // y di model tegak lurus dasar (Chow 1959 §1-3); tebal tegaknya di
+      // gambar y·√(1+S²).
+      const yTegak = y * Math.sqrt(1 + S * S);
 
       const badan: StructureBody[] = [
         // Lantai palung.
@@ -232,7 +235,7 @@ export function TanggaIkanDenilClient() {
       const muka: { x: number; z: number }[] = [];
       for (let i = 0; i <= 40; i++) {
         const xx = (panjang * i) / 40;
-        muka.push({ x: xx, z: dasarDi(xx) + y });
+        muka.push({ x: xx, z: dasarDi(xx) + yTegak });
       }
 
       const bebas: Bidang = {
@@ -270,8 +273,8 @@ export function TanggaIkanDenilClient() {
             axis: "v",
             at: panjang * 0.5,
             from: potongZ(dasarDi(panjang * 0.5)),
-            to: potongZ(dasarDi(panjang * 0.5) + y),
-            text: `y ${fmtPlain(y, 2)} m`,
+            to: potongZ(dasarDi(panjang * 0.5) + yTegak),
+            text: `y·√(1+S²) ${fmtPlain(yTegak, 2)} m`,
             color: C.water,
             offset: 24,
           },
@@ -279,7 +282,7 @@ export function TanggaIkanDenilClient() {
         callouts: [
           {
             x: jarakSirip * 2,
-            z: dasarDi(jarakSirip * 2) + y * 0.6,
+            z: dasarDi(jarakSirip * 2) + yTegak * 0.6,
             dx: 20,
             dy: -32,
             text: T.baffleLabel,
@@ -288,7 +291,7 @@ export function TanggaIkanDenilClient() {
         arrows: [
           {
             x: panjang * 0.25,
-            z: dasarDi(panjang * 0.25) + y * 0.82,
+            z: dasarDi(panjang * 0.25) + yTegak * 0.82,
             length: -28,
             color: tidakMampu ? C.caution : C.water,
           },
@@ -306,7 +309,7 @@ export function TanggaIkanDenilClient() {
          * (di antara ukuran y dan ujung hilir), dan ujung hilir lantai.
          */
         anchors: {
-          muka: { x: panjang * 0.65, z: dasarDi(panjang * 0.65) + y },
+          muka: { x: panjang * 0.65, z: dasarDi(panjang * 0.65) + yTegak },
           lantai: { x: panjang, z: dasarDi(panjang) },
         },
       };
@@ -347,7 +350,7 @@ export function TanggaIkanDenilClient() {
       tint: C.water,
       param: P_Y,
       value: y,
-      toValue: (px, py, m) => m.invY(py) + S * m.invX(px),
+      toValue: (px, py, m) => (m.invY(py) + S * m.invX(px)) / Math.sqrt(1 + S * S),
       onChange: setY,
       format: (v) => `y ${fmt(v, 2)} m`,
     },
@@ -437,6 +440,7 @@ export function TanggaIkanDenilClient() {
               // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
               // capture tidak ada pelepas dan kunci akan tertinggal.
               if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
               if (bidangRef.current) setKunci(bidangRef.current);
             }}
             onPointerUp={lepasKunci}

@@ -197,7 +197,10 @@ export function BendungOgeeClient() {
       /* Geometri, dengan puncak mercu di titik asal:
          hulu di x negatif, muka hilir mengikuti bentuk WES ke kanan. */
       const xHulu = -Math.max(3 * Hd, 4);
-      const xHilir = Math.max(3.2 * Hd, 5);
+      // Muka WES y = −0,5·Hd·(x/Hd)^1,85 mencapai kaki (−P) di
+      // x = Hd·(2P/Hd)^(1/1,85) (USBR 1987); tanpa ini P di atas ±9,8 m
+      // (Hd 2) tergambar terpotong dan dasar hulu jatuh di luar bidang.
+      const xHilir = Math.max(3.2 * Hd, 5, Hd * Math.pow((2 * P) / Hd, 1 / 1.85) * 1.001);
 
       /*
        * Muka hilir WES dihentikan di kaki bendungnya, yaitu ketika turun
@@ -474,6 +477,7 @@ export function BendungOgeeClient() {
               // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
               // capture tidak ada pelepas dan kunci akan tertinggal.
               if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
               if (bidangRef.current) setKunci(bidangRef.current);
             }}
             onPointerUp={lepasKunci}

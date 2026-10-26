@@ -479,6 +479,7 @@ export function PrinsipMomentumClient() {
               // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
               // capture tidak ada pelepas dan kunci akan tertinggal.
               if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
               if (bidangRef.current) setKunci(bidangRef.current);
             }}
             onPointerUp={lepasKunci}

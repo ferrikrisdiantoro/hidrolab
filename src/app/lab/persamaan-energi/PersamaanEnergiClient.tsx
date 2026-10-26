@@ -473,6 +473,7 @@ export function PersamaanEnergiClient() {
               // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
               // capture tidak ada pelepas dan kunci akan tertinggal.
               if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
               if (sumbuRef.current) setKunci(sumbuRef.current);
             }}
             onPointerUp={lepasKunci}
