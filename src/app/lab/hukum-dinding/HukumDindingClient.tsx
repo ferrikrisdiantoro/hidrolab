@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   KARMAN,
@@ -54,6 +57,7 @@ const TXT = {
     hUplusNone: "Kecepatan tak berdimensi: daerah penyangga, tidak ada hukum",
     hU: "Kecepatan setempat",
     hDelta: "Tebal lapisan kental",
+    hdlProbe: "Probe titik amat: geser mendatar untuk mengubah jarak y dari dinding",
     pindah: "Geser tegangan gesernya atau jarak titik amatnya, lalu perhatikan titik itu keluar dari arsiran dan salah satu hukum kembali berlaku.",
     wake: "Hukum logaritmik di model tidak punya batas atas. Jauh dari dinding, kira-kira di atas y/δ ≈ 0,2 (δ tebal lapisan batas), kecepatan mulai menyimpang ke atas garis log (daerah wake, Pope 2000 Bab 7); daerah itu tidak dimodelkan di lembar ini.",
     pBanjir: "Banjir, geser besar",
@@ -89,6 +93,7 @@ const TXT = {
     hUplusNone: "Dimensionless velocity: buffer layer, no law applies",
     hU: "Local velocity",
     hDelta: "Viscous sublayer thickness",
+    hdlProbe: "Observation probe: drag sideways to change the distance y from the wall",
     pindah: "Move the shear stress or the observation distance and watch the point leave the shading as one of the two laws takes over again.",
     wake: "The log law in the model has no upper limit. Far from the wall, roughly above y/δ ≈ 0.2 (δ the boundary-layer thickness), the velocity starts to rise above the log line (the wake region, Pope 2000 Chapter 7); that region is not modelled on this sheet.",
     pBanjir: "Flood, high shear",
@@ -129,6 +134,10 @@ const YP_MIN = 0.03;
 const YP_MAX = 1e5;
 const UP_MAX = 34;
 
+/* Rentang jarak y, dipakai bersama penggeser, kotak angka, dan pegangan
+   probe (aturan 4: satu sumber nilai). */
+const P_Y: ParamDef = { min: 0.01, max: 200, step: 0.01, digits: 2 };
+
 const NADA_LAPIS: Record<string, Tone> = {
   kental: "water",
   penyangga: "invalid",
@@ -144,6 +153,8 @@ export function HukumDindingClient() {
   const [tau, setTau] = useState(2);
   const [yMm, setYMm] = useState(2);
   const [suhu, setSuhu] = useState(15);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
 
   const nu = waterViscosity(suhu);
   const uStar = frictionVelocity(tau);
@@ -162,7 +173,7 @@ export function HukumDindingClient() {
   const lapisNama =
     w.layer === "kental" ? x.lKental : w.layer === "logaritmik" ? x.lLog : x.lPenyangga;
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, cw, ch) => {
       const kental: { x: number; y: number }[] = [];
       const log: { x: number; y: number }[] = [];
@@ -206,7 +217,7 @@ export function HukumDindingClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         cw,
         ch,
@@ -237,12 +248,38 @@ export function HukumDindingClient() {
             label: `u⁺ ${fmtPlain(uPlus, 2)}`,
             invalid: diPenyangga,
           },
+          // Probe sendiri (bukan `point`, yang hilang di luar bidang):
+          // DragLayer menjepitnya ke tepi bidang.
+          anchors: { probe: { x: yPlus, y: uPlus } },
         },
         lang
       );
     },
+    null,
     [tau, yMm, suhu, lang]
   );
+
+  /*
+   * Probe y⁺. Posisi tegak (u⁺) adalah HASIL hukum dinding, jadi probe
+   * hanya diseret mendatar. y⁺ bukan masukan; yang diubah adalah jarak y,
+   * dengan τ₀ dan T tetap:
+   *   y = y⁺ · ν / u*   (mm = · 1000)
+   * Sumbu y⁺ logaritmik dan tetap, jadi tidak ada saling kejar dengan skala.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "probe",
+      anchor: "probe",
+      axis: "x",
+      label: x.hdlProbe,
+      hollow: true,
+      param: P_Y,
+      value: yMm,
+      toValue: (px, _py, m) => (uStar > 0 ? ((m.invX(px) * nu) / uStar) * 1000 : yMm),
+      onChange: setYMm,
+      format: (v) => `y ${fmt(v, 2)} mm, y⁺ ${fmt(((v / 1000) * uStar) / nu, 2)}`,
+    },
+  ];
 
   return (
     <LabShell
@@ -313,15 +350,17 @@ export function HukumDindingClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="τ₀" label={x.dTau} value={tau} min={0.05} max={40} step={0.05} digits={2} unit="Pa" onChange={setTau} tint={C.energy} />
-              <InputRow symbol="y" label={x.dY} value={yMm} min={0.01} max={200} step={0.01} digits={2} unit="mm" onChange={setYMm} />
+              <InputRow symbol="y" label={x.dY} value={yMm} {...P_Y} unit="mm" onChange={setYMm} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>
 
