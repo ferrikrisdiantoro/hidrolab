@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -15,7 +15,15 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createReachMotion,
+  drawReachMotion,
+  reachFlow,
+  reachTimeScale,
+  type ReachMotion,
+  type ReachStation,
+} from "@/lib/drawReachMotion";
 import {
   drawReach,
   type ReachMarker,
@@ -65,6 +73,8 @@ const TXT = {
     lintasNote:
       "Profilnya melintasi kondisi kritis di tengah bentang. Di titik itu penyebut persamaan menuju nol dan kemiringan muka air menjadi tegak, sehingga hasil di sekitarnya digambar titik rapat dan tidak boleh dibaca sebagai angka. Keadaan nyata di situ adalah loncatan air atau penampang kendali, yang penanganannya berbeda. Perkecil aliran masuk, perbesar lebar dasar, atau naikkan kedalaman di ujung hilir.",
     exagg: "pelebihan tegak",
+    motion: (n: string) => `partikel bergerak dengan V = Q(x)/A, lahir sebanding q*, waktu dipercepat ×${n}`,
+    motionReal: "partikel bergerak dengan V = Q(x)/A, lahir sebanding q*, waktu nyata",
     bSub: "Subkritis, kendali hilir berlaku",
     bKr: "Mendekati kritis",
     bSup: "Superkritis, penelusuran tidak berlaku",
@@ -109,6 +119,8 @@ const TXT = {
     lintasNote:
       "The profile crosses critical conditions in mid reach. There the denominator of the equation tends to zero and the surface slope becomes vertical, so results around that point are drawn with fine dots and must not be read as numbers. What really happens there is a hydraulic jump or a control section, which is handled differently. Reduce the inflow, widen the bed, or raise the depth at the downstream end.",
     exagg: "vertical exaggeration",
+    motion: (n: string) => `particles move at V = Q(x)/A, born in proportion to q*, time sped up ×${n}`,
+    motionReal: "particles move at V = Q(x)/A, born in proportion to q*, real time",
     bSub: "Subcritical, downstream control holds",
     bKr: "Near critical",
     bSup: "Supercritical, traverse not valid",
@@ -171,9 +183,43 @@ export function AliranMasukLateralClient() {
   const tanpa = svfProfile(Q0, qStar, b, n, S0, L, yEnd, 400, true);
   const ycEnd = criticalDepth(r.Qend / b);
 
-  const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, tanpa, ycEnd, L, S0, lang)),
-    [Q0, qLit, b, n, S0, L, yEnd, lang]
+  /*
+   * Lapis gerak: partikel bergerak dengan V = Q(x)/(b·y) dari svfProfile di
+   * tiap stasiun. Partikel lahir di hulu dengan peluang Q₀/Q_L dan sisanya
+   * merata di sepanjang saluran, jadi jumlah yang lewat penampang x per detik
+   * sebanding Q(x) = Q₀ + q*·x (drawReachMotion). Hilir superkritis: muka air
+   * yang digambar tidak berlaku, jadi tidak ada gerak di atasnya.
+   */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<ReachMotion | null>(null);
+  if (gerak.current === null) gerak.current = createReachMotion(170);
+  const aliran = useMemo(() => {
+    if (r.outletSupercritical || !(r.Qend > 0)) return null;
+    const zb = (xx: number) => (L - xx) * S0;
+    const air: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: zb(p.x) + p.y }));
+    const st: ReachStation[] = r.points.map((p) => ({ x: p.x, zb: zb(p.x), zs: zb(p.x) + p.y, V: p.V, Q: p.Q }));
+    return reachFlow(st, air, [
+      { x: 0, z: zb(0) },
+      { x: L, z: 0 },
+    ]);
+    // r dihitung ulang dari masukan yang sama; deps primitif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Q0, qLit, b, n, S0, L, yEnd]);
+  const skala = aliran ? reachTimeScale(aliran.crossTime) : 1;
+  const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak = skala === 1 ? x.motionReal : x.motion(faktor(skala));
+
+  const plate = usePlate(
+    (ctx, w, h) =>
+      drawReach(ctx, w, h, {
+        ...susun(r, tanpa, ycEnd, L, S0, lang),
+        ...(playing || !aliran ? {} : { flowArrows: [L * 0.3, L * 0.8] }),
+      }),
+    aliran
+      ? (ctx, _w, _h, tt, dt, out) => drawReachMotion(ctx, tt, dt, out, aliran, skala, gerak.current!)
+      : null,
+    [Q0, qLit, b, n, S0, L, yEnd, lang, playing],
+    { playing, timeScale: skala }
   );
 
   const zSpan = Math.max(S0 * L + r.yMax, 1e-3);
@@ -245,8 +291,15 @@ export function AliranMasukLateralClient() {
             { label: "q*", value: `${fmt(qLit, 0)} l/s·m` },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 0)}×` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
