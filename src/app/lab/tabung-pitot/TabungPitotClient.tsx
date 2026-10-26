@@ -182,6 +182,8 @@ export function TabungPitotClient() {
       anchor: "probe",
       axis: "y",
       label: x.gR,
+      // Sama dengan tint baris r/R: merah sinyal hanya saat terlalu dekat dinding.
+      tint: dekatDinding ? C.signal : undefined,
       param: P_R,
       value: rFrac,
       toValue: (_px, py, m) => m.invY(py) / R,

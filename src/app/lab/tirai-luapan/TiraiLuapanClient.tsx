@@ -195,8 +195,13 @@ export function TiraiLuapanClient() {
         { h, P, V0: r.V0, tail, outOfRange: r.outOfRange || tenggelam, aerated },
         lang
       ),
-    (ctx, _w, _h, tt, _dt, out) =>
-      drawNappeMotion(ctx, tt, out, { h, P, V0: r.V0, q: qSatuan, tail }, gerak.current!),
+    // Tanpa udara di rongga rumus gugur (V₀, Q ditulis "—") dan tirai
+    // menempel: tidak ada gerak yang bisa digambar dari hitungan, jadi
+    // tanpa lapis gerak dan tanpa tombol, sama seperti FP-01 di bawah Re 47.
+    aerated
+      ? (ctx, _w, _h, tt, _dt, out) =>
+          drawNappeMotion(ctx, tt, out, { h, P, V0: r.V0, q: qSatuan, tail }, gerak.current!)
+      : null,
     [h, P, b, tail, aerated, lang],
     { playing, timeScale: SKALA_WAKTU }
   );
