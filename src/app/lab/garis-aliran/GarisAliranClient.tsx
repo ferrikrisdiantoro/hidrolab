@@ -160,7 +160,10 @@ export function GarisAliranClient() {
 
   /* Lapis gerak (Phase 2): putaran ulang 0 sampai t dalam waktu nyata.
      Selagi bergerak, panah kecepatan seragam di lapis statis diganti
-     goresan pelacak yang mengikuti medan yang sama pada saat putarannya. */
+     goresan pelacak yang mengikuti medan yang sama pada saat putarannya,
+     dan ketiga garis saat t digambar rambut bergaris phantom (posisi
+     akhir, DASH.phantom) supaya tidak tertukar dengan garis yang sedang
+     bergerak. Saat dijeda gambarnya sama persis dengan sebelumnya. */
   const { playing, toggle: togglePutar } = usePutar();
   const gerak = useRef<FlowLinesMotion | null>(null);
   if (gerak.current === null) gerak.current = createFlowLinesMotion();
@@ -188,8 +191,8 @@ export function GarisAliranClient() {
         {
           pts: r.streamline,
           color: C.critical,
-          weight: W.bold,
-          dash: DASH.solid,
+          weight: bergerak ? W.hair : W.bold,
+          dash: bergerak ? DASH.phantom : DASH.solid,
           label: T.streamlineLabel,
           labelAt: 0.88,
           labelDy: -10,
@@ -198,8 +201,8 @@ export function GarisAliranClient() {
         {
           pts: r.pathline,
           color: C.water,
-          weight: W.bold,
-          dash: DASH.hidden,
+          weight: bergerak ? W.hair : W.bold,
+          dash: bergerak ? DASH.phantom : DASH.hidden,
           label: T.pathlineLabel,
           labelAt: 0.55,
           labelDy: 16,
@@ -209,8 +212,8 @@ export function GarisAliranClient() {
         {
           pts: r.streakline,
           color: C.energy,
-          weight: W.thin,
-          dash: DASH.solid,
+          weight: bergerak ? W.hair : W.thin,
+          dash: bergerak ? DASH.phantom : DASH.solid,
           label: T.streaklineLabel,
           labelAt: 0.3,
           labelDy: -12,
