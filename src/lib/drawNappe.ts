@@ -16,18 +16,35 @@ import {
   ruling,
 } from "./plate.ts";
 import { G, WES_K, WES_N, jetTrajectory, wesNappe, fmtPlain } from "./hydraulics.ts";
-import { drawJet, finishJetPath, jetKeyChanged, type JetMotion, type JetPath, JET_MAX } from "./jetMotion.ts";
+import {
+  createJetPath,
+  drawJet,
+  finishJetPath,
+  jetKeyChanged,
+  type JetMotion,
+  type JetPath,
+  JET_MAX,
+} from "./jetMotion.ts";
 import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 import { mapFrom, type PlateOut } from "./plateOut.ts";
+
+/**
+ * Jumlah ruas muka air hulu dari tepi kiri sampai mercu. Lengkung tajam
+ * penurunan di dekat mercu (nappeHeadwater) butuh ruas rapat supaya tidak
+ * bersegi.
+ */
+const N_HULU = 180;
 
 export type NappeState = {
   /** Tinggi muka air di atas puncak mercu, meter */
   h: number;
   /** Tinggi mercu di atas lantai hilir, meter */
   P: number;
-  /** Kecepatan rata-rata di atas mercu, meter per detik */
+  /** Kecepatan rata-rata di atas mercu, meter per detik (lintasan peluru) */
   V0: number;
+  /** Debit per meter lebar, m²/s (tebal lembaran tirai) */
+  q: number;
   /** Muka air hilir di atas lantai, meter */
   tail: number;
   /** Di luar rentang keberlakuan standar */
@@ -101,6 +118,8 @@ export function drawNappe(
   axisTitle(ctx, T.axStation, padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.elevation, 16, padT + plotH / 2, -Math.PI / 2);
 
+  const tenggelam = s.tail > s.P;
+
   /* ---------------- tirai luapan ---------------- */
   const langkah = 160;
   const tirai: [number, number][] = [];
@@ -116,12 +135,7 @@ export function drawNappe(
      Muka air mulai turun kira-kira dua kali tinggi luapan sebelum mercu.
      Penurunan itu digambar, karena tanpa itu gambar menyiratkan muka air
      mendatar sampai ke bibir mercu, dan itu tidak benar. */
-  const awalTurun = -2 * s.h;
-  const mukaHulu = (x: number) => {
-    if (x <= awalTurun) return s.P + s.h;
-    const f = (x - awalTurun) / (0 - awalTurun);
-    return s.P + s.h - s.h * 0.28 * f * f;
-  };
+  const mukaHulu = (x: number) => nappeHeadwater(s.h, s.P, x);
 
   /*
    * Genangan hulu saja: dari muka air hulu turun ke lantai di muka ambang.
@@ -137,8 +151,8 @@ export function drawNappe(
     ctx.beginPath();
     ctx.moveTo(X(xKiri), Z(0));
     ctx.lineTo(X(xKiri), Z(mukaHulu(xKiri)));
-    for (let i = 0; i <= 60; i++) {
-      const x = xKiri + ((0 - xKiri) * i) / 60;
+    for (let i = 0; i <= N_HULU; i++) {
+      const x = xKiri + ((0 - xKiri) * i) / N_HULU;
       ctx.lineTo(X(x), Z(mukaHulu(x)));
     }
     ctx.lineTo(X(0), Z(0));
@@ -201,11 +215,41 @@ export function drawNappe(
   /* ---------------- muka air hulu ---------------- */
   pen(ctx, W.bold, C.water);
   ctx.beginPath();
-  for (let i = 0; i <= 60; i++) {
-    const x = xKiri + ((0 - xKiri) * i) / 60;
+  for (let i = 0; i <= N_HULU; i++) {
+    const x = xKiri + ((0 - xKiri) * i) / N_HULU;
     i ? ctx.lineTo(X(x), Z(mukaHulu(x))) : ctx.moveTo(X(x), Z(mukaHulu(x)));
   }
   ctx.stroke();
+
+  /* ---------------- lembaran air tirai ----------------
+     Sisi bawah WES ditambah tebal t(x) tegak lurus lintasan (nappeSheet,
+     tabel yang sama dengan lapis gerak), diisi warna air. Dengan ini
+     lembaran air terlihat juga saat gerak dijeda, sisi atasnya menyambung
+     muka hulu di x = 0, dan rongga di bawah sisi bawah tetap kosong
+     (udara). Ambang tenggelam tidak punya lembaran bebas. */
+  const lembaran = tenggelam ? null : nappeSheet({ h: s.h, P: s.P, q: s.q, tail: s.tail });
+  if (lembaran) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+    ctx.beginPath();
+    for (let i = 0; i < lembaran.length; i += 2)
+      i ? ctx.lineTo(X(lembaran[i]), Z(lembaran[i + 1])) : ctx.moveTo(X(lembaran[i]), Z(lembaran[i + 1]));
+    ctx.closePath();
+    ctx.fillStyle = C.waterFill;
+    ctx.fill();
+    // Sisi atas lembaran: muka air bebas, garis tipis (sisi bawah = tirai
+    // tebal di bawah). Titik sisi atas mengisi separuh akhir larik, dari
+    // ujung bawah kembali ke bibir.
+    const nBawah = (lembaran.length + 4) / 6;
+    pen(ctx, W.thin, C.water);
+    ctx.beginPath();
+    for (let i = lembaran.length - 2, k = 0; i >= 2 * nBawah; i -= 2, k++)
+      k ? ctx.lineTo(X(lembaran[i]), Z(lembaran[i + 1])) : ctx.moveTo(X(lembaran[i]), Z(lembaran[i + 1]));
+    ctx.stroke();
+    ctx.restore();
+  }
 
   /* ---------------- tirai ---------------- */
   pen(
@@ -250,7 +294,6 @@ export function drawNappe(
   // Saat muka air hilir melampaui mercu, tidak ada rongga udara: ruang itu
   // terisi air. Menuliskannya di sana sama saja menyatakan tirainya masih
   // jatuh bebas, padahal lembar ini sendiri menandai ambangnya tenggelam.
-  const tenggelam = s.tail > s.P;
   const xRongga = Math.min(xJatuh * 0.45, xKanan * 0.4);
   const zRongga = (s.P - wesNappe(s.h, xRongga)) * 0.45;
   if (!tenggelam) {
@@ -348,9 +391,8 @@ export function drawNappe(
    * - `headwater`: muka air hulu di garis dimensi h (P + h)
    * - `tailwater`: muka air hilir di tengah genangan hilir (0 bila kering)
    * - `nappeLanding`: ujung bawah tirai yang tergambar
-   * `water` = genangan hulu; `waters` menambah genangan hilir. Lembaran
-   * air tirai tidak termasuk: tebalnya tidak digambar (hanya sisi bawahnya),
-   * jadi lapis gerak membangunnya sendiri dari debit (nappeMotion).
+   * `water` = genangan hulu; `waters` menambah genangan hilir (bila ada)
+   * lalu lembaran tirai (nappeSheet, bila tidak tenggelam).
    */
   const map = mapFrom(X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [xKiri, xKanan], [0, zAtas]);
   const ujungTirai = tirai[tirai.length - 1];
@@ -361,8 +403,8 @@ export function drawNappe(
     nappeLanding: { x: X(ujungTirai[0]), y: Z(ujungTirai[1]) },
   };
   const hulu: number[] = [X(xKiri), Z(0), X(xKiri), Z(mukaHulu(xKiri))];
-  for (let i = 0; i <= 60; i++) {
-    const x = xKiri + ((0 - xKiri) * i) / 60;
+  for (let i = 0; i <= N_HULU; i++) {
+    const x = xKiri + ((0 - xKiri) * i) / N_HULU;
     hulu.push(X(x), Z(mukaHulu(x)));
   }
   hulu.push(X(0), Z(0));
@@ -372,6 +414,14 @@ export function drawNappe(
     const xa = X(xJatuh * 0.2);
     const xb = X(xKanan);
     waters.push(Float64Array.of(xa, Z(0), xa, Z(s.tail), xb, Z(s.tail), xb, Z(0)));
+  }
+  if (lembaran) {
+    const px = new Float64Array(lembaran.length);
+    for (let i = 0; i < lembaran.length; i += 2) {
+      px[i] = X(lembaran[i]);
+      px[i + 1] = Z(lembaran[i + 1]);
+    }
+    waters.push(px);
   }
   return { map, anchors, water, waters };
 }
@@ -385,8 +435,6 @@ export type NappeMotionState = {
   h: number;
   /** Tinggi mercu di atas lantai hilir, m */
   P: number;
-  /** Kecepatan datang di atas mercu, m/s (rectWeirDischarge V0) */
-  V0: number;
   /** Debit per meter lebar, m²/s (Q/b dari rectWeirDischarge) */
   q: number;
   /** Muka air hilir di atas lantai, m */
@@ -394,22 +442,132 @@ export type NappeMotionState = {
 };
 
 /**
+ * Garis energi di atas lantai hilir, m: E = P + h + Va²/2g.
+ *
+ * Bernoulli ditarik dari genangan hulu, jadi kecepatannya kecepatan DATANG
+ * Va = q/(h + P) di penampang hulu yang dalamnya h + P, bukan V₀ = q/h di
+ * atas mercu (Henderson 1966 §6). V₀ dipakai lembar untuk lintasan peluru
+ * pembanding; memasukkannya ke E menaikkan laju di mercu (h 0,3; P 0,6;
+ * b 2: 2,639 m/s, seharusnya 2,451 m/s).
+ */
+export function nappeEnergy(s: Pick<NappeMotionState, "h" | "P" | "q">): number {
+  const Va = s.h + s.P > 0 ? s.q / (s.h + s.P) : 0;
+  return s.P + s.h + (Va * Va) / (2 * G);
+}
+
+/**
  * Laju butir di tirai pada elevasi z, m/s.
  *
  * Di dalam tirai yang diberi udara tekanannya atmosfer di kedua sisinya,
- * jadi Bernoulli dari muka air hulu memberi v = √(2g(E − z)), dengan
- * garis energi E = P + h + V0²/2g di atas lantai (V0 kecepatan datang
- * dari rectWeirDischarge, persamaan yang sama yang mengisi kop lembar).
+ * jadi Bernoulli dari muka air hulu memberi v = √(2g(E − z)), dengan E dari
+ * nappeEnergy (q dari rectWeirDischarge, persamaan yang sama yang mengisi
+ * kop lembar).
  */
 export function nappeSpeed(s: NappeMotionState, z: number): number {
-  const E = s.P + s.h + (s.V0 * s.V0) / (2 * G);
-  return Math.sqrt(2 * G * Math.max(E - z, 0));
+  return Math.sqrt(2 * G * Math.max(nappeEnergy(s) - z, 0));
+}
+
+/**
+ * Penurunan muka hulu di bidang mercu, bagian dari h. Muka atas tirai di
+ * atas puncak ambang tajam ±0,85 h (Chow 1959 bab 14, profil tirai dari
+ * pengukuran USBR), jadi turun 0,15 h.
+ */
+export const NAPPE_DRAWDOWN = 0.15;
+
+/**
+ * Muka air hulu di atas lantai pada stasiun x ≤ 0 (m): datar P + h sampai
+ * x = −2h, lalu turun sampai P + (1 − NAPPE_DRAWDOWN)·h di bidang mercu.
+ * Dipakai gambar genangan hulu dan tebal lembaran di x = 0.
+ *
+ * Bentuk penurunan g(f) = ½f² + ½f¹¹ (f = 0 di −2h, 1 di mercu): separuh
+ * landai sejak −2h, separuh melengkung tajam di dekat bidang mercu, tempat
+ * air mulai dipercepat masuk ke tirai. Kemiringan ujungnya
+ * 0,15·6,5/2 ≈ 0,49 menyamai sisi atas lembaran di dekat bibir (±0,4..0,6),
+ * jadi muka air tidak patah di x = 0. Parabola murni berakhir pada
+ * kemiringan 0,15 dan patah terlihat di HP.
+ */
+export function nappeHeadwater(h: number, P: number, x: number): number {
+  const awalTurun = -2 * h;
+  if (x <= awalTurun) return P + h;
+  const f = Math.min(1, (x - awalTurun) / (0 - awalTurun));
+  const f2 = f * f;
+  const f11 = f2 * f2 * f2 * f2 * f2 * f;
+  return P + h - h * NAPPE_DRAWDOWN * (0.5 * f2 + 0.5 * f11);
+}
+
+/**
+ * Tebal lembaran tirai tegak lurus lintasan pada stasiun x ≥ 0 (m).
+ *
+ * - Jauh dari mercu (x ≥ h) tekanan di dalam lembaran atmosfer: laju
+ *   √(2g(E − z)) dan tebal t_B = q / laju (kontinuitas).
+ * - Di bibir (x = 0) tebalnya t₀ = muka hulu − P, supaya sisi atas lembaran
+ *   menyambung genangan hulu tanpa tangga. Di situ tekanan di dalam air
+ *   belum nol, jadi laju rata-rata q/t₀ lebih kecil daripada Bernoulli
+ *   bertekanan atmosfer.
+ * - Di antaranya t = t_B(x) + (t₀ − t_B(0))·(1 − x/h)³: kelebihan tebal
+ *   di bibir meluruh dan habis tepat di x = h, dengan turunan pertama dan
+ *   kedua ikut nol di sana (menyambung). Peluruhan pangkat tiga dipilih
+ *   karena sisi atas lembaran tetap melengkung satu arah; smoothstep
+ *   t₀ → t_B menurunkan tebal paling cepat di tengah lalu berhenti, dan sisi
+ *   atasnya menggambar bahu di sekitar x = h.
+ */
+export function nappeThickness(s: Pick<NappeMotionState, "h" | "P" | "q">, x: number): number {
+  const E = nappeEnergy(s);
+  const tebalBebas = (xx: number) => {
+    const v = Math.sqrt(2 * G * Math.max(E - (s.P - wesNappe(s.h, Math.max(xx, 0))), 0));
+    return v > 1e-9 ? s.q / v : 0;
+  };
+  const tB = tebalBebas(x);
+  if (!(s.h > 0) || x >= s.h) return tB;
+  const t0 = nappeHeadwater(s.h, s.P, 0) - s.P;
+  const u = 1 - Math.max(x, 0) / s.h;
+  return tB + (t0 - tebalBebas(0)) * u * u * u;
+}
+
+/**
+ * Poligon lembaran tirai (m, stasiun dan elevasi), panjang 6n − 4: n titik
+ * sisi bawah dari bibir sampai muka air hilir, lalu sisi atas kembali ke
+ * bibir, dua titik per ruas. Sisi atas tiap ruas memakai normal ruas itu,
+ * persis seperti jetAt menempatkan butir, jadi semua butir berada di dalam
+ * poligon. null bila tanpa lintasan bebas.
+ */
+export function nappeSheet(s: NappeMotionState): Float64Array | null {
+  const p = createJetPath("normal");
+  fillNappePath(p, s);
+  const n = p.n;
+  if (n < 2) return null;
+  const out = new Float64Array(6 * n - 4);
+  let i = 0;
+  for (let k = 0; k < n; k++) {
+    out[i++] = p.x[k];
+    out[i++] = p.z[k];
+  }
+  for (let k = n - 2; k >= 0; k--) {
+    const dx = p.x[k + 1] - p.x[k];
+    const dz = p.z[k + 1] - p.z[k];
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len;
+    const nz = dx / len;
+    out[i++] = p.x[k + 1] + nx * p.off1[k + 1];
+    out[i++] = p.z[k + 1] + nz * p.off1[k + 1];
+    out[i++] = p.x[k] + nx * p.off1[k];
+    out[i++] = p.z[k] + nz * p.off1[k];
+  }
+  // Di bibir garis singgung WES mendatar (dz/dx = 0 di x = 0), jadi normal
+  // sesungguhnya tegak: sisi atas tepat di (0, P + t₀) = muka hulu, tanpa
+  // celah segitiga terhadap genangan hulu yang berhenti tegak di x = 0.
+  // Normal ruas pertama sedikit miring; butir di ruas itu tetap di dalam
+  // poligon karena titik ini berada di kiri-atas titik butirnya.
+  out[i - 2] = p.x[0];
+  out[i - 1] = p.z[0] + p.off1[0];
+  return out;
 }
 
 /**
  * Mengisi tabel lintasan: sisi bawah tirai WES (garis yang digambar
  * drawNappe), dari bibir mercu sampai muka air hilir atau lantai. Tebal
- * lembaran air tegak lurus aliran = q / v (kontinuitas). Tirai yang
+ * lembaran tegak lurus aliran t(x) dari nappeThickness, laju = q / t
+ * (kontinuitas tepat di tiap titik, tanpa tangga di mercu). Tirai yang
  * tenggelam (muka air hilir di atas mercu) tidak punya lintasan bebas:
  * n = 0. Mengembalikan laju terbesar.
  */
@@ -421,16 +579,19 @@ export function fillNappePath(path: JetPath, s: NappeMotionState): number {
   const xEnd = Math.pow(WES_K * Math.pow(s.h, WES_N - 1) * (s.P - zEnd), 1 / WES_N);
   const n = JET_MAX;
   for (let k = 0; k < n; k++) {
-    // Rapat di ujung, tempat tirai paling curam (jarak lengkung terbesar).
-    const f = k / (n - 1);
-    const x = xEnd * Math.sqrt(f);
+    // Jarak mendatar sama. Dulu √f (rapat di ujung yang curam), tetapi ruas
+    // pertama lalu 6 % xEnd panjangnya dan sisi atas lembaran yang digambar
+    // dari tabel ini patah di dekat bibir, tepat di tempat tebalnya paling
+    // cepat berubah. Kemiringan tirai sampai muka air hilir tidak sampai 2,
+    // jadi ruas terpanjang paling banyak dua kali yang terpendek.
+    const x = (xEnd * k) / (n - 1);
     const z = Math.max(s.P - wesNappe(s.h, x), zEnd);
-    const v = nappeSpeed(s, z);
+    const t = nappeThickness(s, x);
     path.x[k] = x;
     path.z[k] = z;
-    path.v[k] = v;
+    path.v[k] = t > 1e-12 ? s.q / t : 0;
     path.off0[k] = 0;
-    path.off1[k] = v > 1e-9 ? s.q / v : 0;
+    path.off1[k] = t;
   }
   path.n = n;
   return finishJetPath(path);
@@ -449,7 +610,7 @@ export function drawNappeMotion(
   m: JetMotion
 ): void {
   if (!out) return;
-  if (jetKeyChanged(m, s.h, s.P, s.V0, s.q, s.tail)) m.vMax = fillNappePath(m.path, s);
+  if (jetKeyChanged(m, s.h, s.P, s.q, s.tail)) m.vMax = fillNappePath(m.path, s);
   const f = out.map.frame;
   ctx.save();
   ctx.beginPath();

@@ -35,7 +35,7 @@ import { checksNappe } from "@/lib/checks";
 
 const TXT = {
   id: {
-    motionNote: "butir air di lembaran tirai, laju √(2g(E − z)), waktu diperlambat ×4",
+    motionNote: "butir air di lembaran tirai: tebal × laju = q, jauh dari mercu laju √(2g(E − z)); waktu diperlambat ×4",
     title: "Tirai luapan bebas",
     sheetTitle: "Bentuk tirai di atas ambang tajam — potongan melintang",
     dh: "Tinggi muka air di atas mercu",
@@ -86,7 +86,7 @@ const TXT = {
       "Bentuk tirai luapan bebas bukan parabola, dan itu pernyataan yang dapat dilihat langsung pada gambar. Lintasan peluru, yaitu andaian bahwa air meninggalkan mercu mendatar lalu jatuh bebas, digambar sebagai garis khayal di sampingnya. Ia turun lebih cepat, karena mengabaikan dua hal yang nyata di puncak mercu: tekanan di dalam air belum nol, dan lintasannya sudah melengkung sebelum sampai ke bibir. Bentuk sesungguhnya diukur dari tirai ambang tajam yang diberi udara, lalu dirumuskan sebagai persamaan pangkat dengan pangkat 1,85. Dari situlah bentuk mercu ogee berasal: mercu ogee tidak dirancang lebih dulu lalu diuji, melainkan dibentuk mengikuti permukaan bawah tirai ini persis. Pada tinggi energi rancangan, air lalu menempel pada mercu tanpa menekan maupun terangkat, dan tekanan di sepanjang permukaannya kira-kira nol. Di bawah tinggi rancangan mercu menekan air, di atasnya tekanan menjadi negatif dan kavitasi menjadi risiko. Satu hal lagi yang mudah terlewat: rongga udara di bawah tirai bukan ruang kosong yang tidak penting. Ia bagian dari rancangan.",
   },
   en: {
-    motionNote: "water particles in the nappe sheet, speed √(2g(E − z)), time slowed ×4",
+    motionNote: "water particles in the nappe: thickness × speed = q, away from the crest speed √(2g(E − z)); time slowed ×4",
     title: "Free nappe",
     sheetTitle: "Nappe shape over a sharp-crested weir — cross section",
     dh: "Head above the crest",
@@ -178,10 +178,12 @@ export function TiraiLuapanClient() {
   const gugur = tenggelam || !aerated;
   const tampil = (v: number) => (gugur ? NaN : v);
 
-  /* Lapis gerak (Phase 2): butir air jatuh di lembaran tirai dengan laju
-     dari Bernoulli, √(2g(E − z)), E dari h dan V₀ model; tebal lembaran
-     q/v. Lapis statis tidak punya penanda arah, jadi sama saja saat
-     berputar maupun dijeda. Berputar sendiri kecuali "kurangi animasi". */
+  /* Lapis gerak (Phase 2): butir air jatuh di lembaran tirai. Tebal
+     lembaran t(x) mulai dari muka hulu − P di bibir dan beralih halus ke
+     q/√(2g(E − z)) sampai x = h; laju butir q/t (kontinuitas). E = P + h +
+     Va²/2g dengan kecepatan datang Va = q/(h + P), bukan V₀ di atas mercu.
+     Lembaran yang sama diisi warna air di lapis statis, jadi saat dijeda
+     airnya tetap terlihat. Berputar sendiri kecuali "kurangi animasi". */
   const { playing, toggle: togglePutar } = usePutar();
   const gerak = useRef<JetMotion | null>(null);
   if (gerak.current === null) gerak.current = createJetMotion(70, "normal");
@@ -192,7 +194,7 @@ export function TiraiLuapanClient() {
         ctx,
         w,
         hh,
-        { h, P, V0: r.V0, tail, outOfRange: r.outOfRange || tenggelam, aerated },
+        { h, P, V0: r.V0, q: qSatuan, tail, outOfRange: r.outOfRange || tenggelam, aerated },
         lang
       ),
     // Tanpa udara di rongga rumus gugur (V₀, Q ditulis "—") dan tirai
@@ -200,7 +202,7 @@ export function TiraiLuapanClient() {
     // tanpa lapis gerak dan tanpa tombol, sama seperti FP-01 di bawah Re 47.
     aerated
       ? (ctx, _w, _h, tt, _dt, out) =>
-          drawNappeMotion(ctx, tt, out, { h, P, V0: r.V0, q: qSatuan, tail }, gerak.current!)
+          drawNappeMotion(ctx, tt, out, { h, P, q: qSatuan, tail }, gerak.current!)
       : null,
     [h, P, b, tail, aerated, lang],
     { playing, timeScale: SKALA_WAKTU }

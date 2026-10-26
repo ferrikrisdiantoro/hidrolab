@@ -301,12 +301,17 @@ export function drawGvf(
    * lebih pendek daripada bentang yang digambar. Tanpa penanda, sisa bidang
    * yang kosong terbaca sebagai gambar yang gagal, padahal justru itu
    * jawabannya: profilnya memang sependek itu.
+   *
+   * Ungu kritis, bukan merah sinyal: profil berakhir karena mencapai
+   * kedalaman kritis (garis kritis lembar ini juga ungu), dan itu jawaban
+   * yang sah, bukan peringatan. Merah sinyal tetap untuk "aliran berubah
+   * cepat" di bawah, tempat persamaannya kehilangan keberlakuan.
    */
   if (!takAda && r.endsAtCritical) {
     const urutX = [...r.points].sort((a, c) => a.x - c.x);
     const ujung = r.direction === "hulu" ? urutX[0] : urutX[urutX.length - 1];
     const xp = X(ujung.x);
-    pen(ctx, W.thin, C.signal, DASH.axis);
+    pen(ctx, W.thin, C.critical, DASH.axis);
     ctx.beginPath();
     ctx.moveTo(xp, padT + 26);
     ctx.lineTo(xp, Z(zb(ujung.x)));
@@ -317,7 +322,7 @@ export function drawGvf(
       T.profileEnds,
       clampLabelX(ctx, T.profileEnds, xp, padL, padL + plotW),
       padT + 32,
-      C.signal
+      C.critical
     );
   }
 
