@@ -272,7 +272,6 @@ export function TangkapTandaiUlangClient() {
       axis: "x",
       label: x.hdlM,
       hollow: true,
-      tint: C.water,
       param: P_M,
       value: m,
       toValue: (px, _py, mp) => mp.invX(px),
@@ -340,7 +339,11 @@ export function TangkapTandaiUlangClient() {
               untuk mengunci sumbu. */}
           <div
             className="contents"
-            onPointerDown={() => setKunci({ mMax, yMax })}
+            onPointerDown={(e) => {
+              // Hanya tombol utama (lihat AturanPanenClient).
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              setKunci({ mMax, yMax });
+            }}
             onPointerUp={lepasKunci}
             onPointerCancel={lepasKunci}
             onLostPointerCapture={lepasKunci}

@@ -266,7 +266,25 @@ export function ProfilRouseClient() {
    *   uStarDariMid. Hanya mendatar.
    * - acuan: sumbu tegak adalah y/h, jadi a/h dibaca langsung. Hanya tegak.
    */
-  const handles: HandleSpec[] = [
+  /*
+   * Pada butir kasar c/ca di h/2 jauh di bawah 1/lebar bidang: seluruh
+   * rentang u* rendah menumpuk di bawah 1 px dari sumbu, jadi seret hanya
+   * meloncat antara ujung bawah dan nilai besar (insinyur-hidraulika,
+   * 26 Okt 2026). Di sana pegangan u* tidak dipasang; u* diatur lewat
+   * penggeser.
+   */
+  const keluar = plate.outRef.current;
+  const tengahRapat = keluar ? keluar.map.X(r.midRatio) - keluar.map.frame.x0 < 4 : false;
+  // Selama diseret atau difokus keyboard pegangan tetap terpasang (kalau
+  // dilepas di tengahnya, pointer capture dan fokus hilang); baru
+  // disembunyikan sesudah dilepas dan fokus pindah.
+  const [menyeret, setMenyeret] = useState(false);
+  const [fokus, setFokus] = useState(false);
+  // Hanya pegangan u* sendiri; fokus atau seret pada pegangan acuan tidak
+  // boleh memunculkannya kembali.
+  const pegTengah = (t: EventTarget) =>
+    t instanceof Element && t.closest('[data-handle="tengah"]') !== null;
+  const semuaPegangan: HandleSpec[] = [
     {
       id: "tengah",
       anchor: "tengah",
@@ -285,7 +303,6 @@ export function ProfilRouseClient() {
       anchor: "acuan",
       axis: "y",
       label: x.hdlA,
-      tint: C.critical,
       param: P_AH,
       value: aFrac,
       toValue: (_px, py, m) => m.invY(py),
@@ -293,6 +310,7 @@ export function ProfilRouseClient() {
       format: (v) => `a/h ${fmt(v, 3)}, a ${fmt(v * h, 3)} m`,
     },
   ];
+  const handles = tengahRapat && !menyeret && !fokus ? semuaPegangan.filter((p) => p.id !== "tengah") : semuaPegangan;
 
   return (
     <LabShell
@@ -349,7 +367,21 @@ export function ProfilRouseClient() {
           ]}
         >
           <canvas ref={plate.ref} className="block h-full w-full" />
-          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (!pegTengah(e.target)) return;
+              setMenyeret(true);
+            }}
+            onPointerUp={() => setMenyeret(false)}
+            onPointerCancel={() => setMenyeret(false)}
+            onLostPointerCapture={() => setMenyeret(false)}
+            onFocus={(e) => setFokus(pegTengah(e.target))}
+            onBlur={() => setFokus(false)}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={

@@ -306,7 +306,12 @@ export function AturanPanenClient() {
               untuk mengunci sumbu. */}
           <div
             className="contents"
-            onPointerDown={() => setKunciE(eMax)}
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              setKunciE(eMax);
+            }}
             onPointerUp={lepasKunci}
             onPointerCancel={lepasKunci}
             onLostPointerCapture={lepasKunci}
