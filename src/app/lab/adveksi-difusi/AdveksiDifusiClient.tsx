@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,7 +14,13 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  PLUME_TIME_SCALE,
+  createPlumeMotion,
+  drawPlumeMotion,
+  type PlumeMotion,
+} from "@/lib/drawFieldMotion";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
 import {
   TRACER_PECLET_MIN,
@@ -46,6 +52,7 @@ const angkaC = (c: number, d: number) => (c > 0 && c < 1e-3 ? fmtSci(c) : fmt(c,
 const TXT = {
   id: {
     title: "Adveksi dan difusi",
+    motionNote: "diputar ulang 0 sampai 30 min, waktu dipercepat ×60",
     sheetTitle: "Awan zat terlarut pada empat saat sesudah dilepas",
     dM: "Massa yang dilepas",
     dA: "Luas penampang sungai",
@@ -80,6 +87,7 @@ const TXT = {
   },
   en: {
     title: "Advection and diffusion",
+    motionNote: "replayed from 0 to 30 min, time sped up ×60",
     sheetTitle: "A solute cloud at four instants after release",
     dM: "Mass released",
     dA: "River cross-sectional area",
@@ -157,7 +165,14 @@ export function AdveksiDifusiClient() {
       ? x.seimbang
       : x.difusi;
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): awan c(x, τ) dan partikel zat yang berjalan
+     acak (adveksi U, penyebaran D) diputar ulang 0 sampai saat terakhir,
+     satu menit per detik layar. Lapis statis tidak berubah. */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<PlumeMotion | null>(null);
+  if (gerak.current === null) gerak.current = createPlumeMotion();
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const warna = [C.ink3, C.critical, C.energy, C.water];
       /*
@@ -204,7 +219,7 @@ export function AdveksiDifusiClient() {
 
       const xs = r.snapshots.flatMap((s) => s.profile.map((p) => p.x));
 
-      drawField(
+      return drawField(
         ctx,
         w,
         ch,
@@ -228,7 +243,17 @@ export function AdveksiDifusiClient() {
         lang
       );
     },
-    [massa, luas, U, D, titik, lang]
+    (ctx, _w, _h, tt, dt, out) =>
+      drawPlumeMotion(
+        ctx,
+        tt,
+        dt,
+        out,
+        { mass: massa, area: luas, U, D, tEnd: WAKTU[WAKTU.length - 1] },
+        gerak.current!
+      ),
+    [massa, luas, U, D, titik, lang],
+    { playing, timeScale: PLUME_TIME_SCALE }
   );
 
   return (
@@ -276,8 +301,15 @@ export function AdveksiDifusiClient() {
             { label: "σ", value: `${fmt(r.sigma, 1)} m` },
             { label: "tp", value: beku ? `${fmt(tp / 60, 1)} min` : "—" },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
