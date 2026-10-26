@@ -719,10 +719,11 @@ export function reynoldsProfile(eta: number, uc: number, laminar: boolean): numb
 }
 
 /**
- * Lajur manik ke-i dari n, sebagai bagian jari-jari bertanda: |η| =
+ * Lajur sebar manik ke-i dari n, sebagai bagian jari-jari bertanda: |η| =
  * √((j + 0,5)/n) membagi penampang lingkaran menjadi n cincin sama luas,
- * jadi rerata u(r) seluruh manik adalah rerata luas, yaitu V. Tanda
- * bergantian atas/bawah.
+ * jadi bila zat warna sudah bercampur penuh (sebar = 1) manik mengisi
+ * penampang merata. Tanda bergantian atas/bawah. Letak sebenarnya
+ * lajur × beadSpread(s), lihat beadEta.
  */
 export function beadLane(i: number, n: number): number {
   const a = Math.sqrt((i + 0.5) / n);
@@ -764,30 +765,39 @@ export type ReynoldsParams = {
 /** Pajanan goresan manik, detik layar. */
 const PI04_PAJAN = 0.12;
 
-/** Simpangan lateral manik ke-i dari benang, m. Nol pada aliran laminar. */
-export function beadOffset(seed: number, s: number, R: number, kacau: number): number {
-  return (seed - 0.5) * 2 * 0.8 * R * kacau * s * s;
+/** Pengali selubung sebar: pada kacau = 1 zat warna mengisi penampang mulai s ≈ 0,58. */
+const PI04_SEBAR_K = 3;
+
+/**
+ * Seberapa jauh zat warna sudah menyebar dari sumbu di s = x / panjang:
+ * min(1, kacau · s² · 3), selubung s² yang sama dengan filamentY. Nol pada
+ * aliran laminar (kacau = 0) dan di mulut tabung, karena zat warna
+ * disuntikkan di sumbu dan baru bercampur sesudah gangguannya tumbuh.
+ */
+export function beadSpread(s: number, kacau: number): number {
+  return Math.min(1, kacau * s * s * PI04_SEBAR_K);
 }
 
 /**
- * Letak tegak manik sebagai bagian jari-jari: lajurnya ditambah ayunan
- * benang dan simpangan campur (keduanya nol pada aliran laminar). Ayunan
- * diperkecil ke arah dinding sebanding (1 − |lajur|), jadi |η| < 1 selalu:
- * manik tidak pernah keluar dinding dan tidak menumpuk di satu garis jepit.
+ * Letak tegak manik sebagai bagian jari-jari: a = lajur × sebar(s), lalu
+ * ditambah ayunan benang yang diperkecil ke arah dinding sebanding
+ * (1 − |a|), jadi |η| < 1 selalu. Laminar: sebar = 0 dan ayunan = 0, jadi
+ * semua manik tepat di sumbu dan hanyut u(0) = 2V bersama benangnya.
  */
-export function beadEta(lajur: number, s: number, kacau: number, geser: number, seed: number): number {
-  const w = Math.max(-0.94, Math.min(0.94, filamentY(s, 1, kacau, geser) + beadOffset(seed, s, 1, kacau)));
-  return lajur + w * (1 - Math.abs(lajur));
+export function beadEta(lajur: number, s: number, kacau: number, geser: number): number {
+  const a = lajur * beadSpread(s, kacau);
+  // "+ 0" menormalkan −0 (lajur bawah × sebar 0) menjadi 0.
+  return a + filamentY(s, 1, kacau, geser) * (1 - Math.abs(a)) + 0;
 }
 
 /**
  * PI-04. Benang zat warna di sumbu tabung dengan pola gangguan yang hanyut
- * pada kecepatan sumbu u_c, dan manik zat warna di lajur-lajur sama luas
- * yang masing-masing bergerak dengan u(r) di letaknya: 2V di sumbu dan
- * nol di dinding pada aliran laminar, profil pangkat 1/7 yang lebih pepat
- * pada aliran yang tidak laminar. Di luar laminar manik juga terayun ke
- * samping sebanding selubung gangguannya (zat warna bercampur), selalu di
- * dalam dinding.
+ * pada kecepatan sumbu u_c, dan manik zat warna yang masing-masing bergerak
+ * dengan u(r) di letaknya (beadEta). Laminar: semua manik di sumbu,
+ * bergerak 2V, benangnya utuh. Di luar laminar manik menyebar dari sumbu
+ * ke hilir mengikuti selubung gangguan (zat warna bercampur) dan yang
+ * menjauhi sumbu melambat menurut profil pangkat 1/7, selalu di dalam
+ * dinding. Benang digambar rambut supaya manik di atasnya terbaca.
  */
 export function drawReynoldsMotion(
   ctx: CanvasRenderingContext2D,
@@ -808,7 +818,7 @@ export function drawReynoldsMotion(
     // dalam tidak berkumpul di pangkal.
     for (let i = 0; i < pool.n; i++) {
       pool.x[i] = ((((i * 17) % pool.n) + pool.seed[i]) / pool.n) * P;
-      pool.y[i] = beadEta(st.lajur[i], pool.x[i] / P, p.kacau, geser, pool.seed[i]);
+      pool.y[i] = beadEta(st.lajur[i], pool.x[i] / P, p.kacau, geser);
     }
     st.siap = true;
   }
@@ -822,14 +832,16 @@ export function drawReynoldsMotion(
       x = x > P && Number.isFinite(x) ? (x - P) % P : 0;
     }
     pool.x[i] = x;
-    pool.y[i] = beadEta(st.lajur[i], x / P, p.kacau, geser, pool.seed[i]);
+    pool.y[i] = beadEta(st.lajur[i], x / P, p.kacau, geser);
   }
 
   ctx.save();
   clipFrame(ctx, map);
   const n = 240;
-  pen(ctx, W.thin, p.color);
-  ctx.globalAlpha = 0.85;
+  // Benang rambut: manik tebal yang berjalan di atasnya tetap terbaca,
+  // terutama pada laminar ketika semua manik tepat di sumbu.
+  pen(ctx, W.hair, p.color);
+  ctx.globalAlpha = 0.7;
   ctx.beginPath();
   for (let i = 0; i <= n; i++) {
     const s = i / n;
@@ -841,18 +853,31 @@ export function drawReynoldsMotion(
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // Manik: goresan sepanjang perpindahannya selama pajanan.
+  // Manik: goresan sepanjang perpindahannya selama pajanan, dengan kepala
+  // bulat. Panjangnya dibatasi kurang dari separuh jarak rata-rata antar
+  // manik, supaya pada laminar (semua manik di sumbu) deretnya terbaca
+  // sebagai butir yang berjalan, bukan garis putus-putus yang menyatu.
   const pxPerM = Math.abs(map.X(1) - map.X(0));
   const k = p.timeScale * PI04_PAJAN * pxPerM;
+  const lenMaks = Math.max(3, Math.min(14, (0.45 * P * pxPerM) / pool.n));
   pen(ctx, W.bold, p.color);
   ctx.beginPath();
   for (let i = 0; i < pool.n; i++) {
-    const len = Math.min(14, Math.max(2, pool.u[i] * k));
+    const len = Math.min(lenMaks, Math.max(2, pool.u[i] * k));
     const hx = map.X(pool.x[i]);
     const hy = map.Y(pool.y[i] * p.R);
     ctx.moveTo(hx - len, hy);
     ctx.lineTo(hx, hy);
   }
   ctx.stroke();
+  ctx.fillStyle = p.color;
+  ctx.beginPath();
+  for (let i = 0; i < pool.n; i++) {
+    const hx = map.X(pool.x[i]);
+    const hy = map.Y(pool.y[i] * p.R);
+    ctx.moveTo(hx + 2.2, hy);
+    ctx.arc(hx, hy, 2.2, 0, Math.PI * 2);
+  }
+  ctx.fill();
   ctx.restore();
 }
