@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,10 +13,21 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
   type LangkahHitung,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import {
+  createReachMotion,
+  drawReachMotion,
+  reachFlow,
+  reachTimeScale,
+  type ReachMotion,
+  type ReachStation,
+} from "@/lib/drawReachMotion";
 import {
   drawReach,
   type ReachMarker,
@@ -95,6 +106,10 @@ const TXT = {
     ruasHulu: "hulu",
     ruasHilir: "hilir",
     exagg: "pelebihan tegak",
+    gLa: "Panjang ruas hulu L₁, seret titik patah kemiringan ke kiri atau kanan",
+    motion: (n: string) => `partikel bergerak dengan V = Q/A, waktu dipercepat ×${n}`,
+    motionReal: "partikel bergerak dengan V = Q/A, waktu nyata",
+    motionRoll: "; gulungan loncatan berputar ω = V₁/y₂, waktu nyata",
     note:
       "Yang menentukan seluruh gambar adalah letak penampang kendalinya, dan letak itu tidak dipilih melainkan jatuh dari jenis patahannya. Pada patahan landai ke curam, aliran melewati kondisi kritis tepat di patahan, sehingga di situlah kendalinya dan kedua ruas ditelusuri menjauh dari titik yang sama. Pada ruas hulu yang curam, aliran superkritis dikendalikan dari hulu, sehingga apa pun yang terjadi di seberang patahan tidak dapat menjalar naik dan ruas hulu tetap seragam pada kedalaman normalnya. Pada patahan curam ke landai, aliran superkritis meneruskan perjalanannya melewati patahan sebagai profil M3, melambat, lalu naik lewat loncatan air. Letak loncatannya dicari, bukan ditaruh di patahan begitu saja: loncatan berdiri di tempat kedalaman konjugat aliran superkritis sudah setinggi muka air hilir. Bila konjugat terbesar pun masih di bawah muka air hilir, loncatan tidak muat di ruas hilir dan terdorong ke hulu, dan keadaan itu dinyatakan apa adanya alih-alih digambar seolah tidak terjadi.",
   },
@@ -149,6 +164,10 @@ const TXT = {
     ruasHulu: "upstream",
     ruasHilir: "downstream",
     exagg: "vertical exaggeration",
+    gLa: "Upstream reach length L₁, drag the slope break left or right",
+    motion: (n: string) => `particles move at V = Q/A, time sped up ×${n}`,
+    motionReal: "particles move at V = Q/A, real time",
+    motionRoll: "; the jump roller turns at ω = V₁/y₂, real time",
     note:
       "What decides the whole drawing is where the control section sits, and that position is not chosen but follows from the type of break. At a mild-to-steep break the flow passes through critical conditions exactly at the break, so the control is there and both reaches are computed away from the same point. Where the upstream reach is steep, supercritical flow is controlled from upstream, so nothing on the far side of the break can travel back up and the upstream reach stays uniform at its normal depth. At a steep-to-mild break the supercritical flow carries on past the break as an M3 profile, decelerates, then rises through a hydraulic jump. The jump position is found rather than simply placed at the break: the jump stands where the conjugate depth of the supercritical flow has risen to the tailwater level. If even the largest conjugate depth stays below the tailwater, the jump does not fit in the downstream reach and is pushed upstream, and that condition is stated plainly instead of being drawn as though it had not happened.",
   },
@@ -168,6 +187,15 @@ const REFS = {
     "USBR (1987). Design of Small Dams, 3rd ed. Chapter on chute spillways.",
   ],
 } as const;
+
+/*
+ * Rentang panjang ruas hulu: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan di titik patah kemiringan (aturan 4, satu sumber nilai).
+ */
+const P_LA: ParamDef = { min: 50, max: 1500, step: 10, digits: 0 };
+
+/** Batas sumbu gambar, dikunci selama pegangan diseret. */
+type Kunci = { xMax: number; zTop: number };
 
 export function TransisiKemiringanClient() {
   const { lang } = useLang();
@@ -216,10 +244,93 @@ export function TransisiKemiringanClient() {
   const Fr1j = r.jumpFrom !== null ? froude(Q / (b * r.jumpFrom), r.jumpFrom) : NaN;
   const y2j = r.jumpFrom !== null ? conjugateDepth(r.jumpFrom, Fr1j) : NaN;
 
-  const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, La, Lb, Sa, Sb, okA, okB, lang)),
-    [Q, b, n, Sa, Sb, La, Lb, lang]
+  /*
+   * Lapis gerak: partikel di badan air bergerak dengan V = Q / (b·y) dari
+   * kedalaman yang dihitung model di tiap stasiun profil (ReachStation), dan
+   * tanda gulungan di loncatan berputar ω = V₁/y₂ (laju putar alami
+   * gulungan, sama dengan OC-01). Saat dijeda lapis gerak kosong, dan lapis
+   * statis menggambar panah arah aliran serta gulungan yang diam.
+   */
+  const { playing, toggle: togglePutar } = usePutar();
+  const bergerak = playing;
+  const gerak = useRef<ReachMotion | null>(null);
+  if (gerak.current === null) gerak.current = createReachMotion(170);
+  const aliran = useMemo(() => {
+    if (!terjangkau) return null;
+    const g = geometri(r, La, Lb, Sa, Sb, okA, okB);
+    const st: ReachStation[] = g.air.map((p) => {
+      const d = p.z - g.zb(p.x);
+      return { x: p.x, zb: g.zb(p.x), zs: p.z, V: Q / (b * Math.max(d, 1e-3)) };
+    });
+    const roll =
+      r.jumpAt !== null && r.jumpFrom !== null && r.jumpTo !== null
+        ? [{ x: La + r.jumpAt, omega: Q / (b * r.jumpFrom) / r.jumpTo }]
+        : [];
+    return reachFlow(st, g.air, g.bed, roll);
+    // r dihitung ulang dari masukan yang sama; deps primitif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Q, b, n, Sa, Sb, La, Lb, terjangkau]);
+  const skala = aliran ? reachTimeScale(aliran.crossTime) : 1;
+  const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak =
+    (skala === 1 ? x.motionReal : x.motion(faktor(skala))) +
+    (aliran && aliran.rollers.length ? x.motionRoll : "");
+
+  /*
+   * Batas sumbu dikunci selama titik patah diseret. Tanpa kunci, ujung kanan
+   * sumbu mendatar adalah L₁ + L₂ dan ujung atas sumbu tegak memuat dasar
+   * hulu S₁·L₁ + S₂·L₂, keduanya ikut L₁: titik patah akan tetap di pecahan
+   * yang sama dari lebar gambar dan pegangannya saling kejar dengan sumbu.
+   * Dilepas = sumbu kembali dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<Kunci | null>(null);
+  const sentuh = useRef<() => void>(() => {});
+
+  const plate = usePlate(
+    (ctx, w, h) =>
+      drawReach(ctx, w, h, {
+        ...susun(r, La, Lb, Sa, Sb, okA, okB, lang),
+        ...(kunci ? { xMax: kunci.xMax, zTop: kunci.zTop, clip: true } : {}),
+        ...(bergerak || !terjangkau
+          ? {}
+          : {
+              flowArrows: [La * 0.3, La + Lb * 0.75].filter(
+                (xa) => r.jumpAt === null || Math.abs(xa - (La + r.jumpAt)) > (La + Lb) * 0.04
+              ),
+              rollers: r.jumpAt !== null && r.jumpTo !== null ? [La + r.jumpAt] : [],
+            }),
+      }),
+    aliran
+      ? (ctx, _w, _h, tt, dt, out) => drawReachMotion(ctx, tt, dt, out, aliran, skala, gerak.current!)
+      : null,
+    [Q, b, n, Sa, Sb, La, Lb, lang, bergerak, kunci ? kunci.xMax : NaN, kunci ? kunci.zTop : NaN],
+    { playing, timeScale: skala }
   );
+
+  /*
+   * Pemetaan balik: sumbu mendatar adalah jarak dari ujung hulu, dan titik
+   * patah berada di x = L₁, jadi L₁ = x jari langsung. Hanya mendatar.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "patahan",
+      anchor: "patahan",
+      axis: "x",
+      label: x.gLa,
+      param: P_LA,
+      value: La,
+      toValue: (px, _py, m) => m.invX(px),
+      onChange: setLa,
+      format: (v) => `L₁ ${fmt(v, 0)} m`,
+    },
+  ];
+  const kunciSumbu = () => {
+    const o = plate.outRef.current;
+    if (!o) return;
+    const f = o.map.frame;
+    setKunci({ xMax: o.map.invX(f.x1), zTop: o.map.invY(f.y0) });
+  };
+  const lepasKunci = () => setKunci(null);
 
   const kindLabel = {
     "landai-curam": x.kindMS,
@@ -385,8 +496,33 @@ export function TransisiKemiringanClient() {
             { label: x.rKind, value: terjangkau ? kindLabel : "—" },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 0)}×` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci sumbu. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
+              kunciSumbu();
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -398,10 +534,11 @@ export function TransisiKemiringanClient() {
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₁" label={x.dSa} value={Sa * 1000} min={0.2} max={120} step={0.2} digits={1} unit="‰" onChange={(v) => setSa(v / 1000)} />
               <InputRow symbol="S₂" label={x.dSb} value={Sb * 1000} min={0.2} max={120} step={0.2} digits={1} unit="‰" onChange={(v) => setSb(v / 1000)} />
-              <InputRow symbol="L₁" label={x.dLa} value={La} min={50} max={1500} step={10} digits={0} unit="m" onChange={setLa} />
+              <InputRow symbol="L₁" label={x.dLa} value={La} {...P_LA} unit="m" onChange={setLa} />
               <InputRow symbol="L₂" label={x.dLb} value={Lb} min={50} max={1500} step={10} digits={0} unit="m" onChange={setLb} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
@@ -500,33 +637,8 @@ function susun(
   lang: Lang
 ) {
   const T = cl(lang);
-  const L = La + Lb;
-  const zBreak = Sb * Lb;
-  const zb = (x: number) => (x <= La ? zBreak + (La - x) * Sa : (L - x) * Sb);
+  const { L, zBreak, zb, bed, air } = geometri(r, La, Lb, Sa, Sb, okA, okB);
   const terjangkau = okA && okB;
-
-  const bed: ReachPoint[] = [
-    { x: 0, z: zb(0) },
-    { x: La, z: zBreak },
-    { x: L, z: 0 },
-  ];
-
-  /* -------- muka air -------- */
-  const air: ReachPoint[] = [];
-
-  /*
-   * Bila salah satu ruas tak terjangkau, y0 ruas itu adalah batas pencarian
-   * 50 m dan seluruh penggolongan model (jenis patahan, profil, loncatan)
-   * bersandar padanya. Muka air tidak digambar sama sekali; ruas yang
-   * terjangkau cukup diberi garis acuan y0-nya, sama dengan isi tabel hasil.
-   * drawReach butuh deret air tak kosong, jadi diberi deret pipih menempel
-   * di dasar (tak berluas, tertutup garis dasar yang digambar sesudahnya).
-   */
-  if (!terjangkau) {
-    for (const p of bed) air.push({ ...p, invalid: true });
-  } else {
-    muka(r, La, L, zBreak, zb, air);
-  }
 
   /* -------- garis acuan -------- */
   const garis: ReachSeries[] = [];
@@ -664,7 +776,47 @@ function susun(
     regions: wilayah,
     axisX: T.axDistance,
     axisZ: T.elevation,
+    /* Titik patah di dasar, tempat pegangan L₁. Tidak digambar. */
+    anchors: { patahan: { x: La, z: zBreak } },
   };
+}
+
+/**
+ * Dasar dan muka air pada satu datum (dasar di ujung hilir). Dipakai gambar
+ * dan lapis gerak, supaya partikel berjalan di badan air yang sama persis.
+ */
+function geometri(
+  r: SlopeBreak,
+  La: number,
+  Lb: number,
+  Sa: number,
+  Sb: number,
+  okA: boolean,
+  okB: boolean
+) {
+  const L = La + Lb;
+  const zBreak = Sb * Lb;
+  const zb = (x: number) => (x <= La ? zBreak + (La - x) * Sa : (L - x) * Sb);
+  const bed: ReachPoint[] = [
+    { x: 0, z: zb(0) },
+    { x: La, z: zBreak },
+    { x: L, z: 0 },
+  ];
+  const air: ReachPoint[] = [];
+  /*
+   * Bila salah satu ruas tak terjangkau, y0 ruas itu adalah batas pencarian
+   * 50 m dan seluruh penggolongan model (jenis patahan, profil, loncatan)
+   * bersandar padanya. Muka air tidak digambar sama sekali; ruas yang
+   * terjangkau cukup diberi garis acuan y0-nya, sama dengan isi tabel hasil.
+   * drawReach butuh deret air tak kosong, jadi diberi deret pipih menempel
+   * di dasar (tak berluas, tertutup garis dasar yang digambar sesudahnya).
+   */
+  if (!(okA && okB)) {
+    for (const p of bed) air.push({ ...p, invalid: true });
+  } else {
+    muka(r, La, L, zBreak, zb, air);
+  }
+  return { L, zBreak, zb, bed, air };
 }
 
 /** Muka air kedua ruas; hanya dipanggil bila kedua ruas terjangkau. */

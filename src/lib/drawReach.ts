@@ -87,6 +87,30 @@ export type ReachState = {
   /** Batas atas sumbu tegak; dihitung sendiri bila tidak diberikan */
   zTop?: number;
   /**
+   * Ujung kanan sumbu mendatar, meter. Bawaan `length`. Dipakai lembar yang
+   * mengunci skala selama pegangan diseret: bentangnya boleh lebih panjang
+   * atau lebih pendek daripada sumbu, dan `clip` memotong lebihnya.
+   */
+  xMax?: number;
+  /**
+   * Potong air, dasar, garis tambahan, dan penampang ke bidang gambar.
+   * Hanya selama skala dikunci; tanpa kunci gambarnya selalu muat dan
+   * pemotongan akan mengubah piksel tepi bingkai.
+   */
+  clip?: boolean;
+  /**
+   * Panah arah aliran diam, absis meter. Digambar pada 0,6 kedalaman,
+   * searah garis arus di situ. Dipakai saat lapis gerak dijeda supaya
+   * arah aliran tetap terbaca; selagi bergerak lembar tidak mengirimnya.
+   */
+  flowArrows?: number[];
+  /**
+   * Tanda gulungan loncatan air (busur berpanah berlawanan jarum jam) di
+   * hilir muka loncatan pada absis ini, meter. Diam; lapis gerak
+   * (drawReachMotion) memutarnya.
+   */
+  rollers?: number[];
+  /**
    * Titik bernama dalam meter (x jarak, z elevasi), diteruskan ke
    * PlateOut.anchors dalam piksel. Tidak digambar.
    */
@@ -121,6 +145,8 @@ export function drawReach(
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
   const L = s.length;
+  // Panjang sumbu; sama dengan bentang kecuali selama skala dikunci.
+  const Lx = s.xMax ?? L;
 
   const semua = [
     ...s.bed,
@@ -130,18 +156,18 @@ export function drawReach(
   const zMax = semua.reduce((m, p) => Math.max(m, p.z), 0);
   const zTop = s.zTop ?? Math.max(zMax * 1.12, 1e-3);
 
-  const X = (x: number) => padL + (x / L) * plotW;
+  const X = (x: number) => padL + (x / Lx) * plotW;
   const Z = (z: number) => padT + plotH - (z / zTop) * plotH;
 
   ground(ctx, w, h);
 
   /* ---------------- kisi dan sumbu ---------------- */
   const zStep = niceStep(zTop, 5);
-  const xStep = niceStep(L, 6);
+  const xStep = niceStep(Lx, 6);
   const hs: number[] = [];
   const vs: number[] = [];
   for (let v = 0; v <= zTop + 1e-9; v += zStep) hs.push(Z(v));
-  for (let x = 0; x <= L + 1e-9; x += xStep) vs.push(X(x));
+  for (let x = 0; x <= Lx + 1e-9; x += xStep) vs.push(X(x));
   ruling(ctx, padL, padT, padL + plotW, padT + plotH, {
     horizontal: hs,
     vertical: vs,
@@ -154,7 +180,7 @@ export function drawReach(
   // pada bentang pendek langkahnya setengah meter, dan pembulatan membuat
   // sumbunya terbaca "0 1 1 2 2 3 3".
   const xDigits = xStep < 0.1 ? 2 : xStep < 1 ? 1 : 0;
-  for (let x = 0; x <= L + 1e-9; x += xStep)
+  for (let x = 0; x <= Lx + 1e-9; x += xStep)
     axisValue(
       ctx,
       fmtPlain(x, xDigits),
@@ -186,6 +212,16 @@ export function drawReach(
     }
     ctx.closePath();
   };
+
+  /* Selama skala dikunci isi bidang dipotong ke bingkai: bentang yang lebih
+     panjang daripada sumbu tidak boleh menembus bingkai. Dibuka lagi sesudah
+     penampang bertanda, sebelum nama wilayah. */
+  ctx.save();
+  if (s.clip) {
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+  }
 
   ctx.save();
   jalurAir();
@@ -422,8 +458,10 @@ export function drawReach(
   ctx.beginPath();
   ctx.moveTo(X(bedTerurut[0].x), Z(bedTerurut[0].z));
   for (const p of bedTerurut) ctx.lineTo(X(p.x), Z(p.z));
-  ctx.lineTo(padL + plotW, padT + plotH);
-  ctx.lineTo(padL, padT + plotH);
+  // Ditutup tegak di bawah kedua ujung dasar. Tanpa kunci keduanya tepat di
+  // tepi bingkai (X(0) = padL, X(L) = padL + plotW), sama seperti dulu.
+  ctx.lineTo(X(bedTerurut[bedTerurut.length - 1].x), padT + plotH);
+  ctx.lineTo(X(bedTerurut[0].x), padT + plotH);
   ctx.closePath();
   ctx.clip();
   hatchConcrete(ctx, padL, padT, plotW, plotH);
@@ -440,6 +478,9 @@ export function drawReach(
      Label ditumpuk ke bawah bila penampang berikutnya terlalu dekat, karena
      dua nama yang berdesakan lebih buruk daripada satu nama yang bergeser. */
   for (const m of s.markers ?? []) {
+    // Penampang di luar sumbu yang dikunci tidak ditulis: penempat label akan
+    // menahannya di tepi bingkai, dan namanya terbaca di tempat yang salah.
+    if (s.clip && (m.x < -1e-9 || m.x > Lx + 1e-9)) continue;
     const xp = X(m.x);
     pen(ctx, W.thin, m.color, DASH.axis);
     ctx.beginPath();
@@ -461,6 +502,63 @@ export function drawReach(
       );
     }
   }
+
+  /* ---------------- tanda diam: arah aliran dan gulungan ---------------- */
+  const sisipAir = (x: number): number | null => sisip(s.water, x);
+  const sisipDasar = (x: number): number | null => sisip(bedTerurut, x);
+  for (const xa of s.flowArrows ?? []) {
+    /* Panah pada 0,6 kedalaman, searah garis arus di situ (yang miring
+       mengikuti pelebihan tegak). Badan air yang lebih tipis dari 8 px tidak
+       diberi panah: panahnya akan menembus muka air. */
+    // Panjang tetap 22 px di layar, berapa pun kemiringan garis arusnya.
+    const panjang = 22;
+    const dxm = (4 / plotW) * Lx;
+    const tengah = (x: number) => {
+      const a = sisipAir(x);
+      const d = sisipDasar(x);
+      // 0,6 kedalaman dari dasar, bukan tengah: garis kedalaman kritis sering
+      // lewat dekat tengah kedalaman dan panahnya akan menumpang di garis itu.
+      return a === null || d === null ? null : { y: Z(d + 0.6 * (a - d)), tebal: Z(d) - Z(a) };
+    };
+    const p0 = tengah(xa - dxm);
+    const p1 = tengah(xa + dxm);
+    const pm = tengah(xa);
+    if (!p0 || !p1 || !pm || pm.tebal < 8) continue;
+    const ux = X(xa + dxm) - X(xa - dxm);
+    const uy = p1.y - p0.y;
+    const ul = Math.hypot(ux, uy) || 1;
+    const kx = ux / ul;
+    const ky = uy / ul;
+    const cx = X(xa);
+    const xA = cx - (panjang / 2) * kx;
+    const yA = pm.y - (panjang / 2) * ky;
+    const xB = cx + (panjang / 2) * kx;
+    const yB = pm.y + (panjang / 2) * ky;
+    ctx.save();
+    jalurAir();
+    ctx.clip();
+    pen(ctx, W.thin, C.water);
+    ctx.beginPath();
+    ctx.moveTo(xA, yA);
+    ctx.lineTo(xB, yB);
+    ctx.moveTo(xB - 5 * kx + 3 * ky, yB - 5 * ky - 3 * kx);
+    ctx.lineTo(xB, yB);
+    ctx.lineTo(xB - 5 * kx - 3 * ky, yB - 5 * ky + 3 * kx);
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const xr of s.rollers ?? []) {
+    const r = rollerAt(xr, X, Z, s.water, bedTerurut);
+    if (r) {
+      ctx.save();
+      jalurAir();
+      ctx.clip();
+      rollerIcon(ctx, r.cx, r.cy, r.r, 0);
+      ctx.restore();
+    }
+  }
+
+  ctx.restore(); // pemotongan kunci skala
 
   /* ---------------- nama wilayah ---------------- */
   for (const g of s.regions ?? []) {
@@ -497,7 +595,7 @@ export function drawReach(
        air tidak sampai ke situ)
      ditambah `s.anchors` dari lembar. `water` = jalur isi air yang sama. */
   const frame = { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH };
-  const map = mapFrom(X, Z, frame, [0, L], [0, zTop]);
+  const map = mapFrom(X, Z, frame, [0, Lx], [0, zTop]);
   const anchors: Record<string, PlateAnchor> = {};
   const di = (a: PlateAnchor) =>
     a.x >= frame.x0 - 0.5 && a.x <= frame.x1 + 0.5 && a.y >= frame.y0 - 0.5 && a.y <= frame.y1 + 0.5;
@@ -513,17 +611,6 @@ export function drawReach(
   const dasar1 = bedTerurut[bedTerurut.length - 1];
   taruhTitik("upstreamBed", dasar0.x, dasar0.z);
   taruhTitik("downstreamBed", dasar1.x, dasar1.z);
-  const sisip = (deret: ReachPoint[], x: number): number | null => {
-    for (let k = 1; k < deret.length; k++) {
-      const a = deret[k - 1];
-      const c = deret[k];
-      if ((x - a.x) * (x - c.x) <= 0) {
-        const t = Math.abs(c.x - a.x) < 1e-12 ? 0 : (x - a.x) / (c.x - a.x);
-        return a.z + (c.z - a.z) * t;
-      }
-    }
-    return null;
-  };
   (s.markers ?? []).forEach((m, i) => {
     const z = sisip(s.water, m.x) ?? sisip(bedTerurut, m.x);
     if (z !== null) taruhTitik(`marker${i}`, m.x, z);
@@ -548,4 +635,87 @@ export function drawReach(
   const water = Float64Array.from(poli);
 
   return { map, anchors, water, waters: [water], labels: rectsFrom(dipakai) };
+}
+
+/** Elevasi deret pada absis x (sisip linier), null di luar deret. */
+function sisip(deret: ReachPoint[], x: number): number | null {
+  for (let k = 1; k < deret.length; k++) {
+    const a = deret[k - 1];
+    const c = deret[k];
+    if ((x - a.x) * (x - c.x) <= 0) {
+      const t = Math.abs(c.x - a.x) < 1e-12 ? 0 : (x - a.x) / (c.x - a.x);
+      return a.z + (c.z - a.z) * t;
+    }
+  }
+  return null;
+}
+
+/** Busur gulungan 270°, celahnya berputar bersama sudut `phase`. */
+const ROLL_SPAN = Math.PI * 1.5;
+
+/**
+ * Tanda gulungan loncatan: busur 270° berkepala panah, berputar BERLAWANAN
+ * arah jarum jam untuk aliran ke kanan (permukaan gulungan mengalir balik ke
+ * kaki loncatan, Chow 1959 §15-1), sama dengan tanda OC-01. `phase` dalam
+ * radian; bertambah = berputar berlawanan jarum jam di layar. Satu path,
+ * tanpa alokasi.
+ */
+export function rollerIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  phase: number
+): void {
+  // Sudut canvas (y ke bawah): berlawanan jarum jam di layar = sudut mengecil.
+  const a1 = Math.PI * 0.25 - phase; // ujung berpanah
+  const a0 = a1 + ROLL_SPAN; // pangkal
+  pen(ctx, W.thin, C.water);
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  // Ekor busur di belakang kepala: dari a1 naik ke a0 (searah jarum jam
+  // menurut canvas), jadi kepala di a1 memimpin gerak berlawanan jarum jam.
+  ctx.arc(cx, cy, r, a1, a0, false);
+  // Kepala panah di a1, menunjuk ke arah gerak (sudut mengecil).
+  const tx = cx + r * Math.cos(a1);
+  const ty = cy + r * Math.sin(a1);
+  // Arah gerak di a1 untuk sudut mengecil: (sin a1, −cos a1).
+  const ux = Math.sin(a1);
+  const uy = -Math.cos(a1);
+  const hl = Math.min(4, Math.max(2.5, r * 0.6));
+  const ca = Math.cos(0.45);
+  const sa = Math.sin(0.45);
+  ctx.moveTo(tx - hl * (ux * ca - uy * sa), ty - hl * (ux * sa + uy * ca));
+  ctx.lineTo(tx, ty);
+  ctx.lineTo(tx - hl * (ux * ca + uy * sa), ty - hl * (-ux * sa + uy * ca));
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Letak tanda gulungan untuk loncatan di absis xj, piksel: tepat di hilir
+ * muka loncatan, dekat muka air (gulungan gejala permukaan), jari-jari
+ * 6 px dibatasi tebal badan air. null bila badan airnya terlalu tipis.
+ */
+export function rollerAt(
+  xj: number,
+  X: (x: number) => number,
+  Z: (z: number) => number,
+  water: ReachPoint[],
+  bed: ReachPoint[]
+): { cx: number; cy: number; r: number } | null {
+  // Muka air sesudah muka loncatan: titik terakhir pada absis xj (loncatan
+  // digambar sebagai dua titik pada absis yang sama), lalu deret di hilirnya.
+  let k = -1;
+  for (let i = 0; i < water.length; i++) if (Math.abs(water[i].x - xj) < 1e-9) k = i;
+  if (k < 0) return null;
+  const zs = water[k].z;
+  const zb = sisip(bed, xj);
+  if (zb === null) return null;
+  const tebal = Z(zb) - Z(zs);
+  const r = Math.min(6, (tebal - 5) / 2);
+  if (!(r >= 2.5)) return null;
+  const cx = X(xj) + r + 3;
+  const cy = Z(zs) + 2.5 + r;
+  return { cx, cy, r };
 }
