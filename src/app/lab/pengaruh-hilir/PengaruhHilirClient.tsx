@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawReach,
   type ReachMarker,
@@ -73,6 +76,7 @@ const TXT = {
     bandBendung: "Membendung",
     profil: "profil",
     mEnd: "pengaruh tinggal",
+    gF: "Ambang ε, seret titik akhir pengaruh di sepanjang muka air ke kiri atau kanan",
     mJump: "loncatan air",
     hQ: "Debit satuan dan kedalaman kritis",
     hY0: "Kedalaman normal, Manning dibalik: debit pada y₀",
@@ -126,6 +130,7 @@ const TXT = {
     bandBendung: "Holds water back",
     profil: "profile",
     mEnd: "influence down to",
+    gF: "Threshold ε, drag the end of influence along the water surface left or right",
     mJump: "hydraulic jump",
     hQ: "Unit discharge and critical depth",
     hY0: "Normal depth, Manning inverted: discharge at y₀",
@@ -167,6 +172,15 @@ const REFS = {
     "FEMA (2003). Guidelines and Specifications for Flood Hazard Mapping Partners, setting the upstream limit of the flood boundary.",
   ],
 } as const;
+
+/*
+ * Rentang ambang ε dalam persen: satu definisi untuk penggeser, kotak angka,
+ * dan pegangan di titik akhir pengaruh (aturan 4, satu sumber nilai).
+ */
+const P_EPS: ParamDef = { min: 0.5, max: 10, step: 0.5, digits: 1 };
+
+/** Sumbu dikunci selama pegangan diseret: panjang bentang dan puncak tegak. */
+type Kunci = { L: number; zTop: number };
 
 export function PengaruhHilirClient() {
   const { lang } = useLang();
@@ -214,19 +228,68 @@ export function PengaruhHilirClient() {
   // Bentang yang digambar dibuat sedikit lebih panjang daripada jangkauannya,
   // supaya ujung kurva yang sudah menyatu dengan kedalaman normal ikut terlihat.
   // Saat bangunannya tidak membendung tidak ada jangkauan, jadi dipakai bentang tetap.
-  const L = !bendung
-    ? 2000
-    : Math.min(200000, Math.max(200, r.beyondSearch ? 20000 : r.distance * 1.25));
+  /*
+   * Sumbu mendatar dikunci selama titik akhir pengaruh diseret: bentang yang
+   * digambar adalah 1,25 kali jangkauan, dan jangkauan ikut ε. Tanpa kunci,
+   * titik akhir akan selalu jatuh di pecahan yang sama dari lebar gambar dan
+   * pegangannya saling kejar dengan sumbu. Dilepas = bentang dihitung ulang.
+   */
+  const [kunci, setKunci] = useState<Kunci | null>(null);
+  const sentuh = useRef<() => void>(() => {});
+  const L = kunci
+    ? kunci.L
+    : !bendung
+      ? 2000
+      : Math.min(200000, Math.max(200, r.beyondSearch ? 20000 : r.distance * 1.25));
   const profil = gvfProfile(Q, b, n, S0, yCtl, L, 800);
   const xLonc = lonc ? L - r.distance : null;
 
-  const ref = useCanvas(
+  /*
+   * Pegangan hanya ada bila ε memang menentukan jangkauan: bangunan
+   * membendung, profil berakhir menuju y₀ (bukan di loncatan, tempat ε tidak
+   * berpengaruh), dan jangkauannya terhitung.
+   */
+  const adaPegangan = bendung && !lonc && !r.beyondSearch && Math.abs(yCtl - y0) > 1e-6;
+  const dy = yCtl - y0;
+  /*
+   * Profil pemetaan balik: tiga kali bentang gambar supaya jari yang ditarik
+   * melewati tepi kiri tetap terbaca (ε makin kecil sampai dipotong ke 0,5 %
+   * dengan penanda). Jarak dari bangunan d = L − x; ε = (y(d) − y₀)/Δy.
+   */
+  const peta = useMemo(() => {
+    if (!adaPegangan) return null;
+    const Lj = 3 * L;
+    const pr = gvfProfile(Q, b, n, S0, yCtl, Lj, 2400);
+    const d = pr.points.map((p) => Lj - p.x);
+    const y = pr.points.map((p) => p.y);
+    const idx = d.map((_, i) => i).sort((i, j) => d[i] - d[j]);
+    return { d: idx.map((i) => d[i]), y: idx.map((i) => y[i]) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Q, b, n, S0, yCtl, L, adaPegangan]);
+  const epsPada = (dJarak: number): number => {
+    if (!peta || peta.d.length < 2) return NaN;
+    const { d, y } = peta;
+    let yy: number;
+    if (dJarak <= d[0]) yy = y[0];
+    else if (dJarak >= d[d.length - 1]) yy = y0;
+    else {
+      let k = 0;
+      while (k + 1 < d.length && d[k + 1] < dJarak) k++;
+      const f = (dJarak - d[k]) / Math.max(d[k + 1] - d[k], 1e-12);
+      yy = y[k] + (y[k + 1] - y[k]) * f;
+    }
+    return ((yy - y0) / dy) * 100;
+  };
+  // Titik akhir pengaruh: menurut definisinya y = y₀ + ε·Δy di x = L − jarak.
+  const xAkhir = L - r.distance;
+  const anchors = adaPegangan
+    ? { akhir: { x: xAkhir, z: (L - xAkhir) * S0 + y0 + (pers / 100) * dy } }
+    : undefined;
+
+  const plate = usePlate(
     (ctx, w, h) =>
-      drawReach(
-        ctx,
-        w,
-        h,
-        susun({
+      drawReach(ctx, w, h, {
+        ...susun({
           pts: profil.points,
           y0,
           yc,
@@ -242,10 +305,36 @@ export function PengaruhHilirClient() {
           profilNama: profil.profile,
           pers,
           lang,
-        })
-      ),
-    [Q, b, n, S0, P, pers, lang]
+        }),
+        ...(kunci ? { xMax: kunci.L, zTop: kunci.zTop, clip: true } : {}),
+        ...(anchors ? { anchors } : {}),
+      }),
+    null,
+    [Q, b, n, S0, P, pers, lang, kunci ? kunci.L : NaN, kunci ? kunci.zTop : NaN]
   );
+
+  const handles: HandleSpec[] = adaPegangan
+    ? [
+        {
+          id: "akhir",
+          anchor: "akhir",
+          axis: "x",
+          label: x.gF,
+          tint: C.water,
+          param: P_EPS,
+          value: pers,
+          toValue: (px, _py, m) => epsPada(L - m.invX(px)),
+          onChange: setPers,
+          format: (v) => `ε ${fmt(v, 1)} %`,
+        },
+      ]
+    : [];
+  const kunciSumbu = () => {
+    const o = plate.outRef.current;
+    if (!o) return;
+    setKunci({ L, zTop: o.map.invY(o.map.frame.y0) });
+  };
+  const lepasKunci = () => setKunci(null);
 
   const zSpan = Math.max(S0 * L + yCtl, 1e-3);
   const exagg = L / zSpan / 1.9;
@@ -434,7 +523,22 @@ export function PengaruhHilirClient() {
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 0)}×` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents; hanya menangkap pointerdown/lepas dari
+              pegangan untuk mengunci sumbu (pola OC-06). */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              kunciSumbu();
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -446,9 +550,10 @@ export function PengaruhHilirClient() {
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.05} max={10} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
               <InputRow symbol="P" label={x.dP} value={P} min={0.1} max={5} step={0.05} unit="m" onChange={setP} />
-              <InputRow symbol="ε" label={x.dF} value={pers} min={0.5} max={10} step={0.5} digits={1} unit="%" onChange={setPers} />
+              <InputRow symbol="ε" label={x.dF} value={pers} {...P_EPS} unit="%" onChange={setPers} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
