@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -15,7 +15,14 @@ import {
   Term,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createReynoldsMotion,
+  drawReynoldsMotion,
+  filamentY,
+  reynoldsTimeScale,
+  type ReynoldsMotion,
+} from "@/lib/drawFieldMotion";
 import {
   drawField,
   type FieldDim,
@@ -61,6 +68,9 @@ const NADA: Record<string, Tone> = {
 const TXT = {
   id: {
     title: "Percobaan Reynolds",
+    motionReal: "zat warna bergerak dengan V rata-rata, waktu nyata",
+    motionFast: (n: string) => `zat warna bergerak dengan V rata-rata, waktu dipercepat ×${n}`,
+    motionSlow: (n: string) => `zat warna bergerak dengan V rata-rata, waktu diperlambat ×${n}`,
     sheetTitle: "Benang zat warna di dalam tabung kaca, sepanjang dua meter",
     dQ: "Debit",
     dD: "Diameter tabung",
@@ -102,6 +112,9 @@ const TXT = {
   },
   en: {
     title: "Reynolds experiment",
+    motionReal: "dye moves at the mean velocity V, real time",
+    motionFast: (n: string) => `dye moves at the mean velocity V, time sped up ×${n}`,
+    motionSlow: (n: string) => `dye moves at the mean velocity V, time slowed ×${n}`,
     sheetTitle: "A dye filament inside a glass tube, two metres long",
     dQ: "Discharge",
     dD: "Tube diameter",
@@ -202,32 +215,45 @@ export function PercobaanReynoldsClient() {
     ? NaN
     : 1 / Math.sqrt(r.friction) + 2 * Math.log10(2.51 / (r.reynolds * Math.sqrt(r.friction)));
 
-  const ref = useCanvas(
+  /*
+   * Benang zat warnanya digambar dengan ayunan yang tumbuh sepanjang
+   * tabung, dan besar ayunannya ditentukan seberapa jauh bilangan
+   * Reynolds sudah melewati bilangan kritisnya. Bentuknya dihitung dari
+   * deret tetap (filamentY), bukan dari bilangan acak, supaya gambarnya
+   * tidak berkedip sendiri setiap kali lembar ini digambar ulang.
+   */
+  const lewat = r.criticalReynolds > 0 ? r.reynolds / r.criticalReynolds : 0;
+  const kacau = Math.min(Math.max(lewat - 1, 0), 3) / 3;
+
+  /* Lapis gerak (Phase 2): manik zat warna bergerak dengan kecepatan
+     rata-rata model V = Q/A, dan pola gangguan benangnya hanyut dengan V
+     juga. Waktu dibuat pangkat sepuluh supaya zat warna menempuh tabung
+     dalam 3 sampai 30 detik layar, dan ditulis di catatan. Selagi bergerak
+     benang lapis statis tidak digambar (namanya tetap). */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<ReynoldsMotion | null>(null);
+  if (gerak.current === null) gerak.current = createReynoldsMotion();
+  const bergerak = playing;
+  const skalaWaktu = reynoldsTimeScale(r.velocity, PANJANG);
+  const faktor = (v: number) =>
+    Math.round(v).toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak =
+    skalaWaktu === 1
+      ? x.motionReal
+      : skalaWaktu > 1
+        ? x.motionFast(faktor(skalaWaktu))
+        : x.motionSlow(faktor(1 / skalaWaktu));
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const R = D / 2;
 
-      /*
-       * Benang zat warnanya digambar dengan ayunan yang tumbuh sepanjang
-       * tabung, dan besar ayunannya ditentukan seberapa jauh bilangan
-       * Reynolds sudah melewati bilangan kritisnya. Bentuknya dihitung dari
-       * deret tetap, bukan dari bilangan acak, supaya gambarnya tidak
-       * berkedip sendiri setiap kali lembar ini digambar ulang.
-       */
-      const lewat = r.criticalReynolds > 0 ? r.reynolds / r.criticalReynolds : 0;
-      const kacau = Math.min(Math.max(lewat - 1, 0), 3) / 3;
       const benang: { x: number; y: number }[] = [];
       const n = 240;
       for (let i = 0; i <= n; i++) {
         const s = i / n;
-        const xx = PANJANG * s;
         /* Ayunannya tumbuh ke hilir, karena gangguannya perlu waktu tumbuh. */
-        const tumbuh = kacau * s * s;
-        const y =
-          R *
-          0.34 *
-          tumbuh *
-          (Math.sin(28 * s) + 0.6 * Math.sin(61 * s + 1.1) + 0.35 * Math.sin(133 * s + 2.3));
-        benang.push({ x: xx, y: Math.max(-R * 0.94, Math.min(R * 0.94, y)) });
+        benang.push({ x: PANJANG * s, y: filamentY(s, R, kacau) });
       }
 
       const garis: FieldLine[] = [
@@ -271,6 +297,7 @@ export function PercobaanReynoldsClient() {
           labelAt: 0.62,
           labelDy: -12,
           labelAlign: "center",
+          noStroke: bergerak,
         },
       ];
 
@@ -293,7 +320,7 @@ export function PercobaanReynoldsClient() {
         { x: 0, y: 0, color: warna, size: 4, filled: true },
       ];
 
-      drawField(
+      return drawField(
         ctx,
         w,
         ch,
@@ -314,7 +341,17 @@ export function PercobaanReynoldsClient() {
         lang
       );
     },
-    [Q, D, suhu, tenang, lang]
+    (ctx, _w, _h, tt, dt, out) =>
+      drawReynoldsMotion(
+        ctx,
+        tt,
+        dt,
+        out,
+        { V: r.velocity, R: D / 2, length: PANJANG, kacau, color: warna, timeScale: skalaWaktu },
+        gerak.current!
+      ),
+    [Q, D, suhu, tenang, lang, bergerak],
+    { playing, timeScale: skalaWaktu }
   );
 
   return (
@@ -354,8 +391,15 @@ export function PercobaanReynoldsClient() {
             { label: "V", value: `${fmt(r.velocity, 3)} m/s` },
             { label: "f", value: fmt(r.friction, 4) },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
