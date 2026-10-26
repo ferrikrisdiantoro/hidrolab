@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,7 +13,12 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createFlowLinesMotion,
+  drawFlowLinesMotion,
+  type FlowLinesMotion,
+} from "@/lib/drawFieldMotion";
 import {
   drawField,
   type FieldArrow,
@@ -61,6 +66,7 @@ const TXT = {
     jAmp: "Simpangan terbesar yang dicapai lintasan sampai saat t",
     jPisah: "Jarak terjauh lintasan dari garis arus",
     jT: "Periode ayunan",
+    motionNote: "diputar ulang 0 sampai t, waktu nyata",
     note:
       "Tiga garis ini berbeda meskipun dilahirkan satu medan kecepatan yang sama, dan perbedaannya bukan soal halus melainkan soal yang menentukan cara membaca setiap foto aliran yang pernah diambil. Garis arus menjawab pertanyaan ke mana air menuju pada satu saat, dan ia dibekukan pada saat itu. Lintasan partikel menjawab ke mana satu butir air pergi sepanjang waktu. Garis jejak menjawab di mana semua butir yang pernah lewat satu titik sekarang berada, dan itulah yang terlihat bila zat warna diteteskan terus-menerus dari satu jarum. Yang pertama milik satu saat dan seluruh ruang; yang kedua milik satu butir dan seluruh waktu; yang ketiga milik satu titik dan seluruh waktu. Ketiganya hanya berimpit bila medannya tidak berubah terhadap waktu, dan di situ pula satu-satunya tempat foto zat warna boleh dibaca sebagai garis arus. Setiap foto aliran tak tunak yang pernah dimuat buku teks adalah garis jejak, dan membacanya sebagai garis arus adalah kekeliruan yang jarang diucapkan tetapi sering dilakukan. Perhatikan pula bahwa garis jejak dan lintasan partikel di sini sama-sama sinus tetapi berbeda fase. Keduanya tampak serupa sekilas, dan justru keserupaan itulah yang membuat kekeliruannya bertahan.",
   },
@@ -94,6 +100,7 @@ const TXT = {
     jAmp: "Largest excursion the pathline reaches up to time t",
     jPisah: "Greatest gap between pathline and streamline",
     jT: "Period of the oscillation",
+    motionNote: "replayed from 0 to t, real time",
     note:
       "These three lines differ although one and the same velocity field gives birth to all of them, and the difference is not a fine point but the thing that decides how every flow photograph ever taken should be read. A streamline answers where the water is heading at one instant, frozen at that instant. A pathline answers where one grain of water went over time. A streakline answers where all the grains that once passed one point are now, and that is what is seen when dye is released continuously from a needle. The first belongs to one instant and all of space; the second to one grain and all of time; the third to one point and all of time. They coincide only when the field does not change with time, and that is also the only case in which a dye photograph may be read as a streamline. Every photograph of an unsteady flow ever printed in a textbook is a streakline, and reading it as a streamline is a mistake seldom spoken of and often made. Notice too that the streakline and the pathline here are both sine curves, differing only in phase. At a glance they look alike, and it is exactly that likeness that keeps the mistake alive.",
   },
@@ -151,7 +158,15 @@ export function GarisAliranClient() {
   );
   const batasGambar = Math.max(puncak * 1.25, SPAN * 0.3);
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): putaran ulang 0 sampai t dalam waktu nyata.
+     Selagi bergerak, panah kecepatan seragam di lapis statis diganti
+     goresan pelacak yang mengikuti medan yang sama pada saat putarannya. */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<FlowLinesMotion | null>(null);
+  if (gerak.current === null) gerak.current = createFlowLinesMotion();
+  const bergerak = playing;
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const garis: FieldLine[] = [
         /* Garis penunjuk dari titik lepasnya tegak ke bawah. Ketiga garis
@@ -225,7 +240,7 @@ export function GarisAliranClient() {
         { x: 0, y: 0, color: C.ink, size: 4, filled: true },
       ];
 
-      drawField(
+      return drawField(
         ctx,
         w,
         ch,
@@ -236,7 +251,7 @@ export function GarisAliranClient() {
           yMax: batasGambar,
           equalScale: false,
           lines: garis,
-          arrows: panah,
+          arrows: bergerak ? [] : panah,
           markers: titik,
           heading: r.steady ? x.tunak : undefined,
           axisX: T.axXMetre,
@@ -245,7 +260,10 @@ export function GarisAliranClient() {
         lang
       );
     },
-    [U, V, omega, waktu, lang]
+    (ctx, _w, _h, tt, dt, out) =>
+      drawFlowLinesMotion(ctx, tt, dt, out, { U, V, omega, waktu, panjang }, gerak.current!),
+    [U, V, omega, waktu, lang, bergerak],
+    { playing }
   );
 
   return (
@@ -286,8 +304,15 @@ export function GarisAliranClient() {
               tint: r.steady ? undefined : C.critical,
             },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={

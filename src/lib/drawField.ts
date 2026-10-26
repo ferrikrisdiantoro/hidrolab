@@ -57,6 +57,12 @@ export type FieldLine = {
   labelAlign?: CanvasTextAlign;
   /** Diberi kepala panah di ujungnya, untuk garis yang punya arah */
   arrow?: boolean;
+  /**
+   * Garisnya tidak digambar, hanya namanya. Dipakai selagi lapis gerak
+   * menggambar garis yang sama dalam keadaan bergerak (PI-04 benang zat
+   * warna), supaya namanya tetap di tempat dan garisnya tidak dobel.
+   */
+  noStroke?: boolean;
 };
 
 /** Panah kecepatan. Panjangnya membawa data, jadi lembarnya yang menskalakan. */
@@ -313,7 +319,7 @@ export function drawField(
   /* ---------------- garis medan ---------------- */
 
   for (const l of s.lines ?? []) {
-    if (l.pts.length < 2) continue;
+    if (l.pts.length < 2 || l.noStroke) continue;
     pen(ctx, l.weight ?? W.thin, l.color ?? C.water, l.dash ?? DASH.solid);
     ctx.beginPath();
     l.pts.forEach((p, i) =>
