@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,7 +14,15 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createReachMotion,
+  drawReachMotion,
+  reachFlow,
+  reachTimeScale,
+  type ReachMotion,
+  type ReachStation,
+} from "@/lib/drawReachMotion";
 import {
   drawReach,
   type ReachMarker,
@@ -83,6 +91,8 @@ const TXT = {
     curam:
       "Curamkan dasar: kedalaman di pangkal berkurang, tetapi dasar pangkal naik S₀L, jadi muka air di pangkal ikut naik dan jagaan menyusut.",
     exagg: "pelebihan tegak",
+    motion: (n: string) => `partikel bergerak dengan V = Q(x)/A, lahir di sepanjang mercu sebanding Q(x), waktu dipercepat ×${n}`,
+    motionReal: "partikel bergerak dengan V = Q(x)/A, lahir di sepanjang mercu sebanding Q(x), waktu nyata",
     note:
       "Yang dipakai di sini bentuk beda hingga dari persamaan momentum, bukan bentuk diferensial, dan itu bukan pilihan gaya melainkan keharusan. Kendali saluran pengumpul berada tepat pada kondisi kritis di ujung keluarnya, dan di titik itu bentuk diferensial membagi dengan satu dikurangi kuadrat bilangan Froude yang menuju nol, sehingga penelusuran meledak pada langkah pertama. Bentuk beda hingga tidak pernah membagi dengan suku itu. Bentuk yang dipakai juga sudah dirapikan supaya tidak membagi dengan debit di hulu, sehingga pangkal saluran yang debitnya nol tetap dapat dihitung. Yang membuat saluran pengumpul dalam bukan gesekan melainkan momentum: air yang jatuh dari mercu masuk tegak lurus terhadap arah saluran dan harus dibelokkan serta dipercepat oleh aliran yang sudah ada di bawahnya. Biaya itu diambil dari tinggi tekan, dan hasilnya muka air yang justru naik ke arah pangkal walaupun dasarnya juga naik ke arah itu. Karena kedua permukaan naik bersamaan, kedalaman di pangkal tidak sebesar kenaikan muka airnya, dan itulah yang membuat pembacaan sepintas pada gambar mudah keliru.",
   },
@@ -130,6 +140,8 @@ const TXT = {
     curam:
       "Steepen the trough: the head depth falls, but the head bed rises by S₀L, so the head water level rises too and the freeboard shrinks.",
     exagg: "vertical exaggeration",
+    motion: (n: string) => `particles move at V = Q(x)/A, born along the crest in proportion to Q(x), time sped up ×${n}`,
+    motionReal: "particles move at V = Q(x)/A, born along the crest in proportion to Q(x), real time",
     note:
       "What is used here is the finite-difference form of the momentum equation rather than the differential form, and that is not a matter of style but a necessity. The control of a collector trough sits exactly at critical conditions at its outlet, and there the differential form divides by one minus the square of the Froude number, which tends to zero, so the traverse explodes on the first step. The finite-difference form never divides by that term. The form used has also been rearranged so that it does not divide by the upstream discharge, which keeps the head of the trough, where the discharge is zero, computable. What makes a collector trough deep is not friction but momentum: water falling off the crest enters at right angles to the channel and has to be turned and accelerated by the flow already beneath it. That cost is taken from head, and the result is a water surface that rises toward the head even though the bed rises that way too. Because both surfaces rise together, the depth at the head is smaller than the rise in level, and that is what makes a quick reading of the drawing easy to get wrong.",
   },
@@ -178,9 +190,43 @@ export function PelimpahSampingClient() {
   const kartu = keadaan(r, S0, L, jagaan, mustahil, x, lang);
   const fSah = !terpotong && !mustahil;
 
-  const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, b, L, S0, zCrest, lang)),
-    [Q, b, n, S0, L, zCrest, lang]
+  /*
+   * Lapis gerak: partikel bergerak dengan V = Q(x)/(b·y) dari profil Hinds.
+   * Debit di pangkal nol, jadi semua partikel lahir di sepanjang saluran
+   * dengan kerapatan yang membuat jumlah yang lewat penampang x per detik
+   * sebanding Q(x) (drawReachMotion). Hanya bila profilnya berlaku: hulu
+   * superkritis, geometri mustahil, atau mercu tenggelam tidak digerakkan.
+   */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<ReachMotion | null>(null);
+  if (gerak.current === null) gerak.current = createReachMotion(170);
+  const berlaku = fSah && !tenggelam;
+  const aliran = useMemo(() => {
+    if (!berlaku) return null;
+    const air: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: p.ws }));
+    const st: ReachStation[] = r.points.map((p) => ({ x: p.x, zb: p.zb, zs: p.ws, V: p.V, Q: p.Q }));
+    return reachFlow(st, air, [
+      { x: 0, z: S0 * L },
+      { x: L, z: 0 },
+    ]);
+    // r dihitung ulang dari masukan yang sama; deps primitif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Q, b, n, S0, L, berlaku]);
+  const skala = aliran ? reachTimeScale(aliran.crossTime) : 1;
+  const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak = skala === 1 ? x.motionReal : x.motion(faktor(skala));
+
+  const plate = usePlate(
+    (ctx, w, h) =>
+      drawReach(ctx, w, h, {
+        ...susun(r, b, L, S0, zCrest, lang),
+        ...(playing || !aliran ? {} : { flowArrows: [L * 0.45, L * 0.85] }),
+      }),
+    aliran
+      ? (ctx, _w, _h, tt, dt, out) => drawReachMotion(ctx, tt, dt, out, aliran, skala, gerak.current!)
+      : null,
+    [Q, b, n, S0, L, zCrest, lang, playing, berlaku],
+    { playing, timeScale: skala }
   );
 
   const zSpan = Math.max(zCrest, pangkal.ws, S0 * L, 1e-3);
@@ -329,8 +375,15 @@ export function PelimpahSampingClient() {
             },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 1)}×` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={

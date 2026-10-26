@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,23 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import {
+  createReachMotion,
+  drawReachMotion,
+  reachFlow,
+  reachTimeScale,
+  type ReachMotion,
+  type ReachStation,
+} from "@/lib/drawReachMotion";
 import {
   drawReach,
   type ReachMarker,
@@ -70,6 +81,9 @@ const TXT = {
     seragam: "Aliran seragam",
     berhenti: "Profil berakhir sebelum ujung bentang",
     rLen: "Panjang profil sampai kondisi kritis",
+    gY: "Kedalaman di penampang kendali y, seret muka air di ujung kendali naik atau turun",
+    motion: (n: string) => `partikel dan tanda energi bergerak dengan V = Q/A, waktu dipercepat ×${n}`,
+    motionReal: "partikel dan tanda energi bergerak dengan V = Q/A, waktu nyata",
     note:
       "Tiga garis pada gambar ini adalah tiga suku persamaan energi, dan jarak tegak di antaranya adalah besaran yang dicari. Dasar saluran memberi tinggi tempat, kedalaman air di atasnya memberi tinggi tekan, dan tinggi kecepatan menumpang di atas keduanya. Karena ketiganya diturunkan dari satu profil yang sama, ketiganya tidak mungkin saling bertentangan di layar. Yang perlu diperhatikan, garis energi selalu menurun ke arah hilir sedangkan muka air tidak selalu demikian. Pada kurva pembendungan, muka air jauh lebih landai daripada dasarnya dan hampir datar; ia dapat naik sangat sedikit ke arah hilir bila S₀·Fr² > Sf, karena kemiringan muka air adalah dy/dx dikurangi S₀, dan dy/dx melampaui S₀ tepat pada keadaan itu. Yang naik dengan jelas ke arah hilir adalah muka air pada profil M3 di hilir pintu, tempat kedalaman bertambah jauh lebih cepat daripada dasarnya menurun. Pada kedua keadaan itu garis energinya tetap turun, dan itulah bukti bahwa yang selalu berkurang adalah energi, bukan ketinggian air. Kehilangan gesekan pada tabel di samping dijumlahkan dengan menjumlahkan kemiringan gesek sepanjang bentang, bukan diambil dari selisih kedua ujung garis energi. Keduanya harus menghasilkan angka yang sama, dan blok verifikasi di bawah membandingkannya secara langsung.",
   },
@@ -104,6 +118,9 @@ const TXT = {
     seragam: "Uniform flow",
     berhenti: "Profile ends before the end of the reach",
     rLen: "Profile length up to critical conditions",
+    gY: "Depth at the control section y, drag the water surface at the control end up or down",
+    motion: (n: string) => `particles and energy marks move at V = Q/A, time sped up ×${n}`,
+    motionReal: "particles and energy marks move at V = Q/A, real time",
     note:
       "The three lines on this drawing are the three terms of the energy equation, and the vertical gaps between them are the quantities being sought. The bed gives elevation head, the depth of water above it gives pressure head, and the velocity head rides on top of both. Because all three are derived from a single profile, they cannot contradict one another on screen. Note that the energy line always falls downstream while the water surface does not always follow. On a backwater curve the surface is far flatter than the bed and almost horizontal; it can rise very slightly downstream when S₀·Fr² > Sf, because the surface slope is dy/dx minus S₀, and dy/dx exceeds S₀ exactly in that condition. What rises clearly downstream is the surface of an M3 profile below a gate, where the depth grows far faster than the bed falls. In both cases the energy line still falls, and that is the proof that what always decreases is energy, not water level. The friction loss in the table beside the drawing is summed from the friction slope along the reach rather than read off the difference between the two ends of the energy line. The two must produce the same number, and the verification block below compares them directly.",
   },
@@ -124,6 +141,19 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang kedalaman kendali: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan di penampang kendali (aturan 4, satu sumber nilai).
+ */
+const P_Y: ParamDef = { min: 0.15, max: 6, step: 0.05, digits: 2 };
+
+/**
+ * Sumbu dikunci selama pegangan diseret; `ujung` = absis penampang kendali
+ * saat seret dimulai, supaya ukuran seret tetap diukur dari dasar yang sama
+ * walau kendalinya berpindah ujung ketika y melewati yc.
+ */
+type Kunci = { xMax: number; zTop: number; ujung: number };
+
 export function PersamaanEnergiSaluranClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -141,10 +171,83 @@ export function PersamaanEnergiSaluranClient() {
   const r = reachEnergy(Q, b, n, S0, yCtl, L);
   const tengah = r.points[Math.floor(r.points.length / 2)];
 
-  const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, L, S0, lang)),
-    [Q, b, n, S0, yCtl, L, lang]
+  /*
+   * Penampang kendali: hilir (x = L) bila y > yc, karena aliran subkritis
+   * ditelusuri ke hulu; hulu (x = 0) bila y < yc, aliran superkritis
+   * ditelusuri ke hilir (gvfProfile). Di sanalah kedalaman y berlaku, jadi
+   * pegangannya duduk di sana.
+   */
+  const xKendali = yCtl > yc ? L : 0;
+
+  /*
+   * Lapis gerak: partikel di badan air bergerak dengan V = Q/(b·y) di tiap
+   * stasiun reachEnergy, dan tiap partikel ke-7 membawa tanda energi di garis
+   * energi pada absis yang sama, dengan laju air yang sama. Saat dijeda,
+   * lapis statis menggambar panah arah aliran yang diam.
+   */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<ReachMotion | null>(null);
+  if (gerak.current === null) gerak.current = createReachMotion(170);
+  const aliran = useMemo(() => {
+    const air: ReachPoint[] = r.points.map((p) => ({ x: p.x, z: p.wsl }));
+    const st: ReachStation[] = r.points.map((p) => ({ x: p.x, zb: p.zb, zs: p.wsl, V: p.V, egl: p.egl }));
+    return reachFlow(st, air, [
+      { x: 0, z: S0 * L },
+      { x: L, z: 0 },
+    ]);
+    // r dihitung ulang dari masukan yang sama; deps primitif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Q, b, n, S0, yCtl, L]);
+  const skala = aliran ? reachTimeScale(aliran.crossTime) : 1;
+  const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak = skala === 1 ? x.motionReal : x.motion(faktor(skala));
+
+  const [kunci, setKunci] = useState<Kunci | null>(null);
+  const sentuh = useRef<() => void>(() => {});
+  const ujung = kunci ? kunci.ujung : xKendali;
+  const zbUjung = (L - ujung) * S0;
+
+  const plate = usePlate(
+    (ctx, w, h) =>
+      drawReach(ctx, w, h, {
+        ...susun(r, L, S0, lang),
+        ...(kunci ? { xMax: kunci.xMax, zTop: kunci.zTop, clip: true } : {}),
+        ...(playing ? {} : { flowArrows: [r.points[0].x + r.length * 0.12, r.points[0].x + r.length * 0.82] }),
+        anchors: { kendali: { x: ujung, z: zbUjung + yCtl } },
+      }),
+    aliran
+      ? (ctx, _w, _h, tt, dt, out) => drawReachMotion(ctx, tt, dt, out, aliran, skala, gerak.current!)
+      : null,
+    [Q, b, n, S0, yCtl, L, lang, playing, ujung, kunci ? kunci.xMax : NaN, kunci ? kunci.zTop : NaN],
+    { playing, timeScale: skala }
   );
+
+  /*
+   * Pemetaan balik: elevasi jari dikurangi elevasi dasar di penampang
+   * kendali. Di ujung hilir dasarnya nol, jadi y = z; di ujung hulu
+   * y = z − S₀·L. Hanya tegak.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kendali",
+      anchor: "kendali",
+      axis: "y",
+      label: x.gY,
+      tint: C.water,
+      param: P_Y,
+      value: yCtl,
+      toValue: (_px, py, m) => m.invY(py) - zbUjung,
+      onChange: setYCtl,
+      format: (v) => `y ${fmt(v, 2)} m`,
+    },
+  ];
+  const kunciSumbu = () => {
+    const o = plate.outRef.current;
+    if (!o) return;
+    const f = o.map.frame;
+    setKunci({ xMax: o.map.invX(f.x1), zTop: o.map.invY(f.y0), ujung: xKendali });
+  };
+  const lepasKunci = () => setKunci(null);
 
   const zSpan = Math.max(S0 * L + r.points[0].y + r.points[0].vHead, 1e-3);
   const exagg = L / zSpan / 1.9;
@@ -242,8 +345,30 @@ export function PersamaanEnergiSaluranClient() {
             { label: "Δz", value: `${fmt(r.dz, 3)} m` },
             { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 0)}×` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          {/* display: contents; hanya menangkap pointerdown/lepas dari
+              pegangan untuk mengunci sumbu (pola OC-06). */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              kunciSumbu();
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -254,10 +379,11 @@ export function PersamaanEnergiSaluranClient() {
               <InputRow symbol="b" label={x.db} value={b} min={0.5} max={20} step={0.1} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.1} max={20} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
-              <InputRow symbol="y" label={x.dy} value={yCtl} min={0.15} max={6} step={0.05} unit="m" onChange={setYCtl} tint={C.water} />
+              <InputRow symbol="y" label={x.dy} value={yCtl} {...P_Y} unit="m" onChange={setYCtl} tint={C.water} />
               <InputRow symbol="L" label={x.dL} value={L} min={100} max={4000} step={50} digits={0} unit="m" onChange={setL} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}

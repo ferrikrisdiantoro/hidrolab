@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawReach,
   type ReachMarker,
@@ -49,6 +52,8 @@ const TXT = {
     dbA: "Lebar saluran datang",
     dp: "Tinggi mercu leher di atas dasar",
     dL: "Panjang leher searah aliran",
+    gP: "Tinggi mercu leher p, seret ujung hulu mercu naik atau turun",
+    gL: "Panjang leher L, seret ujung hilir mercu ke kiri atau kanan",
     dCd: "Koefisien debit",
     dTail: "Muka air hilir di atas dasar",
     pKecil: "Saluran irigasi tersier",
@@ -108,6 +113,8 @@ const TXT = {
     dbA: "Approach channel width",
     dp: "Crest height above the bed",
     dL: "Throat length along the flow",
+    gP: "Crest height p, drag the upstream corner of the crest up or down",
+    gL: "Throat length L, drag the downstream corner of the crest left or right",
     dCd: "Discharge coefficient",
     dTail: "Tailwater above the bed",
     pKecil: "Tertiary irrigation canal",
@@ -176,6 +183,16 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang tinggi mercu dan panjang leher: satu definisi untuk penggeser,
+ * kotak angka, dan pegangan di sudut mercu (aturan 4, satu sumber nilai).
+ */
+const P_P: ParamDef = { min: 0, max: 1.5, step: 0.05, digits: 2 };
+const P_L: ParamDef = { min: 0.1, max: 5, step: 0.05, digits: 2 };
+
+/** Batas sumbu gambar, dikunci selama pegangan diseret. */
+type Kunci = { xMax: number; zTop: number };
+
 export function FlumLeherPanjangClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -205,10 +222,62 @@ export function FlumLeherPanjangClient() {
   const tintQ = frLuar || hlLuar ? C.signal : C.water;
   const tandaQ = debitSah && (frLuar || hlLuar) ? ` (${x.indikatif})` : "";
 
-  const ref = useCanvas(
-    (ctx, w, h) => drawReach(ctx, w, h, susun(r, h1, p, Lt, tail, tenggelam, lang)),
-    [h1, bt, bA, p, Lt, Cd, tail, lang]
+  /*
+   * Batas sumbu dikunci selama sudut mercu diseret. Panjang gambar 8 L dan
+   * puncak tegak memuat p + H₁, jadi tanpa kunci ujung hilir mercu (4,5 L)
+   * selalu jatuh di pecahan lebar yang sama dan mercu selalu setinggi yang
+   * sama di layar: pegangannya saling kejar dengan sumbu.
+   */
+  const [kunci, setKunci] = useState<Kunci | null>(null);
+  const sentuh = useRef<() => void>(() => {});
+  const plate = usePlate(
+    (ctx, w, h) =>
+      drawReach(ctx, w, h, {
+        ...susun(r, h1, p, Lt, tail, tenggelam, lang),
+        ...(kunci ? { xMax: kunci.xMax, zTop: kunci.zTop, clip: true } : {}),
+        // Sudut mercu: hulu di 3,5 L, hilir di 4,5 L (susun), elevasi p.
+        anchors: { mercuHulu: { x: 3.5 * Lt, z: p }, mercuHilir: { x: 4.5 * Lt, z: p } },
+      }),
+    null,
+    [h1, bt, bA, p, Lt, Cd, tail, lang, kunci ? kunci.xMax : NaN, kunci ? kunci.zTop : NaN]
   );
+
+  /*
+   * Pemetaan balik: dasar saluran datum nol, jadi p = z jari. Ujung hilir
+   * mercu ada di x = 2,5 L + L + L = 4,5 L dari ujung hulu gambar, jadi
+   * L = x / 4,5. Masing-masing satu sumbu.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "mercuHulu",
+      anchor: "mercuHulu",
+      axis: "y",
+      label: x.gP,
+      param: P_P,
+      value: p,
+      toValue: (_px, py, m) => m.invY(py),
+      onChange: setP,
+      format: (v) => `p ${fmt(v, 2)} m`,
+    },
+    {
+      id: "mercuHilir",
+      anchor: "mercuHilir",
+      axis: "x",
+      label: x.gL,
+      param: P_L,
+      value: Lt,
+      toValue: (px, _py, m) => m.invX(px) / 4.5,
+      onChange: setLt,
+      format: (v) => `L ${fmt(v, 2)} m`,
+    },
+  ];
+  const kunciSumbu = () => {
+    const o = plate.outRef.current;
+    if (!o) return;
+    const f = o.map.frame;
+    setKunci({ xMax: o.map.invX(f.x1), zTop: o.map.invY(f.y0) });
+  };
+  const lepasKunci = () => setKunci(null);
 
   const alasanTak = leherLebar ? x.leherLebarNote : x.takKendaliNote;
   const butir: string[] = [];
@@ -428,7 +497,22 @@ export function FlumLeherPanjangClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents; hanya menangkap pointerdown/lepas dari
+              pegangan untuk mengunci sumbu (pola OC-06). */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              kunciSumbu();
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -438,11 +522,13 @@ export function FlumLeherPanjangClient() {
               <InputRow symbol="h₁" label={x.dh} value={h1} min={0.02} max={1.5} step={0.01} digits={3} unit="m" onChange={setH1} tint={C.water} />
               <InputRow symbol="b" label={x.dbt} value={bt} min={0.1} max={5} step={0.05} unit="m" onChange={setBt} />
               <InputRow symbol="B" label={x.dbA} value={bA} min={0.15} max={10} step={0.05} unit="m" onChange={setBA} />
-              <InputRow symbol="p" label={x.dp} value={p} min={0} max={1.5} step={0.05} unit="m" onChange={setP} />
-              <InputRow symbol="L" label={x.dL} value={Lt} min={0.1} max={5} step={0.05} unit="m" onChange={setLt} />
+              <InputRow symbol="p" label={x.dp} value={p} {...P_P} unit="m" onChange={setP} />
+              <InputRow symbol="L" label={x.dL} value={Lt} {...P_L} unit="m" onChange={setLt} />
               <InputRow symbol="Cd" label={x.dCd} value={Cd} min={0.93} max={1} step={0.005} digits={3} onChange={setCd} />
               <InputRow symbol="y_h" label={x.dTail} value={tail} min={0} max={2} step={0.05} unit="m" onChange={setTail} tint={tenggelam ? C.signal : undefined} />
             </InputTable>
+
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
