@@ -32,7 +32,7 @@ import { checksOrifice } from "@/lib/checks";
 
 const TXT = {
   id: {
-    motionNote: "butir air di pancaran: kecepatan mendatar V, jatuh bebas sesudah vena contracta; waktu diperlambat ×4",
+    motionNote: "butir air di pancaran: dari Cc·V di bibir naik ke V di vena contracta, lalu jatuh bebas; waktu diperlambat ×4",
     title: "Vena contracta",
     sheetTitle: "Lubang berbibir tajam pada dinding tegak — potongan melintang",
     dH: "Tinggi muka air di atas sumbu lubang",
@@ -65,7 +65,7 @@ const TXT = {
       "Dua koefisien bekerja berurutan di sini, dan menukarnya adalah kesalahan yang paling sering terjadi pada perhitungan lubang. Kontraksi mengurangi LUAS pancaran, bukan lajunya. Sebabnya bentuk geometri, bukan gesekan: air yang mendekati lubang dari atas dan dari bawah tidak dapat berbelok tajam tepat di bibirnya, sehingga garis arusnya masih melengkung sebentar setelah keluar. Di tempat lengkungan itu selesai, pancaran paling sempit dan garis arusnya sejajar, dan hanya di situ tekanannya nol. Itulah sebabnya penampang acuan bukan bibir lubang melainkan vena contracta, kira-kira setengah tinggi bukaan di hilirnya. Koefisien kecepatan mengurangi LAJU, dan inilah yang berasal dari gesekan di bibir lubang. Nilainya dekat sekali dengan satu, biasanya 0,97 sampai 0,99, jauh lebih dekat daripada koefisien kontraksinya. Hasil kali keduanya adalah koefisien debit, dan hanya hasil kali itulah yang dapat dibaca dari pengukuran debit. Untuk memisahkan keduanya diperlukan pengukuran kedua, dan yang paling murah bukan mengukur kecepatan melainkan mengukur lintasan pancarannya dengan meteran, karena lintasan tanpa kehilangan memenuhi hubungan x kuadrat sama dengan empat H y.",
   },
   en: {
-    motionNote: "water particles in the jet: horizontal speed V, free fall after the vena contracta; time slowed ×4",
+    motionNote: "water particles in the jet: from Cc·V at the lip to V at the vena contracta, then free fall; time slowed ×4",
     title: "Vena contracta",
     sheetTitle: "Sharp-edged orifice in a vertical wall — cross section",
     dH: "Head above the orifice axis",
