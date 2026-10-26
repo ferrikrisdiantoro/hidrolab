@@ -112,7 +112,7 @@ const POJOK: Record<NonNullable<SheetMotion["corner"]>, string> = {
  */
 function MotionToggle({ motion }: { motion: SheetMotion }) {
   const t = str(useLang().lang);
-  const { playing, onToggle, note, corner = "tr" } = motion;
+  const { playing, onToggle, corner = "tr" } = motion;
   return (
     <div className={`pointer-events-none absolute z-10 flex items-center ${POJOK[corner]}`}>
       <button
@@ -136,11 +136,6 @@ function MotionToggle({ motion }: { motion: SheetMotion }) {
           </svg>
         </span>
       </button>
-      {note && (
-        <span className="label bg-sheet/90 px-1 text-[0.68rem] leading-tight text-ink-2">
-          {note}
-        </span>
-      )}
     </div>
   );
 }
@@ -175,6 +170,17 @@ export function Sheet({
         {children}
         {motion?.allowed && <MotionToggle motion={motion} />}
       </div>
+
+      {/*
+        Catatan skala waktu di bawah bidang gambar, bukan di atasnya: catatan
+        panjang (PI-04 laminar, 4 baris di HP) dulu menutupi judul keadaan
+        yang digambar di pojok atas kanvas.
+      */}
+      {motion?.allowed && motion.note && (
+        <p className="label border-t border-rule px-3.5 py-1 text-[0.68rem] leading-snug text-ink-2">
+          {motion.note}
+        </p>
+      )}
 
       <figcaption className="border-t border-ink">
         {/*
