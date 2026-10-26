@@ -15,7 +15,8 @@ import {
   region,
   ruling,
 } from "./plate.ts";
-import { jetTrajectory, wesNappe, fmtPlain} from "./hydraulics.ts";
+import { G, WES_K, WES_N, jetTrajectory, wesNappe, fmtPlain } from "./hydraulics.ts";
+import { drawJet, finishJetPath, jetKeyChanged, type JetMotion, type JetPath, JET_MAX } from "./jetMotion.ts";
 import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 import { mapFrom, type PlateOut } from "./plateOut.ts";
@@ -373,4 +374,87 @@ export function drawNappe(
     waters.push(Float64Array.of(xa, Z(0), xa, Z(s.tail), xb, Z(s.tail), xb, Z(0)));
   }
   return { map, anchors, water, waters };
+}
+
+/* ------------------------------------------------------------------ *
+ * Lapis gerak HS-06: butir air yang jatuh di lembaran tirai
+ * ------------------------------------------------------------------ */
+
+export type NappeMotionState = {
+  /** Tinggi muka air di atas mercu, m */
+  h: number;
+  /** Tinggi mercu di atas lantai hilir, m */
+  P: number;
+  /** Kecepatan datang di atas mercu, m/s (rectWeirDischarge V0) */
+  V0: number;
+  /** Debit per meter lebar, m²/s (Q/b dari rectWeirDischarge) */
+  q: number;
+  /** Muka air hilir di atas lantai, m */
+  tail: number;
+};
+
+/**
+ * Laju butir di tirai pada elevasi z, m/s.
+ *
+ * Di dalam tirai yang diberi udara tekanannya atmosfer di kedua sisinya,
+ * jadi Bernoulli dari muka air hulu memberi v = √(2g(E − z)), dengan
+ * garis energi E = P + h + V0²/2g di atas lantai (V0 kecepatan datang
+ * dari rectWeirDischarge, persamaan yang sama yang mengisi kop lembar).
+ */
+export function nappeSpeed(s: NappeMotionState, z: number): number {
+  const E = s.P + s.h + (s.V0 * s.V0) / (2 * G);
+  return Math.sqrt(2 * G * Math.max(E - z, 0));
+}
+
+/**
+ * Mengisi tabel lintasan: sisi bawah tirai WES (garis yang digambar
+ * drawNappe), dari bibir mercu sampai muka air hilir atau lantai. Tebal
+ * lembaran air tegak lurus aliran = q / v (kontinuitas). Tirai yang
+ * tenggelam (muka air hilir di atas mercu) tidak punya lintasan bebas:
+ * n = 0. Mengembalikan laju terbesar.
+ */
+export function fillNappePath(path: JetPath, s: NappeMotionState): number {
+  const zEnd = Math.max(s.tail, 0);
+  path.n = 0;
+  if (!(s.h > 0) || !(s.P > zEnd)) return 0;
+  // wesNappe(h, x) = P − zEnd dibalik: x = (K h^(N−1) (P − zEnd))^(1/N).
+  const xEnd = Math.pow(WES_K * Math.pow(s.h, WES_N - 1) * (s.P - zEnd), 1 / WES_N);
+  const n = JET_MAX;
+  for (let k = 0; k < n; k++) {
+    // Rapat di ujung, tempat tirai paling curam (jarak lengkung terbesar).
+    const f = k / (n - 1);
+    const x = xEnd * Math.sqrt(f);
+    const z = Math.max(s.P - wesNappe(s.h, x), zEnd);
+    const v = nappeSpeed(s, z);
+    path.x[k] = x;
+    path.z[k] = z;
+    path.v[k] = v;
+    path.off0[k] = 0;
+    path.off1[k] = v > 1e-9 ? s.q / v : 0;
+  }
+  path.n = n;
+  return finishJetPath(path);
+}
+
+/**
+ * Lapis gerak HS-06. `t` waktu fisik (Client memakai waktu diperlambat ×4).
+ * Butir lahir di bibir mercu dan hilang di muka air hilir (atau lantai);
+ * dipotong ke bidang gambar.
+ */
+export function drawNappeMotion(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  out: PlateOut | null,
+  s: NappeMotionState,
+  m: JetMotion
+): void {
+  if (!out) return;
+  if (jetKeyChanged(m, s.h, s.P, s.V0, s.q, s.tail)) m.vMax = fillNappePath(m.path, s);
+  const f = out.map.frame;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0);
+  ctx.clip();
+  drawJet(ctx, m, out.map, t);
+  ctx.restore();
 }
