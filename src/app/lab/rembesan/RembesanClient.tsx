@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawStructure,
   type StructureBody,
@@ -40,6 +43,12 @@ import { checksSeepage } from "@/lib/checks";
 
 const CREST = 6;
 
+/*
+ * Rentang panjang drainase kaki: satu definisi untuk penggeser, kotak angka,
+ * dan pegangan seret di ujung hulu drainase (aturan 4, satu sumber nilai).
+ */
+const P_LD: ParamDef = { min: 0, max: 30, step: 0.5, digits: 1 };
+
 const TXT = {
   id: {
     title: "Rembesan",
@@ -54,6 +63,7 @@ const TXT = {
     pCukup: "Drainase memadai",
     pTanpa: "Tanpa drainase kaki",
     pAniso: "Tanah berlapis, mendatar sembilan kali",
+    gLd: "Panjang drainase kaki Ld, seret ujung hulu drainase ke kiri atau kanan",
     rY0: "Setengah parameter parabola",
     rQ: "Rembesan tiap meter panjang",
     rQday: "Rembesan tiap meter panjang (liter)",
@@ -100,6 +110,7 @@ const TXT = {
     pCukup: "Adequate drain",
     pTanpa: "No toe drain",
     pAniso: "Layered soil, nine times horizontal",
+    gLd: "Toe drain length Ld, drag the upstream end of the drain left or right",
     rY0: "Half the parabola parameter",
     rQ: "Seepage per metre of dam",
     rQday: "Seepage per metre of dam (litres)",
@@ -198,7 +209,9 @@ export function RembesanClient() {
   const masukKoreksi = mUp * Hp * (1 - CASAGRANDE_ENTRY);
   const akarKvKh = Math.sqrt(kv / kh);
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       /*
        * Layar sempit (HP): penampang selebar tujuh puluh meter dengan skala
@@ -322,7 +335,7 @@ export function RembesanClient() {
           text: T.toeDrain,
         });
 
-      drawStructure(
+      return drawStructure(
         ctx,
         w,
         ch,
@@ -345,12 +358,40 @@ export function RembesanClient() {
           maxExaggeration: sempit ? 5 : 1,
           axisX: T.axSection,
           axisZ: T.elevation,
+          /* Ujung hulu drainase kaki (fokus parabola), tempat pegangan Ld.
+             Tidak digambar. */
+          anchors: { drainase: { x: g.toeDown - Ld, z: 0 } },
         },
         lang
       );
     },
+    null,
     [H, Hd, mUp, mDown, Ld, kMikro, aniso, lang]
   );
+
+  /*
+   * Pemetaan balik: drainase membentang dari fokus x = kaki hilir − Ld
+   * sampai kaki hilir (seepageLine), jadi Ld = kaki hilir − x jari. Hanya
+   * mendatar; seret ke kiri (ke hulu) memperpanjang drainase.
+   *
+   * Tanpa kunci sumbu: batas bidang dihitung dari kaki hilir dan tinggi
+   * bendungan saja, yang tidak bergantung pada Ld, jadi pegangan tidak
+   * saling kejar dengan sumbunya.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "drainase",
+      anchor: "drainase",
+      axis: "x",
+      label: x.gLd,
+      tint: C.critical,
+      param: P_LD,
+      value: Ld,
+      toValue: (px, _py, m) => g.toeDown - m.invX(px),
+      onChange: setLd,
+      format: (v) => `Ld ${fmt(v, 1)} m`,
+    },
+  ];
 
   return (
     <LabShell
@@ -417,7 +458,8 @@ export function RembesanClient() {
             { label: "k", value: `${fmtSci(r.kEq)} m/s` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
@@ -428,11 +470,12 @@ export function RembesanClient() {
               <InputRow symbol="Hd" label={x.dHd} value={Hd} min={4} max={24} step={0.5} digits={1} unit="m" onChange={setHd} />
               <InputRow symbol="mu" label={x.dMu} value={mUp} min={1.5} max={5} step={0.25} digits={2} onChange={setMUp} />
               <InputRow symbol="md" label={x.dMd} value={mDown} min={1.5} max={4} step={0.25} digits={2} onChange={setMDown} />
-              <InputRow symbol="Ld" label={x.dLd} value={Ld} min={0} max={30} step={0.5} digits={1} unit="m" onChange={setLd} tint={C.critical} />
+              <InputRow symbol="Ld" label={x.dLd} value={Ld} {...P_LD} unit="m" onChange={setLd} tint={C.critical} />
               <InputRow symbol="k" label={x.dK} value={kMikro} min={0.05} max={20} step={0.05} digits={2} unit="µm/s" onChange={setKMikro} />
               <InputRow symbol="kh/kv" label={x.dAniso} value={aniso} min={1} max={25} step={0.5} digits={1} onChange={setAniso} tint={C.critical} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
