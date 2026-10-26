@@ -31,7 +31,30 @@ export type EnergyState = {
    * digambar, dan skala hanya dihitung dari yc dan Emin.
    */
   y0: number;
+  /**
+   * Skala yang dikunci selama pegangan titik kerja diseret (lihat
+   * energyScale). Tanpa ini skala dihitung dari y0 dan yc seperti biasa.
+   */
+  scale?: EnergyScale;
 };
+
+/** Ujung atas sumbu kedalaman (yMax) dan sumbu energi (eMax), meter. */
+export type EnergyScale = { yMax: number; eMax: number };
+
+/**
+ * Skala bebas lembar energi spesifik: ujung atas kedua sumbu dari y0 dan
+ * yc. Dipakai drawEnergy sendiri dan oleh Client untuk mengunci skala saat
+ * titik kerja diseret (yMax ikut y0, jadi tanpa kunci pegangan dan
+ * sumbunya saling kejar).
+ */
+export function energyScale(s: EnergyState): EnergyScale {
+  const Emin = 1.5 * s.yc;
+  const adaY0 = Number.isFinite(s.y0) && s.y0 > 0;
+  const E0 = adaY0 ? specificEnergy(s.y0, s.q) : NaN;
+  const yMax = Math.max(adaY0 ? s.y0 * 1.55 : 0, s.yc * 2.5, 0.5);
+  const eMax = Math.max(adaY0 ? E0 * 1.25 : 0, Emin * 2.1, yMax * 1.08);
+  return { yMax, eMax };
+}
 
 /**
  * DUA REGISTER DALAM SATU LEMBAR — cara buku teks hidraulika menyusun
@@ -66,8 +89,7 @@ export function drawEnergy(
   const Emin = 1.5 * s.yc;
   const adaY0 = Number.isFinite(s.y0) && s.y0 > 0;
   const E0 = adaY0 ? specificEnergy(s.y0, s.q) : NaN;
-  const yMax = Math.max(adaY0 ? s.y0 * 1.55 : 0, s.yc * 2.5, 0.5);
-  const eMax = Math.max(adaY0 ? E0 * 1.25 : 0, Emin * 2.1, yMax * 1.08);
+  const { yMax, eMax } = s.scale ?? energyScale(s);
 
   const X = (E: number) => padL + (E / eMax) * plotW;
   const Y = (y: number) => baseY - (y / yMax) * plotH;
@@ -190,6 +212,8 @@ export function drawEnergy(
    * PlateOut, tidak menggambar apa pun. Peta utama = kurva (E, y).
    * - `critical`: titik energi minimum (Emin, yc)
    * - `normal`: titik kedalaman normal (E0, y0), hanya bila tergambar
+   * - `operating`: titik yang sama, selalu ada bila y0 ada, dijepit ke tepi
+   *   bidang kurva. Tempat pegangan titik kerja
    * - `sectionSurface`: tengah muka air pada penampang (layar lebar, y0 ada)
    * - `sectionCritical`: tengah garis yc pada penampang (layar lebar)
    * `water` = air di dalam penampang. Penampang memakai skala tegak yang
@@ -199,6 +223,14 @@ export function drawEnergy(
   const map = mapFrom(X, Y, { x0: padL, y0: padT, x1: padL + plotW, y1: baseY }, [0, eMax], [0, yMax]);
   const anchors: Record<string, PlateAnchor> = { critical: { x: X(Emin), y: Y(s.yc) } };
   if (adaY0 && E0 <= eMax && s.y0 <= yMax) anchors.normal = { x: X(E0), y: Y(s.y0) };
+  // Dijepit ke bidang kurva di sini, bukan oleh DragLayer: DragLayer
+  // menjepit ke bidang TERDEKAT, dan titik kerja yang lewat kanan bidang
+  // kurva (skala dikunci, y0 dalam) akan melompat ke panel penampang.
+  if (adaY0)
+    anchors.operating = {
+      x: Math.min(Math.max(X(E0), padL), padL + plotW),
+      y: Math.min(Math.max(Y(s.y0), padT), baseY),
+    };
   if (!penampang) return { map, anchors };
   Object.assign(anchors, penampang.anchors);
   return {
@@ -265,8 +297,10 @@ function drawSection(
 
   const adaY0 = Number.isFinite(s.y0) && s.y0 > 0;
 
-  // Air (tidak ada bila kedalaman normal tidak ada)
-  const wl = adaY0 ? Y(s.y0) : baseY;
+  // Air (tidak ada bila kedalaman normal tidak ada). Muka air dijepit ke
+  // tepi atas bidang: hanya bisa lewat saat skala dikunci selama seret
+  // (skala bebas selalu memuat 1,55 y0), jadi gambar biasa tidak berubah.
+  const wl = adaY0 ? Math.max(Y(s.y0), padT) : baseY;
   const clip = () => {
     ctx.beginPath();
     ctx.rect(left, wl, bw, baseY - wl);

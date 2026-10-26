@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,9 +13,12 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawEnergy } from "@/lib/drawEnergy";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import { drawEnergy, energyScale, type EnergyScale } from "@/lib/drawEnergy";
 import {
   G,
   REGIME_LABEL,
@@ -45,6 +48,7 @@ const TXT = {
     db: "Lebar dasar",
     dn: "Kekasaran Manning",
     dS: "Kemiringan dasar",
+    gY0: "Titik kerja y₀ pada kurva, seret naik atau turun untuk mengubah kemiringan dasar",
     channel: "jenis saluran",
     ch: ["Beton halus", "Pasangan batu", "Tanah", "Bervegetasi"],
     slope: "kemiringan",
@@ -71,6 +75,7 @@ const TXT = {
   },
   en: {
     title: "Specific energy",
+    gY0: "Operating point y₀ on the curve, drag up or down to change the bed slope",
     sheetTitle: "Specific energy curve and cross section — rectangular channel",
     dQ: "Discharge",
     db: "Bed width",
@@ -131,6 +136,12 @@ const REFS = {
  * hanya muncul bila kedalaman normal tidak ada dan y₀ hanyalah batas atas
  * pencarian.
  */
+/*
+ * Rentang kemiringan dasar dalam per mil: satu definisi untuk penggeser,
+ * kotak angka, dan pegangan titik kerja di kurva (aturan 4).
+ */
+const P_S: ParamDef = { min: 0.05, max: 40, step: 0.05, digits: 2 };
+
 const FR_SUB = Math.pow(1.02, -1.5);
 const FR_SUPER = Math.pow(0.98, -1.5);
 
@@ -168,12 +179,48 @@ export function EnergiSpesifikClient() {
   const satuan = (u: string) => (terjangkau ? u : undefined);
   const Qcek = (1 / n) * geo.A * Math.pow(geo.R, 2 / 3) * Math.sqrt(S);
 
-  const ref = useCanvas(
-    /* Tanpa kedalaman normal, y0 = 50 m hanyalah batas atas pencarian:
-       jangan digambar sebagai muka air, dan jangan ikut menentukan skala. */
-    (ctx, w, h) => drawEnergy(ctx, w, h, { q, b, yc, y0: terjangkau ? y0 : NaN }, lang),
-    [q, b, yc, y0, terjangkau, lang]
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Skala dikunci selama titik kerja diseret. Tanpa kunci ujung atas sumbu
+   * kedalaman ikut y0 (1,55 y0) dan sumbu energi ikut E0: tiap piksel
+   * geseran mengubah skala, titik di bawah jari berganti nilai, dan
+   * pegangan saling kejar dengan sumbunya. Dilepas = skala dihitung lagi.
+   */
+  const [kunci, setKunci] = useState<EnergyScale | null>(null);
+  /* Tanpa kedalaman normal, y0 = 50 m hanyalah batas atas pencarian:
+     jangan digambar sebagai muka air, dan jangan ikut menentukan skala. */
+  const keadaanGambar = { q, b, yc, y0: terjangkau ? y0 : NaN };
+  const skalaBebas = energyScale(keadaanGambar);
+
+  const plate = usePlate(
+    (ctx, w, h) => drawEnergy(ctx, w, h, { ...keadaanGambar, scale: kunci ?? undefined }, lang),
+    null,
+    [q, b, yc, y0, terjangkau, lang, kunci ? kunci.yMax : NaN, kunci ? kunci.eMax : NaN]
   );
+
+  /*
+   * Pemetaan balik pegangan titik kerja (anchor `operating`, di (E0, y0)
+   * pada kurva): sumbu tegak kurva adalah kedalaman, jadi jari memberi
+   * y = invY(py). Kemiringan yang membuat y itu kedalaman normal adalah
+   * kemiringan gesek Manning pada y (frictionSlope, model yang sama yang
+   * dibalik normalDepth), dalam per mil. Hanya tegak; titiknya bergeser
+   * mendatar sendiri mengikuti kurva E(y). Seret naik = lebih dalam =
+   * lebih landai. Debit, lebar, dan n tidak berubah, jadi kurvanya diam.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "y0",
+      anchor: "operating",
+      axis: "y",
+      label: x.gY0,
+      param: P_S,
+      value: S * 1000,
+      toValue: (_px, py, m) => 1000 * frictionSlope(Q, b, Math.max(m.invY(py), 1e-4), n),
+      onChange: (v) => setS(v / 1000),
+      format: (v) => `S ${fmt(v, 2)} ‰, y₀ ${fmt(normalDepth(Q, b, n, v / 1000), 3)} m`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -231,7 +278,25 @@ export function EnergiSpesifikClient() {
             { label: t.tbSlope, value: terjangkau ? slope[lang] : "—" },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents: pembungkus tidak membuat kotak, hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci skala. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi
+              // tanpa capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
+              setKunci(skalaBebas);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -241,9 +306,10 @@ export function EnergiSpesifikClient() {
               <InputRow symbol="Q" label={x.dQ} value={Q} min={0.5} max={120} step={0.5} digits={1} unit="m³/s" onChange={setQ} tint={C.water} />
               <InputRow symbol="b" label={x.db} value={b} min={0.5} max={25} step={0.1} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
-              <InputRow symbol="S" label={x.dS} value={S * 1000} min={0.05} max={40} step={0.05} digits={2} unit="‰" onChange={(v) => setS(v / 1000)} />
+              <InputRow symbol="S" label={x.dS} value={S * 1000} {...P_S} unit="‰" onChange={(v) => setS(v / 1000)} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5 flex flex-col gap-2.5">
               <PresetRow
                 label={x.channel}
