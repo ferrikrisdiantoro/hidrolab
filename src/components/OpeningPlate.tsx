@@ -2,8 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Sheet, Term } from "@/components/ui";
-import { usePlate } from "@/lib/usePlate";
-import { useReducedMotion } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import {
   createJumpMotion,
   drawJump,
@@ -65,14 +64,13 @@ export function OpeningPlate() {
   const klas = classifyJump(Fr1);
 
   // Lapis statis + lapis gerak, sama dengan OC-01 (LoncatanAirClient).
-  const [playing, setPlaying] = useState(true);
+  const { playing, toggle: togglePutar } = usePutar();
   const gerak = useRef<JumpMotion | null>(null);
   if (gerak.current === null) gerak.current = createJumpMotion(150);
 
-  // Saat dijeda atau reduced-motion lapis gerak kosong; panah aliran diam
-  // menggantikan goresan supaya arah dan laju tetap terbaca.
-  const reduced = useReducedMotion();
-  const bergerak = playing && !reduced;
+  // Saat dijeda lapis gerak kosong; panah aliran diam menggantikan goresan
+  // supaya arah dan laju tetap terbaca.
+  const bergerak = playing;
   const plate = usePlate(
     (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy: true, flow: bergerak, lang }),
     (ctx, w, h, tt, dt) =>
@@ -97,7 +95,7 @@ export function OpeningPlate() {
         ]}
         motion={{
           playing,
-          onToggle: () => setPlaying((v) => !v),
+          onToggle: togglePutar,
           allowed: plate.motionAllowed,
         }}
       >

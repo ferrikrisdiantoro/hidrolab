@@ -51,7 +51,7 @@ export type PlateHandle = {
   outRef: React.RefObject<PlateOut | null>;
   /** Naik satu setiap lapis statis digambar ulang; pemicu render pegangan */
   version: number;
-  /** Ada fungsi gerak dan peramban tidak meminta pengurangan gerak */
+  /** Ada fungsi gerak (tombol putar/jeda ditampilkan) */
   motionAllowed: boolean;
 };
 
@@ -66,8 +66,10 @@ const DT_MAX = 0.05;
  *   dalam keadaan diam.
  * - Lapis gerak: kanvas kedua di atasnya (absolute, pointer-events none),
  *   dibersihkan dan digambar tiap frame lewat `motion`. Berhenti saat jeda,
- *   tab tersembunyi, kanvas di luar layar, atau reduced-motion. Saat
- *   berhenti, lapis ini kosong, jadi yang terlihat persis lapis statis.
+ *   tab tersembunyi, atau kanvas di luar layar. Saat berhenti, lapis ini
+ *   kosong, jadi yang terlihat persis lapis statis. Reduced-motion diurus
+ *   pemanggil lewat usePutar: tidak berputar sendiri, tetapi tetap bisa
+ *   diputar dengan tombol.
  *
  * Pemakaian:
  *   const { ref, motionRef } = usePlate(draw, motion, [a, b, lang]);
@@ -95,14 +97,13 @@ export function usePlate(
   const size = useRef({ w: 0, h: 0, dpr: 1 });
   const [version, setVersion] = useState(0);
 
-  const reduced = useReducedMotion();
   const [pageVisible, setPageVisible] = useState(true);
   const [onScreen, setOnScreen] = useState(true);
 
   const playing = opts.playing ?? true;
   const hasMotion = motion !== null;
-  const motionAllowed = hasMotion && !reduced;
-  const running = motionAllowed && playing && pageVisible && onScreen;
+  const motionAllowed = hasMotion;
+  const running = hasMotion && playing && pageVisible && onScreen;
 
   /* ---------------- lapis statis ---------------- */
 
@@ -251,4 +252,19 @@ export function usePlate(
   }, [running]);
 
   return { ref, motionRef, outRef, version, motionAllowed };
+}
+
+/**
+ * Keadaan putar/jeda lapis gerak. Bawaannya berputar, kecuali peramban
+ * meminta pengurangan gerak (setelan "animation effects" Windows mati,
+ * "hapus animasi" Android, dsb.): animasi tidak berputar sendiri, tetapi
+ * tombolnya tetap ada. Banyak laptop mahasiswa disetel begitu karena mode
+ * hemat daya, dan tanpa tombol mereka tidak pernah melihat animasinya
+ * (uji rekan V14, 25 Okt 2026). Pilihan pengguna menang atas bawaan.
+ */
+export function usePutar(): { playing: boolean; toggle: () => void } {
+  const reduced = useReducedMotion();
+  const [pilihan, setPilihan] = useState<boolean | null>(null);
+  const playing = pilihan ?? !reduced;
+  return { playing, toggle: () => setPilihan(!playing) };
 }

@@ -86,9 +86,9 @@ export type SheetMotion = {
   playing: boolean;
   onToggle: () => void;
   /**
-   * Gerak boleh tampil: ada fungsi gerak dan peramban tidak meminta
-   * pengurangan gerak (usePlate motionAllowed). Bila salah, tombol dan
-   * catatan tidak dirender sama sekali.
+   * Ada fungsi gerak (usePlate motionAllowed). Bila salah, tombol dan
+   * catatan tidak dirender sama sekali. Reduced-motion tidak menyembunyikan
+   * tombol; usePutar hanya membuat animasi tidak berputar sendiri.
    */
   allowed: boolean;
   /** Catatan skala waktu, misalnya "waktu dipercepat ×60", sudah dua bahasa. */

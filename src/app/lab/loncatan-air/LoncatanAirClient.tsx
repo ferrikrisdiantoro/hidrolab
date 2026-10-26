@@ -15,8 +15,7 @@ import {
   Term,
   type LangkahHitung,
 } from "@/components/ui";
-import { usePlate } from "@/lib/usePlate";
-import { useReducedMotion } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import {
   createJumpMotion,
   drawJump,
@@ -142,9 +141,9 @@ export function LoncatanAirClient() {
   const [y1, setY1] = useState(0.3);
   const [V1, setV1] = useState(7.0);
   const [showEnergy, setShowEnergy] = useState(true);
-  // Lapis gerak berjalan sejak awal bila peramban mengizinkan gerak; tombol
-  // putar/jeda ada di pojok bidang gambar (Sheet motion).
-  const [playing, setPlaying] = useState(true);
+  // Lapis gerak berjalan sejak awal kecuali peramban meminta pengurangan
+  // gerak (usePutar); tombol putar/jeda ada di pojok bidang gambar.
+  const { playing, toggle: togglePutar } = usePutar();
   // Keadaan goresan dibuat sekali saja. Nilai awal useRef tetap dihitung
   // ulang pada SETIAP render, jadi pembuatannya dijaga di sini.
   const gerak = useRef<JumpMotion | null>(null);
@@ -232,10 +231,9 @@ export function LoncatanAirClient() {
   /* Lapis statis digambar hanya saat masukan berubah; goresan aliran ada
      di lapis gerak. Selagi bergerak lapis statis tanpa panah aliran
      (informasinya dobel dengan goresan). */
-  // Saat dijeda atau reduced-motion lapis gerak kosong; panah aliran diam
-  // menggantikan goresan supaya arah dan laju tetap terbaca.
-  const reduced = useReducedMotion();
-  const bergerak = playing && !reduced;
+  // Saat dijeda lapis gerak kosong; panah aliran diam menggantikan goresan
+  // supaya arah dan laju tetap terbaca.
+  const bergerak = playing;
   const plate = usePlate(
     (ctx, w, h) => drawJump(ctx, w, h, { y1, V1 }, { showEnergy, flow: bergerak, lang }),
     (ctx, w, h, tt, dt) =>
@@ -296,7 +294,7 @@ export function LoncatanAirClient() {
           ]}
           motion={{
             playing,
-            onToggle: () => setPlaying((v) => !v),
+            onToggle: togglePutar,
             allowed: plate.motionAllowed,
           }}
         >
