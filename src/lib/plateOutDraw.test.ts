@@ -303,7 +303,7 @@ describe("PlateOut penggambar tunggal, keadaan awal lembar", () => {
     keDua(
       "drawNappe HS-06",
       (ctx, w, h) =>
-        drawNappe(ctx, w, h, { h: 0.3, P: 0.6, V0: r.V0, tail: 0.2, outOfRange: r.outOfRange, aerated: true }, "id"),
+        drawNappe(ctx, w, h, { h: 0.3, P: 0.6, V0: r.V0, q: r.Q / 2, tail: 0.2, outOfRange: r.outOfRange, aerated: true }, "id"),
       ["crest", "headwater", "tailwater", "nappeLanding"]
     );
   }
