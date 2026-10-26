@@ -532,10 +532,10 @@ export function plumeConcentration(
   return (mass / (A * s * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
 }
 
-export type PlumeMotion = { pool: Pool; jam: Jam; tauLalu: number; k: number };
+export type PlumeMotion = { pool: Pool; jam: Jam; tauLalu: number; k: number; U: number; D: number };
 
 export function createPlumeMotion(n = 420): PlumeMotion {
-  return { pool: createPool(n), jam: { kunci: NaN, teks: "" }, tauLalu: Infinity, k: 0 };
+  return { pool: createPool(n), jam: { kunci: NaN, teks: "" }, tauLalu: Infinity, k: 0, U: NaN, D: NaN };
 }
 
 export type PlumeParams = {
@@ -591,6 +591,15 @@ export function drawPlumeMotion(
   const f = map.frame;
   const pool = st.pool;
   const tau = replayTime(t, p.tEnd, FP04_DIAM);
+  // U atau D digeser selagi berputar: lepas ulang dari x = 0. Langkah
+  // pertama sesudahnya sepanjang τ penuh, dan untuk jalan acak Gauss satu
+  // langkah τ sama sebarannya dengan banyak langkah kecil (rerata Uτ,
+  // ragam 2Dτ), jadi titik langsung mengisi kurva yang baru.
+  if (p.U !== st.U || p.D !== st.D) {
+    st.U = p.U;
+    st.D = p.D;
+    st.tauLalu = Infinity;
+  }
   if (tau < st.tauLalu) {
     // Putaran baru: seluruh zat dilepas lagi di titik lepas x = 0.
     for (let i = 0; i < pool.n; i++) {
