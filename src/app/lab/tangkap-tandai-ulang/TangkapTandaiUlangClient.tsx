@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { RECAPTURE_MIN, fmt, fmtPlain, markRecapture } from "@/lib/hydraulics";
 import { C, DASH, W, type Tone } from "@/lib/theme";
@@ -38,6 +41,7 @@ const TXT = {
     rPet: "Taksiran Lincoln-Petersen",
     rCi: "Selang kepercayaan 95 persen",
     rLebar: "Lebar selang terhadap taksirannya",
+    hdlM: "Titik taksiran: geser mendatar untuk mengubah jumlah bertanda m",
     rFrac: "Bagian populasi yang tertandai",
     rBias: "Selisih Petersen terhadap Chapman",
     sedikit: "Tangkapan ulang terlalu sedikit",
@@ -76,6 +80,7 @@ const TXT = {
     rPet: "Lincoln-Petersen estimate",
     rCi: "95 per cent confidence interval",
     rLebar: "Interval width relative to the estimate",
+    hdlM: "Estimate point: drag sideways to change the marked count m",
     rFrac: "Fraction of the population marked",
     rBias: "Petersen minus Chapman",
     sedikit: "Too few recaptures",
@@ -118,6 +123,10 @@ const REFS = {
   ],
 } as const;
 
+/* Rentang m, dipakai bersama penggeser, kotak angka, dan pegangan titik
+   taksiran (aturan 4: satu sumber nilai). */
+const P_M: ParamDef = { min: 0, max: 200, step: 1, digits: 0 };
+
 export function TangkapTandaiUlangClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -127,6 +136,16 @@ export function TangkapTandaiUlangClient() {
   const [M, setM] = useState(200);
   const [n, setN] = useState(150);
   const [m, setM2] = useState(30);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Kedua sumbu dikunci selama pegangan diseret. Ujung sumbu m (3m) dan
+   * ujung sumbu taksiran (dari N̂ dan selangnya pada m) ikut bergeser dengan
+   * m: tanpa kunci, titik kerja selalu di sepertiga lebar dan tiap piksel
+   * geseran mengubah skala yang dipakai membaca piksel berikutnya (saling
+   * kejar). Dilepas = sumbu kembali dihitung dari m.
+   */
+  const [kunci, setKunci] = useState<{ mMax: number; yMax: number } | null>(null);
 
   /*
    * Tangkapan bertanda tidak mungkin melebihi tangkapan keduanya sendiri.
@@ -151,13 +170,23 @@ export function TangkapTandaiUlangClient() {
   const badge = mustahil ? x.mustahil : r.tooFewRecaptures ? x.sedikit : x.cukup;
   const petTeks = Number.isFinite(r.petersen) ? fmt(r.petersen, 1) : x.pet0;
 
-  const ref = useCanvas(
+  /* Ujung sumbu, dihitung di luar penggambar supaya bisa dikunci.
+     chap[0] lama = taksiran pada k = 1. */
+  const mMaxBebas = Math.max(1, Math.min(n, M, Math.max(mAman * 3, 40)));
+  const yMaxBebas = Math.max(
+    Math.min(markRecapture(M, n, 1).chapman * 1.2, rGambar.chapman * 6),
+    rGambar.ciHigh * 1.15,
+    1
+  );
+  const mMax = kunci?.mMax ?? mMaxBebas;
+  const yMax = kunci?.yMax ?? yMaxBebas;
+
+  const plate = usePlate(
     (ctx, w, h) => {
       const chap: { x: number; y: number }[] = [];
       const pet: { x: number; y: number }[] = [];
       const atas: { x: number; y: number }[] = [];
       const bawah: { x: number; y: number }[] = [];
-      const mMax = Math.max(1, Math.min(n, M, Math.max(mAman * 3, 40)));
       for (let k = 1; k <= mMax; k++) {
         const rk = markRecapture(M, n, k);
         chap.push({ x: k, y: rk.chapman });
@@ -165,12 +194,6 @@ export function TangkapTandaiUlangClient() {
         atas.push({ x: k, y: rk.ciHigh });
         bawah.push({ x: k, y: rk.ciLow });
       }
-
-      const yMax = Math.max(
-        Math.min(chap[0].y * 1.2, rGambar.chapman * 6),
-        rGambar.ciHigh * 1.15,
-        1
-      );
 
       const deret: ChartSeries[] = [
         {
@@ -203,7 +226,7 @@ export function TangkapTandaiUlangClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -225,12 +248,39 @@ export function TangkapTandaiUlangClient() {
                 y: r.chapman,
                 label: `${fmtPlain(r.chapman, 0)}`,
               },
+          /* Pegangan di m penggeser (bukan mAman) supaya pegangan = penggeser;
+             pada keadaan mustahil m > min(M, n) di kanan ujung sumbu dan
+             DragLayer menjepitnya ke tepi. Tegaknya kurva Chapman yang
+             digambar. Tidak dari `point`: titik itu hilang di luar bidang. */
+          anchors: { kerja: { x: m, y: rGambar.chapman } },
         },
         lang
       );
     },
-    [M, n, m, lang]
+    null,
+    [M, n, m, mMax, yMax, lang]
   );
+
+  /*
+   * Posisi tegak titik adalah N̂ HASIL Chapman, jadi titik hanya diseret
+   * mendatar: sumbu datar adalah m, masukan langsung.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kerja",
+      anchor: "kerja",
+      axis: "x",
+      label: x.hdlM,
+      hollow: true,
+      tint: C.water,
+      param: P_M,
+      value: m,
+      toValue: (px, _py, mp) => mp.invX(px),
+      onChange: setM2,
+      format: (v) => `m ${fmt(v, 0)}`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -284,16 +334,29 @@ export function TangkapTandaiUlangClient() {
             { label: "N̂", value: mustahil ? "—" : fmt(r.chapman, 0), tint: mustahil ? C.signal : C.water },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci sumbu. */}
+          <div
+            className="contents"
+            onPointerDown={() => setKunci({ mMax, yMax })}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="M" label={x.dM} value={M} min={5} max={2000} step={5} digits={0} onChange={setM} tint={C.water} />
               <InputRow symbol="n" label={x.dN} value={n} min={5} max={2000} step={5} digits={0} onChange={setN} />
-              <InputRow symbol="m" label={x.dm} value={m} min={0} max={200} step={1} digits={0} onChange={setM2} />
+              <InputRow symbol="m" label={x.dm} value={m} {...P_M} onChange={setM2} />
             </InputTable>
 
             <div className="mt-3.5">
