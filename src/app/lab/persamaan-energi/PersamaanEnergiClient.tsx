@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawStructure,
   type StructureDim,
@@ -40,6 +43,7 @@ const TXT = {
     pPendek: "Pipa pendek, kehilangan setempat berkuasa",
     pPanjang: "Pipa panjang, gesekan berkuasa",
     pKatup: "Katup setengah tertutup",
+    gH: "Beda muka air ΔH, seret muka air kolam hilir naik atau turun",
     rQ: "Debit yang terjadi",
     rV: "Kecepatan aliran",
     rHf: "Kehilangan gesekan",
@@ -89,6 +93,7 @@ const TXT = {
     pPendek: "Short pipe, minor losses rule",
     pPanjang: "Long pipe, friction rules",
     pKatup: "Valve half closed",
+    gH: "Head difference ΔH, drag the downstream pool level up or down",
     rQ: "Resulting discharge",
     rV: "Flow velocity",
     rHf: "Friction loss",
@@ -143,6 +148,12 @@ const REFS = {
     "Colebrook, C.F. (1939). Turbulent flow in pipes. J. Inst. Civ. Eng. 11, 133–156.",
   ],
 } as const;
+
+/*
+ * Rentang ΔH: satu definisi untuk penggeser, kotak angka, dan pegangan seret
+ * di muka air kolam hilir (aturan 4, satu sumber nilai).
+ */
+const P_H: ParamDef = { min: 0.5, max: 40, step: 0.5, digits: 1 };
 
 const K_MASUK = 0.5;
 const K_BELOK = 0.3;
@@ -243,7 +254,21 @@ export function PersamaanEnergiClient() {
     return out;
   };
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Ujung sumbu tegak dikunci selama pegangan diseret. Tanpa kunci, kedua
+   * ujungnya mengikuti ΔH (zMin dari −ΔH, zMax dari 0,18 ΔH), jadi tiap
+   * piksel geseran mengubah skala tegak dan muka air hilir saling kejar
+   * dengan sumbunya. Dilepas = sumbu kembali dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<{ zMin: number; zMax: number } | null>(null);
+  const sumbuRef = useRef<{ zMin: number; zMax: number } | null>(null);
+  /* Selama dikunci, garis ukur dipotong ke sumbu supaya tidak menembus
+     bingkai; teksnya tetap nilai sebenarnya. Tanpa kunci tidak berubah. */
+  const potongZ = (z: number) =>
+    kunci ? Math.min(Math.max(z, kunci.zMin), kunci.zMax) : z;
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const atas = r.points.map((p) => ({ x: p.x, z: p.z + p.D / 2 }));
       const bawah = r.points.map((p) => ({ x: p.x, z: p.z - p.D / 2 }));
@@ -308,8 +333,8 @@ export function PersamaanEnergiClient() {
         {
           axis: "v",
           at: L,
-          from: ujung.egl,
-          to: ujung.egl + r.frictionLoss,
+          from: potongZ(ujung.egl),
+          to: potongZ(ujung.egl + r.frictionLoss),
           text: `hf ${fmtPlain(r.frictionLoss, 2)} m`,
           color: C.energy,
           offset: 30,
@@ -317,8 +342,8 @@ export function PersamaanEnergiClient() {
         {
           axis: "v",
           at: L * 0.5,
-          from: r.points[2].egl,
-          to: r.points[2].egl + Kv * r.points[2].velocityHead,
+          from: potongZ(r.points[2].egl),
+          to: potongZ(r.points[2].egl + Kv * r.points[2].velocityHead),
           text: `hK ${fmtPlain(Kv * r.points[2].velocityHead, 2)} m`,
           color: C.critical,
           offset: 26,
@@ -327,15 +352,17 @@ export function PersamaanEnergiClient() {
 
       const zMin =
         Math.min(ujung.z - D, ujung.egl, -H) - Math.max(0.6, H * 0.14);
-      drawStructure(
+      const zMax = Math.max(0.6, H * 0.18);
+      sumbuRef.current = { zMin, zMax };
+      return drawStructure(
         ctx,
         w,
         ch,
         {
           xMin: -L * 0.08,
           xMax: L * 1.1,
-          zMin,
-          zMax: Math.max(0.6, H * 0.18),
+          zMin: kunci ? kunci.zMin : zMin,
+          zMax: kunci ? kunci.zMax : zMax,
           equalScale: false,
           bodies: [],
           lines: garis,
@@ -350,12 +377,36 @@ export function PersamaanEnergiClient() {
           headingColor: kav ? C.signal : undefined,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
+          /* Tempat pegangan ΔH di muka air kolam hilir, tidak digambar. */
+          anchors: { hilir: { x: L * 0.92, z: -H } },
         },
         lang
       );
     },
-    [H, L, D, f, Kv, lang]
+    null,
+    [H, L, D, f, Kv, lang, kunci ? kunci.zMin : NaN, kunci ? kunci.zMax : NaN]
   );
+
+  /*
+   * Pemetaan balik: muka air kolam hulu adalah datum z = 0 dan muka air
+   * kolam hilir digambar pada z = −ΔH, jadi ΔH = −z jari. Hanya tegak;
+   * seret ke bawah memperbesar beda tinggi.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "hilir",
+      anchor: "hilir",
+      axis: "y",
+      label: x.gH,
+      tint: C.energy,
+      param: P_H,
+      value: H,
+      toValue: (_px, py, m) => -m.invY(py),
+      onChange: setH,
+      format: (v) => `ΔH ${fmt(v, 1)} m`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -412,20 +463,38 @@ export function PersamaanEnergiClient() {
             { label: "V²/2g", value: kav ? "—" : `${fmt(ujung.velocityHead, 3)} m` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci sumbu. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (sumbuRef.current) setKunci(sumbuRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="ΔH" label={x.dH} value={H} min={0.5} max={40} step={0.5} digits={1} unit="m" onChange={setH} tint={C.energy} />
+              <InputRow symbol="ΔH" label={x.dH} value={H} {...P_H} unit="m" onChange={setH} tint={C.energy} />
               <InputRow symbol="L" label={x.dL} value={L} min={10} max={2000} step={10} digits={0} unit="m" onChange={setL} />
               <InputRow symbol="D" label={x.dD} value={D * 1000} min={50} max={900} step={10} digits={0} unit="mm" onChange={(v) => setD(v / 1000)} />
               <InputRow symbol="f" label={x.dF} value={f} min={0.008} max={0.08} step={0.001} digits={3} onChange={setF} />
               <InputRow symbol="K" label={x.dK} value={Kv} min={0} max={40} step={0.5} digits={1} onChange={setKv} tint={C.critical} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
