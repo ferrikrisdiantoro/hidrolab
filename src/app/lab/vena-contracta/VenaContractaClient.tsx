@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,8 +14,9 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawOrifice } from "@/lib/drawOrifice";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import { drawOrifice, drawOrificeMotion } from "@/lib/drawOrifice";
+import { createJetMotion, type JetMotion } from "@/lib/jetMotion";
 import {
   G,
   ORIFICE_CC_SLOT,
@@ -31,6 +32,7 @@ import { checksOrifice } from "@/lib/checks";
 
 const TXT = {
   id: {
+    motionNote: "butir air di pancaran: kecepatan mendatar V, jatuh bebas sesudah vena contracta; waktu diperlambat ×4",
     title: "Vena contracta",
     sheetTitle: "Lubang berbibir tajam pada dinding tegak — potongan melintang",
     dH: "Tinggi muka air di atas sumbu lubang",
@@ -63,6 +65,7 @@ const TXT = {
       "Dua koefisien bekerja berurutan di sini, dan menukarnya adalah kesalahan yang paling sering terjadi pada perhitungan lubang. Kontraksi mengurangi LUAS pancaran, bukan lajunya. Sebabnya bentuk geometri, bukan gesekan: air yang mendekati lubang dari atas dan dari bawah tidak dapat berbelok tajam tepat di bibirnya, sehingga garis arusnya masih melengkung sebentar setelah keluar. Di tempat lengkungan itu selesai, pancaran paling sempit dan garis arusnya sejajar, dan hanya di situ tekanannya nol. Itulah sebabnya penampang acuan bukan bibir lubang melainkan vena contracta, kira-kira setengah tinggi bukaan di hilirnya. Koefisien kecepatan mengurangi LAJU, dan inilah yang berasal dari gesekan di bibir lubang. Nilainya dekat sekali dengan satu, biasanya 0,97 sampai 0,99, jauh lebih dekat daripada koefisien kontraksinya. Hasil kali keduanya adalah koefisien debit, dan hanya hasil kali itulah yang dapat dibaca dari pengukuran debit. Untuk memisahkan keduanya diperlukan pengukuran kedua, dan yang paling murah bukan mengukur kecepatan melainkan mengukur lintasan pancarannya dengan meteran, karena lintasan tanpa kehilangan memenuhi hubungan x kuadrat sama dengan empat H y.",
   },
   en: {
+    motionNote: "water particles in the jet: horizontal speed V, free fall after the vena contracta; time slowed ×4",
     title: "Vena contracta",
     sheetTitle: "Sharp-edged orifice in a vertical wall — cross section",
     dH: "Head above the orifice axis",
@@ -111,6 +114,9 @@ const REFS = {
   ],
 } as const;
 
+/** Lapis gerak: waktu diperlambat empat kali (pancaran jatuh dalam sepersekian detik). */
+const SKALA_WAKTU = 0.25;
+
 export function VenaContractaClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -142,7 +148,15 @@ export function VenaContractaClient() {
     tint: C.ink3,
   };
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): butir air di pancaran dengan kecepatan dari
+     orificeJet (V = Cv·√(2gH)): kontinuitas sampai vena contracta, lalu
+     gerak peluru yang sama dengan lintasan yang digambar. Lapis statis
+     tanpa penanda arah, jadi sama saat berputar maupun dijeda. Lubang
+     yang tidak terendam tidak dianimasikan (bukan pancaran lubang). */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<JetMotion | null>(null);
+  if (gerak.current === null) gerak.current = createJetMotion(60, "vertical");
+  const plate = usePlate(
     (ctx, w, h) =>
       drawOrifice(
         ctx,
@@ -151,7 +165,16 @@ export function VenaContractaClient() {
         { H, a, z0, Cc, V: r.V, Vth: r.Vth, xVena: r.xVena, notSubmerged: takRendam },
         lang
       ),
-    [H, a, bLubang, z0, Cv, Cc, lang]
+    (ctx, _w, _h, tt, _dt, out) =>
+      drawOrificeMotion(
+        ctx,
+        tt,
+        out,
+        { a, Cc, xVena: r.xVena, z0, V: r.V, notSubmerged: takRendam },
+        gerak.current!
+      ),
+    [H, a, bLubang, z0, Cv, Cc, lang],
+    { playing, timeScale: SKALA_WAKTU }
   );
 
   return (
@@ -204,8 +227,15 @@ export function VenaContractaClient() {
             { label: "Cv", value: fmt(Cv, 4) },
             { label: "Cd", value: fmt(r.Cd, 4) },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={

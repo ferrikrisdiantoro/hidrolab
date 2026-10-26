@@ -14,7 +14,8 @@ import {
   region,
   ruling,
 } from "./plate.ts";
-import { G, orificeTrajectory, fmtPlain} from "./hydraulics.ts";
+import { G, orificeTrajectory, fmtPlain } from "./hydraulics.ts";
+import { drawJet, finishJetPath, jetKeyChanged, type JetMotion, type JetPath, JET_MAX } from "./jetMotion.ts";
 import { cl } from "./strings.ts";
 import type { Lang } from "./i18n";
 import { mapFrom, type PlateAnchor, type PlateOut } from "./plateOut.ts";
@@ -156,15 +157,8 @@ export function drawOrifice(
   ctx.setLineDash([]);
 
   /* ---------------- pancaran ---------------- */
-  const setengahDi = (x: number) => {
-    if (x <= 0) return s.a / 2;
-    if (x >= s.xVena) return (s.Cc * s.a) / 2;
-    const f = x / s.xVena;
-    return (s.a / 2) * (1 - (1 - s.Cc) * (3 * f * f - 2 * f * f * f));
-  };
-
-  const sumbuDi = (x: number) =>
-    x <= s.xVena ? s.z0 : s.z0 - orificeTrajectory(s.V, x - s.xVena);
+  const setengahDi = (x: number) => jetHalfWidth(s, x);
+  const sumbuDi = (x: number) => jetAxis(s, x);
 
   const langkah = 200;
   const atas: [number, number][] = [];
@@ -384,4 +378,109 @@ export function drawOrifice(
   for (const [x, z] of atas) pancaran.push(X(x), Z(z));
   for (let i = bawah.length - 1; i >= 0; i--) pancaran.push(X(bawah[i][0]), Z(bawah[i][1]));
   return { map, anchors, water: bak, waters: [bak, Float64Array.from(pancaran)] };
+}
+
+/* ------------------------------------------------------------------ *
+ * Bentuk pancaran (dipakai gambar dan lapis gerak)
+ * ------------------------------------------------------------------ */
+
+type JetShape = Pick<OrificeDrawState, "a" | "Cc" | "xVena" | "z0" | "V">;
+
+/**
+ * Setengah tebal pancaran pada jarak x dari bidang lubang, m: a/2 di bibir,
+ * menyempit halus (polinom pangkat tiga) sampai Cc·a/2 di vena contracta,
+ * lalu tetap.
+ */
+export function jetHalfWidth(s: JetShape, x: number): number {
+  if (x <= 0) return s.a / 2;
+  if (x >= s.xVena) return (s.Cc * s.a) / 2;
+  const f = x / s.xVena;
+  return (s.a / 2) * (1 - (1 - s.Cc) * (3 * f * f - 2 * f * f * f));
+}
+
+/** Elevasi sumbu pancaran, m: mendatar sampai vena contracta, lalu parabola. */
+export function jetAxis(s: JetShape, x: number): number {
+  return x <= s.xVena ? s.z0 : s.z0 - orificeTrajectory(s.V, x - s.xVena);
+}
+
+/* ------------------------------------------------------------------ *
+ * Lapis gerak HS-07: butir air di pancaran
+ * ------------------------------------------------------------------ */
+
+/**
+ * Kecepatan butir di sumbu pancaran pada jarak x, m/s, ditulis ke
+ * out[0] (mendatar) dan out[1] (tegak).
+ *
+ * - Sesudah vena contracta: gerak peluru dari kecepatan V model
+ *   (orificeJet, V = Cv·√(2gH)): mendatar tetap V, tegak −g·(x − xc)/V.
+ *   Inilah turunan lintasan orificeTrajectory yang digambar.
+ * - Di antara bibir dan vena contracta: kontinuitas, u = V·(Cc·a/2)/
+ *   setengah tebal; di bibir u = Cc·V = Q/(a·b), di vena contracta u = V.
+ */
+export function jetVelocity(s: JetShape, x: number, out: Float64Array): void {
+  if (x >= s.xVena) {
+    out[0] = s.V;
+    out[1] = s.V > 0 ? (-G * (x - s.xVena)) / s.V : 0;
+  } else {
+    out[0] = (s.V * (s.Cc * s.a) / 2) / jetHalfWidth(s, Math.max(x, 0));
+    out[1] = 0;
+  }
+}
+
+const kec = new Float64Array(2);
+
+/**
+ * Mengisi tabel lintasan sumbu pancaran, dari bidang lubang sampai tepi
+ * bawah pancaran menyentuh lantai (seperti gambarnya). Lubang yang bibir
+ * atasnya di atas muka air bukan pancaran lubang: n = 0. Laju = besar
+ * kecepatan jetVelocity; lajur melintang ±setengah tebal, tegak.
+ */
+export function fillOrificePath(path: JetPath, s: JetShape & { notSubmerged: boolean }): number {
+  path.n = 0;
+  if (s.notSubmerged || !(s.V > 0) || !(s.a > 0)) return 0;
+  const tv = (s.Cc * s.a) / 2;
+  if (!(s.z0 > tv)) return 0;
+  // Tepi bawah menyentuh lantai: z0 − g(x − xc)²/(2V²) − tc = 0.
+  const xEnd = s.xVena + s.V * Math.sqrt((2 * (s.z0 - tv)) / G);
+  const nVena = 40;
+  const n = JET_MAX;
+  for (let k = 0; k < n; k++) {
+    const x =
+      k < nVena
+        ? (s.xVena * k) / nVena
+        : s.xVena + ((xEnd - s.xVena) * (k - nVena)) / (n - 1 - nVena);
+    jetVelocity(s, x, kec);
+    const half = jetHalfWidth(s, x);
+    path.x[k] = x;
+    path.z[k] = jetAxis(s, x);
+    path.v[k] = Math.hypot(kec[0], kec[1]);
+    path.off0[k] = -half;
+    path.off1[k] = half;
+  }
+  path.n = n;
+  return finishJetPath(path);
+}
+
+/**
+ * Lapis gerak HS-07. `t` waktu fisik (Client: diperlambat ×4). Butir lahir
+ * di bidang lubang dan hilang saat pancaran menyentuh lantai; dipotong ke
+ * bidang gambar.
+ */
+export function drawOrificeMotion(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  out: PlateOut | null,
+  s: JetShape & { notSubmerged: boolean },
+  m: JetMotion
+): void {
+  if (!out) return;
+  if (jetKeyChanged(m, s.a, s.Cc, s.xVena, s.z0, s.V, s.notSubmerged ? 1 : 0))
+    m.vMax = fillOrificePath(m.path, s);
+  const f = out.map.frame;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0);
+  ctx.clip();
+  drawJet(ctx, m, out.map, t, { pxMax: 18 });
+  ctx.restore();
 }
