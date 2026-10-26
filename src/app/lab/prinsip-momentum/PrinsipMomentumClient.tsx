@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   bendGeometry,
   bendPlan,
@@ -42,6 +45,7 @@ const TXT = {
     pSiku: "Belokan siku",
     pBalik: "Belokan berbalik arah",
     pKecil: "Pipa tanpa tekanan, hanya momentum",
+    gSudut: "Sudut belokan θ, seret ujung pipa keluar memutar belokan",
     rV1: "Kecepatan masuk",
     rV2: "Kecepatan keluar",
     rP1: "Gaya tekanan di penampang masuk",
@@ -102,6 +106,7 @@ const TXT = {
     pSiku: "Right-angle bend",
     pBalik: "Bend reversing the flow",
     pKecil: "Unpressurized pipe, momentum only",
+    gSudut: "Bend angle θ, drag the outlet end of the pipe around the bend",
     rV1: "Inlet velocity",
     rV2: "Outlet velocity",
     rP1: "Pressure force at the inlet",
@@ -152,6 +157,31 @@ const TXT = {
       "The strength of the momentum principle lies in what it does not ask. It does not ask the shape of the bend, the roughness of its wall, the eddies in its corner, or how much energy is lost inside. All it asks is what crosses the boundary going in and what crosses it going out, and the difference between the two is the force. That is why it still answers problems the energy equation cannot touch at all, the hydraulic jump among them, where the energy lost is the question rather than the answer. Two things to keep in mind when using it. First, it is a vector equation, not a scalar one, so direction counts: a reversing bend demands √2 ≈ 1.41 times the force of a right-angle bend, and twice the force of one section (pA + ρQV). Second, in a pressurized pipe the pressure term is almost always far larger than the momentum term, often thirtyfold, so a bend anchor is really sized by its test pressure and not by its flow. A pipe under a pressure test with the water standing still still demands very nearly the same anchor.",
   },
 } as const;
+
+/*
+ * Rentang sudut belokan: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan seret di ujung pipa keluar (aturan 4, satu sumber nilai).
+ */
+const P_SUDUT: ParamDef = { min: 0, max: 180, step: 5, digits: 0 };
+
+/**
+ * Sudut belokan dari titik yang ditunjuk jari (meter, tampak atas).
+ *
+ * Pusat penampang keluar T(θ) = P(θ) + ℓ·u(θ), dengan P ujung busur sumbu
+ * belokan (jari-jari Rb, pusat lengkung C = (0, Rb)) dan u = (cos θ, sin θ).
+ * Maka T − C = Rb·(sin θ, −cos θ) + ℓ·(cos θ, sin θ), dan sudut arahnya
+ * dari C sama dengan θ − 90° + atan2(ℓ, Rb). Dibalik:
+ *   θ = atan2(z − Rb, x) + 90° − atan2(ℓ, Rb).
+ * Fungsi ini naik satu-satu terhadap sudut jari di sekitar C, jadi
+ * pemetaan baliknya unik; θ = 0 memberi T = (ℓ, 0), sama dengan ruas lurus.
+ * Hasilnya dinormalkan ke [−90°, 270°): jari di belakang pusat lengkung
+ * jatuh ke ujung rentang terdekat, lalu dipotong snap ke [0°, 180°].
+ */
+function sudutDariTitik(x: number, z: number, Rb: number, len: number) {
+  const der = (rad: number) => (rad * 180) / Math.PI;
+  const mentah = der(Math.atan2(z - Rb, x)) + 90 - der(Math.atan2(len, Rb));
+  return ((((mentah - 90 + 180) % 360) + 360) % 360) - 180 + 90;
+}
 
 const REFS = {
   id: [
@@ -207,7 +237,19 @@ export function PrinsipMomentumClient() {
   const hL = r.expansionLoss + r.contractionLoss;
   const RHO = 1000;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Batas bidang dikunci selama pegangan diseret. Tanpa kunci, bidangnya
+   * dihitung dari ujung pipa keluar dan ujung panahnya, yang berpindah
+   * bersama θ, sedangkan skala dijaga sama di kedua sumbu: tiap piksel
+   * geseran memindahkan pusat lengkung di layar dan pegangan saling kejar
+   * dengan sumbunya. Dilepas = bidang kembali dihitung dari nilainya.
+   */
+  type Bidang = { xMin: number; xMax: number; zMin: number; zMax: number };
+  const [kunci, setKunci] = useState<Bidang | null>(null);
+  const bidangRef = useRef<Bidang | null>(null);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const badan = bendPlan(D1, D2, sudut, panjang, panjang);
 
@@ -301,15 +343,19 @@ export function PrinsipMomentumClient() {
       const lebarBidang = Math.max(D1, D2);
       const xs = semua.map((p) => p.x);
       const zs = semua.map((p) => p.z);
-      drawStructure(
+      const bebas: Bidang = {
+        xMin: Math.min(...xs) - lebarBidang,
+        xMax: Math.max(...xs) + lebarBidang,
+        zMin: Math.min(...zs) - lebarBidang,
+        zMax: Math.max(...zs) + lebarBidang * 2.2,
+      };
+      bidangRef.current = bebas;
+      return drawStructure(
         ctx,
         w,
         ch,
         {
-          xMin: Math.min(...xs) - lebarBidang,
-          xMax: Math.max(...xs) + lebarBidang,
-          zMin: Math.min(...zs) - lebarBidang,
-          zMax: Math.max(...zs) + lebarBidang * 2.2,
+          ...(kunci ?? bebas),
           bodies: [{ pts: badan, hatch: "none", outline: true }],
           lines: kotak,
           vectors: panah,
@@ -318,12 +364,54 @@ export function PrinsipMomentumClient() {
           headingColor: kav ? C.signal : undefined,
           axisX: T.planView,
           axisZ: T.planView,
+          /* Pusat penampang keluar, tempat pegangan θ. Tidak digambar. */
+          anchors: { keluar: geo.outlet },
         },
         lang
       );
     },
-    [Q, D1, D2, head, sudut, lang]
+    null,
+    [
+      Q,
+      D1,
+      D2,
+      head,
+      sudut,
+      lang,
+      kunci ? kunci.xMin : NaN,
+      kunci ? kunci.xMax : NaN,
+      kunci ? kunci.zMin : NaN,
+      kunci ? kunci.zMax : NaN,
+    ]
   );
+
+  /*
+   * Pemetaan balik: jari → (x, z) meter lewat invX/invY → θ lewat
+   * sudutDariTitik (Rb dan ℓ dari bendGeometry dan panjang ruas yang sama
+   * dengan gambarnya). Hanya θ yang diseret; volume kendalinya tidak,
+   * karena ukurannya bukan masukan (gayanya tidak bergantung padanya).
+   *
+   * DragLayer belum punya pegangan putar, jadi dipakai pegangan dua sumbu
+   * dengan θ di KEDUA sumbunya: jari bebas bergerak di bidang, dan panah
+   * kiri/kanan maupun atas/bawah sama-sama mengubah θ satu langkah.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "keluar",
+      anchor: "keluar",
+      axis: "xy",
+      label: x.gSudut,
+      param: [P_SUDUT, P_SUDUT],
+      value: [sudut, sudut],
+      toValue: (px, py, m) => {
+        const v = sudutDariTitik(m.invX(px), m.invY(py), geo.radius, panjang);
+        return [v, v];
+      },
+      onChange: ([a, b]) => setSudut(a !== sudut ? a : b),
+      format: (v) => `θ ${fmt(v[0] !== sudut ? v[0] : v[1], 0)}°`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -381,7 +469,24 @@ export function PrinsipMomentumClient() {
             { label: "Rp/R", value: adaGaya && !kav ? `${fmt(r.pressureShare * 100, 0)} %` : "—" },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci bidang. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (bidangRef.current) setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -392,9 +497,10 @@ export function PrinsipMomentumClient() {
               <InputRow symbol="D₁" label={x.dD1} value={D1 * 1000} min={100} max={1200} step={25} digits={0} unit="mm" onChange={(v) => setD1(v / 1000)} />
               <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} min={100} max={1200} step={25} digits={0} unit="mm" onChange={(v) => setD2(v / 1000)} />
               <InputRow symbol="h₁" label={x.dH} value={head} min={0} max={200} step={2} digits={0} unit="m" onChange={setHead} tint={C.energy} />
-              <InputRow symbol="θ" label={x.dSudut} value={sudut} min={0} max={180} step={5} digits={0} unit="°" onChange={setSudut} />
+              <InputRow symbol="θ" label={x.dSudut} value={sudut} {...P_SUDUT} unit="°" onChange={setSudut} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
