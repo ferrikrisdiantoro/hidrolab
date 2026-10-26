@@ -259,8 +259,12 @@ export function drawOrifice(
   ctx.stroke();
 
   /* ---------------- vena contracta ---------------- */
+  // Vena contracta adalah penampang pancaran (air) dalam keadaan biasa:
+  // garis, nama, dan tebalnya biru air (sama dengan tint Cc dan Ac di
+  // tabel); jaraknya dari bidang lubang dimensi tinta seperti a. Merah
+  // sinyal hanya untuk di luar rentang (theme.ts).
   const tVena = (s.Cc * s.a) / 2;
-  pen(ctx, W.thin, C.signal, DASH.axis);
+  pen(ctx, W.thin, C.water, DASH.axis);
   ctx.beginPath();
   ctx.moveTo(X(s.xVena), Z(zMuka));
   ctx.lineTo(X(s.xVena), Z(Math.max(0, s.z0 - tVena - s.a)));
@@ -273,7 +277,7 @@ export function drawOrifice(
     Z(s.z0 + tVena),
     Z(s.z0 - tVena),
     `${fmtPlain((s.Cc * s.a * 1000), 1)} mm`,
-    C.signal
+    C.water
   );
   // Alas kertas: garis sumbu vena contracta lewat tepat di bawah tulisan ini
   // dan mencoret hurufnya, dan pada bukaan besar nama panel ikut mendarat di
@@ -291,7 +295,7 @@ export function drawOrifice(
   if (!s.notSubmerged) {
     ctx.fillStyle = C.sheet;
     ctx.fillRect(xVenaTeks - wVena / 2 - 3, Z(zMuka) - 21, wVena + 6, 14);
-    region(ctx, T.venaContracta, xVenaTeks, Z(zMuka) - 14, C.signal);
+    region(ctx, T.venaContracta, xVenaTeks, Z(zMuka) - 14, C.water);
   }
 
   /* ---------------- dimensi ---------------- */
@@ -304,7 +308,7 @@ export function drawOrifice(
     `a ${fmtPlain((s.a * 1000), 0)} mm`,
     C.ink
   );
-  dimH(ctx, Z(0) - 14, X(0), X(s.xVena), `${fmtPlain((s.xVena * 1000), 0)} mm`, C.signal);
+  dimH(ctx, Z(0) - 14, X(0), X(s.xVena), `${fmtPlain((s.xVena * 1000), 0)} mm`, C.ink);
 
   leader(
     ctx,

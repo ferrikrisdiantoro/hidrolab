@@ -266,8 +266,11 @@ export function drawGvf(
   ctx.stroke();
 
   /* ---------------- penampang kendali ---------------- */
+  // Penampang kendali adalah keadaan biasa, bukan pelanggaran rentang:
+  // garis dan namanya tinta, kedalamannya biru air (masukan y, sama dengan
+  // tint penggeser). Merah sinyal hanya untuk di luar rentang (theme.ts).
   const cxp = X(ctrl.x);
-  pen(ctx, W.thin, C.signal, DASH.axis);
+  pen(ctx, W.thin, C.ink2, DASH.axis);
   ctx.beginPath();
   ctx.moveTo(cxp, padT);
   ctx.lineTo(cxp, Z(zb(ctrl.x)));
@@ -282,14 +285,14 @@ export function drawGvf(
     dikunci ? Math.max(Z(zb(ctrl.x) + ctrl.y), padT) : Z(zb(ctrl.x) + ctrl.y),
     Z(zb(ctrl.x)),
     `${fmtPlain(ctrl.y, 2)} m`,
-    C.signal
+    C.water
   );
   region(
     ctx,
     T.control,
     clampLabelX(ctx, T.control, cxp, padL, padL + plotW),
     padT + 12,
-    C.signal
+    C.ink2
   );
 
   /* ---------------- ujung profil ---------------- */

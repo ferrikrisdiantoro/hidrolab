@@ -219,8 +219,10 @@ export function drawVenturi(
       X(L) - 26,
       Z(zMasuk),
       Z(zPulih),
+      // Kehilangan tetap = energi (sama dengan tint hL di tabel), bukan
+      // tanda di luar rentang.
       `${fmtPlain(s.permanentLoss, 4)} m`,
-      C.signal
+      C.energy
     );
   }
 
