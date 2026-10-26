@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import { createJetMotion, createJetPath, finishJetPath, jetAt, jetTransitTime } from "./jetMotion.ts";
 import { drawNappe, drawNappeMotion, fillNappePath, nappeSpeed } from "./drawNappe.ts";
-import { G, rectWeirDischarge, wesNappe } from "./hydraulics.ts";
+import { G, orificeJet, orificeTrajectory, rectWeirDischarge, wesNappe } from "./hydraulics.ts";
+import { fillOrificePath, jetAxis, jetVelocity } from "./drawOrifice.ts";
 
 /** Konteks kanvas palsu: semua cara gambar tidak berbuat apa-apa. */
 function konteksPalsu(): CanvasRenderingContext2D {
@@ -129,5 +130,77 @@ describe("HS-06 lapis gerak tirai: laju = Bernoulli dari model lembar", () => {
         assert.ok(x >= -s.q / Math.sqrt(2 * G * h) && x <= 1, `x ${x}`);
       }
     }
+  });
+});
+
+describe("HS-07 lapis gerak pancaran: laju dari orificeJet", () => {
+  // Nilai awal lembar: H 1,5 m, a 50 mm, b 50 mm, Cv 0,98, Cc 0,62, z0 0,6 m.
+  const H = 1.5;
+  const a = 0.05;
+  const Cv = 0.98;
+  const Cc = 0.62;
+  const z0 = 0.6;
+  const r = orificeJet(H, a, 0.05, Cv, Cc);
+  const s = { a, Cc, xVena: r.xVena, z0, V: r.V, notSubmerged: false };
+  const out = new Float64Array(2);
+
+  it("V model = Cv·√(2gH)", () => {
+    assert.ok(Math.abs(r.V - Cv * Math.sqrt(2 * G * H)) < 1e-12);
+  });
+
+  it("di bibir lubang u = Cc·V (= Q/luas lubang), naik monoton sampai V di vena contracta", () => {
+    jetVelocity(s, 0, out);
+    assert.ok(Math.abs(out[0] - Cc * r.V) < 1e-12, `u bibir ${out[0]}`);
+    assert.ok(Math.abs(out[0] - r.Q / r.area) < 1e-12, "u bibir = Q/(a·b)");
+    assert.equal(out[1], 0);
+    let u0 = out[0];
+    for (let k = 1; k <= 20; k++) {
+      jetVelocity(s, (r.xVena * k) / 20, out);
+      assert.ok(out[0] >= u0 - 1e-12, `monoton ${k}`);
+      u0 = out[0];
+    }
+    jetVelocity(s, r.xVena, out);
+    assert.ok(Math.abs(out[0] - r.V) < 1e-12, "u vena contracta = V");
+  });
+
+  it("sesudah vena contracta: kecepatan = turunan lintasan peluru dari V (u = V, w = −g·Δx/V)", () => {
+    for (const dx of [0.01, 0.2, 0.7, 1.3]) {
+      const x = r.xVena + dx;
+      jetVelocity(s, x, out);
+      assert.ok(Math.abs(out[0] - r.V) < 1e-12, `u ${dx}`);
+      // dz/dx dari orificeTrajectory (beda tengah) × u = w.
+      const e = 1e-6;
+      const dzdx = -(orificeTrajectory(r.V, dx + e) - orificeTrajectory(r.V, dx - e)) / (2 * e);
+      assert.ok(Math.abs(out[1] - dzdx * r.V) < 1e-6, `w ${dx}: ${out[1]} vs ${dzdx * r.V}`);
+      assert.ok(Math.abs(jetAxis(s, x) - (z0 - orificeTrajectory(r.V, dx))) < 1e-12);
+    }
+  });
+
+  it("tabel: laju = besar kecepatan; butir pada waktu tempuh τ di sumbu pancaran = lintasan peluru", () => {
+    const p = createJetPath("vertical");
+    const vMax = fillOrificePath(p, s);
+    assert.equal(p.n, 241);
+    for (let k = 0; k < p.n; k++) {
+      jetVelocity(s, p.x[k], out);
+      assert.ok(Math.abs(p.v[k] - Math.hypot(out[0], out[1])) < 1e-12);
+    }
+    assert.ok(Math.abs(p.v[0] - Cc * r.V) < 1e-12);
+    // Pada bagian peluru, waktu dari vena contracta = Δx / V (mendatar tetap V).
+    const kV = p.x.findIndex((x, i) => i < p.n && x >= r.xVena);
+    const o = new Float64Array(6);
+    for (const dt of [0.05, 0.15, 0.25]) {
+      jetAt(p, p.tau[kV] + dt, 0.5, o);
+      const xExp = r.xVena + r.V * dt;
+      assert.ok(Math.abs(o[0] - xExp) / (r.V * dt) < 0.01, `x ${dt}: ${o[0]} vs ${xExp}`);
+      const zExp = z0 - 0.5 * G * dt * dt;
+      assert.ok(Math.abs(o[1] - zExp) < 2e-3, `z ${dt}: ${o[1]} vs ${zExp}`);
+    }
+    assert.ok(vMax >= r.V);
+  });
+
+  it("lubang tak terendam: tanpa butir", () => {
+    const p = createJetPath("vertical");
+    assert.equal(fillOrificePath(p, { ...s, notSubmerged: true }), 0);
+    assert.equal(p.n, 0);
   });
 });
