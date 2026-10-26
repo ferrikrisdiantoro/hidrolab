@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   ERGUN_INERTIAL,
@@ -36,6 +39,10 @@ import { checksRockfill } from "@/lib/checks";
 
 const I_MIN = 1e-5;
 const I_MAX = 10;
+
+/* Rentang Δh, dipakai bersama penggeser, kotak angka, dan pegangan titik
+   kerja (aturan 4: satu sumber nilai). */
+const P_HEAD: ParamDef = { min: 0.02, max: 20, step: 0.02, digits: 2 };
 
 const TXT = {
   id: {
@@ -65,6 +72,7 @@ const TXT = {
     rA: "Koefisien suku kental",
     rB: "Koefisien suku inersia",
     hI: "Gradien hidraulik",
+    hdlI: "Titik kerja: geser mendatar untuk mengubah gradien i lewat beda tinggi Δh",
     hAB: "Koefisien Ergun, ν (20 °C)",
     hV: "Kecepatan semu dan debit",
     hVD: "Kecepatan Darcy dan perbandingannya",
@@ -101,6 +109,7 @@ const TXT = {
     rA: "Viscous term coefficient",
     rB: "Inertial term coefficient",
     hI: "Hydraulic gradient",
+    hdlI: "Operating point: drag sideways to change the gradient i through the head difference Δh",
     hAB: "Ergun coefficients, ν (20 °C)",
     hV: "Bulk velocity and discharge",
     hVD: "Darcy velocity and the ratio",
@@ -138,6 +147,8 @@ export function DrainaseUruganBatuClient() {
   const [d, setD] = useState(0.2);
   const [n, setN] = useState(0.4);
   const [tebal, setTebal] = useState(2);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
 
   const i = head / Math.max(length, 1e-6);
   const r = rockfillFlow(i, d, n, tebal);
@@ -146,7 +157,7 @@ export function DrainaseUruganBatuClient() {
   /* Di bawah 1,1 kali, "melebih-lebihkan sekian kali" tidak bermakna. */
   const lebih = r.overprediction >= 1.1;
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, ch) => {
       const pts: { x: number; y: number }[] = [];
       const darcy: { x: number; y: number }[] = [];
@@ -193,7 +204,7 @@ export function DrainaseUruganBatuClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         ch,
@@ -221,12 +232,39 @@ export function DrainaseUruganBatuClient() {
           heading: r.darcyValid ? undefined : x.bukanDarcy,
           headingColor: C.caution,
           padRight: 46,
+          // Titik kerja sendiri (bukan `point`, yang hilang di luar bidang:
+          // Δh 20 m pada L 1 m memberi i 20 > I_MAX): DragLayer menjepitnya.
+          anchors: { kerja: { x: i, y: r.v } },
         },
         lang
       );
     },
+    null,
     [head, length, d, n, tebal, lang]
   );
+
+  /*
+   * Posisi tegak titik kerja adalah v HASIL Ergun, jadi titik hanya
+   * diseret mendatar. i bukan masukan; yang diubah adalah Δh, dengan L
+   * tetap:   Δh = i · L.
+   * Sumbu i tetap (10⁻⁵–10) dan sumbu v hanya bergantung pada d, n, t,
+   * jadi tidak ada saling kejar dengan skala.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kerja",
+      anchor: "kerja",
+      axis: "x",
+      label: x.hdlI,
+      hollow: true,
+      tint: C.water,
+      param: P_HEAD,
+      value: head,
+      toValue: (px, _py, m) => m.invX(px) * length,
+      onChange: setHead,
+      format: (v) => `Δh ${fmt(v, 2)} m, i ${fmt(v / Math.max(length, 1e-6), 4)}`,
+    },
+  ];
 
   return (
     <LabShell
@@ -291,14 +329,16 @@ export function DrainaseUruganBatuClient() {
             { label: "n", value: fmtPlain(n, 2) },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="Δh" label={x.dHead} value={head} min={0.02} max={20} step={0.02} digits={2} unit="m" onChange={setHead} tint={C.water} />
+              <InputRow symbol="Δh" label={x.dHead} value={head} {...P_HEAD} unit="m" onChange={setHead} tint={C.water} />
               <InputRow symbol="L" label={x.dLength} value={length} min={1} max={120} step={1} digits={0} unit="m" onChange={setLength} />
               <InputRow symbol="d" label={x.dD} value={d} min={0.005} max={1.2} step={0.005} digits={3} unit="m" onChange={setD} tint={C.critical} />
               <InputRow symbol="n" label={x.dN} value={n} min={0.2} max={0.5} step={0.01} digits={2} onChange={setN} />

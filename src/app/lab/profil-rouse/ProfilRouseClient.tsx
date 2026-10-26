@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,16 +10,20 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   G,
   KARMAN,
   ROUSE_BEDLOAD,
+  ROUSE_BETA,
   ROUSE_FULL,
   ROUSE_PARTIAL,
   SEDIMENT_S,
@@ -27,6 +31,7 @@ import {
   fmtPlain,
   fmtSci,
   rouseConcentration,
+  rouseNumber,
   rouseState,
   waterViscosity,
 } from "@/lib/hydraulics";
@@ -65,6 +70,8 @@ const TXT = {
     hMid: "Kepekatan di setengah kedalaman, y = h/2 sehingga (h − y)/y = 1",
     hBawah: "Bagian di separuh bawah, trapesium 200 pias",
     hBawahIsi: "∫ₐ^(h/2) c dy / ∫ₐ^h c dy",
+    hdlMid: "Kurva di setengah kedalaman: geser mendatar untuk mengubah kecepatan gesek u*",
+    hdlA: "Ketinggian acuan: geser tegak untuk mengubah a/h",
     note:
       "Satu angka menentukan seluruh bentuk kurva ini, dan angka itu perbandingan dua kecepatan: seberapa cepat butir jatuh terhadap seberapa kuat pusaran mengangkatnya. Karena keduanya sama-sama berdimensi kecepatan, perbandingannya tak bersatuan, dan satu bilangan itu berlaku untuk lanau di sungai besar maupun pasir di parit kecil. Perhatikan bentuk kurvanya pada bilangan Rouse kecil: hampir tegak, artinya muatannya tersebar merata dari dasar sampai permukaan. Pada bilangan besar kurvanya menempel ke sumbu, artinya seluruh muatan berdesakan di lapisan tipis dekat dasar. Yang tidak dikatakan kurva ini adalah berapa banyak sedimen yang ada; ia hanya menyatakan sebarannya terhadap satu nilai acuan yang harus diukur atau ditaksir tersendiri. Itulah keterbatasan terpenting yang perlu diingat saat memakainya.",
   },
@@ -95,6 +102,8 @@ const TXT = {
     hMid: "Concentration at mid depth, y = h/2 so (h − y)/y = 1",
     hBawah: "Share in the lower half, trapezoid rule on 200 strips",
     hBawahIsi: "∫ₐ^(h/2) c dy / ∫ₐ^h c dy",
+    hdlMid: "Curve at mid depth: drag sideways to change the friction velocity u*",
+    hdlA: "Reference height: drag up or down to change a/h",
     note:
       "One number sets the whole shape of this curve, and that number is a ratio of two velocities: how fast the grain falls against how strongly the eddies lift it. Because both have the dimensions of velocity, the ratio carries no units, and the single number serves silt in a great river as well as sand in a small ditch. Notice the curve shape at small Rouse numbers: almost vertical, meaning the load is spread evenly from bed to surface. At large numbers the curve hugs the axis, meaning the whole load crowds into a thin layer near the bed. What this curve does not say is how much sediment there is; it only states the distribution relative to one reference value that must be measured or estimated separately. That is the most important limitation to keep in mind when using it.",
   },
@@ -118,6 +127,26 @@ const REFS = {
 /** Bilangan Rouse yang digambar sebagai kurva latar. */
 const KELUARGA_Z = [0.1, 0.3, 0.6, 1, 2, 4];
 
+/* Rentang yang dipakai bersama penggeser, kotak angka, dan pegangan seret
+   (aturan 4: satu sumber nilai). */
+const P_U: ParamDef = { min: 0.002, max: 0.4, step: 0.002, digits: 3 };
+const P_AH: ParamDef = { min: 0.005, max: 0.2, step: 0.005, digits: 3 };
+
+/*
+ * Kebalikan Rouse di setengah kedalaman. Pada y = h/2, (h − y)/y = 1, jadi
+ *   c/ca = [ a/(h − a) ]^Z   →   Z = ln(c/ca) / ln( a/(h − a) )
+ * dan dari Z = ws / (β κ u*):   u* = ws / (β κ Z).
+ * a/(h − a) = (a/h) / (1 − a/h) < 1 karena a/h ≤ 0,2. c/ca ≥ 1 berarti
+ * Z ≤ 0 (u* tak hingga), c/ca ≤ 0 berarti Z tak hingga (u* = 0): keduanya
+ * dikirim ke luar rentang supaya snap memotongnya dengan penanda.
+ */
+function uStarDariMid(c: number, ws: number, aFrac: number): number {
+  if (c >= 1) return P_U.max * 2;
+  if (c <= 0) return 0;
+  const Z = Math.log(c) / Math.log(aFrac / (1 - aFrac));
+  return ws / (ROUSE_BETA * KARMAN * Z);
+}
+
 export function ProfilRouseClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -130,6 +159,8 @@ export function ProfilRouseClient() {
   const [aFrac, setAFrac] = useState(0.025);
   const [s, setS] = useState(SEDIMENT_S);
   const [suhu, setSuhu] = useState(15);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
 
   const nu = waterViscosity(suhu);
   const d = dMm / 1000;
@@ -159,7 +190,7 @@ export function ProfilRouseClient() {
   const aTeks = a >= 1 ? fmt(a, 3) : fmt(a * 1000, 1);
   const aSatuan = a >= 1 ? "m" : "mm";
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, ch) => {
       const kurva = (Z: number) => {
         const pts: { x: number; y: number }[] = [];
@@ -186,7 +217,7 @@ export function ProfilRouseClient() {
         dash: DASH.solid,
       });
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         ch,
@@ -213,12 +244,55 @@ export function ProfilRouseClient() {
             y: 0.5,
             label: `Z ${fmtPlain(r.Z, 2)}`,
           },
+          /* Pegangan: titik kurva di setengah kedalaman (sama dengan
+             `point`), dan pangkal kurva di ketinggian acuan, tempat
+             c/ca = 1 menurut definisinya. */
+          anchors: {
+            tengah: { x: r.midRatio, y: 0.5 },
+            acuan: { x: 1, y: aFrac },
+          },
         },
         lang
       );
     },
+    null,
     [dMm, uStar, h, aFrac, s, suhu, lang]
   );
+
+  /*
+   * Pegangan seret. Kedua sumbu tetap 0–1, jadi tidak ada saling kejar.
+   * - tengah: letak mendatarnya c/ca di h/2, HASIL model; bukan masukan.
+   *   Dipetakan balik ke satu masukan, u* (d, Gs, T, a/h tetap), lewat
+   *   uStarDariMid. Hanya mendatar.
+   * - acuan: sumbu tegak adalah y/h, jadi a/h dibaca langsung. Hanya tegak.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "tengah",
+      anchor: "tengah",
+      axis: "x",
+      label: x.hdlMid,
+      hollow: true,
+      tint: C.water,
+      param: P_U,
+      value: uStar,
+      toValue: (px, _py, m) => uStarDariMid(m.invX(px), r.ws, aFrac),
+      onChange: setUStar,
+      format: (v) => `u* ${fmt(v, 3)} m/s, Z ${fmt(rouseNumber(r.ws, v), 3)}`,
+    },
+    {
+      id: "acuan",
+      anchor: "acuan",
+      axis: "y",
+      label: x.hdlA,
+      tint: C.critical,
+      param: P_AH,
+      value: aFrac,
+      toValue: (_px, py, m) => m.invY(py),
+      onChange: setAFrac,
+      format: (v) => `a/h ${fmt(v, 3)}, a ${fmt(v * h, 3)} m`,
+    },
+  ];
 
   return (
     <LabShell
@@ -274,17 +348,19 @@ export function ProfilRouseClient() {
             { label: "h", value: `${fmt(h, 2)} m` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="d" label={x.dD} value={dMm} min={0.004} max={4} step={0.002} digits={3} unit="mm" onChange={setDMm} tint={C.critical} />
-              <InputRow symbol="u*" label={x.dUstar} value={uStar} min={0.002} max={0.4} step={0.002} digits={3} unit="m/s" onChange={setUStar} tint={C.water} />
+              <InputRow symbol="u*" label={x.dUstar} value={uStar} {...P_U} unit="m/s" onChange={setUStar} tint={C.water} />
               <InputRow symbol="h" label={x.dH} value={h} min={0.1} max={20} step={0.1} digits={1} unit="m" onChange={setH} />
-              <InputRow symbol="a/h" label={x.dA} value={aFrac} min={0.005} max={0.2} step={0.005} digits={3} onChange={setAFrac} />
+              <InputRow symbol="a/h" label={x.dA} value={aFrac} {...P_AH} onChange={setAFrac} />
               <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>

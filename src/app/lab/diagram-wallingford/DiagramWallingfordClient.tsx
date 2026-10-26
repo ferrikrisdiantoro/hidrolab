@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   G,
@@ -58,6 +61,8 @@ const TXT = {
     hNu: "Kekentalan kinematik dari suhu",
     hAkar: "Suku akar dan dua suku di dalam logaritma",
     hV: "Kecepatan, Colebrook-White dibalik",
+    hdlPoint: "Titik kerja: geser mendatar untuk mengubah kemiringan hidrolik S",
+    hdlD: "Kurva diameter terpilih: geser tegak untuk mengubah diameter D",
     hQ: "Debit",
     hRe: "Bilangan Reynolds, pemeriksaan ≥ 4.000",
     hF: "Faktor gesekan, dihitung mundur",
@@ -90,6 +95,8 @@ const TXT = {
     hNu: "Kinematic viscosity from temperature",
     hAkar: "Root term and the two terms inside the logarithm",
     hV: "Velocity, Colebrook-White inverted",
+    hdlPoint: "Operating point: drag sideways to change the hydraulic gradient S",
+    hdlD: "Selected diameter curve: drag up or down to change the diameter D",
     hQ: "Discharge",
     hRe: "Reynolds number, check ≥ 4,000",
     hF: "Friction factor, computed backwards",
@@ -126,6 +133,34 @@ const S_MAX = 1e-1;
 /* Sumbu pita Re 5·10²–10⁸ memuat penggeser (878 pada D 50, S 0,1 ‰, ks 6,
    T 4; 6,44·10⁷ pada D 1800, S 100 ‰, ks 0, T 40). */
 const RE_AXIS_MIN = 5e2;
+
+/*
+ * Rentang masukan yang dipakai bersama oleh penggeser, kotak angka, dan
+ * pegangan seret (aturan 4: satu sumber nilai). Satuan tampil: mm dan ‰.
+ */
+const P_D: ParamDef = { min: 50, max: 1800, step: 5, digits: 0 };
+const P_S: ParamDef = { min: 0.1, max: 100, step: 0.1, digits: 1 };
+
+/*
+ * Kebalikan bagan pada S tetap: diameter (mm) yang kurvanya lewat kecepatan
+ * Vt. V naik monoton terhadap D (suku akar membesar, argumen logaritma
+ * mengecil), jadi bagi dua pada log D. Rentang cari dua kali lebih lebar
+ * dari penggeser di kedua sisi: V di luar jangkauan memberi D di luar
+ * [50, 1800] mm, lalu snap memotongnya dengan penanda "dibatasi ke".
+ */
+function dDariV(Vt: number, Sk: number, ks: number, nu: number): number {
+  let lo = Math.log10(P_D.min / 2000);
+  let hi = Math.log10((P_D.max * 2) / 1000);
+  const v = (lg: number) => wallingfordVelocity(10 ** lg, Sk, ks, nu).V;
+  if (!(Vt > v(lo))) return 10 ** lo * 1000;
+  if (!(Vt < v(hi))) return 10 ** hi * 1000;
+  for (let i = 0; i < 50; i++) {
+    const m = (lo + hi) / 2;
+    if (v(m) < Vt) lo = m;
+    else hi = m;
+  }
+  return 10 ** ((lo + hi) / 2) * 1000;
+}
 const RE_AXIS_MAX = 1e8;
 
 /*
@@ -160,6 +195,8 @@ export function DiagramWallingfordClient() {
   const [S, setS] = useState(0.005);
   const [ksMm, setKsMm] = useState(0.6);
   const [suhu, setSuhu] = useState(15);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
 
   const nu = waterViscosity(suhu);
   const ks = ksMm / 1000;
@@ -179,7 +216,15 @@ export function DiagramWallingfordClient() {
     { from: reKp, to: RE_AXIS_MAX, label: x.bandKasar, tone: "neutral" as Tone },
   ].filter((b) => b.to > b.from);
 
-  const ref = useCanvas(
+  /*
+   * Pegangan kurva diameter duduk pada kurva tebal di S acuan yang selalu
+   * empat kali (0,6 dekade) dari titik kerja, supaya kedua pegangan tidak
+   * bertumpuk: di kanan titik kerja, atau di kirinya bila S > 10 ‰.
+   */
+  const sAcuan = S <= 0.01 ? S * 4 : S / 4;
+  const vAcuan = wallingfordVelocity(D, sAcuan, ks, nu).V;
+
+  const plate = usePlate(
     (ctx, w, h) => {
       const kurvaUntuk = (Dk: number) => {
         const pts: { x: number; y: number }[] = [];
@@ -266,7 +311,7 @@ export function DiagramWallingfordClient() {
           dash: DASH.invalid,
         });
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -295,12 +340,55 @@ export function DiagramWallingfordClient() {
             },
           ],
           padRight: 46,
+          // Titik kerja sendiri (bukan `point`, yang hanya ada bila di dalam
+          // bidang): DragLayer menjepit pegangan ke tepi bidang.
+          anchors: {
+            kerja: { x: S, y: r.V },
+            diameter: { x: sAcuan, y: vAcuan },
+          },
         },
         lang
       );
     },
+    null,
     [D, S, ksMm, suhu, lang]
   );
+
+  /*
+   * Pegangan seret. Posisi tegak titik kerja adalah V HASIL hitungan, jadi
+   * titik kerja hanya diseret mendatar: sumbu datar adalah S, masukan
+   * langsung (D tetap, titik meluncur di kurvanya). Diameter diseret lewat
+   * pegangan kedua di kurva tebal: V di bawah jari pada S acuan → D lewat
+   * kebalikan bagan (dDariV). Kedua sumbu logaritmik dan tetap, jadi tidak
+   * ada saling kejar dengan skala.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kerja",
+      anchor: "kerja",
+      axis: "x",
+      label: x.hdlPoint,
+      hollow: true,
+      param: P_S,
+      // Dibulatkan: 0,0123 · 1000 = 12,299999999999999 di aria-valuenow.
+      value: Number((S * 1000).toFixed(6)),
+      toValue: (px, _py, m) => m.invX(px) * 1000,
+      onChange: (v) => setS(v / 1000),
+      format: (v) => `S ${fmt(v, 1)} ‰`,
+    },
+    {
+      id: "diameter",
+      anchor: "diameter",
+      axis: "y",
+      label: x.hdlD,
+      tint: C.water,
+      param: P_D,
+      value: Number((D * 1000).toFixed(6)),
+      toValue: (_px, py, m) => dDariV(m.invY(py), sAcuan, ks, nu),
+      onChange: (v) => setD(v / 1000),
+      format: (v) => `D ${fmt(v, 0)} mm`,
+    },
+  ];
 
   return (
     <LabShell
@@ -351,15 +439,17 @@ export function DiagramWallingfordClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="D" label={x.dD} value={D * 1000} min={50} max={1800} step={5} digits={0} unit="mm" onChange={(v) => setD(v / 1000)} tint={C.water} />
-              <InputRow symbol="S" label={x.dS} value={S * 1000} min={0.1} max={100} step={0.1} digits={1} unit="‰" onChange={(v) => setS(v / 1000)} />
+              <InputRow symbol="D" label={x.dD} value={D * 1000} {...P_D} unit="mm" onChange={(v) => setD(v / 1000)} tint={C.water} />
+              <InputRow symbol="S" label={x.dS} value={S * 1000} {...P_S} unit="‰" onChange={(v) => setS(v / 1000)} />
               <InputRow symbol="ks" label={x.dKs} value={ksMm} min={0} max={6} step={0.015} digits={3} unit="mm" onChange={setKsMm} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
             </InputTable>

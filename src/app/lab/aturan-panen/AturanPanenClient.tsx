@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,14 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { fmt, fmtPlain, schaeferHarvest } from "@/lib/hydraulics";
 import { C, DASH, W, type Tone } from "@/lib/theme";
@@ -55,6 +58,7 @@ const TXT = {
     hN: "Populasi pada keadaan mantap",
     hY: "Hasil pada upaya ini",
     hMsy: "Hasil lestari maksimum dan upayanya",
+    hdlE: "Titik kerja: geser mendatar untuk mengubah upaya penangkapan E",
     hSel: "Selisih upaya dan populasi nisbi",
     habis: "Pada upaya ini populasinya habis; tidak ada upaya kembar.",
     puncak: "Ini puncaknya; tidak ada upaya kembar, karena hasil sebesar MSY hanya dicapai pada satu upaya.",
@@ -94,6 +98,7 @@ const TXT = {
     hN: "Equilibrium stock",
     hY: "Yield at this effort",
     hMsy: "Maximum sustainable yield and its effort",
+    hdlE: "Operating point: drag sideways to change the fishing effort E",
     hSel: "Effort margin and relative stock",
     habis: "At this effort the stock is exhausted; there is no twin effort.",
     puncak: "This is the peak; there is no twin effort, because a yield equal to MSY is reached at only one effort.",
@@ -120,6 +125,10 @@ const REFS = {
   ],
 } as const;
 
+/* Rentang upaya E, dipakai bersama penggeser, kotak angka, dan pegangan
+   titik kerja (aturan 4: satu sumber nilai). */
+const P_E: ParamDef = { min: 0, max: 150, step: 1, digits: 0 };
+
 export function AturanPanenClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -130,17 +139,27 @@ export function AturanPanenClient() {
   const [K, setK] = useState(1000);
   const [q, setQ] = useState(0.01);
   const [E, setE] = useState(20);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Ujung sumbu upaya dikunci selama pegangan diseret. Tanpa kunci, saat
+   * E·1,05 > ujung kurva, sumbu ikut melebar dengan E: titik kerja selalu
+   * di 95 % lebar bidang, dan tiap piksel geseran memperbesar E berlipat
+   * (saling kejar). Dilepas = sumbu kembali dihitung dari E.
+   */
+  const [kunciE, setKunciE] = useState<number | null>(null);
 
   const r = schaeferHarvest(r0, K, q, E);
   const eKurva = r.curve[r.curve.length - 1].effort;
   /* Sumbu memuat upaya penggeser: pada r kecil dan q besar kurva model
      berhenti di 1,4 r/q, jauh di kiri E. Di luar r/q populasinya nol, jadi
      perpanjangan kurva ke kanan bernilai nol menurut model yang sama. */
-  const eMax = Math.max(eKurva, E * 1.05);
+  const eMaxBebas = Math.max(eKurva, E * 1.05);
+  const eMax = kunciE ?? eMaxBebas;
   const nada: Tone = r.collapsed ? "invalid" : r.overfished ? "caution" : "pass";
   const badge = r.collapsed ? x.runtuh : r.overfished ? x.berlebih : x.lestari;
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, h) => {
       const deret: ChartSeries[] = [
         {
@@ -171,7 +190,7 @@ export function AturanPanenClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -204,12 +223,36 @@ export function AturanPanenClient() {
           },
           heading: r.collapsed ? x.runtuh : undefined,
           headingColor: C.signal,
+          // Titik kerja sendiri (bukan `point`, yang hilang di luar bidang
+          // saat sumbu dikunci): DragLayer menjepitnya ke tepi bidang.
+          anchors: { kerja: { x: E, y: r.currentYield } },
         },
         lang
       );
     },
-    [r0, K, q, E, lang]
+    null,
+    [r0, K, q, E, eMax, lang]
   );
+
+  /*
+   * Posisi tegak titik kerja adalah hasil Y(E), HASIL model, jadi titik
+   * hanya diseret mendatar: sumbu datar adalah E, masukan langsung.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kerja",
+      anchor: "kerja",
+      axis: "x",
+      label: x.hdlE,
+      hollow: true,
+      param: P_E,
+      value: E,
+      toValue: (px, _py, m) => m.invX(px),
+      onChange: setE,
+      format: (v) => `E ${fmt(v, 0)}`,
+    },
+  ];
+  const lepasKunci = () => setKunciE(null);
 
   return (
     <LabShell
@@ -257,17 +300,30 @@ export function AturanPanenClient() {
             { label: "N", value: `${fmt(r.stock, 0)} t`, tint: r.collapsed ? C.signal : undefined },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci sumbu. */}
+          <div
+            className="contents"
+            onPointerDown={() => setKunciE(eMax)}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit={x.satR} onChange={setR0} />
               <InputRow symbol="K" label={x.dK} value={K} min={50} max={20000} step={50} digits={0} unit="ton" onChange={setK} />
               <InputRow symbol="q" label={x.dQ} value={q * 1000} min={1} max={50} step={0.5} digits={1} unit="×10⁻³" onChange={(v) => setQ(v / 1000)} />
-              <InputRow symbol="E" label={x.dE} value={E} min={0} max={150} step={1} digits={0} onChange={setE} />
+              <InputRow symbol="E" label={x.dE} value={E} {...P_E} onChange={setE} />
             </InputTable>
 
             <div className="mt-3.5">
