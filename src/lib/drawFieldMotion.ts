@@ -20,8 +20,12 @@ import type { PlateMap, PlateOut } from "./plateOut.ts";
  * - Semua tanda dipotong ke bingkai bidang gambar (PlateOut.map.frame).
  *
  * Lembar yang TIDAK dianimasikan di sini, karena gambarnya bukan ruang
- * fisik tempat medan kecepatannya hidup: FP-03 (bidang periode lawan
- * cepat rambat; model tidak punya medan kecepatan orbit).
+ * fisik tempat medan kecepatannya hidup:
+ * - FP-03 (bidang periode lawan cepat rambat; model tidak punya medan
+ *   kecepatan orbit).
+ * - FF-07 (grafik percepatan lawan jarak sepanjang saluran: sumbu
+ *   tegaknya m/s², bukan ruang aliran, jadi tidak ada letak partikel yang
+ *   dapat dibaca dari gambar itu dan gerak apa pun di sana akan karangan).
  */
 
 /* ------------------------------------------------------------------ *
@@ -461,7 +465,9 @@ export function karmanShift(p: KarmanParams, t: number): number {
  * baris atas, ganjil baris bawah, mulai satu pusaran sebelum yang pertama
  * di lapis statis supaya pusaran baru terlihat lahir di belakang silinder.
  * Mengembalikan false bila pusaran itu belum lahir (x < d).
- * Pada t = 0, k ≥ 2 sama persis dengan vortexStreet().street.
+ * Pada t = 0, k ≥ 2 sama persis dengan vortexStreet().street; k = 1
+ * (baris bawah, tepat di x = d) sudah lahir dan TIDAK ada di street, jadi
+ * gambar t = 0 punya satu pusaran bawah lebih daripada lapis statis.
  */
 export function karmanVortex(p: KarmanParams, t: number, k: number, out: Float64Array): boolean {
   const s = karmanShift(p, t);
@@ -479,7 +485,9 @@ const vtx = new Float64Array(3);
  * FP-01. Pusaran kedua baris hanyut ke hilir dengan a · f; tiap baris
  * melepas satu pusaran baru per 1/f detik, bergantian setengah periode.
  * Penanda sama dengan lapis statis (biru isi = baris atas, ungu kosong =
- * baris bawah), jadi pada t = 0 gambarnya identik dengan saat dijeda.
+ * baris bawah). Pada t = 0 letaknya sama dengan lapis statis kecuali satu
+ * pusaran bawah tambahan di x = d (k = 1, lihat karmanVortex); saat dijeda
+ * lapis ini tidak digambar, jadi gambar jeda tetap lapis statis saja.
  */
 export function drawKarmanMotion(
   ctx: CanvasRenderingContext2D,
@@ -664,7 +672,8 @@ export function drawPlumeMotion(
 /**
  * Bentuk benang zat warna di tabung, dipakai lapis statis dan lapis gerak.
  * `s` = x / panjang tabung, `kacau` = 0 (laminar) .. 1, `geser` = pergeseran
- * pola gangguan ke hilir dalam bagian panjang tabung (V·t / panjang).
+ * pola gangguan ke hilir dalam bagian panjang tabung (u_c·t / panjang,
+ * u_c = kecepatan sumbu, lihat reynoldsAxisVelocity).
  * Selubung s² (gangguan tumbuh ke hilir) tetap di tempat; polanya hanyut.
  */
 export function filamentY(s: number, R: number, kacau: number, geser = 0): number {
@@ -686,10 +695,51 @@ export function reynoldsTimeScale(V: number, length: number): number {
   return decadeTimeScale(V / Math.max(length, 1e-9), 1 / 30);
 }
 
-export type ReynoldsMotion = { pool: Pool; siap: boolean };
+/**
+ * Kecepatan di sumbu tabung, m/s.
+ * - Laminar (Hagen–Poiseuille): u_c = 2V.
+ * - Peralihan/turbulen: u_c = V(1 + 1,3√f) (White, Fluid Mechanics, bab 6,
+ *   dari hukum log dinding); bila f tidak tersedia, hukum pangkat n = 7
+ *   memberi V/u_c = 2n²/((n+1)(2n+1)) = 49/60, jadi u_c = 1,224V.
+ */
+export function reynoldsAxisVelocity(V: number, laminar: boolean, friction: number): number {
+  if (laminar) return 2 * V;
+  return friction > 0 && Number.isFinite(friction) ? V * (1 + 1.3 * Math.sqrt(friction)) : (60 / 49) * V;
+}
+
+/**
+ * Profil kecepatan u(r) pada jarak r = |eta|·R dari sumbu, m/s.
+ * Laminar u = u_c(1 − η²), turbulen u = u_c(1 − |η|)^{1/7}; u_c dari
+ * reynoldsAxisVelocity. Nol di dinding dan di luarnya.
+ */
+export function reynoldsProfile(eta: number, uc: number, laminar: boolean): number {
+  const a = Math.abs(eta);
+  if (!(a < 1)) return 0;
+  return laminar ? uc * (1 - a * a) : uc * Math.pow(1 - a, 1 / 7);
+}
+
+/**
+ * Lajur manik ke-i dari n, sebagai bagian jari-jari bertanda: |η| =
+ * √((j + 0,5)/n) membagi penampang lingkaran menjadi n cincin sama luas,
+ * jadi rerata u(r) seluruh manik adalah rerata luas, yaitu V. Tanda
+ * bergantian atas/bawah.
+ */
+export function beadLane(i: number, n: number): number {
+  const a = Math.sqrt((i + 0.5) / n);
+  return i % 2 === 0 ? a : -a;
+}
+
+export type ReynoldsMotion = {
+  pool: Pool;
+  /** Lajur tiap manik, bagian jari-jari bertanda (beadLane) */
+  lajur: Float32Array;
+  siap: boolean;
+};
 
 export function createReynoldsMotion(n = 46): ReynoldsMotion {
-  return { pool: createPool(n), siap: false };
+  const lajur = new Float32Array(n);
+  for (let i = 0; i < n; i++) lajur[i] = beadLane(i, n);
+  return { pool: createPool(n), lajur, siap: false };
 }
 
 export type ReynoldsParams = {
@@ -701,6 +751,10 @@ export type ReynoldsParams = {
   length: number;
   /** 0 laminar .. 1 turbulen penuh, sama dengan lapis statis */
   kacau: number;
+  /** Profil Hagen–Poiseuille (regime "laminar") atau hukum pangkat 1/7 */
+  laminar: boolean;
+  /** Faktor gesekan model (reynoldsExperiment.friction) */
+  friction: number;
   /** Warna rezim, sama dengan benang lapis statis */
   color: string;
   /** Pengali waktu yang dipakai usePlate, untuk panjang goresan di layar */
@@ -716,10 +770,24 @@ export function beadOffset(seed: number, s: number, R: number, kacau: number): n
 }
 
 /**
+ * Letak tegak manik sebagai bagian jari-jari: lajurnya ditambah ayunan
+ * benang dan simpangan campur (keduanya nol pada aliran laminar). Ayunan
+ * diperkecil ke arah dinding sebanding (1 − |lajur|), jadi |η| < 1 selalu:
+ * manik tidak pernah keluar dinding dan tidak menumpuk di satu garis jepit.
+ */
+export function beadEta(lajur: number, s: number, kacau: number, geser: number, seed: number): number {
+  const w = Math.max(-0.94, Math.min(0.94, filamentY(s, 1, kacau, geser) + beadOffset(seed, s, 1, kacau)));
+  return lajur + w * (1 - Math.abs(lajur));
+}
+
+/**
  * PI-04. Benang zat warna di sumbu tabung dengan pola gangguan yang hanyut
- * pada kecepatan rata-rata V, dan manik zat warna yang bergerak dengan V.
- * Pada aliran yang tidak laminar manik menyebar ke samping sebanding
- * selubung gangguannya (zat warna bercampur), selalu di dalam dinding.
+ * pada kecepatan sumbu u_c, dan manik zat warna di lajur-lajur sama luas
+ * yang masing-masing bergerak dengan u(r) di letaknya: 2V di sumbu dan
+ * nol di dinding pada aliran laminar, profil pangkat 1/7 yang lebih pepat
+ * pada aliran yang tidak laminar. Di luar laminar manik juga terayun ke
+ * samping sebanding selubung gangguannya (zat warna bercampur), selalu di
+ * dalam dinding.
  */
 export function drawReynoldsMotion(
   ctx: CanvasRenderingContext2D,
@@ -733,20 +801,29 @@ export function drawReynoldsMotion(
   const map = out.map;
   const P = p.length;
   const pool = st.pool;
+  const uc = reynoldsAxisVelocity(p.V, p.laminar, p.friction);
+  const geser = (uc * t) / P;
   if (!st.siap) {
-    for (let i = 0; i < pool.n; i++) pool.x[i] = ((i + pool.seed[i]) / pool.n) * P;
+    // x diacak terhadap lajur (17 prima terhadap n bawaan) supaya lajur
+    // dalam tidak berkumpul di pangkal.
+    for (let i = 0; i < pool.n; i++) {
+      pool.x[i] = ((((i * 17) % pool.n) + pool.seed[i]) / pool.n) * P;
+      pool.y[i] = beadEta(st.lajur[i], pool.x[i] / P, p.kacau, geser, pool.seed[i]);
+    }
     st.siap = true;
   }
   for (let i = 0; i < pool.n; i++) {
-    pool.u[i] = p.V;
-    let x = pool.x[i] + p.V * dt;
+    // Laju dievaluasi di letak yang sedang tergambar (pool.y = η).
+    const u = reynoldsProfile(pool.y[i], uc, p.laminar);
+    pool.u[i] = u;
+    let x = pool.x[i] + u * dt;
     if (!(x <= P)) {
       relane(pool, i);
       x = x > P && Number.isFinite(x) ? (x - P) % P : 0;
     }
     pool.x[i] = x;
+    pool.y[i] = beadEta(st.lajur[i], x / P, p.kacau, geser, pool.seed[i]);
   }
-  const geser = (p.V * t) / P;
 
   ctx.save();
   clipFrame(ctx, map);
@@ -766,23 +843,16 @@ export function drawReynoldsMotion(
 
   // Manik: goresan sepanjang perpindahannya selama pajanan.
   const pxPerM = Math.abs(map.X(1) - map.X(0));
-  const len = Math.min(14, Math.max(3, p.V * p.timeScale * PI04_PAJAN * pxPerM));
+  const k = p.timeScale * PI04_PAJAN * pxPerM;
   pen(ctx, W.bold, p.color);
   ctx.beginPath();
   for (let i = 0; i < pool.n; i++) {
-    const s = pool.x[i] / P;
-    const y = beadY(s, p.R, p.kacau, geser, pool.seed[i]);
+    const len = Math.min(14, Math.max(2, pool.u[i] * k));
     const hx = map.X(pool.x[i]);
-    const hy = map.Y(y);
+    const hy = map.Y(pool.y[i] * p.R);
     ctx.moveTo(hx - len, hy);
     ctx.lineTo(hx, hy);
   }
   ctx.stroke();
   ctx.restore();
-}
-
-/** Letak tegak manik: benang + simpangan, dijepit di dalam dinding. */
-export function beadY(s: number, R: number, kacau: number, geser: number, seed: number): number {
-  const y = filamentY(s, R, kacau, geser) + beadOffset(seed, s, R, kacau);
-  return Math.max(-R * 0.94, Math.min(R * 0.94, y));
 }

@@ -96,6 +96,7 @@ const TXT = {
     motionReal: "pusaran hanyut 0,87 U, waktu nyata",
     motionFast: (n: string) => `pusaran hanyut 0,87 U, waktu dipercepat ×${n}`,
     motionSlow: (n: string) => `pusaran hanyut 0,87 U, waktu diperlambat ×${n}`,
+    motionKritis: "deret teratur ini penyederhanaan; di pita ini pelepasan tidak teratur",
     aman: "Frekuensi lepasnya jauh dari getar alami batangnya",
     kunciNote:
       "Frekuensi lepasnya pusaran sudah berdekatan dengan frekuensi getar alami batangnya, dan pada keadaan itu keduanya saling mengunci. Yang terjadi bukan penjumlahan dua getaran melainkan satu getaran yang menguatkan dirinya sendiri: batang yang bergoyang menggeser titik lepasnya pusaran, titik lepas yang bergeser memperkuat goyangannya, dan simpangannya tumbuh sampai ditahan sesuatu yang lain. Jembatan Tacoma Narrows bukan contohnya, karena yang di sana kibasan aeroelastik, tetapi cerobong baja, kabel laut, dan tiang rambu memang runtuh karena ini, dan penangkalnya selalu sama: pasang sirip pemecah di sepertiga atas batangnya supaya pusarannya tidak dapat lepas serentak di sepanjang batang.",
@@ -145,6 +146,7 @@ const TXT = {
     motionReal: "vortices drift at 0.87 U, real time",
     motionFast: (n: string) => `vortices drift at 0.87 U, time sped up ×${n}`,
     motionSlow: (n: string) => `vortices drift at 0.87 U, time slowed ×${n}`,
+    motionKritis: "a regular street is a simplification; shedding in this band is irregular",
     aman: "The shedding frequency is far from the natural frequency",
     kunciNote:
       "The shedding frequency now lies close to the natural frequency of the member, and in that state the two lock to each other. What happens is not the sum of two vibrations but one vibration feeding itself: the swaying member moves the point at which the vortices leave, the moved shedding point strengthens the sway, and the amplitude grows until something else stops it. Tacoma Narrows is not an example, since that was aeroelastic flutter, but steel chimneys, marine cables, and sign posts do fail this way, and the remedy is always the same: fit helical strakes over the upper third so the vortices cannot shed in step along the whole length.",
@@ -205,12 +207,18 @@ export function VorteksKarmanClient() {
   const skalaWaktu = karmanTimeScale(r.frequency);
   const faktor = (v: number) =>
     Math.round(v).toLocaleString(lang === "id" ? "id-ID" : "en-US");
-  const catatanGerak =
+  const catatanWaktu =
     skalaWaktu === 1
       ? x.motionReal
       : skalaWaktu > 1
         ? x.motionFast(faktor(skalaWaktu))
         : x.motionSlow(faktor(1 / skalaWaktu));
+  /* Pita kritis (Re ≈ 2·10⁵ sampai 3,5·10⁶, termasuk keadaan bawaan):
+     lapisan batas silinder beralih dan pelepasannya tidak teratur (Roshko
+     1961, J. Fluid Mech. 10), jadi deret yang rapi ini disebut
+     penyederhanaan di catatan. */
+  const catatanGerak =
+    r.regime === "kritis" ? `${catatanWaktu}; ${x.motionKritis}` : catatanWaktu;
   const bergerak = playing && lepas;
 
   const plate = usePlate(

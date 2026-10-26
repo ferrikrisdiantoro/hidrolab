@@ -20,6 +20,7 @@ import {
   createReynoldsMotion,
   drawReynoldsMotion,
   filamentY,
+  reynoldsAxisVelocity,
   reynoldsTimeScale,
   type ReynoldsMotion,
 } from "@/lib/drawFieldMotion";
@@ -68,9 +69,12 @@ const NADA: Record<string, Tone> = {
 const TXT = {
   id: {
     title: "Percobaan Reynolds",
-    motionReal: "zat warna bergerak dengan V rata-rata, waktu nyata",
-    motionFast: (n: string) => `zat warna bergerak dengan V rata-rata, waktu dipercepat ×${n}`,
-    motionSlow: (n: string) => `zat warna bergerak dengan V rata-rata, waktu diperlambat ×${n}`,
+    motionLam: "zat warna bergerak dengan u(r): 2V di sumbu (laminar)",
+    motionTurb: (k: string) => `zat warna bergerak dengan u(r): ≈${k}V di sumbu`,
+    motionReal: "waktu nyata",
+    motionFast: (n: string) => `waktu dipercepat ×${n}`,
+    motionSlow: (n: string) => `waktu diperlambat ×${n}`,
+    motionMasuk: "profil belum berkembang penuh; dekat mulut tabung zat warna di sumbu lebih lambat dari 2V",
     sheetTitle: "Benang zat warna di dalam tabung kaca, sepanjang dua meter",
     dQ: "Debit",
     dD: "Diameter tabung",
@@ -112,9 +116,12 @@ const TXT = {
   },
   en: {
     title: "Reynolds experiment",
-    motionReal: "dye moves at the mean velocity V, real time",
-    motionFast: (n: string) => `dye moves at the mean velocity V, time sped up ×${n}`,
-    motionSlow: (n: string) => `dye moves at the mean velocity V, time slowed ×${n}`,
+    motionLam: "dye moves at u(r): 2V on the axis (laminar)",
+    motionTurb: (k: string) => `dye moves at u(r): ≈${k}V on the axis`,
+    motionReal: "real time",
+    motionFast: (n: string) => `time sped up ×${n}`,
+    motionSlow: (n: string) => `time slowed ×${n}`,
+    motionMasuk: "profile not yet fully developed; near the tube mouth the dye on the axis is slower than 2V",
     sheetTitle: "A dye filament inside a glass tube, two metres long",
     dQ: "Discharge",
     dD: "Tube diameter",
@@ -225,11 +232,16 @@ export function PercobaanReynoldsClient() {
   const lewat = r.criticalReynolds > 0 ? r.reynolds / r.criticalReynolds : 0;
   const kacau = Math.min(Math.max(lewat - 1, 0), 3) / 3;
 
-  /* Lapis gerak (Phase 2): manik zat warna bergerak dengan kecepatan
-     rata-rata model V = Q/A, dan pola gangguan benangnya hanyut dengan V
-     juga. Waktu dibuat pangkat sepuluh supaya zat warna menempuh tabung
-     dalam 3 sampai 30 detik layar, dan ditulis di catatan. Selagi bergerak
-     benang lapis statis tidak digambar (namanya tetap). */
+  /* Lapis gerak (Phase 2): manik zat warna di lajur-lajur sama luas,
+     masing-masing bergerak dengan u(r) di letaknya: Hagen–Poiseuille
+     u = 2V(1 − r²/R²) bila laminar, hukum pangkat u_c(1 − r/R)^(1/7)
+     dengan u_c = V(1 + 1,3√f) di luar laminar (White bab 6), V = Q/A dan
+     f dari model. Pola gangguan benang hanyut dengan u_c. Waktu dibuat
+     pangkat sepuluh supaya zat warna menempuh tabung dalam 3 sampai 30
+     detik layar pada V, dan ditulis di catatan. Selagi bergerak benang
+     lapis statis tidak digambar (namanya tetap). Animasinya memakai profil
+     berkembang penuh; bila panjang masuk melampaui tabung yang digambar,
+     catatan menyebutnya. */
   const { playing, toggle: togglePutar } = usePutar();
   const gerak = useRef<ReynoldsMotion | null>(null);
   if (gerak.current === null) gerak.current = createReynoldsMotion();
@@ -237,12 +249,17 @@ export function PercobaanReynoldsClient() {
   const skalaWaktu = reynoldsTimeScale(r.velocity, PANJANG);
   const faktor = (v: number) =>
     Math.round(v).toLocaleString(lang === "id" ? "id-ID" : "en-US");
-  const catatanGerak =
+  const catatanWaktu =
     skalaWaktu === 1
       ? x.motionReal
       : skalaWaktu > 1
         ? x.motionFast(faktor(skalaWaktu))
         : x.motionSlow(faktor(1 / skalaWaktu));
+  const ucPerV = reynoldsAxisVelocity(1, laminar, r.friction);
+  const catatanProfil = laminar ? x.motionLam : x.motionTurb(fmt(ucPerV, 1));
+  const catatanGerak =
+    `${catatanProfil}, ${catatanWaktu}` +
+    (laminar && r.entryLength > PANJANG ? `; ${x.motionMasuk}` : "");
 
   const plate = usePlate(
     (ctx, w, ch) => {
@@ -347,7 +364,16 @@ export function PercobaanReynoldsClient() {
         tt,
         dt,
         out,
-        { V: r.velocity, R: D / 2, length: PANJANG, kacau, color: warna, timeScale: skalaWaktu },
+        {
+          V: r.velocity,
+          R: D / 2,
+          length: PANJANG,
+          kacau,
+          laminar,
+          friction: r.friction,
+          color: warna,
+          timeScale: skalaWaktu,
+        },
         gerak.current!
       ),
     [Q, D, suhu, tenang, lang, bergerak],
