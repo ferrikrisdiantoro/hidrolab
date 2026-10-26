@@ -33,7 +33,35 @@ export type GvfDrawState = {
    * air sama sekali, melainkan menyatakan bahwa profilnya tidak dapat dihitung.
    */
   normalUnreachable?: boolean;
+  /**
+   * Ujung atas sumbu elevasi yang dikunci selama pegangan kedalaman kendali
+   * diseret (lihat gvfScale). Tanpa ini dihitung dari profilnya.
+   */
+  zTop?: number;
 };
+
+/** Penampang kendali: titik profil yang merupakan masukan, bukan hasil. */
+function titikKendali(r: GvfResult) {
+  return r.direction === "hulu" ? r.points[r.points.length - 1] : r.points[0];
+}
+
+/**
+ * Ujung atas sumbu elevasi bebas, meter. Dipakai drawGvf dan oleh Client
+ * untuk mengunci skala selama kedalaman kendali diseret: muka air
+ * tertinggi ikut kedalaman kendali, jadi tanpa kunci sumbu dan pegangan
+ * saling kejar.
+ */
+export function gvfScale(s: GvfDrawState): number {
+  const { result: r, length: L, S0 } = s;
+  const zb = (x: number) => (L - x) * S0;
+  const zbMax = zb(0);
+  const takAda = s.normalUnreachable === true;
+  const ctrl = titikKendali(r);
+  const maxSurface = takAda
+    ? zbMax + Math.max(r.yc, ctrl.y) * 1.7
+    : r.points.reduce((m, p) => Math.max(m, zb(p.x) + p.y), zbMax + r.yc);
+  return (takAda ? maxSurface : Math.max(maxSurface, zbMax + r.y0)) * 1.12;
+}
 
 /**
  * POTONGAN MEMANJANG — profil aliran berubah lambat.
@@ -72,16 +100,13 @@ export function drawGvf(
   // Kedalaman di penampang kendali adalah satu-satunya kedalaman yang tetap
   // berarti saat kedalaman normal tidak ada, karena ia masukan pengguna dan
   // bukan hasil penelusuran.
-  const ctrl = r.direction === "hulu" ? r.points[r.points.length - 1] : r.points[0];
-
-  const maxSurface = takAda
-    ? zbMax + Math.max(r.yc, ctrl.y) * 1.7
-    : r.points.reduce((m, p) => Math.max(m, zb(p.x) + p.y), zbMax + r.yc);
+  const ctrl = titikKendali(r);
 
   // Kedalaman normal sengaja tidak ikut menentukan skala saat ia tidak ada,
   // sebab angkanya hanyalah batas atas pencarian dan akan menggepengkan
-  // seluruh gambar.
-  const zTop = (takAda ? maxSurface : Math.max(maxSurface, zbMax + r.y0)) * 1.12;
+  // seluruh gambar (gvfScale).
+  const dikunci = s.zTop !== undefined;
+  const zTop = s.zTop ?? gvfScale(s);
 
   const X = (x: number) => padL + (x / L) * plotW;
   const Z = (z: number) => padT + plotH - (z / zTop) * plotH;
@@ -118,7 +143,18 @@ export function drawGvf(
   axisTitle(ctx, T.axDistance, padL + plotW / 2, padT + plotH + 34);
   axisTitle(ctx, T.elevation, 18, padT + plotH / 2, -Math.PI / 2);
 
+  /* Selama skala dikunci, muka air bisa naik melewati tepi atas bidang:
+     badan air dan muka airnya dipotong ke bidang. Tanpa kunci skala selalu
+     memuat muka air tertinggi, jadi potongan ini tidak pernah dipasang. */
+  const potongBidang = () => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+  };
+
   /* ---------------- badan air ---------------- */
+  if (dikunci) potongBidang();
   if (!takAda) {
   const clipWater = () => {
     ctx.beginPath();
@@ -149,6 +185,7 @@ export function drawGvf(
   ctx.setLineDash([]);
   curveLabel(ctx, `y₀ ${fmtPlain(r.y0, 2)} m`, X(xLabel), Z(zb(xLabel) + r.y0) - 10, C.water);
   }
+  if (dikunci) ctx.restore();
 
   pen(ctx, W.thin, C.critical, DASH.axis);
   ctx.beginPath();
@@ -173,6 +210,7 @@ export function drawGvf(
      Penandanya kecuraman muka air, bukan kedekatan dengan kondisi kritis:
      jendela di sekitar kritis dilewati dalam kurang dari satu meter saluran,
      sehingga tidak pernah cukup panjang untuk digambar sebagai garis. */
+  if (dikunci) potongBidang();
   if (!takAda) {
   let run: { pts: [number, number][]; invalid: boolean } | null = null;
   const flush = () => {
@@ -203,6 +241,7 @@ export function drawGvf(
   }
   flush();
   }
+  if (dikunci) ctx.restore();
 
   /* ---------------- dasar saluran ---------------- */
   const bedPts: [number, number][] = [];
@@ -238,7 +277,9 @@ export function drawGvf(
   dimV(
     ctx,
     cxp + (r.direction === "hulu" ? -26 : 26),
-    Z(zb(ctrl.x) + ctrl.y),
+    // Ujung atas dijepit ke bingkai hanya selama skala dikunci; teksnya
+    // tetap nilai sebenarnya.
+    dikunci ? Math.max(Z(zb(ctrl.x) + ctrl.y), padT) : Z(zb(ctrl.x) + ctrl.y),
     Z(zb(ctrl.x)),
     `${fmtPlain(ctrl.y, 2)} m`,
     C.signal
@@ -328,11 +369,15 @@ export function drawGvf(
     );
   } else {
     const mid = r.points[Math.floor(r.points.length / 2)];
+    // Selama skala dikunci, nama profil ditahan di dalam bingkai.
+    const yNama = dikunci
+      ? Math.max(Z(zb(mid.x) + mid.y), padT + 52)
+      : Z(zb(mid.x) + mid.y);
     ctx.fillStyle = C.ink;
     ctx.font = F.heading;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    stencil(ctx, r.profile, X(mid.x), Z(zb(mid.x) + mid.y) - 16, 2);
+    stencil(ctx, r.profile, X(mid.x), yNama - 16, 2);
 
     /*
      * Regime aliran ditentukan kedalaman terhadap kedalaman kritis, BUKAN oleh
@@ -347,7 +392,7 @@ export function drawGvf(
       ctx,
       mid.y > r.yc ? T.subcritical : T.supercritical,
       X(mid.x),
-      Z(zb(mid.x) + mid.y) - 34,
+      yNama - 34,
       C.ink3
     );
   }

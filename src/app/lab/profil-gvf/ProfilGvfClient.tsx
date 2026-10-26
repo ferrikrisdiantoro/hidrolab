@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,10 +13,13 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawGvf } from "@/lib/drawGvf";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import { drawGvf, gvfScale } from "@/lib/drawGvf";
 import {
   G,
   criticalDepth,
@@ -44,6 +47,7 @@ const TXT = {
     dn: "Kekasaran Manning",
     dS: "Kemiringan dasar",
     dyc: "Kedalaman di penampang kendali",
+    gY: "Kedalaman kendali y, seret muka air di penampang kendali naik atau turun",
     dL: "Panjang bentang",
     pM1: "M1 — bendung di hilir",
     pM2: "M2 — terjunan di hilir",
@@ -82,6 +86,7 @@ const TXT = {
     dn: "Manning roughness",
     dS: "Bed slope",
     dyc: "Depth at control section",
+    gY: "Control depth y, drag the water surface at the control section up or down",
     dL: "Reach length",
     pM1: "M1 — weir downstream",
     pM2: "M2 — free overfall",
@@ -128,6 +133,15 @@ const REFS = {
     "Sturm, T.W. (2010). Open Channel Hydraulics, 2nd ed. McGraw-Hill.",
   ],
 } as const;
+
+/*
+ * Rentang kedalaman kendali: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan seret di penampang kendali (aturan 4, satu sumber nilai).
+ */
+const P_Y: ParamDef = { min: 0.1, max: 6, step: 0.05, digits: 2 };
+
+/** Kunci selama seret: ujung atas sumbu elevasi dan letak kendali awal, m. */
+type Kunci = { zTop: number; xCtl: number };
 
 export function ProfilGvfClient() {
   const { lang } = useLang();
@@ -194,17 +208,51 @@ export function ProfilGvfClient() {
         ? "water"
         : "neutral";
 
-  const ref = useCanvas(
-    (ctx, w, h) =>
-      drawGvf(
-        ctx,
-        w,
-        h,
-        { result, length: L, S0, normalUnreachable: !terjangkau },
-        lang
-      ),
-    [Q, b, n, S0, yCtl, L, lang]
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Skala dikunci selama kedalaman kendali diseret. Tanpa kunci ujung atas
+   * sumbu elevasi = 1,12 × muka air tertinggi, dan muka air tertinggi profil
+   * M1/S1 adalah muka air di penampang kendali itu sendiri: tiap piksel
+   * geseran mengubah skala dan pegangan saling kejar dengan sumbunya.
+   */
+  const [kunci, setKunci] = useState<Kunci | null>(null);
+  const keadaanGambar = { result, length: L, S0, normalUnreachable: !terjangkau };
+  // Penampang kendali: hilir (x = L) untuk aliran subkritis, hulu (x = 0)
+  // untuk superkritis; gvfProfile yang menentukan arah penelusurannya.
+  const xKendali = result.direction === "hulu" ? L : 0;
+
+  const plate = usePlate(
+    (ctx, w, h) => drawGvf(ctx, w, h, { ...keadaanGambar, zTop: kunci?.zTop }, lang),
+    null,
+    [Q, b, n, S0, yCtl, L, lang, kunci ? kunci.zTop : NaN]
   );
+
+  /*
+   * Pemetaan balik pegangan kedalaman kendali (anchor `control`, muka air di
+   * penampang kendali): sumbu tegak adalah elevasi, dan dasar di stasiun x
+   * berada di (L − x)·S₀, jadi y = invY(py) − (L − x)·S₀. Hanya tegak.
+   *
+   * x diambil dari letak kendali SAAT SERET DIMULAI (kunci.xCtl). Bila
+   * kedalaman diseret melewati yc, aliran berganti rezim dan penampang
+   * kendalinya pindah ke ujung bentang yang lain (dasar di sana berbeda
+   * L·S₀); memakai dasar ujung yang baru akan melompatkan nilai bolak-balik
+   * di bawah jari yang diam. Pegangannya ikut pindah ke ujung yang baru.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "kendali",
+      anchor: "control",
+      axis: "y",
+      label: x.gY,
+      tint: C.water,
+      param: P_Y,
+      value: yCtl,
+      toValue: (_px, py, m) => m.invY(py) - (L - (kunci?.xCtl ?? xKendali)) * S0,
+      onChange: setYCtl,
+      format: (v) => `y ${fmt(v, 2)} m`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -252,7 +300,25 @@ export function ProfilGvfClient() {
             { label: x.rProfile, value: terjangkau ? result.profile : "—" },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents: pembungkus tidak membuat kotak, hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci skala. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi
+              // tanpa capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return; // jari kedua tidak mengambil kunci baru
+              setKunci({ zTop: gvfScale(keadaanGambar), xCtl: xKendali });
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -263,9 +329,11 @@ export function ProfilGvfClient() {
               <InputRow symbol="b" label={x.db} value={b} min={0.5} max={25} step={0.1} digits={1} unit="m" onChange={setB} />
               <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.05} max={40} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
-              <InputRow symbol="y" label={x.dyc} value={yCtl} min={0.1} max={6} step={0.05} unit="m" onChange={setYCtl} tint={C.water} />
+              <InputRow symbol="y" label={x.dyc} value={yCtl} {...P_Y} unit="m" onChange={setYCtl} tint={C.water} />
               <InputRow symbol="L" label={x.dL} value={L} min={100} max={4000} step={50} digits={0} unit="m" onChange={setL} />
             </InputTable>
+
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
