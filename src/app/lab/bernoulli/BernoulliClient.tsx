@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import {
   drawStructure,
   type StructureDim,
@@ -45,6 +48,8 @@ const TXT = {
     pDatar: "Pipa datar, leher menyempit",
     pNaik: "Pipa naik enam meter",
     pKavitasi: "Leher terlalu tinggi, air mendidih",
+    gH: "Tinggi energi H, seret garis energi naik atau turun",
+    gZ: "Elevasi leher Δz, seret leher pipa naik atau turun",
     rV: "Kecepatan di leher",
     rHv: "Tinggi kecepatan di leher",
     rHp: "Tinggi tekan di leher",
@@ -100,6 +105,8 @@ const TXT = {
     pDatar: "Level pipe, narrowed throat",
     pNaik: "Pipe raised six metres",
     pKavitasi: "Throat too high, the water boils",
+    gH: "Total head H, drag the energy line up or down",
+    gZ: "Throat elevation Δz, drag the throat of the duct up or down",
     rV: "Velocity at the throat",
     rHv: "Velocity head at the throat",
     rHp: "Pressure head at the throat",
@@ -161,6 +168,13 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang H dan Δz: satu definisi untuk penggeser, kotak angka, dan pegangan
+ * seret di gambar (aturan 4, satu sumber nilai).
+ */
+const P_H: ParamDef = { min: 2, max: 40, step: 0.5, digits: 1 };
+const P_DZ: ParamDef = { min: -8, max: 25, step: 0.5, digits: 1 };
+
 export function BernoulliClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -197,7 +211,19 @@ export function BernoulliClient() {
   const hulu = r.points[0];
   const huluMustahil = hulu.velocityHead > H;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Ujung sumbu tegak dikunci selama pegangan diseret. Tanpa kunci, ujung
+   * atasnya mengikuti H dan Δz, dan ujung bawahnya mengikuti tinggi tekan
+   * terendah (yang turun bila H turun atau leher naik): tiap piksel geseran
+   * mengubah skala tegak, titik di bawah jari berganti nilai, dan pegangan
+   * saling kejar dengan sumbunya. Sumbu mendatar tetap −3 sampai L + 3.
+   * Dilepas = sumbu kembali dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<{ zMin: number; zMax: number } | null>(null);
+  const sumbuRef = useRef<{ zMin: number; zMax: number } | null>(null);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       /*
        * Batas bidang dihitung lebih dulu, karena tebal pipa yang digambar
@@ -222,6 +248,11 @@ export function BernoulliClient() {
        */
       const lebih = Math.max(1, Math.round((rentang * 0.07) / Math.max(D1, D2)));
       const zMax = (zAtasAsli + (lebih * Math.max(D1, D2)) / 2) * 1.14 + 1;
+      sumbuRef.current = { zMin, zMax };
+      /* Selama dikunci, garis ukur dipotong ke sumbu supaya tidak menembus
+         bingkai; teksnya tetap nilai sebenarnya. Tanpa kunci tidak berubah. */
+      const potongZ = (z: number) =>
+        kunci ? Math.min(Math.max(z, kunci.zMin), kunci.zMax) : z;
       const atas = r.points.map((p) => ({ x: p.x, z: p.z + (lebih * p.D) / 2 }));
       const bawah = r.points.map((p) => ({ x: p.x, z: p.z - (lebih * p.D) / 2 }));
 
@@ -268,8 +299,8 @@ export function BernoulliClient() {
         {
           axis: "v",
           at: L * 0.5,
-          from: leher.hgl,
-          to: leher.egl,
+          from: potongZ(leher.hgl),
+          to: potongZ(leher.egl),
           text: `${fmtPlain(leher.velocityHead, 2)} m`,
           color: C.energy,
           offset: 30,
@@ -282,8 +313,8 @@ export function BernoulliClient() {
               {
                 axis: "v" as const,
                 at: L * 0.5,
-                from: leher.z,
-                to: leher.hgl,
+                from: potongZ(leher.z),
+                to: potongZ(leher.hgl),
                 text: `${fmtPlain(leher.pressureHead, 2)} m`,
                 color: C.water,
                 offset: 58,
@@ -296,8 +327,8 @@ export function BernoulliClient() {
               {
                 axis: "v" as const,
                 at: L * 0.5,
-                from: 0,
-                to: leher.z,
+                from: potongZ(0),
+                to: potongZ(leher.z),
                 text: `${fmtPlain(leher.z, 2)} m`,
                 offset: 86,
               },
@@ -305,15 +336,15 @@ export function BernoulliClient() {
           : []),
       ];
 
-      drawStructure(
+      return drawStructure(
         ctx,
         w,
         ch,
         {
           xMin: -3,
           xMax: L + 3,
-          zMin,
-          zMax,
+          zMin: kunci ? kunci.zMin : zMin,
+          zMax: kunci ? kunci.zMax : zMax,
           equalScale: false,
           bodies: [],
           lines: garis,
@@ -340,12 +371,55 @@ export function BernoulliClient() {
           headingColor: C.signal,
           axisX: T.axAlongDuct,
           axisZ: T.axHeadM,
+          /*
+           * Tempat pegangan, tidak digambar: garis energi di ruas keluar
+           * (jauh dari namanya di 18 % panjang), dan sumbu pipa di leher.
+           */
+          anchors: {
+            energi: { x: L * 0.86, z: H },
+            leher: { x: L * 0.5, z: dz },
+          },
         },
         lang
       );
     },
-    [Q, H, D1, D2, dz, lang]
+    null,
+    [Q, H, D1, D2, dz, lang, kunci ? kunci.zMin : NaN, kunci ? kunci.zMax : NaN]
   );
+
+  /*
+   * Pemetaan balik, keduanya hanya tegak (sumbu tegak = tinggi dalam m di
+   * atas datum):
+   * - energi: H adalah tinggi energi total di hulu, dan tanpa kehilangan
+   *   garis energinya mendatar pada z = H, jadi H = z jari.
+   * - leher: sumbu pipa di leher berada pada elevasi Δz, jadi Δz = z jari.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "energi",
+      anchor: "energi",
+      axis: "y",
+      label: x.gH,
+      tint: C.energy,
+      param: P_H,
+      value: H,
+      toValue: (_px, py, m) => m.invY(py),
+      onChange: setH,
+      format: (v) => `H ${fmt(v, 1)} m`,
+    },
+    {
+      id: "leher",
+      anchor: "leher",
+      axis: "y",
+      label: x.gZ,
+      param: P_DZ,
+      value: dz,
+      toValue: (_px, py, m) => m.invY(py),
+      onChange: setDz,
+      format: (v) => `Δz ${fmt(v, 1)} m`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -401,7 +475,24 @@ export function BernoulliClient() {
             { label: "V²/2g", value: `${fmt(leher.velocityHead, 2)} m` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci sumbu. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (sumbuRef.current) setKunci(sumbuRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -409,12 +500,13 @@ export function BernoulliClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="Q" label={x.dQ} value={Q * 1000} min={5} max={600} step={5} digits={0} unit="l/s" onChange={(v) => setQ(v / 1000)} tint={C.water} />
-              <InputRow symbol="H" label={x.dH} value={H} min={2} max={40} step={0.5} digits={1} unit="m" onChange={setH} tint={C.energy} />
+              <InputRow symbol="H" label={x.dH} value={H} {...P_H} unit="m" onChange={setH} tint={C.energy} />
               <InputRow symbol="D₁" label={x.dD1} value={D1 * 1000} min={100} max={800} step={10} digits={0} unit="mm" onChange={(v) => setD1(v / 1000)} />
               <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} min={40} max={800} step={10} digits={0} unit="mm" onChange={(v) => setD2(v / 1000)} tint={C.critical} />
-              <InputRow symbol="Δz" label={x.dZ} value={dz} min={-8} max={25} step={0.5} digits={1} unit="m" onChange={setDz} />
+              <InputRow symbol="Δz" label={x.dZ} value={dz} {...P_DZ} unit="m" onChange={setDz} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}

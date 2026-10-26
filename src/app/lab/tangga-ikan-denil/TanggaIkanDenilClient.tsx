@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,8 +13,11 @@ import {
   Sheet,
   StateCard,
   Term,
+  SentuhContoh,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import { drawStructure, type StructureBody, type StructureSpec } from "@/lib/drawStructure";
 import {
   DENIL_RUN_MAX,
@@ -45,6 +48,8 @@ const TXT = {
     pBaku: "Rancangan baku",
     pCuram: "Terlalu curam",
     pLebar: "Palung lebar, debit besar",
+    gY: "Kedalaman aliran y, seret muka air naik atau turun",
+    gS: "Kemiringan palung S, seret ujung hilir lantai palung naik atau turun",
     rQ: "Debit yang lewat",
     rVmean: "Kecepatan rata-rata",
     rVmax: "Kecepatan di sumbu palung",
@@ -88,6 +93,8 @@ const TXT = {
     pBaku: "Standard design",
     pCuram: "Too steep",
     pLebar: "Wide trough, large discharge",
+    gY: "Flow depth y, drag the water surface up or down",
+    gS: "Trough slope S, drag the downstream end of the trough floor up or down",
     rQ: "Discharge through the trough",
     rVmean: "Mean velocity",
     rVmax: "Velocity on the trough axis",
@@ -121,6 +128,16 @@ const TXT = {
       "What makes a Denil work is not obstruction but reversal. Baffles angled upstream force part of the water to rotate backwards near the walls and the invert, and that reverse rotation dissipates energy without closing the path down the middle. The fish swims along the axis, where the water still moves forward but far more slowly than the slope of the trough should make it. The price paid for a passage far shorter than a pool fishway is turbulence: the dissipation inside a Denil trough is ten to twenty times the limit a pool fishway accepts. That is not a design fault but a feature of the device, and its consequences are clear: a Denil suits only strong-swimming species, always demands resting pools at intervals, and does not suit small fish or bottom-moving fish at all.",
   },
 } as const;
+
+/*
+ * Rentang y dan S (S dalam persen, seperti penggesernya): satu definisi untuk
+ * penggeser, kotak angka, dan pegangan seret di gambar (aturan 4).
+ */
+const P_Y: ParamDef = { min: 0.2, max: 2, step: 0.05, digits: 2 };
+const P_S: ParamDef = { min: 4, max: 40, step: 1, digits: 0 };
+
+/** Batas bidang dan panjang palung tergambar, dikunci selama seret. */
+type Bidang = { panjang: number; xMin: number; xMax: number; zMin: number; zMax: number };
 
 const REFS = {
   id: [
@@ -158,10 +175,23 @@ export function TanggaIkanDenilClient() {
   const nada: Tone = r.slopeOutOfRange ? "invalid" : tidakMampu || r.needsRestPool ? "caution" : "pass";
   const badge = r.slopeOutOfRange ? x.curam : tidakMampu ? x.lambat : r.needsRestPool ? x.istirahat : x.aman;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Bidang dan panjang palung yang digambar dikunci selama pegangan
+   * diseret. Tanpa kunci, ujung atas sumbu tegak mengikuti y (1,25 y),
+   * ujung bawahnya mengikuti S (dasar di ujung hilir), dan panjang palung
+   * tergambar min(L, 8 m) mengikuti S lewat L = H/S, sedangkan skala dijaga
+   * sama di kedua sumbu: tiap piksel geseran mengubah skala dan pegangan
+   * saling kejar dengan sumbunya. Dilepas = semuanya dihitung ulang.
+   */
+  const [kunci, setKunci] = useState<Bidang | null>(null);
+  const bidangRef = useRef<Bidang | null>(null);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       // Potongan memanjang palung miring dengan sirip penahan miring ke hulu.
-      const panjang = Math.min(r.runLength, 8);
+      const panjangBebas = Math.min(r.runLength, 8);
+      const panjang = kunci ? kunci.panjang : panjangBebas;
       const jarakSirip = Math.max(b * 0.6, 0.25);
       const jumlah = Math.max(2, Math.floor(panjang / jarakSirip));
       const tebal = Math.max(b * 0.06, 0.03);
@@ -205,11 +235,25 @@ export function TanggaIkanDenilClient() {
         muka.push({ x: xx, z: dasarDi(xx) + y });
       }
 
-      const spec: StructureSpec = {
-        xMin: -panjang * 0.08,
-        xMax: panjang * 1.08,
-        zMin: dasarDi(panjang) - tebal * 3,
+      const bebas: Bidang = {
+        panjang: panjangBebas,
+        xMin: -panjangBebas * 0.08,
+        xMax: panjangBebas * 1.08,
+        zMin: dasarDi(panjangBebas) - tebal * 3,
         zMax: y * 1.25,
+      };
+      bidangRef.current = bebas;
+      const bidang = kunci ?? bebas;
+      /* Selama dikunci, garis ukur dipotong ke sumbu supaya tidak menembus
+         bingkai; teksnya tetap nilai sebenarnya. Tanpa kunci tidak berubah. */
+      const potongZ = (z: number) =>
+        kunci ? Math.min(Math.max(z, kunci.zMin), kunci.zMax) : z;
+
+      const spec: StructureSpec = {
+        xMin: bidang.xMin,
+        xMax: bidang.xMax,
+        zMin: bidang.zMin,
+        zMax: bidang.zMax,
         bodies: badan,
         waters: [
           {
@@ -225,8 +269,8 @@ export function TanggaIkanDenilClient() {
           {
             axis: "v",
             at: panjang * 0.5,
-            from: dasarDi(panjang * 0.5),
-            to: dasarDi(panjang * 0.5) + y,
+            from: potongZ(dasarDi(panjang * 0.5)),
+            to: potongZ(dasarDi(panjang * 0.5) + y),
             text: `y ${fmtPlain(y, 2)} m`,
             color: C.water,
             offset: 24,
@@ -257,12 +301,71 @@ export function TanggaIkanDenilClient() {
         headingColor: r.slopeOutOfRange ? C.signal : C.caution,
         axisX: T.axHoriz,
         axisZ: T.axLevel,
+        /*
+         * Tempat pegangan, tidak digambar: muka air di 65 % panjang palung
+         * (di antara ukuran y dan ujung hilir), dan ujung hilir lantai.
+         */
+        anchors: {
+          muka: { x: panjang * 0.65, z: dasarDi(panjang * 0.65) + y },
+          lantai: { x: panjang, z: dasarDi(panjang) },
+        },
       };
 
-      drawStructure(ctx, w, ch, spec, lang);
+      return drawStructure(ctx, w, ch, spec, lang);
     },
-    [b, y, S, rise, burst, lang]
+    null,
+    [
+      b,
+      y,
+      S,
+      rise,
+      burst,
+      lang,
+      kunci ? kunci.panjang : NaN,
+      kunci ? kunci.xMin : NaN,
+      kunci ? kunci.xMax : NaN,
+      kunci ? kunci.zMin : NaN,
+      kunci ? kunci.zMax : NaN,
+    ]
   );
+
+  /*
+   * Pemetaan balik, keduanya hanya tegak. Lantai palung adalah garis
+   * z = -S x dari titik asal di ujung hulu, dan x jari tetap di x pegangan
+   * saat seret dimulai (DragLayer mengunci sumbu yang tidak diseret):
+   * - muka: muka air z = -S x + y, jadi y = z jari + S x.
+   * - lantai: ujung hilir lantai z = -S x, jadi S = -z / x (dikali 100
+   *   untuk persen). Panjang palung tergambar ikut dikunci selama seret,
+   *   jadi x pegangan tidak bergeser bersama S dan pemetaannya satu-satu.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "muka",
+      anchor: "muka",
+      axis: "y",
+      label: x.gY,
+      tint: C.water,
+      param: P_Y,
+      value: y,
+      toValue: (px, py, m) => m.invY(py) + S * m.invX(px),
+      onChange: setY,
+      format: (v) => `y ${fmt(v, 2)} m`,
+    },
+    {
+      id: "lantai",
+      anchor: "lantai",
+      axis: "y",
+      label: x.gS,
+      tint: C.energy,
+      param: P_S,
+      // Dibulatkan: 0,29 × 100 = 28,999999999999996 di titik mengambang.
+      value: Math.round(S * 1e8) / 1e6,
+      toValue: (px, py, m) => (-m.invY(py) / Math.max(m.invX(px), 1e-9)) * 100,
+      onChange: (v) => setS(v / 100),
+      format: (v) => `S ${fmt(v, 0)} %`,
+    },
+  ];
+  const lepasKunci = () => setKunci(null);
 
   return (
     <LabShell
@@ -324,7 +427,24 @@ export function TanggaIkanDenilClient() {
             { label: "L", value: `${fmt(r.runLength, 1)} m` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
+              menangkap pointerdown/lepas yang menggelembung dari pegangan
+              untuk mengunci bidang. */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi tanpa
+              // capture tidak ada pelepas dan kunci akan tertinggal.
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (bidangRef.current) setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
@@ -332,12 +452,13 @@ export function TanggaIkanDenilClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="b" label={x.dB} value={b} min={0.25} max={1.5} step={0.05} digits={2} unit="m" onChange={setB} />
-              <InputRow symbol="y" label={x.dY} value={y} min={0.2} max={2} step={0.05} digits={2} unit="m" onChange={setY} tint={C.water} />
-              <InputRow symbol="S" label={x.dS} value={S * 100} min={4} max={40} step={1} digits={0} unit="%" onChange={(v) => setS(v / 100)} tint={C.energy} />
+              <InputRow symbol="y" label={x.dY} value={y} {...P_Y} unit="m" onChange={setY} tint={C.water} />
+              <InputRow symbol="S" label={x.dS} value={S * 100} {...P_S} unit="%" onChange={(v) => setS(v / 100)} tint={C.energy} />
               <InputRow symbol="H" label={x.dRise} value={rise} min={0.5} max={12} step={0.5} digits={1} unit="m" onChange={setRise} />
               <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.critical} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
