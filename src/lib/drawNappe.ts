@@ -122,6 +122,16 @@ export function drawNappe(
     return s.P + s.h - s.h * 0.28 * f * f;
   };
 
+  /*
+   * Genangan hulu saja: dari muka air hulu turun ke lantai di muka ambang.
+   *
+   * Dulu jalur ini menyambung terus sepanjang tirai lalu ditutup dengan
+   * garis miring dari puncak mercu ke pojok kiri bawah. Akibatnya rongga di
+   * bawah tirai, yang berisi UDARA dan diberi nama "rongga udara", diwarnai
+   * sebagai air, dan sepertiga bawah genangan hulu justru kosong. Tirai
+   * adalah sisi BAWAH lembaran air yang jatuh (bentuk WES); airnya berada
+   * di atas garis itu, bukan di bawahnya.
+   */
   const jalurAir = () => {
     ctx.beginPath();
     ctx.moveTo(X(xKiri), Z(0));
@@ -130,11 +140,7 @@ export function drawNappe(
       const x = xKiri + ((0 - xKiri) * i) / 60;
       ctx.lineTo(X(x), Z(mukaHulu(x)));
     }
-    for (const [x, z] of tirai) ctx.lineTo(X(x), Z(z));
-    ctx.lineTo(X(tirai[tirai.length - 1][0]), Z(0));
     ctx.lineTo(X(0), Z(0));
-    ctx.lineTo(X(0), Z(s.P));
-    ctx.lineTo(X(xKiri), Z(0));
     ctx.closePath();
   };
 
@@ -341,7 +347,9 @@ export function drawNappe(
    * - `headwater`: muka air hulu di garis dimensi h (P + h)
    * - `tailwater`: muka air hilir di tengah genangan hilir (0 bila kering)
    * - `nappeLanding`: ujung bawah tirai yang tergambar
-   * `water` = air hulu beserta tirainya; `waters` menambah genangan hilir.
+   * `water` = genangan hulu; `waters` menambah genangan hilir. Lembaran
+   * air tirai tidak termasuk: tebalnya tidak digambar (hanya sisi bawahnya),
+   * jadi lapis gerak membangunnya sendiri dari debit (nappeMotion).
    */
   const map = mapFrom(X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, [xKiri, xKanan], [0, zAtas]);
   const ujungTirai = tirai[tirai.length - 1];
@@ -356,8 +364,7 @@ export function drawNappe(
     const x = xKiri + ((0 - xKiri) * i) / 60;
     hulu.push(X(x), Z(mukaHulu(x)));
   }
-  for (const [x, z] of tirai) hulu.push(X(x), Z(z));
-  hulu.push(X(ujungTirai[0]), Z(0), X(0), Z(0), X(0), Z(s.P), X(xKiri), Z(0));
+  hulu.push(X(0), Z(0));
   const water = Float64Array.from(hulu);
   const waters: Float64Array[] = [water];
   if (s.tail > 0) {
