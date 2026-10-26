@@ -232,8 +232,10 @@ export function PercobaanReynoldsClient() {
   const lewat = r.criticalReynolds > 0 ? r.reynolds / r.criticalReynolds : 0;
   const kacau = Math.min(Math.max(lewat - 1, 0), 3) / 3;
 
-  /* Lapis gerak (Phase 2): manik zat warna di lajur-lajur sama luas,
-     masing-masing bergerak dengan u(r) di letaknya: Hagen–Poiseuille
+  /* Lapis gerak (Phase 2): manik zat warna disuntikkan di sumbu; laminar
+     semuanya tetap di sumbu (benang utuh, 2V), di luar laminar menyebar ke
+     hilir mengikuti selubung gangguan (beadSpread). Masing-masing bergerak
+     dengan u(r) di letaknya: Hagen–Poiseuille
      u = 2V(1 − r²/R²) bila laminar, hukum pangkat u_c(1 − r/R)^(1/7)
      dengan u_c = V(1 + 1,3√f) di luar laminar (White bab 6), V = Q/A dan
      f dari model. Pola gangguan benang hanyut dengan u_c. Waktu dibuat

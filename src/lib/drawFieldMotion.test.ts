@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   beadEta,
   beadLane,
+  beadSpread,
   createDeformMotion,
   createFlowLinesMotion,
   createPlumeMotion,
@@ -335,18 +336,16 @@ describe("PI-04 percobaan Reynolds: manik bergerak u(r), di dalam dinding", () =
     assert.ok(reynoldsProfile(0.8, 1, false) > 2 * reynoldsProfile(0.8, 1, true));
   });
 
-  it("lajur sama luas: rerata u(r) = V (laminar tepat, turbulen ≈)", () => {
-    const n = 46;
-    const V = 0.2;
-    let lam = 0;
-    let tur = 0;
-    const uc = reynoldsAxisVelocity(V, false, 0.03);
-    for (let i = 0; i < n; i++) {
-      lam += reynoldsProfile(beadLane(i, n), 2 * V, true);
-      tur += reynoldsProfile(beadLane(i, n), uc, false);
-    }
-    dekat(lam / n, V, 1e-12, "laminar");
-    dekat(tur / n, V, 0.06 * V, "turbulen");
+  it("sebar: nol pada laminar dan di mulut tabung, penuh di hilir pada kacau = 1", () => {
+    for (const s of [0, 0.4, 1]) assert.equal(beadSpread(s, 0), 0);
+    assert.equal(beadSpread(0, 1), 0);
+    assert.equal(beadSpread(1, 1), 1);
+    for (let i = 0; i < 46; i++)
+      for (const s of [0, 0.3, 0.77, 0.99, 1])
+        for (const g of [0, 0.37, 5.1]) {
+          assert.ok(Math.abs(beadEta(beadLane(i, 46), s, 1, g)) < 1);
+          assert.equal(beadEta(beadLane(i, 46), s, 0, g), 0);
+        }
   });
 
   for (const [nama, Q] of [
@@ -354,7 +353,7 @@ describe("PI-04 percobaan Reynolds: manik bergerak u(r), di dalam dinding", () =
     ["peralihan", 0.0006],
     ["turbulen", 0.02],
   ] as const) {
-    it(`${nama}: laju manik = u(r) di letaknya, rerata awan ≈ V, di dalam |y| < R`, () => {
+    it(`${nama}: laju manik = reynoldsProfile(η) di letaknya, di dalam |y| < R`, () => {
       const r = reynoldsExperiment(Q, D, 15, 0.4);
       assert.equal(r.regime, nama);
       const laminar = r.regime === "laminar";
@@ -378,36 +377,34 @@ describe("PI-04 percobaan Reynolds: manik bergerak u(r), di dalam dinding", () =
         tt += dt;
         rekam.ruas.length = 0;
         drawReynoldsMotion(ctx, tt, dt, out, p, st);
-        let jumlah = 0;
         for (let i = 0; i < st.pool.n; i++) {
           const harap = reynoldsProfile(eta0[i], uc, laminar);
           dekat(st.pool.u[i], harap, 1e-6 * uc, "u manik = profil di letaknya");
-          jumlah += st.pool.u[i];
           assert.ok(Math.abs(st.pool.y[i]) < 1, `η ${st.pool.y[i]}`);
+          if (laminar) {
+            // Laminar: zat warna tetap di sumbu, semua manik 2V.
+            assert.equal(st.pool.y[i], 0);
+            dekat(st.pool.u[i], 2 * V, 1e-6 * V, "manik laminar 2V");
+          }
           if (st.pool.x[i] < x0[i]) continue; // lahir ulang di pangkal
           dekat((st.pool.x[i] - x0[i]) / dt, harap, harap * 1e-3 + 1e-9, "laju manik");
         }
-        // Rerata awan ≈ V. Laminar tepat (lajur sama luas, letaknya tetap);
-        // di luar laminar ayunan menggeser lajur, jadi toleransinya lebar.
-        dekat(jumlah / st.pool.n, V, (laminar ? 1e-3 : 0.12) * V, "rerata awan");
         for (const [, y0, , y1] of rekam.ruas)
           assert.ok(Math.abs(out.map.invY(y0)) < R && Math.abs(out.map.invY(y1)) < R, "goresan di dalam dinding");
       }
-      // Manik di sumbu (η = 0) bergerak u_c: 2V laminar, V(1 + 1,3√f)
-      // di luar laminar. Manik lajur terluar jauh lebih lambat.
-      st.pool.y[0] = 0;
-      if (st.pool.x[0] > PANJANG - 0.01) st.pool.x[0] = 0;
-      drawReynoldsMotion(ctx, tt + dt, dt, out, p, st);
-      dekat(st.pool.u[0], laminar ? 2 * V : V * (1 + 1.3 * Math.sqrt(r.friction)), 1e-6 * uc, "manik sumbu");
-      const luar = st.pool.n - 1;
-      assert.ok(st.pool.u[luar] < 0.6 * uc, `manik dekat dinding ${st.pool.u[luar]} lawan u_c ${uc}`);
+      if (!laminar) {
+        // Di mulut tabung zat warna masih di sumbu; ke hilir menyebar.
+        const g = (uc * tt) / PANJANG;
+        for (let i = 0; i < st.pool.n; i++) assert.equal(beadEta(st.lajur[i], 0, kacau, g), 0);
+        let maks = 0;
+        for (let i = 0; i < st.pool.n; i++) maks = Math.max(maks, Math.abs(beadEta(st.lajur[i], 1, kacau, g)));
+        assert.ok(maks > (nama === "turbulen" ? 0.9 : 0.05) && maks < 1, `sebar di s = 1: ${maks}`);
+        // Manik di sumbu bergerak u_c = V(1 + 1,3√f).
+        st.pool.y[0] = 0;
+        if (st.pool.x[0] > PANJANG - 0.01) st.pool.x[0] = 0;
+        drawReynoldsMotion(ctx, tt + dt, dt, out, p, st);
+        dekat(st.pool.u[0], V * (1 + 1.3 * Math.sqrt(r.friction)), 1e-6 * uc, "manik sumbu");
+      }
     });
   }
-
-  it("beadEta selalu di dalam dinding untuk semua lajur dan ayunan", () => {
-    for (let i = 0; i < 46; i++)
-      for (const s of [0, 0.3, 0.77, 0.99, 1])
-        for (const seed of [0, 0.5, 1])
-          for (const g of [0, 0.37, 5.1]) assert.ok(Math.abs(beadEta(beadLane(i, 46), s, 1, g, seed)) < 1);
-  });
 });
