@@ -180,6 +180,52 @@ describe("drawGrain: laju butir = model", () => {
     assert.ok(halus > kasar + 1, `halus ${halus}, kasar ${kasar}`);
   });
 
+  it("melayang: kemiringan log c terhadap log z (z 1 sampai 12 d) sama dengan -P (Rouse)", () => {
+    /* Jendela lebar supaya banyak butir (cuplikan cukup), tinggi 20 d.
+       Sebaran tegak dari stepGrains apa adanya, sesudah masa awal. */
+    const dom = { w: 401, h: 20 };
+    const dM = 0.001;
+    const ustar = 0.01;
+    const kemiringan = (P: number) => {
+      const m = createGrainSwarm(200);
+      const p = langkah("melayang", 0.05, P * 0.4 * ustar, ustar, dM);
+      const dt = 1 / 60;
+      const nb = 10;
+      const a = Math.log(1);
+      const b = Math.log(12);
+      const hit = new Float64Array(nb);
+      stepGrains(m, 0, p, dom);
+      for (let k = 0; k < 9000; k++) {
+        stepGrains(m, dt, p, dom);
+        if (k >= 1800 && k % 5 === 0) {
+          for (let i = 0; i < m.active; i++) {
+            const z = m.y[i] - 1;
+            if (!(z >= 1 && z < 12)) continue;
+            hit[Math.min(nb - 1, Math.floor(((Math.log(z) - a) / (b - a)) * nb))]++;
+          }
+        }
+      }
+      /* Kerapatan per satuan z, lalu kuadrat terkecil log c pada log z. */
+      let sx = 0, sy = 0, sxx = 0, sxy = 0, n = 0;
+      for (let j = 0; j < nb; j++) {
+        if (hit[j] <= 0) continue;
+        const z0 = Math.exp(a + ((b - a) * j) / nb);
+        const z1 = Math.exp(a + ((b - a) * (j + 1)) / nb);
+        const X = Math.log(Math.sqrt(z0 * z1));
+        const Y = Math.log(hit[j] / (z1 - z0));
+        sx += X; sy += Y; sxx += X * X; sxy += X * Y; n++;
+      }
+      return (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    };
+    const s0 = kemiringan(0);
+    const s1 = kemiringan(1);
+    const s2 = kemiringan(2);
+    console.log(`kemiringan Rouse: P=0 ${s0.toFixed(3)}, P=1 ${s1.toFixed(3)}, P=2 ${s2.toFixed(3)}`);
+    assert.ok(Math.abs(s0) <= 0.15, `P = 0: kemiringan ${s0}`);
+    assert.ok(Math.abs(s1 + 1) <= 0.2, `P = 1: kemiringan ${s1}`);
+    assert.ok(Math.abs(s2 + 2) <= 0.2, `P = 2: kemiringan ${s2}`);
+  });
+
   it("dt nol atau negatif tidak memindahkan butir", () => {
     const m = createGrainSwarm(4);
     stepGrains(m, 0, langkah("dasar", 0.1), DOM);

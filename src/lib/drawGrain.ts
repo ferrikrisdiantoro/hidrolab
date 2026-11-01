@@ -1,7 +1,7 @@
 import { C, DASH, F, W } from "./theme.ts";
 import { createLabelPlacer, dimH, flowArrow, ground, hatchGravel, hatchRiprap, hatchSoil, pen } from "./plate.ts";
 import { hash01 } from "./motion.ts";
-import { decadeTimeScale } from "./drawFieldMotion.ts";
+import { decadeTimeScale, gauss01 } from "./drawFieldMotion.ts";
 import { mapFrom, rectsFrom, type PlateMap, type PlateOut } from "./plateOut.ts";
 import type { GrainMode } from "./sedimenGerak.ts";
 import { fmtPlain } from "./hydraulics.ts";
@@ -32,11 +32,11 @@ import { fmtPlain } from "./hydraulics.ts";
  * - dasar: maju dengan laju butir dasar us (Fernandez Luque & van Beek),
  *   menggelinding di atas baris dasar; sudut putarnya jarak tempuh dibagi
  *   jari-jari (menggelinding tanpa selip).
- * - melayang: tegak = −ws + v', dengan v' fluktuasi pusaran berbesaran
- *   1,25 u* (Bagnold 1966, v' = 1,25 u*; sama dengan ambang u* = 0,8 ws di
- *   sedimenGerak.ts). Selang antar pusaran dipilih supaya difusivitas tegak
- *   sama dengan kappa u* z (lihat stepGrains), jadi sebaran tegaknya
- *   mendekati profil Rouse dekat dasar.
+ * - melayang: tegak adalah jalan acak Euler-Maruyama dengan difusivitas
+ *   dekat dasar K = kappa u* z (log law, dasar profil Rouse):
+ *   dz = (kappa u* − ws) dt + √(2 kappa u* z dt) · N(0, 1), dipantulkan di
+ *   z0 = 0,5 d dan di tepi atas. Sebaran tegaknya profil Rouse
+ *   c ~ z^(−ws/(kappa u*)) (lihat stepGrains).
  *   Mendatar sama dengan us, BATAS BAWAH laju butir melayang (M1 tidak
  *   menghitung laju melayang); lembar wajib menulisnya di catatan gerak.
  *   Tepi atas jendela memantulkan butir: jendela adalah bagian dekat dasar
@@ -347,11 +347,7 @@ export type GrainSwarm = {
   /** Laju langkah terakhir, d/s (untuk goresan) */
   vx: Float32Array;
   vy: Float32Array;
-  /** Fluktuasi pusaran yang sedang bekerja, d/s */
-  eddy: Float32Array;
-  /** Sisa umur pusaran, s */
-  life: Float32Array;
-  /** Hitungan pusaran per butir, masukan hash */
+  /** Hitungan langkah acak per butir, masukan hash N(0, 1) */
   gen: Uint32Array;
 };
 
@@ -365,8 +361,6 @@ export function createGrainSwarm(n: number): GrainSwarm {
     ang: new Float32Array(n),
     vx: new Float32Array(n),
     vy: new Float32Array(n),
-    eddy: new Float32Array(n),
-    life: new Float32Array(n),
     gen: new Uint32Array(n),
   };
 }
@@ -383,8 +377,6 @@ export type GrainStep = {
   dM: number;
 };
 
-/** Perbandingan fluktuasi tegak terhadap u* (Bagnold 1966: v' = 1,25 u*). */
-export const EDDY_PER_USTAR = 1.25;
 /** Tetapan von Karman. */
 export const KAPPA = 0.4;
 
@@ -401,8 +393,6 @@ function fitActive(m: GrainSwarm, dom: { w: number; h: number }, p: GrainStep) {
     m.ang[i] = Math.PI / 2;
     m.vx[i] = 0;
     m.vy[i] = 0;
-    m.eddy[i] = 0;
-    m.life[i] = 0;
   }
   m.active = want;
 }
@@ -423,21 +413,27 @@ export function stepGrains(m: GrainSwarm, dt: number, p: GrainStep, dom: { w: nu
   const perD = 1 / p.dM;
   const U = p.mode === "diam" ? 0 : Math.max(0, p.us) * perD;
   const Ws = Math.max(0, p.ws) * perD;
-  const Vp = EDDY_PER_USTAR * Math.max(0, p.ustar) * perD;
+  const ustarD = Math.max(0, p.ustar) * perD;
   /*
-   * Selang pusaran dipilih supaya difusivitas tegak sama dengan difusivitas
-   * dekat dasar K = kappa u* z (log law, dasar profil Rouse): untuk kecepatan
-   * tetap sepotong-sepotong bersebaran v', K = v'^2 tau, jadi
-   * tau = kappa u* z / v'^2 = kappa z / (1,25 v'). Hanyutan kappa u* (= dK/dz)
-   * menjaga butir yang sudah tercampur rata tetap rata (syarat tercampur
-   * baik). Dengan begitu sebaran tegak butir di jendela mendekati profil
-   * Rouse c ~ z^(-ws/(kappa u*)): butir di sekitar ambang melayang tetap
-   * berkumpul dekat dasar, butir halus naik tinggi.
+   * Melayang: jalan acak Euler-Maruyama pada z = y − 1 (diukur dari puncak
+   * baris dasar), difusivitas dekat dasar K = kappa u* z:
+   *   dz = (dK/dz − ws) dt + √(2 K dt) · N(0, 1),  dK/dz = kappa u*.
+   * Hanyutan dK/dz adalah koreksi Ito: tanpanya butir menumpuk di tempat K
+   * kecil. Fluks nol Fokker-Planck memberi c'/c = −ws / (kappa u* z), jadi
+   * sebaran tegaknya profil Rouse c ~ z^(−P), P = ws / (kappa u*): butir di
+   * sekitar ambang melayang berkumpul dekat dasar, butir halus naik tinggi.
+   * Pantul di z0 = 0,5 d dan di tepi atas (dinding tanpa fluks; jendela
+   * adalah bagian dekat dasar kolom yang lebih tinggi). Sublangkah supaya
+   * u* dt tiap langkah paling besar 0,05 d. N(0, 1) dari hash (Box-Muller,
+   * hitungan langkah per butir): deterministik, tanpa alokasi.
    */
-  const ustarD = Vp / EDDY_PER_USTAR;
-  const tauPerZ = Vp > 0 ? KAPPA / (EDDY_PER_USTAR * Vp) : Infinity;
-  const drift = KAPPA * ustarD;
+  const z0 = 0.5;
   const top = Math.max(POCKET_Y + 0.5, dom.h - 0.5);
+  const zTop = top - 1;
+  const nSub = p.mode === "melayang" ? Math.min(256, Math.max(1, Math.ceil((ustarD * dt) / 0.05))) : 1;
+  const h = dt / nSub;
+  const drift = (KAPPA * ustarD - Ws) * h;
+  const dif = 2 * KAPPA * ustarD * h;
   const wrap = wrapWidth(dom.w);
 
   for (let i = 0; i < m.active; i++) {
@@ -447,28 +443,18 @@ export function stepGrains(m: GrainSwarm, dt: number, p: GrainStep, dom: { w: nu
     let y = y0;
 
     if (p.mode === "melayang") {
-      m.life[i] -= dt;
-      if (m.life[i] <= 0) {
-        const g = (m.gen[i] + 1) >>> 0;
-        m.gen[i] = g;
-        // Box-Muller dari dua hash: fluktuasi bersebaran normal.
-        const u1 = Math.max(1e-6, hash01(i, g));
-        const u2 = hash01(i + 977, g);
-        m.eddy[i] = Vp * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        const tauE = tauPerZ * Math.max(0.5, y - 1);
-        m.life[i] += tauE * (0.5 + hash01(i + 31, g));
-        if (m.life[i] <= 0) m.life[i] = tauE;
+      let z = y - 1;
+      let g = m.gen[i];
+      for (let k = 0; k < nSub; k++) {
+        g = (g + 1) >>> 0;
+        z += drift + Math.sqrt(dif * Math.max(z, 0)) * gauss01(i, g);
+        if (z < z0) z = 2 * z0 - z;
+        if (z > zTop) z = 2 * zTop - z;
+        if (z < z0) z = z0;
       }
+      m.gen[i] = g;
       x += U * dt;
-      y += (m.eddy[i] - Ws + drift) * dt;
-      const yb = bedContour(x);
-      if (y < yb) {
-        y = Math.min(top, 2 * yb - y);
-        if (m.eddy[i] < 0) m.eddy[i] = -m.eddy[i];
-      } else if (y > top) {
-        y = Math.max(yb, 2 * top - y);
-        if (m.eddy[i] > 0) m.eddy[i] = -m.eddy[i];
-      }
+      y = z + 1;
     } else {
       const ybNow = bedContour(x);
       if (y > ybNow + 1e-4) {

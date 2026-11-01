@@ -65,6 +65,8 @@ export type FilterPanelState = {
   title: string;
   tint: string;
   baseLabel: string;
+  /** Kata "pori" / "pore" di baris angka, sudah dalam bahasa aktif */
+  poreLabel: string;
   filterLabel: string;
   flowLabel: string;
   /** Lapis gerak berjalan: butir terbawa digambar di sana */
@@ -169,7 +171,7 @@ export function drawFilterPanel(
   ctx.fillStyle = C.ink2;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const teks = `pori ≈ D15f/4 = ${mm(pori)}; D85b = ${mm(s.base.d85)}`;
+  const teks = `${s.poreLabel} ≈ D15f/4 = ${mm(pori)}; D85b = ${mm(s.base.d85)}`;
   ctx.fillText(teks, frame.x0 + 4, 28, w - 2 * PAD_SIDE - 52);
   lp.reserve(frame.x0, w - 48, 22, 34);
 

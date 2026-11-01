@@ -87,8 +87,9 @@ const TXT = {
     motionFast: (n: string) => `waktu dipercepat ×${n}`,
     motionSlow: (n: string) => `waktu diperlambat ×${n}`,
     motionDasar: "butir maju dengan laju butir dasar Fernandez Luque dan van Beek, us = 11,5 (u* − 0,7 u*cr)",
+    motionEndap: "butir yang masih melayang turun dengan kecepatan endap ws lalu berhenti di dasar",
     motionLayang:
-      "tegak: turun dengan kecepatan endap ws, diaduk pusaran sebesar 1,25 u* (Bagnold). Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran dan tidak dihitung lembar ini",
+      "tegak: turun dengan kecepatan endap ws dan teraduk turbulensi berdifusivitas κ u* z, jadi sebaran tegaknya mengikuti profil Rouse. Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran dan tidak dihitung lembar ini",
     halusNote:
       "Di bawah kira-kira 0,06 mm butirnya masuk golongan lanau dan lempung, dan yang menahannya di dasar bukan lagi beratnya sendiri melainkan gaya tarik antar butir. Kurva Shields diturunkan untuk butir yang lepas, jadi ambang yang ditampilkan di sini tidak berlaku: lempung padat dapat bertahan pada tegangan berkali lipat dari yang diramalkan, sedangkan lumpur yang baru mengendap justru lepas jauh lebih awal. Yang menentukan di daerah ini sejarah pengendapannya, bukan ukuran butirnya.",
     note:
@@ -128,8 +129,9 @@ const TXT = {
     motionFast: (n: string) => `time sped up ×${n}`,
     motionSlow: (n: string) => `time slowed ×${n}`,
     motionDasar: "grains advance at the Fernandez Luque and van Beek bed-load grain velocity, us = 11.5 (u* − 0.7 u*cr)",
+    motionEndap: "grains still in suspension fall at the settling velocity ws and stop on the bed",
     motionLayang:
-      "vertical: falling at the settling velocity ws, stirred by eddies of 1.25 u* (Bagnold). Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity and is not computed on this sheet",
+      "vertical: falling at the settling velocity ws and mixed by turbulence with diffusivity κ u* z, so the vertical spread follows the Rouse profile. Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity and is not computed on this sheet",
     halusNote:
       "Below about 0.06 mm the grains fall into the silt and clay class, and what holds them on the bed is no longer their own weight but cohesion between grains. The Shields curve was derived for loose grains, so the threshold shown here does not apply: firm clay can survive stresses many times the predicted value, while freshly settled mud comes loose far earlier. What decides in this region is the deposition history, not the grain size.",
     note:
@@ -327,7 +329,7 @@ export function KurvaShieldsClient() {
       ? `${catatanWaktu}; ${x.motionLayang}`
       : modeButir === "dasar"
         ? `${catatanWaktu}; ${x.motionDasar}`
-        : undefined;
+        : `${catatanWaktu}; ${x.motionEndap}`;
   const judulButir = kohesif
     ? x.gKohesif
     : modeButir === "diam"
