@@ -10,6 +10,7 @@ describe("DM-01 posisi gagal (phantom)", () => {
     assert.equal(damFailureMode(1.2, 0.8, 100), "geser");
     assert.equal(damFailureMode(1.4, 1.4, 100), null);
     assert.equal(damFailureMode(0.9, 2, -5), null, "ΣV ≤ 0: mengapung, bukan terguling");
+    assert.equal(damFailureMode(2, 0.5, -5), null, "ΣV ≤ 0: tidak ada phantom geser juga");
   });
 
   it("FS guling < 1 sama dengan resultan di luar ujung kaki (model)", () => {

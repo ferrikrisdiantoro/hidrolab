@@ -22,6 +22,7 @@ import {
   createExpansionMotion,
   drawExpansionMotion,
   expansionTransitTime,
+  reattachLength,
   type ExpansionMotion,
 } from "@/lib/expansionMotion";
 import { reachTimeScale } from "@/lib/drawReachMotion";
@@ -88,6 +89,7 @@ const TXT = {
       "Debit ini tidak dapat lewat. Untuk memaksanya melalui penampang sesempit ini, tekanan sesudah penyempitan harus turun di bawah tekanan uap air, dan di situ airnya mendidih: kolomnya putus dan alirannya tersedak, jadi debit yang sebenarnya jauh lebih kecil daripada yang dipilih. Angka tekanan dan kehilangan di bawah karena itu tidak dituliskan. Perbesar penampang sesudahnya, kecilkan debitnya, atau naikkan tinggi tekan di hulunya.",
     motionNote: (lr: string, rasio: string, skala: string) =>
       `goresan inti: u = Q/A pancaran, V₁ di hulu, V₂ sesudah menempel lagi ke dinding ${lr} tinggi anak tangga di hilir (bentuk dari pustaka, bukan hitungan); pusaran di sudut beredar rata-rata ${rasio}·(V₁ − V₂), taksiran; ${skala}`,
+    motionLuar: "; titik menempel di luar gambar, jadi di ujung gambar laju masih di atas V₂",
     waktuNyata: "waktu nyata",
     dipercepat: (k: string) => `waktu dipercepat ×${k}`,
     diperlambat: (k: string) => `waktu diperlambat ×${k}`,
@@ -130,6 +132,7 @@ const TXT = {
       "This discharge cannot pass. To force it through a section this narrow, the pressure after the contraction would have to fall below the vapour pressure of water, and there the water boils: the column parts and the flow chokes, so the real discharge is far smaller than the one chosen. The pressure and loss figures below are therefore not written. Enlarge the downstream section, reduce the discharge, or raise the upstream pressure head.",
     motionNote: (lr: string, rasio: string, skala: string) =>
       `core streaks: u = Q/A of the jet, V₁ upstream, V₂ once it reattaches to the wall ${lr} step heights downstream (shape from the literature, not computed); the corner eddies circulate at ${rasio}·(V₁ − V₂) on average, an estimate; ${skala}`,
+    motionLuar: "; the reattachment point lies beyond the drawing, so at its edge the speed is still above V₂",
     waktuNyata: "real time",
     dipercepat: (k: string) => `time sped up ×${k}`,
     diperlambat: (k: string) => `time slowed ×${k}`,
@@ -192,6 +195,12 @@ export function MomentumPipaClient() {
   const gerak = useRef<ExpansionMotion | null>(null);
   if (gerak.current === null) gerak.current = createExpansionMotion(60);
   const panjangGambar = Math.max(D1, D2) * 2.6;
+  /* Lekuk garis tekanan dan energi pada pembesaran = titik menempel ulang
+     yang sama dengan animasi (tekanan pulih di sekitar titik itu, Back &
+     Roschke 1972); penyempitan dan penampang tetap memakai 0,35 L. */
+  const lr = besar ? reattachLength(D1, D2) : Infinity;
+  const xLekuk = besar ? Math.min(lr, panjangGambar) : panjangGambar * 0.35;
+  const lrDiLuar = besar && lr > panjangGambar;
   const adaGerak = besar && !mati && Q > 0;
   const skalaWaktu = reachTimeScale(expansionTransitTime({ Q, D1, D2, L: panjangGambar }), 6);
   const teksSkala =
@@ -229,7 +238,7 @@ export function MomentumPipaClient() {
           pts: [
             { x: -L, z: 0 },
             { x: 0, z: 0 },
-            { x: L * 0.35, z: naik },
+            { x: xLekuk, z: naik },
             { x: L, z: naik },
           ],
           color: C.water,
@@ -247,7 +256,7 @@ export function MomentumPipaClient() {
           pts: [
             { x: -L, z: hv1 },
             { x: 0, z: hv1 },
-            { x: L * 0.35, z: naik + hv2 },
+            { x: xLekuk, z: naik + hv2 },
             { x: L, z: naik + hv2 },
           ],
           color: C.energy,
@@ -404,7 +413,9 @@ export function MomentumPipaClient() {
             playing,
             onToggle: togglePutar,
             allowed: plate.motionAllowed,
-            note: x.motionNote(fmt(REATTACH_PER_STEP, 0), fmt(EDDY_SPEED_RATIO, 1), teksSkala),
+            note:
+              x.motionNote(fmt(REATTACH_PER_STEP, 0), fmt(EDDY_SPEED_RATIO, 1), teksSkala) +
+              (lrDiLuar ? x.motionLuar : ""),
           }}
         >
           <canvas ref={plate.ref} className="block h-full w-full" />

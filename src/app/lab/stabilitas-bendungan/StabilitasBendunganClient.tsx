@@ -540,7 +540,7 @@ export function StabilitasBendunganClient() {
       if (caraGagal)
         garis.push({
           pts: damFailedOutline(r.section, B, caraGagal),
-          color: C.caution,
+          color: C.ink2,
           weight: W.thin,
           dash: DASH.phantom,
           label: caraGagal === "guling" ? x.phantomGuling : x.phantomGeser,

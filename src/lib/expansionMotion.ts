@@ -34,7 +34,7 @@ import type { PlateOut } from "./plateOut.ts";
  * hitungan: rata-rata 0,2·(V₁ − V₂), yaitu sebanding loncatan kecepatan
  * yang menghasilkan kehilangan Borda-Carnot hL = (V₁ − V₂)²/2g. Pada
  * pembesaran besar (V₂ → 0) itu 0,2 V₁, sekitar laju balik terbesar yang
- * terukur di zona pusaran anak tangga. Client wajib menulisnya.
+ * terukur di zona pusaran anak tangga (Eaton & Johnston 1981, AIAA J 19(9)). Client wajib menulisnya.
  */
 
 /** Panjang menempel ulang per tinggi anak tangga. */

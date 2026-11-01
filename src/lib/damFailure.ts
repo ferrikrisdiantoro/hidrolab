@@ -23,7 +23,8 @@ export type DamFailureMode = "guling" | "geser" | null;
 
 /** Cara gagal yang digambar: guling didahulukan bila keduanya. */
 export function damFailureMode(fsOverturning: number, fsSliding: number, sumV: number): DamFailureMode {
-  if (sumV > 0 && fsOverturning < 1) return "guling";
+  if (!(sumV > 0)) return null;
+  if (fsOverturning < 1) return "guling";
   if (fsSliding < 1) return "geser";
   return null;
 }
