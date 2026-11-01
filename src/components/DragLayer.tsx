@@ -1,6 +1,13 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 import { useLang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { fmt } from "@/lib/hydraulics";
@@ -15,6 +22,7 @@ import {
   type NilaiSeret,
   type Pasangan,
 } from "@/lib/seret";
+import { apakahKetuk, masihKetuk, taruhKlik, taruhNilai, type AwalKetuk, type HasilTaruh } from "@/lib/taruh";
 import { usePresetTouch } from "./ui";
 
 /* ------------------------------------------------------------------ *
@@ -32,6 +40,11 @@ import { usePresetTouch } from "./ui";
  * Lapisnya pointer-events: none dan touch-action bawaan, jadi halaman tetap
  * bisa digulir dengan menyentuh gambar. Hanya pegangan (target 44 px) yang
  * menangkap sentuhan dan memakai touch-action: none.
+ *
+ * Prop `place` (opsional) menambah penangkap klik-taruh selebar lapis, di
+ * bawah pegangan, dengan touch-action pan-x pan-y pinch-zoom: ketuk menaruh
+ * titik, gulir tetap menggulir halaman. Tanpa `place` dan `onRemove` lapis
+ * ini sama persis dengan sebelumnya.
  */
 
 type HandleBase = {
@@ -48,6 +61,12 @@ type HandleBase = {
    * terlihat di dalamnya. Bawaan: berisi warna kertas.
    */
   hollow?: boolean;
+  /**
+   * Pegangan titik yang bisa dihapus (titik hasil `place`): Delete atau
+   * Backspace saat pegangan terfokus memanggil ini. Tanpa prop ini tombol
+   * tersebut tidak ditangkap, perilaku pegangan lama tidak berubah.
+   */
+  onRemove?: () => void;
 };
 
 export type HandleSpec1 = HandleBase & {
@@ -72,6 +91,31 @@ export type HandleSpec2 = HandleBase & {
 };
 
 export type HandleSpec = HandleSpec1 | HandleSpec2;
+
+/**
+ * Klik/ketuk di bidang plot utama (`out.map.frame`) menaruh titik baru.
+ * Titik yang sudah ada tetap pegangan biasa (HandleSpec2 dengan onRemove),
+ * jadi lembar memegang daftar titiknya sendiri; lapis ini hanya melaporkan
+ * posisi baru lewat onPlace.
+ */
+export type PlaceSpec = {
+  id: string;
+  /** aria-label tombol "Tambah", sudah dalam bahasa aktif. */
+  label: string;
+  /** SAMA dengan ParamDef penggeser/pegangan posisi titik. */
+  param: readonly [ParamDef, ParamDef];
+  /** Piksel CSS (dari pojok kiri atas kanvas) → nilai mentah, sebelum snap. */
+  toValue: (px: number, py: number, map: PlateMap) => readonly [number, number];
+  onPlace: (v: [number, number]) => void;
+  /** Jumlah titik sekarang. */
+  count: number;
+  /** Batas jumlah titik; bila count ≥ max tidak ditaruh dan diberi penanda "paling banyak N". */
+  max?: number;
+  /** Titik taruh tombol "Tambah" (keyboard), nilai mentah sebelum snap. */
+  fallback: readonly [number, number];
+  /** Teks nilai untuk penanda "dibatasi ke" dan pengumuman, sebaiknya dengan satuan. */
+  format?: (v: readonly [number, number]) => string;
+};
 
 /** Setengah target sentuh 44 px. */
 const R = 22;
@@ -102,6 +146,7 @@ function Pegangan({
   asli,
   map,
   touchLembar,
+  sesudahHapus,
 }: {
   spec: HandleSpec;
   /** Posisi tampil, sudah dijepit ke bidang plot. */
@@ -110,6 +155,8 @@ function Pegangan({
   asli: PlateAnchor;
   map: PlateMap;
   touchLembar?: () => void;
+  /** Dipanggil sesudah onRemove, untuk memindah fokus yang hilang bersama pegangan. */
+  sesudahHapus?: () => void;
 }) {
   const t = str(useLang().lang);
   // Pegangan duduk di Sheet, di luar Block, jadi konteks contoh sering
@@ -200,6 +247,13 @@ function Pegangan({
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const s = kini.current.spec;
+    if (s.onRemove && (e.key === "Delete" || e.key === "Backspace")) {
+      e.preventDefault();
+      touch();
+      s.onRemove();
+      sesudahHapus?.();
+      return;
+    }
     const baru =
       s.axis === "xy"
         ? tombolKeNilai(e.key, e.shiftKey, s.value, s.param)
@@ -234,6 +288,8 @@ function Pegangan({
         aria-valuemax={p1.max}
         aria-valuenow={now}
         aria-valuetext={teksNilai(spec, spec.value)}
+        aria-keyshortcuts={spec.onRemove ? "Delete Backspace" : undefined}
+        aria-description={spec.onRemove ? t.plRemoveHint : undefined}
         aria-orientation={
           spec.axis === "x" ? "horizontal" : spec.axis === "y" ? "vertical" : undefined
         }
@@ -326,6 +382,192 @@ function Pegangan({
   );
 }
 
+/** Lama penanda singkat (di luar bidang, paling banyak N, dibatasi ke) tampil. */
+const LAMA_TANDA = 1600;
+
+/**
+ * Penangkap klik-taruh: selapis DOM selebar lapis pegangan, di bawah
+ * pegangan. Sentuhan memakai touch-action pan-x pan-y pinch-zoom, jadi
+ * peramban tetap menggulir dan memperbesar halaman; begitu jari menggulir,
+ * peramban mengirim pointercancel atau jarinya bergeser lebih dari 6 px,
+ * dan calon ketuk dibuang (taruh.ts). Hanya ketuk/klik yang menaruh titik.
+ */
+function Penaruh({
+  spec,
+  map,
+  touchLembar,
+  tombolRef,
+}: {
+  spec: PlaceSpec;
+  map: PlateMap;
+  touchLembar?: () => void;
+  tombolRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const t = str(useLang().lang);
+  const touchBlok = usePresetTouch();
+  const touch = touchLembar ?? touchBlok;
+
+  const kini = useRef({ spec, map });
+  kini.current = { spec, map };
+
+  const calon = useRef<(AwalKetuk & { id: number }) | null>(null);
+  /** Jumlah penunjuk yang sedang turun; dua jari = cubit, bukan ketuk. */
+  const turun = useRef(new Set<number>());
+  const [tanda, setTanda] = useState<{ x: number; y: number; teks: string } | null>(null);
+  const [kabar, setKabar] = useState("");
+  const pewaktu = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (pewaktu.current) clearTimeout(pewaktu.current);
+    },
+    []
+  );
+
+  const tandai = (x: number, y: number, teks: string) => {
+    if (pewaktu.current) clearTimeout(pewaktu.current);
+    setTanda({ x, y, teks });
+    setKabar(teks);
+    pewaktu.current = setTimeout(() => setTanda(null), LAMA_TANDA);
+  };
+
+  const teks = (v: readonly [number, number]) => {
+    const s = kini.current.spec;
+    return s.format
+      ? s.format(v)
+      : `${fmt(v[0], s.param[0].digits ?? 2)}; ${fmt(v[1], s.param[1].digits ?? 2)}`;
+  };
+
+  const jalankan = (h: HasilTaruh, x: number, y: number) => {
+    const s = kini.current.spec;
+    if (h.jenis === "luar") {
+      tandai(x, y, t.plOutside);
+    } else if (h.jenis === "penuh") {
+      tandai(x, y, `${t.plAtMost} ${h.max}`);
+    } else {
+      touch();
+      s.onPlace([h.value[0], h.value[1]]);
+      if (h.clamped) {
+        tandai(x, y, `${t.inClampedTo} ${teks(h.value)}`);
+      } else {
+        if (pewaktu.current) clearTimeout(pewaktu.current);
+        setTanda(null);
+        setKabar(`${t.plAdded} ${teks(h.value)}`);
+      }
+    }
+  };
+
+  const titik = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    // Penunjuk utama = jari pertama: sisa id yang tidak pernah lepas dibuang.
+    if (e.isPrimary) turun.current.clear();
+    turun.current.add(e.pointerId);
+    if (turun.current.size > 1 || (e.pointerType === "mouse" && e.button !== 0)) {
+      calon.current = null;
+      return;
+    }
+    // Tanpa preventDefault: sentuhan harus tetap bisa menggulir halaman.
+    const p = titik(e);
+    calon.current = { ...p, t: e.timeStamp, jenis: e.pointerType, id: e.pointerId };
+  };
+
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const p = titik(e);
+    if (e.pointerType === "mouse") {
+      const f = kini.current.map.frame;
+      const di = p.x >= f.x0 && p.x <= f.x1 && p.y >= f.y0 && p.y <= f.y1;
+      e.currentTarget.style.cursor = di ? "crosshair" : "";
+    }
+    const c = calon.current;
+    if (c && c.id === e.pointerId && !masihKetuk(c, p.x, p.y, e.timeStamp)) calon.current = null;
+  };
+
+  const lepas = (e: PointerEvent<HTMLDivElement>) => {
+    turun.current.delete(e.pointerId);
+    const c = calon.current;
+    if (!c || c.id !== e.pointerId) return;
+    calon.current = null;
+    const p = titik(e);
+    if (!apakahKetuk(c, p.x, p.y, e.timeStamp)) return;
+    const { spec: s, map: m } = kini.current;
+    jalankan(
+      taruhKlik(p, m, { param: s.param, toValue: s.toValue, count: s.count, max: s.max }),
+      p.x,
+      p.y
+    );
+  };
+
+  const batal = (e: PointerEvent<HTMLDivElement>) => {
+    turun.current.delete(e.pointerId);
+    if (calon.current?.id === e.pointerId) calon.current = null;
+  };
+
+  const tambah = () => {
+    const s = kini.current.spec;
+    const f = kini.current.map.frame;
+    // Penanda tombol duduk tepat di bawah tombol (pojok kiri atas bidang):
+    // y < tepi atas + 34 membuat penanda turun ke bawah titik.
+    jalankan(taruhNilai(s.fallback, { param: s.param, count: s.count, max: s.max }), f.x0 + 8, f.y0 + 20);
+  };
+
+  const f = map.frame;
+  const penuhKini = spec.max !== undefined && spec.count >= spec.max;
+  // Penanda di atas titik, di bawahnya bila dekat tepi atas; rata kiri/kanan
+  // dekat tepi samping (sama dengan penanda potong pegangan).
+  const bawah = tanda ? tanda.y - f.y0 < 34 : false;
+  const geserX = !tanda ? "-50%" : tanda.x > f.x1 - 72 ? "-100%" : tanda.x < f.x0 + 72 ? "0%" : "-50%";
+
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        data-place={spec.id}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={lepas}
+        onPointerCancel={batal}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") e.currentTarget.style.cursor = "";
+        }}
+        className="pointer-events-auto absolute inset-0"
+        style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+      />
+      <button
+        ref={tombolRef}
+        type="button"
+        data-place-add={spec.id}
+        aria-label={spec.label}
+        aria-disabled={penuhKini || undefined}
+        onClick={tambah}
+        className="label pointer-events-none absolute whitespace-nowrap border border-ink bg-sheet px-2 py-1 text-[0.75rem] text-ink opacity-0 focus:pointer-events-auto focus:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water"
+        style={{ left: f.x0 + 6, top: f.y0 + 6 }}
+      >
+        {t.plAdd}
+      </button>
+      {tanda && (
+        <span
+          aria-hidden="true"
+          data-place-mark={spec.id}
+          className="pointer-events-none absolute left-0 top-0"
+          style={{
+            transform: `translate(${tanda.x}px, ${bawah ? tanda.y + 14 : tanda.y - 14}px) translate(${geserX}, ${bawah ? "0%" : "-100%"})`,
+          }}
+        >
+          <span className="label block whitespace-nowrap border border-rule bg-sheet px-1 text-[0.68rem] leading-tight text-ink-2">
+            {tanda.teks}
+          </span>
+        </span>
+      )}
+      <span role="status" className="sr-only" data-place-status={spec.id}>
+        {kabar}
+      </span>
+    </>
+  );
+}
+
 /**
  * Lapis pegangan seret. Taruh di dalam Sheet sesudah kanvas:
  *
@@ -343,12 +585,16 @@ export function DragLayer({
   out,
   handles,
   touch,
+  place,
 }: {
   out: PlateOut | null;
   handles: HandleSpec[];
   /** Pemadam tanda contoh dari lembar (useTouch di Block masukan). */
   touch?: () => void;
+  /** Klik/ketuk di bidang plot menaruh titik baru (lihat PlaceSpec). */
+  place?: PlaceSpec;
 }) {
+  const tombolRef = useRef<HTMLButtonElement>(null);
   if (!out) return null;
   const anchors = out.anchors ?? {};
   // Nilai ekstrem bisa membawa titik (garis energi, puncak, pintu terbuka
@@ -371,10 +617,23 @@ export function DragLayer({
   };
   return (
     <div className="pointer-events-none absolute inset-0">
+      {/* Penangkap taruh lebih dulu, supaya pegangan duduk di atasnya. */}
+      {place && <Penaruh spec={place} map={out.map} touchLembar={touch} tombolRef={tombolRef} />}
       {handles.map((h) => {
         const at = anchors[h.anchor];
         if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return null;
-        return <Pegangan key={h.id} spec={h} at={jepit(at)} asli={at} map={out.map} touchLembar={touch} />;
+        return (
+          <Pegangan
+            key={h.id}
+            spec={h}
+            at={jepit(at)}
+            asli={at}
+            map={out.map}
+            touchLembar={touch}
+            // Fokus hilang bersama pegangan yang dihapus; pindah ke tombol Tambah.
+            sesudahHapus={place ? () => tombolRef.current?.focus() : undefined}
+          />
+        );
       })}
     </div>
   );
