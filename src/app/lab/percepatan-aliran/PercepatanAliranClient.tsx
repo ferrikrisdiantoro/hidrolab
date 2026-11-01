@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -9,13 +9,28 @@ import {
   InputTable,
   PresetRow,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
-import { G, acceleration, fmt } from "@/lib/hydraulics";
+import { drawChart } from "@/lib/drawChart";
+import {
+  ACCEL_SWEEP,
+  accelRange,
+  createAccelMotion,
+  drawAccelMotion,
+  drawDuct,
+  ductSpan,
+  type AccelMotion,
+} from "@/lib/drawAccel";
+import { shiftMap } from "@/lib/drawFieldMotion";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
+import type { PlateMap, PlateOut } from "@/lib/plateOut";
+import { G, acceleration, fmt, fmtPlain } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -26,6 +41,9 @@ import { checksAcceleration } from "@/lib/checks";
 /** Diameter pangkal dan panjang saluran mengerucutnya, tetap. */
 const D1 = 0.2;
 const L = 0.5;
+/* Rentang penggeser x dan t; pegangan seret di gambar memakai yang sama. */
+const P_X: ParamDef = { min: 0, max: L, step: 0.01, digits: 2 };
+const P_T: ParamDef = { min: 0, max: ACCEL_SWEEP, step: 0.05, digits: 2 };
 
 const TXT = {
   id: {
@@ -50,6 +68,13 @@ const TXT = {
     takTunak: "Aliran tak tunak, kedua suku bekerja",
     kKonv: "konv",
     kLokal: "lokal",
+    motionNote:
+      "kursor waktu menyapu t dari 0 sampai 6 s, waktu nyata; kurva, panah, dan titik pada saat kursor, garis phantom = saat t penggeser. Seret titik di grafik bawah untuk memilih t dan titik di grafik tengah untuk memilih x",
+    ctJudul: (x: string) => `Percepatan di x = ${x} m terhadap waktu`,
+    axT: "waktu t, s",
+    axA: "percepatan, m/s²",
+    gT: "Saat yang ditinjau t, seret ke kiri atau kanan",
+    gX: "Penampang yang ditinjau x, seret ke kiri atau kanan",
     sState: (k: string, a: string, g: string, pct: string) =>
       `${k}: a = ${a} m/s² (${g} g), ${pct} % dari suku konvektif.`,
     nDiam: (a: string, b: string) =>
@@ -91,6 +116,13 @@ const TXT = {
     takTunak: "Unsteady flow, both terms are at work",
     kKonv: "conv",
     kLokal: "local",
+    motionNote:
+      "the time cursor sweeps t from 0 to 6 s in real time; curves, arrows and dots are at the cursor instant, phantom lines = the slider t. Drag the dot on the lower graph to choose t and the dot on the middle graph to choose x",
+    ctJudul: (x: string) => `Acceleration at x = ${x} m against time`,
+    axT: "time t, s",
+    axA: "acceleration, m/s²",
+    gT: "Instant examined t, drag left or right",
+    gX: "Station examined x, drag left or right",
     sState: (k: string, a: string, g: string, pct: string) =>
       `${k}: a = ${a} m/s² (${g} g), ${pct} % from the convective term.`,
     nDiam: (a: string, b: string) =>
@@ -146,14 +178,38 @@ export function PercepatanAliranClient() {
   const Ax = (Math.PI * Dx * Dx) / 4;
   const Qt = Q0 * (1 + swing * Math.sin(omega * waktu));
 
-  const ref = useCanvas(
-    (ctx, w, ch) => {
+  /* Lapis gerak (Phase 2): kursor waktu menyapu masukan t dari 0 sampai
+     6 s dalam waktu nyata dan model dihitung ulang tiap frame (accelTerms,
+     rumus yang sama dengan acceleration()). Tiga bidang dalam satu kanvas,
+     satu jam: sketsa saluran dengan panah suku lokal/konvektif (bersisa
+     satu panjang panah di kedua sisi, jadi panah tidak pernah terpotong),
+     profil a(x),
+     dan grafik a(t) di penampang x. Selagi bergerak, kurva dan panah saat
+     t penggeser digambar rambut phantom. */
+  const { playing, toggle: togglePutar } = usePutar();
+  /* Pemadam tanda contoh untuk pegangan di gambar (di luar Block masukan). */
+  const sentuh = useRef<() => void>(() => {});
+  const gerak = useRef<AccelMotion | null>(null);
+  if (gerak.current === null) gerak.current = createAccelMotion();
+  const bergerak = playing;
+  /* Rentang sumbu dan skala panah selama seluruh sapuan, supaya tanda di
+     setiap saat kursor tetap di dalam bidang. Pada aliran tunak sama dengan
+     rentang profil saat ini. */
+  const rentangProfil = accelRange(Q0, swing, omega, D1, D2, L, null, ACCEL_SWEEP, 240, 80);
+  const rentangDi = accelRange(Q0, swing, omega, D1, D2, L, pos);
+
+  const plate = usePlate(
+    (ctx, w, ch): PlateOut => {
+      const hDuct = Math.round(Math.min(140, Math.max(100, ch * 0.16)));
+      const hCt = Math.round(Math.min(240, Math.max(170, ch * 0.27)));
+      const hProf = ch - hDuct - hCt;
+
       const garis: FieldLine[] = [
         {
           pts: r.profile.map((p) => ({ x: p.x, y: p.convective })),
           color: C.critical,
-          weight: W.bold,
-          dash: DASH.solid,
+          weight: bergerak ? W.hair : W.bold,
+          dash: bergerak ? DASH.phantom : DASH.solid,
           label: T.convectiveAccel,
           labelAt: 0.82,
           labelDy: -10,
@@ -162,8 +218,8 @@ export function PercepatanAliranClient() {
         {
           pts: r.profile.map((p) => ({ x: p.x, y: p.local })),
           color: C.water,
-          weight: W.bold,
-          dash: DASH.hidden,
+          weight: bergerak ? W.hair : W.bold,
+          dash: bergerak ? DASH.phantom : DASH.hidden,
           label: T.localAccel,
           labelAt: 0.2,
           labelDy: 16,
@@ -172,8 +228,8 @@ export function PercepatanAliranClient() {
         {
           pts: r.profile.map((p) => ({ x: p.x, y: p.local + p.convective })),
           color: C.energy,
-          weight: W.thin,
-          dash: DASH.solid,
+          weight: bergerak ? W.hair : W.thin,
+          dash: bergerak ? DASH.phantom : DASH.solid,
           label: T.totalAccel,
           labelAt: 0.52,
           labelDy: -12,
@@ -181,23 +237,20 @@ export function PercepatanAliranClient() {
         },
       ];
 
-      const nilai = r.profile.flatMap((p) => [
-        p.local,
-        p.convective,
-        p.local + p.convective,
-      ]);
-      const atas = Math.max(...nilai, 0);
-      const bawah = Math.min(...nilai, 0);
+      const atas = rentangProfil.max;
+      const bawah = rentangProfil.min;
       const jarak = Math.max(atas - bawah, 1e-6);
 
       const titik: FieldMarker[] = [
         { x: pos, y: r.total, color: C.energy, size: 5, filled: true },
       ];
 
-      drawField(
+      ctx.save();
+      ctx.translate(0, hDuct);
+      const prof = drawField(
         ctx,
         w,
-        ch,
+        hProf,
         {
           xMin: 0,
           xMax: L,
@@ -212,9 +265,115 @@ export function PercepatanAliranClient() {
         },
         lang
       );
+      ctx.restore();
+      const peta = shiftMap(prof.map, hDuct);
+
+      const duct = drawDuct(ctx, w, hDuct, {
+        D1,
+        D2,
+        L,
+        x: pos,
+        local: r.local,
+        convective: r.convective,
+        absMax: rentangDi.absMax,
+        px0: ductSpan(w)[0],
+        px1: ductSpan(w)[1],
+        faded: bergerak,
+        labels: { local: "∂u/∂t", convective: "u ∂u/∂x", total: "a", station: "x" },
+      });
+      /* Garis pemisah sketsa dan profil. */
+      ctx.fillStyle = C.rule;
+      ctx.fillRect(0, hDuct - 1, w, 1);
+
+      const n = 240;
+      const lokal: { x: number; y: number }[] = [];
+      const konv: { x: number; y: number }[] = [];
+      const total: { x: number; y: number }[] = [];
+      for (let i = 0; i <= n; i++) {
+        const tt = (ACCEL_SWEEP * i) / n;
+        const q = acceleration(Q0, swing, omega, D1, D2, L, pos, tt);
+        lokal.push({ x: tt, y: q.local });
+        konv.push({ x: tt, y: q.convective });
+        total.push({ x: tt, y: q.total });
+      }
+      const jarakT = Math.max(rentangDi.max - rentangDi.min, 1e-6);
+      ctx.save();
+      ctx.translate(0, hDuct + hProf);
+      const grafik = drawChart(
+        ctx,
+        w,
+        hCt,
+        {
+          xMin: 0,
+          xMax: ACCEL_SWEEP,
+          yMin: rentangDi.min - jarakT * 0.12,
+          yMax: rentangDi.max + jarakT * 0.18,
+          axisX: x.axT,
+          axisY: x.axA,
+          title: x.ctJudul(fmtPlain(pos, 2)),
+          series: [
+            { pts: konv, color: C.critical, weight: W.thin },
+            { pts: lokal, color: C.water, weight: W.thin, dash: DASH.hidden },
+            { pts: total, color: C.energy, weight: W.bold },
+          ],
+          rules: [{ axis: "x", at: waktu, color: C.ink3, weight: W.hair, dash: DASH.phantom }],
+          markers: [{ x: waktu, y: r.total, color: C.energy }],
+        },
+        lang
+      );
+      ctx.restore();
+      const ct = shiftMap(grafik.map, hDuct + hProf);
+
+      return {
+        map: peta,
+        maps: { duct: duct.map, ct },
+        anchors: {
+          stasiun: { x: peta.X(pos), y: peta.Y(r.total) },
+          waktu: { x: ct.X(waktu), y: ct.Y(r.total) },
+        },
+      };
     },
-    [Q0, swing, omega, D2, pos, waktu, lang]
+    (ctx, _w, _h, tt, _dt, out) =>
+      drawAccelMotion(
+        ctx,
+        tt,
+        out,
+        { Q0, swing, omega, D1, D2, L, x: pos, absMax: rentangDi.absMax },
+        gerak.current!
+      ),
+    [Q0, swing, omega, D2, pos, waktu, lang, bergerak],
+    { playing }
   );
+
+  const keX = (px: number, _py: number, m: PlateMap) => m.invX(px);
+  const pegangan: HandleSpec[] = [
+    {
+      id: "waktu",
+      anchor: "waktu",
+      label: x.gT,
+      axis: "x",
+      param: P_T,
+      value: waktu,
+      /* Pegangan di grafik a(t): sumbu datarnya detik. */
+      toValue: (px) => plate.outRef.current?.maps?.ct?.invX(px) ?? waktu,
+      onChange: setWaktu,
+      tint: C.energy,
+      format: (v) => `${fmt(v, 2)} s`,
+    },
+    {
+      id: "stasiun",
+      anchor: "stasiun",
+      label: x.gX,
+      axis: "x",
+      param: P_X,
+      value: pos,
+      toValue: keX,
+      onChange: setPos,
+      tint: C.energy,
+      hollow: true,
+      format: (v) => `${fmt(v, 2)} m`,
+    },
+  ];
 
   return (
     <LabShell
@@ -250,13 +409,23 @@ export function PercepatanAliranClient() {
             { label: x.kKonv, value: `${fmt(r.convective, 1)} m/s²`, tint: C.critical },
             { label: x.kLokal, value: `${fmt(r.local, 1)} m/s²`, tint: C.water },
           ]}
+          height="calc(clamp(360px, 56vh, 620px) + clamp(270px, 40vh, 380px))"
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          <DragLayer out={plate.outRef.current} handles={pegangan} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="Q₀" label={x.dQ} value={Q0 * 1000} min={5} max={500} step={5} digits={0} unit="l/s" onChange={(v) => setQ0(v / 1000)} tint={C.water} />
               <InputRow symbol="s" label={x.dS} value={swing} min={0} max={0.9} step={0.05} digits={2} onChange={setSwing} />
