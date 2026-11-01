@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,16 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
+import { DragLayer } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import { type FieldLine, type FieldMarker } from "@/lib/drawField";
+import { HABITAT_SUITABLE_MIN, drawHabitatPlate } from "@/lib/drawHabitatMap";
 import {
   HABITAT_BEST_DEPTH,
   HABITAT_BEST_VELOCITY,
@@ -35,6 +39,14 @@ const TXT = {
     title: "Habitat sungai",
     sheetTitle: "Luas layak terbobot terhadap debit, pada penampang parabola",
     dQ: "Debit",
+    gQ: "Debit Q, seret titik di lengkung luas layak ke kiri atau ke kanan",
+    petaJudul: "Peta habitat, reach seragam",
+    kDangkal: "Terlalu dangkal",
+    kLayak: "Layak",
+    kDeras: "Terlalu deras",
+    aliran: "Aliran",
+    petaNote: (ambang: string) =>
+      `Peta di bawah lengkung adalah tampak atas reach seragam: 60 pias penampang model yang sama diulang sepanjang aliran, jadi jalurnya sejajar tepi. Pias disebut layak bila f(d) · f(V) ≥ ${ambang}; pias lain dinamai menurut pembatasnya, terlalu dangkal (atau lambat) di tepi dan terlalu deras (atau dalam) di alur. Reach berselang riffle dan pool butuh model geometri dasar yang belum ada di lembar ini.`,
     dW: "Lebar sungai pada muka air penuh",
     dS: "Kemiringan dasar",
     dN: "Angka kekasaran Manning",
@@ -71,6 +83,14 @@ const TXT = {
     title: "River habitat",
     sheetTitle: "Weighted usable area against discharge, on a parabolic section",
     dQ: "Discharge",
+    gQ: "Discharge Q, drag the point on the usable area curve left or right",
+    petaJudul: "Habitat map, uniform reach",
+    kDangkal: "Too shallow",
+    kLayak: "Suitable",
+    kDeras: "Too fast",
+    aliran: "Flow",
+    petaNote: (ambang: string) =>
+      `The map below the curve is a plan view of a uniform reach: the model's 60 cross-section strips repeated along the flow, so the bands run parallel to the banks. A strip is suitable when f(d) · f(V) ≥ ${ambang}; other strips are named by their limiting factor, too shallow (or slow) near the banks and too fast (or deep) in the channel. A reach of alternating riffles and pools needs a bed geometry model that this sheet does not have.`,
     dW: "River width at bankfull",
     dS: "Bed slope",
     dN: "Manning roughness",
@@ -120,6 +140,15 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang debit: satu definisi untuk penggeser, kotak angka, dan pegangan
+ * seret di lengkung luas layak (aturan 4, satu sumber nilai).
+ */
+const P_Q: ParamDef = { min: 0.05, max: 120, step: 0.05, digits: 2 };
+
+/** Batas sumbu lengkung, dikunci selama pegangan diseret. */
+type Bidang = { qMax: number; uMax: number };
+
 export function HabitatSungaiClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -147,7 +176,18 @@ export function HabitatSungaiClient() {
   const rasioQ = Q / r.bestDischarge;
   const nada: Tone = potong ? "invalid" : r.pastPeak ? "caution" : "water";
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+  /*
+   * Batas sumbu dikunci selama pegangan diseret. Tanpa kunci, ujung kanan
+   * sumbu debit mengikuti Q (lengkung model sampai max(5 Qopt, 1,3 Q)), jadi
+   * tiap piksel geseran mengubah skala dan pegangan saling kejar dengan
+   * sumbunya. Dilepas = sumbu kembali dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<Bidang | null>(null);
+  const bidangRef = useRef<Bidang | null>(null);
+  const lepasKunci = () => setKunci(null);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const garis: FieldLine[] = [
         {
@@ -189,10 +229,14 @@ export function HabitatSungaiClient() {
         },
       ];
 
-      const qMax = Math.max(...r.curve.map((p) => p.Q), Q) * 1.06;
-      const uMax = Math.max(...r.curve.map((p) => p.usable), r.usableArea) * 1.18;
+      const bebas: Bidang = {
+        qMax: Math.max(...r.curve.map((p) => p.Q), Q) * 1.06,
+        uMax: Math.max(...r.curve.map((p) => p.usable), r.usableArea) * 1.18,
+      };
+      bidangRef.current = bebas;
+      const { qMax, uMax } = kunci ?? bebas;
 
-      drawField(
+      return drawHabitatPlate(
         ctx,
         w,
         ch,
@@ -204,15 +248,43 @@ export function HabitatSungaiClient() {
           equalScale: false,
           lines: garis,
           markers: titik,
+          /* Titik kerja sebagai titik bernama, tidak disaring bingkai: saat
+             sumbu dikunci dan Q lewat ujung kanan, DragLayer menjepit
+             pegangan ke tepi bidang, tidak menghilangkannya. */
+          anchors: { kerja: { x: Q, y: Number.isFinite(r.usableArea) ? r.usableArea : 0 } },
           heading: r.pastPeak ? x.turun : x.naik,
           headingColor: r.pastPeak ? C.caution : C.water,
           axisX: T.axDischargeQ,
           axisY: T.axUsable,
         },
+        {
+          cells: r.cells,
+          width: lebar,
+          bestDepth: HABITAT_BEST_DEPTH,
+          bestVelocity: HABITAT_BEST_VELOCITY,
+          title: x.petaJudul,
+          widthText: `W = ${fmtPlain(lebar, 0)} m`,
+          flowText: x.aliran,
+          kinds: {
+            shallow: x.kDangkal,
+            suitable: `${x.kLayak} (f ≥ ${fmtPlain(HABITAT_SUITABLE_MIN, 1)})`,
+            fast: x.kDeras,
+          },
+          share: (f) => `${fmtPlain(f * 100, 0)} %`,
+        },
         lang
       );
     },
-    [Q, lebar, kemiringan, n, lang]
+    null,
+    [
+      Q,
+      lebar,
+      kemiringan,
+      n,
+      lang,
+      kunci ? kunci.qMax : NaN,
+      kunci ? kunci.uMax : NaN,
+    ]
   );
 
   return (
@@ -242,15 +314,15 @@ export function HabitatSungaiClient() {
         lang === "id" ? (
           <p>
             Debit terbaik bagi ikan bukan sebanyak-banyaknya. Terlalu kecil
-            terlalu <Term tint={C.water}>dangkal</Term>, terlalu besar terlalu{" "}
-            <Term tint={C.critical}>deras</Term>, dan di antaranya ada satu
+            terlalu <Term tint={C.habitatShallow}>dangkal</Term>, terlalu besar terlalu{" "}
+            <Term tint={C.habitatFast}>deras</Term>, dan di antaranya ada satu
             puncak.
           </p>
         ) : (
           <p>
             The best discharge for fish is not the largest. Too little is too{" "}
-            <Term tint={C.water}>shallow</Term>, too much is too{" "}
-            <Term tint={C.critical}>fast</Term>, and between them lies a single
+            <Term tint={C.habitatShallow}>shallow</Term>, too much is too{" "}
+            <Term tint={C.habitatFast}>fast</Term>, and between them lies a single
             peak.
           </p>
         )
@@ -260,6 +332,9 @@ export function HabitatSungaiClient() {
           number="EH-06"
           title={x.sheetTitle}
           rev="A"
+          /* Lebih tinggi daripada bawaan: peta habitat ditumpuk di bawah
+             lengkung luas layak. */
+          height="clamp(440px, 60vh, 660px)"
           cells={[
             { label: t.tbUnit, value: "SI (m³/s, m, m²)" },
             { label: "WUA", value: potong ? "—" : `${fmt(r.usableArea, 2)} m²`, tint: C.energy },
@@ -268,19 +343,56 @@ export function HabitatSungaiClient() {
             { label: "V", value: potong ? "—" : `${fmt(r.meanVelocity, 2)} m/s` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          {/* display: contents; hanya menangkap pointerdown/lepas dari
+              pegangan untuk mengunci sumbu (pola BendungOgee). */}
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              if (bidangRef.current) setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer
+              out={plate.outRef.current}
+              touch={() => sentuh.current()}
+              handles={[
+                {
+                  id: "debit",
+                  anchor: "kerja",
+                  axis: "x",
+                  label: x.gQ,
+                  param: P_Q,
+                  value: Q,
+                  tint: C.energy,
+                  hollow: true,
+                  /* Pemetaan balik: sumbu debit lurus dari nol, Q = invX(px).
+                     Luas layak tidak diseret: ia hasil model pada Q itu. */
+                  toValue: (px, _py, m) => m.invX(px),
+                  onChange: setQ,
+                  format: (v) => `${fmt(v, 2)} m³/s`,
+                },
+              ]}
+            />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="Q" label={x.dQ} value={Q} min={0.05} max={120} step={0.05} digits={2} unit="m³/s" onChange={setQ} tint={C.energy} />
+              <InputRow symbol="Q" label={x.dQ} value={Q} {...P_Q} unit="m³/s" onChange={setQ} tint={C.energy} />
               <InputRow symbol="W" label={x.dW} value={lebar} min={2} max={120} step={1} digits={0} unit="m" onChange={setLebar} />
               <InputRow symbol="S" label={x.dS} value={kemiringan * 1000} min={0.2} max={20} step={0.1} digits={1} unit="‰" onChange={(v) => setKemiringan(v / 1000)} />
               <InputRow symbol="n" label={x.dN} value={n} min={0.018} max={0.08} step={0.001} digits={3} onChange={setN} />
             </InputTable>
 
+            <SentuhContoh sentuh={sentuh} />
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
@@ -427,6 +539,7 @@ function notice(
         `Halve the discharge and the usable area becomes ${fmt(setengah.usableArea, 2)} m²; double it and it becomes ${fmt(dua.usableArea, 2)} m².`,
         `The peak sits at ${qOpt} m³/s. Beyond it more water buys less habitat, and a maintenance flow argued for on the grounds that more is better would in that range be arguing against the fish.`,
         "More water is not always more habitat.",
+        x.petaNote(fmt(HABITAT_SUITABLE_MIN, 1)),
         x.basahNote,
       ],
     };
@@ -436,6 +549,7 @@ function notice(
       `Separuhkan debitnya dan luas layaknya menjadi ${fmt(setengah.usableArea, 2)} m²; lipatduakan dan ia menjadi ${fmt(dua.usableArea, 2)} m².`,
       `Puncaknya terletak di ${qOpt} m³/s. Melewati puncak itu, air yang lebih banyak justru membeli habitat yang lebih sedikit, dan debit pemeliharaan yang diperjuangkan dengan alasan makin banyak makin baik, pada rentang itu, sedang diperjuangkan melawan ikannya.`,
       "Lebih banyak air tidak selalu berarti lebih banyak habitat.",
+      x.petaNote(fmt(HABITAT_SUITABLE_MIN, 1)),
       x.basahNote,
     ],
   };
