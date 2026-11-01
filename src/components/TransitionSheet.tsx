@@ -570,7 +570,7 @@ const UMUM = {
     gB1: "Lebar hulu b₁, seret dinding saluran di tampak atas ke atas atau ke bawah",
     gB2: "Lebar hilir b₂, seret dinding saluran di tampak atas ke atas atau ke bawah",
     motion:
-      "partikel bergerak dengan V = Q/(b·y) penampang, denah berskala sama ke dua arah; warna makin pekat makin cepat, satu tingkat per 20 % terhadap V₁; ",
+      "partikel bergerak dengan V = Q/(b·y) penampang, denah berskala sama ke dua arah; warna makin pekat makin cepat, satu tingkat per 20 % terhadap V₁, 5 tingkat dengan ujung jenuh; panah saat dijeda hanya menunjukkan arah; ",
     motionReal: "waktu nyata",
     motionFast: (n: string) => `waktu dipercepat ×${n}`,
     motionSlow: (n: string) => `waktu diperlambat ×${n}`,
@@ -609,7 +609,7 @@ const UMUM = {
     gB1: "Upstream width b₁, drag the channel wall in plan view up or down",
     gB2: "Downstream width b₂, drag the channel wall in plan view up or down",
     motion:
-      "particles move at the section velocity V = Q/(b·y), plan drawn to the same scale both ways; darker means faster, one step per 20 % relative to V₁; ",
+      "particles move at the section velocity V = Q/(b·y), plan drawn to the same scale both ways; darker means faster, one step per 20 % relative to V₁, 5 steps with saturated ends; arrows when paused show direction only; ",
     motionReal: "real time",
     motionFast: (n: string) => `time sped up ×${n}`,
     motionSlow: (n: string) => `time slowed ×${n}`,

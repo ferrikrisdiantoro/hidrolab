@@ -419,7 +419,8 @@ function drawPlan(
 
   /* Panah arah aliran saat lapis gerak dijeda: di sumbu, panjang 22 px untuk
      V₁ dan sebanding V = Q/(b·y) untuk hilir (kontinuitas: V₂/V₁ =
-     b₁·y₁ / (b₂·y₂)). Tidak digambar bila aliran tersendat. */
+     b₁·y₁ / (b₂·y₂)), dijepit 8–66 px supaya tetap terbaca; catatan gerak
+     menyebut panah ini hanya arah. Tidak digambar bila aliran tersendat. */
   if (opts.panah && !s.r.choked) {
     const A1 = s.b1 * depthAt(0);
     const A2 = s.b2 * depthAt(1);

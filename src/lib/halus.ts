@@ -19,6 +19,8 @@ export function langkahHalus(
   tau: number,
   eps: number
 ): number {
+  // Sasaran tak terhingga atau NaN: langsung, supaya gelung rAF berhenti.
+  if (!Number.isFinite(sasaran) || !Number.isFinite(kini)) return sasaran;
   if (kini === sasaran) return sasaran;
   if (!(dt > 0)) return kini;
   const baru = sasaran + (kini - sasaran) * Math.exp(-dt / tau);
