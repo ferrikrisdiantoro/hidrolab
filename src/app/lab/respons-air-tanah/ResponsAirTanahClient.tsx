@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,24 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
+import {
+  drawAquiferSection,
+  drawAquiferState,
+  drawTimeCursor,
+  offsetMap,
+  readAquifer,
+  type AquiferLayout,
+} from "@/lib/drawBasin";
+import type { PlateMap, PlateOut } from "@/lib/plateOut";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { aquiferResponse, fmt, fmtPlain } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
@@ -53,6 +65,17 @@ const TXT = {
     negatif: "Imbuhan negatif pada sebagian musim",
     negatifNote:
       "Simpangan musiman lebih besar daripada imbuhan rata-ratanya, jadi pada sebagian musim imbuhannya bernilai negatif: tanah menyerahkan air ke atas, bukan menerimanya. Rumus sinus yang dipakai lembar ini tidak mengenal batas itu. Penguapan dari muka air tanah yang dangkal memang ada, tetapi besarnya tidak mengikuti sinus ini, jadi bagian musim itu dibaca sebagai batas model, bukan sebagai keadaan lapangan.",
+    dDay: "Kursor waktu, hari ke-",
+    gDay: "Kursor waktu t, seret garis waktu di grafik ke kiri atau kanan",
+    lGround: "muka tanah",
+    lAquifer: "akuifer, tampungan tunggal",
+    lRiver: "sungai",
+    lWell: "sumur",
+    lBase: "lapisan kedap",
+    lSchematic: "penampang skematik",
+    lReversed: "q negatif, tidak berlaku",
+    motionNote:
+      "Waktu dipercepat: satu detik layar = 24 hari. Yang dihitung model hanya satu tinggi muka air h; lengkung muka air di penampang dan letak sumur skematik, dan muka sungai tetap karena aliran sungai ke akuifer tidak dimodelkan.",
     hTau: "Tetapan waktu akuifer",
     hMean: "Muka air rata-rata",
     hAmp: "Peredaman dan simpangan",
@@ -93,6 +116,17 @@ const TXT = {
     negatif: "Negative recharge for part of the season",
     negatifNote:
       "The seasonal swing is larger than the mean recharge, so for part of the season the recharge is negative: the ground gives water up rather than receiving it. The sine law used on this sheet knows no such limit. Evaporation from a shallow water table does exist, but it does not follow this sine, so that part of the season should be read as a limit of the model, not as a field condition.",
+    dDay: "Time cursor, day",
+    gDay: "Time cursor t, drag the time line on the chart left or right",
+    lGround: "ground surface",
+    lAquifer: "aquifer, single store",
+    lRiver: "river",
+    lWell: "well",
+    lBase: "impermeable base",
+    lSchematic: "schematic section",
+    lReversed: "q negative, invalid",
+    motionNote:
+      "Time is sped up: one screen second = 24 days. The model computes a single water table height h; the curved table in the section and the well position are schematic, and the river level is fixed because river-to-aquifer flow is not modelled.",
     hTau: "Aquifer time constant",
     hMean: "Mean water table",
     hAmp: "Damping and swing",
@@ -122,6 +156,9 @@ const REFS = {
   ],
 } as const;
 
+/** Kursor waktu: satu definisi untuk penggeser dan pegangan di grafik. */
+const P_HARI: ParamDef = { min: 0, max: 365, step: 1, digits: 0 };
+
 export function ResponsAirTanahClient() {
   const { lang } = useLang();
   const mmHari = lang === "id" ? "mm/hari" : "mm/day";
@@ -148,8 +185,41 @@ export function ResponsAirTanahClient() {
   const omega = (2 * Math.PI) / 365;
   const lamban = r.lagFraction > 0.125;
 
-  const ref = useCanvas(
-    (ctx, w, ch) => {
+  /* Kursor waktu (hari ke-). Saat animasi berjalan, harinya maju di lapis
+     gerak dan dibaca dari deret model yang sama; saat dijeda, hari terakhir
+     disimpan ke kursor supaya gambar diam sama dengan bingkai terakhir. */
+  const [kursor, setKursor] = useState(91);
+  const { playing, toggle: togglePutar } = usePutar();
+  const bergerak = playing;
+  const sentuh = useRef<() => void>(() => {});
+  const tataRef = useRef<AquiferLayout | null>(null);
+  const petaGrafik = useRef<PlateMap | null>(null);
+  const skalaRef = useRef<(v: number) => number>((v) => v);
+  const mulai = useRef<{ tt: number | null; hari: number; kini: number }>({ tt: null, hari: 91, kini: 91 });
+  const kini = useRef({ head: 0, recharge: 0, outflow: 0 });
+  const titikKursor = useRef<[number, string][]>([
+    [0, C.water],
+    [0, C.ink3],
+  ]);
+  /** Hari model per detik layar */
+  const LAJU = 24;
+
+  const fluxMax = Math.max(
+    pompa,
+    ...r.series.map((p) => Math.max(Math.abs(p.recharge), Math.abs(p.outflow)))
+  );
+  const labelPenampang = {
+    ground: x.lGround,
+    aquifer: x.lAquifer,
+    river: x.lRiver,
+    well: x.lWell,
+    base: x.lBase,
+    schematic: x.lSchematic,
+    unit: mmHari,
+    reversed: x.lReversed,
+  };
+
+  const grafik = (ctx: CanvasRenderingContext2D, w: number, ch: number) => {
       const yMin = Math.min(r.minHead, 0) - Math.max(r.amplitude * 0.5, 0.05);
       const yAtas = r.runsDry ? Math.max(0, r.maxHead) : r.maxHead;
       /*
@@ -177,6 +247,7 @@ export function ResponsAirTanahClient() {
       const skala = (v: number) =>
         yMin +
         ((v - imbMin) / Math.max(imbMax - imbMin, 1e-9)) * (yMax - yMin) * 0.9;
+      skalaRef.current = skala;
 
       const deret: ChartSeries[] = [
         {
@@ -215,7 +286,7 @@ export function ResponsAirTanahClient() {
           labelDy: -10,
         });
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         ch,
@@ -256,9 +327,93 @@ export function ResponsAirTanahClient() {
         },
         lang
       );
+  };
+
+  const plate = usePlate(
+    (ctx, w, h) => {
+      /* Penampang di atas, grafik deret waktu di bawah; kursor yang sama. */
+      const hSec = Math.round(Math.min(Math.max(h * 0.4, 170), 300));
+      const keadaan = { head: 0, recharge: 0, outflow: 0 };
+      readAquifer(r.series, kursor, keadaan);
+      const sec = drawAquiferSection(
+        ctx,
+        w,
+        hSec,
+        {
+          head: keadaan.head,
+          minHead: r.minHead,
+          maxHead: r.maxHead,
+          recharge: keadaan.recharge,
+          outflow: keadaan.outflow,
+          pumping: pompa,
+          fluxMax,
+          Sy,
+        },
+        { labels: labelPenampang, withState: !bergerak, padR: 46 }
+      );
+      tataRef.current = sec.layout;
+      ctx.save();
+      ctx.translate(0, hSec);
+      const out = grafik(ctx, w, h - hSec);
+      ctx.restore();
+      const peta = offsetMap(out.map, 0, hSec);
+      petaGrafik.current = peta;
+      if (!bergerak) {
+        titikKursor.current[0][0] = keadaan.head;
+        titikKursor.current[1][0] = skalaRef.current(keadaan.recharge);
+        drawTimeCursor(ctx, peta, kursor, titikKursor.current);
+      }
+      const hasil: PlateOut = {
+        map: peta,
+        anchors: { kursor: { x: peta.X(kursor), y: peta.frame.y1 - 10 } },
+        maps: { section: sec.out.map },
+      };
+      return hasil;
     },
-    [rata, ayun, pompa, Sy, alpha, lang]
+    (ctx, w, h, tt) => {
+      const tata = tataRef.current;
+      const peta = petaGrafik.current;
+      if (!tata || !peta) return;
+      const m = mulai.current;
+      if (m.tt === null) m.tt = tt;
+      let d = (m.hari + (tt - m.tt) * LAJU) % 365;
+      if (d < 0) d += 365;
+      m.kini = d;
+      const k = kini.current;
+      readAquifer(r.series, d, k);
+      drawAquiferState(ctx, tata, k.head, k.recharge, k.outflow);
+      titikKursor.current[0][0] = k.head;
+      titikKursor.current[1][0] = skalaRef.current(k.recharge);
+      drawTimeCursor(ctx, peta, d, titikKursor.current);
+    },
+    [rata, ayun, pompa, Sy, alpha, lang, kursor, bergerak],
+    { playing }
   );
+
+  const putar = () => {
+    if (playing) setKursor(Math.round(mulai.current.kini) % 366);
+    else {
+      mulai.current.tt = null;
+      mulai.current.hari = kursor;
+    }
+    togglePutar();
+  };
+
+  const handles: HandleSpec[] = bergerak
+    ? []
+    : [
+        {
+          id: "kursor",
+          anchor: "kursor",
+          axis: "x",
+          label: x.gDay,
+          param: P_HARI,
+          value: kursor,
+          toValue: (px, _py, m) => m.invX(px),
+          onChange: setKursor,
+          format: (v) => `${lang === "id" ? "hari ke-" : "day "}${fmt(v, 0)}`,
+        },
+      ];
 
   return (
     <LabShell
@@ -312,6 +467,8 @@ export function ResponsAirTanahClient() {
           number="GW-03"
           title={x.sheetTitle}
           rev="A"
+          height="clamp(560px, 82vh, 860px)"
+          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: x.motionNote }}
           cells={[
             { label: t.tbUnit, value: lang === "id" ? "SI (m, mm/hari)" : "SI (m, mm/day)" },
             { label: "τ", value: `${fmt(r.tau, 0)} ${lang === "id" ? "hari" : "d"}`, tint: C.critical },
@@ -330,7 +487,9 @@ export function ResponsAirTanahClient() {
             { label: "Sy", value: fmt(Sy, 2) },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
@@ -342,7 +501,9 @@ export function ResponsAirTanahClient() {
               <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit={mmHari} onChange={setPompa} tint={C.critical} />
               <InputRow symbol="Sy" label={x.dSy} value={Sy} min={0.02} max={0.4} step={0.01} digits={2} onChange={setSy} />
               <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit={lang === "id" ? "10⁻³/hari" : "10⁻³/d"} onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
+              <InputRow symbol="t" label={x.dDay} value={kursor} {...P_HARI} unit={hari} onChange={setKursor} />
             </InputTable>
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
