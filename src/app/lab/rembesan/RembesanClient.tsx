@@ -258,7 +258,15 @@ export function RembesanClient() {
       };
 
       const masuk = mUp * Math.min(H, Hd);
-      const garis: StructureLine[] = [
+      /*
+       * Di luar rentang lembar (drainase melampaui kaki lereng hilir) garis
+       * freatiknya tidak bermakna: parabolanya runtuh ke satu titik di fokus.
+       * Zona jenuh, koreksi masuk, nama garis freatik, panah rembesan, dan
+       * ukuran y₀ karena itu tidak digambar sama sekali. Dulu namanya tetap
+       * tertulis tanpa garisnya, dan di HP zona jenuhnya tinggal serpihan
+       * titik merah.
+       */
+      const garis: StructureLine[] = !sah ? [] : [
         {
           /* Koreksi titik masuk Casagrande, digambar terpisah karena memang
              bukan bagian parabolanya melainkan peralihan yang dibuat tangan */
@@ -286,7 +294,7 @@ export function RembesanClient() {
          selebar nol (satu titik), garis freatik sudah digambar sebagai
          muka zona jenuh. */
       const titikF = r.phreatic[Math.floor(r.phreatic.length * 0.4)];
-      garis.push({
+      if (sah) garis.push({
         pts: [titikF, titikF],
         color: C.water,
         weight: W.thin,
@@ -305,15 +313,16 @@ export function RembesanClient() {
           text: `H ${fmtPlain(Math.min(H, Hd), 2)} m`,
           color: C.water,
         },
-        {
+      ];
+      if (sah)
+        dims.push({
           axis: "v",
           at: g.toeDown + pinggirKanan * 0.6,
           from: 0,
           to: r.y0,
           text: `y₀ ${fmtPlain(r.y0, 3)} m`,
           color: C.critical,
-        },
-      ];
+        });
       if (Ld > 0)
         dims.push({
           axis: "h",
@@ -345,13 +354,13 @@ export function RembesanClient() {
           zMin: 0,
           zMax: Hd * 1.3,
           bodies: badan,
-          waters: [airHulu, jenuh],
+          waters: sah ? [airHulu, jenuh] : [airHulu],
           lines: garis,
           dims,
           callouts: penunjuk,
-          arrows: [
-            { x: r.phreatic[0].x + (r.focus - r.phreatic[0].x) * 0.45, z: r.y0 * 0.45, length: 18, rise: 4 },
-          ],
+          arrows: sah
+            ? [{ x: r.phreatic[0].x + (r.focus - r.phreatic[0].x) * 0.45, z: r.y0 * 0.45, length: 18, rise: 4 }]
+            : [],
           heading: !sah ? x.luar : limpas ? x.limpas : r.daylights ? x.keluar : undefined,
           headingColor: C.signal,
           imperviousFloor: true,
