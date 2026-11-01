@@ -85,6 +85,11 @@ export const S = {
     /* komponen bersama: kotak angka, reset, kartu keadaan, hitungan */
     inValueSuffix: "(angka)",
     inClampedTo: "dibatasi ke",
+    plAdd: "Tambah",
+    plAdded: "Ditambahkan di",
+    plOutside: "di luar bidang gambar",
+    plAtMost: "paling banyak",
+    plRemoveHint: "tekan Delete untuk menghapus",
     inOutOfRange: "di luar rentang",
     inNotNumber: "bukan angka",
     inRangeHint: "Ketik angka dari",
@@ -176,6 +181,11 @@ export const S = {
 
     inValueSuffix: "(value)",
     inClampedTo: "limited to",
+    plAdd: "Add",
+    plAdded: "Added at",
+    plOutside: "outside the plot area",
+    plAtMost: "at most",
+    plRemoveHint: "press Delete to remove",
     inOutOfRange: "outside",
     inNotNumber: "not a number",
     inRangeHint: "Type a number from",
