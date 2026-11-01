@@ -282,25 +282,40 @@ export function PemompaanAirTanahClient() {
           labelAlign: "left",
         });
 
+      /*
+       * Layar sempit (HP, bidang selebar kurang dari 600 px): nama kerucut
+       * dan nama lapisan penutup ditulis dua baris (lewat "\n") supaya
+       * cukup sempit untuk muat di dalam bidang tanpa dibalik dan diberi
+       * alas kertas yang menutup ukuran s. Nama kerucut pindah ke cabang
+       * KANAN, di atas muka air mula-mula; nama lapisan penutup pindah ke
+       * kanan sumur, di bawah nama jari-jari separuh penurunan. Sisi kiri
+       * sumur ditinggalkan untuk ukuran s, yang digeser lebih jauh dari
+       * sumur supaya tulisannya keluar dari bawah nama jari-jari separuh
+       * penurunan (tulisan itu dijepit ke kiri karena tidak muat di kanan
+       * garisnya). Layar lebar tidak berubah.
+       */
+      const sempit = w < 600;
+      const duaBaris = (t: string) => (sempit ? t.replace(" ", "\n") : t);
+      const xKerucut = sempit ? R * 0.22 : -R * 0.42;
       const penunjuk: StructureCallout[] = [
         { x: 0, z: arasAwal * 1.1, dx: 22, dy: -12, text: T.wellLabel },
         {
-          x: -R * 0.42,
-          z: arasAwal - wellDrawdownAt(R * 0.42, Q, kSI, b, rw, R, confined),
-          dx: -18,
-          dy: 26,
-          text: T.drawdownCone,
+          x: xKerucut,
+          z: arasAwal - wellDrawdownAt(Math.abs(xKerucut), Q, kSI, b, rw, R, confined),
+          dx: sempit ? 2 : -18,
+          dy: sempit ? -40 : 26,
+          text: duaBaris(T.drawdownCone),
           color: C.water,
         },
         { x: R * 0.72, z: b * 0.45, dx: 0, dy: 24, text: T.aquiferLabel },
       ];
       if (confined)
         penunjuk.push({
-          x: -R * 0.72,
+          x: sempit ? R * 0.36 : -R * 0.72,
           z: b * 1.09,
           dx: 0,
-          dy: -20,
-          text: T.confiningLabel,
+          dy: sempit ? -42 : -20,
+          text: duaBaris(T.confiningLabel),
         });
 
       drawStructure(
@@ -331,7 +346,7 @@ export function PemompaanAirTanahClient() {
                */
               text: `s ${fmtPlain(r.sAquifer, 2)} m`,
               color: C.critical,
-              offset: -30,
+              offset: sempit ? -62 : -30,
             },
           ],
           callouts: penunjuk,

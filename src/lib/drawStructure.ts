@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencilWidth } from "./theme.ts";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -452,7 +452,19 @@ export function drawStructure(
     const fx = X(c.x);
     const fy = Z(c.z);
     ctx.font = F.label;
-    const lebar = stencilWidth(ctx, c.text) + 18;
+    /* Teks boleh berisi "\n": baris sesudahnya ditulis 11 px di bawah baris
+       pertama dengan perataan yang sama (dipakai lembar di layar sempit).
+       Teks satu baris tidak berubah. */
+    const baris = c.text.split("\n");
+    const lebar = Math.max(...baris.map((b) => stencilWidth(ctx, b))) + 18;
+    const sisaBaris = (dd: 1 | -1, x: number, y: number) => {
+      if (baris.length < 2) return;
+      ctx.font = F.label;
+      ctx.fillStyle = c.color ?? C.ink2;
+      ctx.textAlign = dd > 0 ? "left" : "right";
+      ctx.textBaseline = "middle";
+      baris.slice(1).forEach((b, i) => stencil(ctx, b, x + dd * 18, y - 0.5 + 11 * (i + 1)));
+    };
     /* Siku paling jauh yang masih membuat tulisannya utuh di dalam bidang,
        untuk tulisan yang menjulur ke kanan (+1) atau ke kiri (-1). */
     const batas = (d: 1 | -1) => (d > 0 ? padL + plotW - 2 - lebar : padL + 2 + lebar);
@@ -461,7 +473,8 @@ export function drawStructure(
     let tx = fx + c.dx;
     if (muat(d, tx)) {
       // Tulisan yang sudah utuh di dalam bidang digambar persis seperti dulu.
-      leader(ctx, fx, fy, tx, fy + c.dy, c.text, c.color ?? C.ink2);
+      leader(ctx, fx, fy, tx, fy + c.dy, baris[0], c.color ?? C.ink2);
+      sisaBaris(d, tx, fy + c.dy);
       continue;
     }
     /*
@@ -487,9 +500,11 @@ export function drawStructure(
     const kx0 = d > 0 ? tx + 14 : tx - lebar;
     const kx1 = d > 0 ? tx + lebar : tx - 14;
     ctx.fillStyle = C.sheet;
-    ctx.fillRect(kx0 + 2, ty - 6, kx1 - kx0 - 2, 12);
-    leader(ctx, fx, fy, tx, ty, c.text, c.color ?? C.ink2, d);
-    taruh.reserve(kx0, kx1, ty - 7, ty + 7);
+    const tambah = 11 * (baris.length - 1);
+    ctx.fillRect(kx0 + 2, ty - 6, kx1 - kx0 - 2, 12 + tambah);
+    leader(ctx, fx, fy, tx, ty, baris[0], c.color ?? C.ink2, d);
+    sisaBaris(d, tx, ty);
+    taruh.reserve(kx0, kx1, ty - 7, ty + 7 + tambah);
   }
 
   /* ---------------- nama gaya ----------------
