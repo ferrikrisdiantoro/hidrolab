@@ -8,6 +8,7 @@ import {
   hatchConcrete,
   hatchWater,
   niceStep,
+  flowArrow,
   pen,
   region,
   ruling,
@@ -24,6 +25,47 @@ export type TransitionState = {
   y1: number;
   dz: number;
 };
+
+/**
+ * Pilihan gambar yang tidak mengubah keadaan aliran.
+ * - `bMaxKunci`: skala tegak tampak atas dikunci pada lebar ini (m) selama
+ *   dinding diseret, dan isi tampak atas dipotong ke panelnya. Tanpa kunci,
+ *   skalanya ikut max(b₁, b₂) dan dinding yang diseret saling kejar dengan
+ *   skalanya sendiri.
+ * - `panah`: panah arah aliran diam di sumbu tampak atas, untuk keadaan
+ *   lapis gerak dijeda. Panjangnya sebanding dengan V = Q/(b·y) penampang.
+ */
+export type TransitionOptions = { bMaxKunci?: number; panah?: boolean };
+
+/** Batas daerah transisi pada bentang 0..1: hulu [0, xa], hilir [xb, 1]. */
+export const TRANSISI_XA = 0.34;
+export const TRANSISI_XB = 0.5;
+
+/**
+ * Geometri yang DIGAMBAR, fungsi pecahan bentang f (0..1): elevasi dasar,
+ * kedalaman, dan lebar. Model hanya menghitung penampang 1 (hulu) dan 2
+ * (hilir); di antara keduanya dasar dan lebar disisipkan linier dan
+ * kedalaman dengan smoothstep. Dipakai penggambar dan lapis gerak, supaya
+ * partikel berjalan di badan air yang sama persis dengan gambar.
+ */
+export function profilTransisi(s: TransitionState) {
+  const { r, y1, dz, b1, b2 } = s;
+  const xa = TRANSISI_XA;
+  const xb = TRANSISI_XB;
+  const yHilir = r.choked ? r.Emin2 / 1.5 : r.y2;
+  const bedAt = (f: number) =>
+    f <= xa ? 0 : f >= xb ? dz : (dz * (f - xa)) / (xb - xa);
+  const depthAt = (f: number) => {
+    if (f <= xa) return y1;
+    if (f >= xb) return yHilir;
+    const t = (f - xa) / (xb - xa);
+    const e = t * t * (3 - 2 * t);
+    return y1 + (yHilir - y1) * e;
+  };
+  const bAt = (f: number) =>
+    f <= xa ? b1 : f >= xb ? b2 : b1 + ((b2 - b1) * (f - xa)) / (xb - xa);
+  return { xa, xb, bedAt, depthAt, bAt };
+}
 
 /**
  * TIGA REGISTER DALAM SATU LEMBAR.
@@ -43,7 +85,8 @@ export function drawTransition(
   w: number,
   h: number,
   s: TransitionState,
-  lang: Lang
+  lang: Lang,
+  opts: TransitionOptions = {}
 ): PlateOut {
   const T = cl(lang);
   ground(ctx, w, h);
@@ -54,7 +97,7 @@ export function drawTransition(
 
   const potonganH = wide ? h * 0.64 : h * 0.62;
   const memanjang = drawLongitudinal(ctx, 0, 0, kiriW, potonganH, s, T);
-  const atas = drawPlan(ctx, 0, potonganH, kiriW, h - potonganH, s, T);
+  const atas = drawPlan(ctx, 0, potonganH, kiriW, h - potonganH, s, T, opts);
 
   let kurva: Panel | null = null;
   if (wide) {
@@ -123,17 +166,7 @@ function drawLongitudinal(
   const X = (f: number) => ox + padL + f * plotW;
 
   // Tiga daerah: hulu, transisi, hilir.
-  const xa = 0.34;
-  const xb = 0.5;
-  const bedAt = (f: number) =>
-    f <= xa ? 0 : f >= xb ? dz : (dz * (f - xa)) / (xb - xa);
-  const depthAt = (f: number) => {
-    if (f <= xa) return y1;
-    if (f >= xb) return r.choked ? r.Emin2 / 1.5 : r.y2;
-    const t = (f - xa) / (xb - xa);
-    const e = t * t * (3 - 2 * t);
-    return y1 + ((r.choked ? r.Emin2 / 1.5 : r.y2) - y1) * e;
-  };
+  const { xa, xb, bedAt, depthAt } = profilTransisi(s);
 
   /* kisi */
   const zStep = niceStep(zTop, 4);
@@ -300,6 +333,12 @@ function drawLongitudinal(
  * Tampak atas
  * ------------------------------------------------------------------ */
 
+/** Letak pegangan dinding dan panah diam, pecahan bentang. */
+const PEGANG_B1 = 0.25;
+const PEGANG_B2 = 0.64;
+const PANAH_HULU = 0.25;
+const PANAH_HILIR = 0.66;
+
 function drawPlan(
   ctx: CanvasRenderingContext2D,
   ox: number,
@@ -307,7 +346,8 @@ function drawPlan(
   w: number,
   h: number,
   s: TransitionState,
-  T: ReturnType<typeof cl>
+  T: ReturnType<typeof cl>,
+  opts: TransitionOptions
 ) {
   const padL = 54;
   const padR = 26;
@@ -315,14 +355,21 @@ function drawPlan(
   const cy = oy + h / 2 + 4;
   const X = (f: number) => ox + padL + f * plotW;
 
-  const bMax = Math.max(s.b1, s.b2);
+  const kunci = opts.bMaxKunci !== undefined;
+  const bMax = kunci ? (opts.bMaxKunci as number) : Math.max(s.b1, s.b2);
   const skala = Math.min((h - 34) / bMax, plotW * 0.06);
   const half = (b: number) => (b / 2) * skala;
 
-  const xa = 0.34;
-  const xb = 0.5;
-  const bAt = (f: number) =>
-    f <= xa ? s.b1 : f >= xb ? s.b2 : s.b1 + ((s.b2 - s.b1) * (f - xa)) / (xb - xa);
+  const { xa, xb, bAt, depthAt } = profilTransisi(s);
+
+  // Saat dikunci, dinding yang diseret melebihi lebar kunci tidak boleh
+  // menembus potongan memanjang di atasnya.
+  if (kunci) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, w, h);
+    ctx.clip();
+  }
 
   region(ctx, T.planView, ox + padL + plotW / 2, oy + 10, C.ink3);
 
@@ -370,6 +417,19 @@ function drawPlan(
   dimV(ctx, X(xa * 0.45), cy - half(s.b1), cy + half(s.b1), `b₁ ${fmtPlain(s.b1, 2)} m`, C.ink2);
   dimV(ctx, X(0.78), cy - half(s.b2), cy + half(s.b2), `b₂ ${fmtPlain(s.b2, 2)} m`, C.ink2);
 
+  /* Panah arah aliran saat lapis gerak dijeda: di sumbu, panjang 22 px untuk
+     V₁ dan sebanding V = Q/(b·y) untuk hilir (kontinuitas: V₂/V₁ =
+     b₁·y₁ / (b₂·y₂)). Tidak digambar bila aliran tersendat. */
+  if (opts.panah && !s.r.choked) {
+    const A1 = s.b1 * depthAt(0);
+    const A2 = s.b2 * depthAt(1);
+    const p2 = Math.min(66, Math.max(8, (22 * A1) / A2));
+    flowArrow(ctx, X(PANAH_HULU), cy, 22, C.water);
+    flowArrow(ctx, X(PANAH_HILIR), cy, p2, C.water);
+  }
+
+  if (kunci) ctx.restore();
+
   /* Titik bernama: `b1Edge`, `b2Edge` = tepi atas (dinding kiri arah aliran)
      saluran hulu dan hilir, tempat lebar b₁ dan b₂ diseret. Sumbu tegak
      peta = jarak dari sumbu saluran, meter, positif ke atas gambar. */
@@ -385,6 +445,9 @@ function drawPlan(
     anchors: {
       b1Edge: { x: X(xa / 2), y: cy - half(s.b1) },
       b2Edge: { x: X((xb + 1) / 2), y: cy - half(s.b2) },
+      // Pegangan seret dinding, jauh dari garis ukur b₁ (0,153) dan b₂ (0,78).
+      b1Grip: { x: X(PEGANG_B1), y: cy - half(s.b1) },
+      b2Grip: { x: X(PEGANG_B2), y: cy - half(s.b2) },
     },
     water: poligon((titik) => {
       for (let i = 0; i <= N; i++) titik(X(i / N), cy - half(bAt(i / N)));
