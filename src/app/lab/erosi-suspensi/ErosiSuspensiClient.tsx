@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,27 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createGrainSwarm,
+  drawGrainPanel,
+  drawGrainSwarm,
+  grainDomain,
+  grainTimeScale,
+  rouseNumber,
+  stepGrains,
+  type GrainStep,
+  type GrainSwarm,
+} from "@/lib/drawGrain";
+import { grainMotion } from "@/lib/sedimenGerak";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   COHESIVE_LIMIT,
@@ -69,6 +84,21 @@ const TXT = {
     hVdepCap: "dibatasi τcr",
     hVsus: "Ambang melayang, u* = ws",
     hKeadaan: "Keadaan butir",
+    gDiam: "Butir diam",
+    gDasar: "Menggelinding",
+    gLayang: "Melayang",
+    gKohesif: "Kohesif: tidak berlaku",
+    gAliran: "aliran",
+    hdlPoint: "Titik kerja: geser mendatar mengubah diameter butir, tegak mengubah kecepatan aliran",
+    motionReal: "waktu nyata",
+    motionFast: (n: string) => `waktu dipercepat ×${n}`,
+    motionSlow: (n: string) => `waktu diperlambat ×${n}`,
+    motionDasar: "butir maju dengan laju butir dasar Fernandez Luque dan van Beek, us = 11,5 (u* − 0,7 u*cr)",
+    motionLayang:
+      "ambang melayang sama dengan kurva di diagram, u* = ws. Tegak: turun dengan ws, diaduk pusaran sebesar 1,25 u* (Bagnold). Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran",
+    motionAngkut:
+      "di antara kurva endap dan kurva erosi butir di dasar tidak terangkat, jadi butir panel tetap diam; butir yang sudah terangkut dari hulu tetap terangkut (tidak digambar)",
+    motionEndap: "butir yang masih melayang turun dengan kecepatan endap ws lalu berhenti di dasar",
     kohesifNote:
       "Di bawah 0,06 mm butirnya masuk golongan lanau dan lempung, dan yang menahannya di dasar bukan lagi beratnya melainkan gaya tarik antar butir. Kurva erosi yang digambar diturunkan dari ambang Shields untuk butir lepas, jadi di daerah ini ia tidak berlaku. Justru di situlah letak keanehan diagram Hjulstrom yang paling terkenal: kurva erosinya berbalik naik ke kiri, sehingga lempung padat menuntut kecepatan lebih besar daripada pasir untuk mulai tererosi. Kenaikan itu nyata dan terukur, tetapi besarnya bergantung pada sejarah pengendapan, bukan pada ukuran butir, sehingga tidak dapat diramalkan dari satu angka.",
     note:
@@ -104,6 +134,21 @@ const TXT = {
     hVdepCap: "capped at τcr",
     hVsus: "Suspension threshold, u* = ws",
     hKeadaan: "State of the grain",
+    gDiam: "Grain at rest",
+    gDasar: "Rolling",
+    gLayang: "Suspended",
+    gKohesif: "Cohesive: does not apply",
+    gAliran: "flow",
+    hdlPoint: "Operating point: drag sideways to change grain diameter, up or down to change flow velocity",
+    motionReal: "real time",
+    motionFast: (n: string) => `time sped up ×${n}`,
+    motionSlow: (n: string) => `time slowed ×${n}`,
+    motionDasar: "grains advance at the Fernandez Luque and van Beek bed-load grain velocity, us = 11.5 (u* − 0.7 u*cr)",
+    motionLayang:
+      "suspension threshold matches the curve in the diagram, u* = ws. Vertical: falling at ws, stirred by eddies of 1.25 u* (Bagnold). Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity",
+    motionAngkut:
+      "between the deposition and erosion curves grains on the bed are not lifted, so the panel grains stay at rest; grains already carried from upstream stay in transport (not drawn)",
+    motionEndap: "grains still in suspension fall at the settling velocity ws and stop on the bed",
     kohesifNote:
       "Below 0.06 mm the grains fall into the silt and clay class, and what holds them on the bed is no longer their weight but cohesion between grains. The erosion curve drawn here comes from the Shields threshold for loose grains, so it does not hold in this region. That is precisely where the best-known oddity of the Hjulstrom diagram lies: its erosion curve turns back upward to the left, so firm clay demands a higher velocity than sand to start eroding. That rise is real and measured, but its size depends on the deposition history rather than the grain size, and so cannot be predicted from a single number.",
     note:
@@ -126,6 +171,15 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang masukan yang dipakai bersama oleh penggeser, kotak angka, dan
+ * pegangan seret titik kerja (aturan 4: satu sumber nilai).
+ */
+const P_D: ParamDef = { min: 0.004, max: 300, step: 0.002, digits: 3 };
+const P_V: ParamDef = { min: 0.005, max: 8, step: 0.005, digits: 3 };
+/** Banyak butir lepas di panel sketsa butir. */
+const N_BUTIR = 8;
+
 const D_MIN = 0.004;
 const D_MAX = 300;
 /** Sumbu skala rezim kecepatan = rentang penggeser V. */
@@ -144,6 +198,13 @@ export function ErosiSuspensiClient() {
   const [n, setN] = useState(0.025);
   const [s, setS] = useState(SEDIMENT_S);
   const [suhu, setSuhu] = useState(15);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
+  // Lapis gerak panel butir berjalan sejak awal kecuali peramban meminta
+  // pengurangan gerak; tombol putar/jeda ada di pojok panel butir.
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<GrainSwarm | null>(null);
+  if (gerak.current === null) gerak.current = createGrainSwarm(N_BUTIR);
 
   const nu = waterViscosity(suhu);
   const d = dMm / 1000;
@@ -188,7 +249,7 @@ export function ErosiSuspensiClient() {
     ] as RegimeBand[]
   ).filter((b) => b.to - b.from > 1e-12);
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, ch) => {
       const ero: { x: number; y: number }[] = [];
       const dep: { x: number; y: number }[] = [];
@@ -244,7 +305,7 @@ export function ErosiSuspensiClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         ch,
@@ -265,6 +326,10 @@ export function ErosiSuspensiClient() {
             { x: 0.02, y: 8, text: T.erosionZone, color: C.energy },
             { x: 2.2, y: 0.09, text: T.depositionZone, color: C.ink3 },
           ],
+          /* Anchor pegangan selalu ada, juga saat titik kerja lepas sumbu
+             (DragLayer menjepitnya ke tepi bidang), supaya pegangan tidak
+             hilang di tengah seret dan penanda "dibatasi" tetap tampil. */
+          anchors: { titik: { x: dMm, y: V } },
           point: {
             x: dMm,
             y: V,
@@ -275,7 +340,103 @@ export function ErosiSuspensiClient() {
         lang
       );
     },
+    null,
     [dMm, V, h, n, s, suhu, lang]
+  );
+
+  /* Pegangan titik kerja: kedua sumbu diagram adalah masukan langsung
+     (d dan V), jadi pemetaan baliknya unik tanpa hitungan. ParamDef sama
+     dengan InputRow d dan V, setter sama. */
+  const handles: HandleSpec[] = [
+    {
+      id: "titik",
+      anchor: "titik",
+      axis: "xy",
+      label: x.hdlPoint,
+      hollow: true,
+      tint: C.water,
+      param: [P_D, P_V],
+      value: [dMm, V],
+      toValue: (px, py, m) => [m.invX(px), m.invY(py)],
+      onChange: ([a, b]) => {
+        setDMm(a);
+        setV(b);
+      },
+      format: (v) => `d ${fmt(v[0], 3)} mm, V ${fmt(v[1], 3)} m/s`,
+    },
+  ];
+
+  /*
+   * Panel sketsa butir. Tegangan kerja dan ambang dari besaran yang sama
+   * dengan hjulstrom (tau = rho u*^2, theta_cr dari D*), keadaan dan laju dari
+   * M1 (grainMotion). Ambang melayang memakai kriteria 1 (u* = ws), sama
+   * dengan kurva melayang hjulstrom di diagram, bukan Bagnold 0,8.
+   */
+  const tauKerja = 1000 * uStar * uStar;
+  const gm = grainMotion(
+    { tau: tauKerja, theta: tauKerja / ((s - 1) * 1000 * G * d), thetaCritical: thetaCr },
+    ws,
+    1000,
+    1
+  );
+  const modeButir = r.cohesive ? "diam" : gm.mode;
+  const langkahButir: GrainStep = { mode: modeButir, us: gm.us, ustar: gm.ustar, ws, dM: d };
+  const skalaWaktu = grainTimeScale(langkahButir);
+  const faktor = (v: number) => Math.round(v).toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanWaktu =
+    skalaWaktu === 1
+      ? x.motionReal
+      : skalaWaktu > 1
+        ? x.motionFast(faktor(skalaWaktu))
+        : x.motionSlow(faktor(1 / skalaWaktu));
+  const catatanGerak = r.cohesive
+    ? undefined
+    : `${catatanWaktu}; ${
+        modeButir === "melayang"
+          ? x.motionLayang
+          : modeButir === "dasar"
+            ? x.motionDasar
+            : r.state === "terangkut"
+              ? x.motionAngkut
+              : x.motionEndap
+      }`;
+  const judulButir = r.cohesive
+    ? x.gKohesif
+    : modeButir === "diam"
+      ? x.gDiam
+      : modeButir === "dasar"
+        ? x.gDasar
+        : x.gLayang;
+  const nilaiButir =
+    modeButir === "dasar"
+      ? `us = ${fV(gm.us)} m/s; u* = ${fV(gm.ustar)} m/s`
+      : `ws/u* = ${gm.ustar > 0 ? fmt(gm.ratio, 2) : kosong}; ws = ${fmtSci(ws)} m/s`;
+  const butir = usePlate(
+    (ctx, w, ch) =>
+      drawGrainPanel(ctx, w, ch, {
+        dM: d,
+        mode: modeButir,
+        title: judulButir,
+        tint: modeButir === "diam" ? C.water : modeButir === "dasar" ? C.energy : C.critical,
+        values: nilaiButir,
+        flowLabel: x.gAliran,
+        flowing: gm.ustar > 0,
+        animating: playing,
+        invalid: r.cohesive,
+        n: N_BUTIR,
+        rouseP: rouseNumber(ws, gm.ustar),
+      }),
+    /* Butir kohesif: kurva erosi tidak berlaku, jadi tidak ada gerak
+       (tanpa tombol); butir digambar diam di lapis statis. */
+    r.cohesive
+      ? null
+      : (ctx, _w, _h, _t, dt, out) => {
+          if (!out) return;
+          stepGrains(gerak.current!, dt, langkahButir, grainDomain(out.map));
+          drawGrainSwarm(ctx, gerak.current!, out, d, skalaWaktu);
+        },
+    [d, modeButir, judulButir, nilaiButir, gm.ustar, ws, playing, r.cohesive, lang],
+    { playing, timeScale: skalaWaktu }
   );
 
   return (
@@ -329,16 +490,36 @@ export function ErosiSuspensiClient() {
             { label: "V_ero", value: r.cohesive ? kosong : `${fmt(r.erosion, 3)} m/s`, tint: C.energy },
             { label: "—", value: keadaanTampil },
           ]}
+          height="auto"
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: butir.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          {/* Panel sketsa butir: kanan mulai lebar lg, di atas diagram pada
+              layar sempit (tombol putar/jeda selalu di panel butir). Panel
+              lebih dulu di DOM supaya kanvas gerak menjadi kanvas kedua. */}
+          <div className="flex flex-col lg:h-[clamp(360px,56vh,620px)] lg:flex-row-reverse">
+            <div className="relative h-[200px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
+              <canvas ref={butir.ref} className="block h-full w-full" />
+              <canvas ref={butir.motionRef} />
+            </div>
+            <div className="relative h-[clamp(360px,56vh,620px)] min-w-0 lg:h-auto lg:flex-[2.1]">
+              <canvas ref={plate.ref} className="block h-full w-full" />
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="d" label={x.dD} value={dMm} min={0.004} max={300} step={0.002} digits={3} unit="mm" onChange={setDMm} tint={C.critical} />
-              <InputRow symbol="V" label={x.dV} value={V} min={0.005} max={8} step={0.005} digits={3} unit="m/s" onChange={setV} tint={C.water} />
+              <InputRow symbol="d" label={x.dD} value={dMm} {...P_D} unit="mm" onChange={setDMm} tint={C.critical} />
+              <InputRow symbol="V" label={x.dV} value={V} {...P_V} unit="m/s" onChange={setV} tint={C.water} />
               <InputRow symbol="h" label={x.dH} value={h} min={0.05} max={15} step={0.05} digits={2} unit="m" onChange={setH} />
               <InputRow symbol="n" label={x.dN} value={n} min={0.011} max={0.07} step={0.001} digits={3} onChange={setN} />
               <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS} />

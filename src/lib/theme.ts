@@ -126,6 +126,10 @@ export const C = {
      sendiri sebagai penanda. signalFill hanya untuk zona di luar
      rentang berlaku, sama seperti signal. */
   passFill: "rgba(63, 122, 90, 0.12)",
+  /* Isian lolos syarat yang ditumpangkan (chartTint, multiply) di atas
+     pita kelabu drawChart, misalnya jendela kriteria DM-02. Di atas
+     paperSunk passFill biasa terbaca kelabu, bukan hijau; arti sama. */
+  passFillOver: "rgba(63, 122, 90, 0.30)",
   cautionFill: "rgba(168, 122, 30, 0.12)",
   criticalFill: "rgba(110, 85, 149, 0.12)",
   energyFill: "rgba(166, 64, 43, 0.12)",
