@@ -213,7 +213,10 @@ export function rencanaLompat(m: LompatMasukan): LompatRencana {
       if (x > xL + 1.5 * Lf) garis(xL + 1.5 * Lf, z, Ub);
       garis(xL, zBawah, Ub);
       peluru(-Ub * Math.cos(s.sudut), Ub * Math.sin(s.sudut), s.tNaik);
-      // Di atas mercu: masuk kolam atas lewat limpasan di mercu.
+      /* Di atas mercu: berenang mendatar di limpasan setinggi mercu sampai
+         lewat muka hulu ambang, baru turun ke kolam atas. Turun miring
+         langsung dari titik tiba membuat pusat ikan masuk ke badan ambang. */
+      garis(kanan - tebal - 0.5 * Lf, muka(j), Ub);
       garis(kanan - tebal - Lf, muka(j) - dalam, Ub);
     }
     garis(-0.1 * L - Lf, z, Ub);

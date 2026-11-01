@@ -172,6 +172,36 @@ describe("EH-03 lompatan muat di ruang ancang-ancang (tidak menembus badan bendu
     assert.ok(n > 1000, `keadaan lolos ${n}`);
   });
 
+  it("semua ruas: pusat ikan tidak pernah di dalam badan ambang (kisi, cuplik 4000 titik)", () => {
+    let n = 0;
+    for (const rise of [0.3, 3, 12])
+      for (const steps of [2, 5, 15, 60])
+        for (const L of [1, 2, 3, 8])
+          for (const D of [0.1, 1, 3])
+            for (const Q of [0.02, 0.4, 1])
+              for (const burst of [0.5, 2.5, 4, 6]) {
+                const q = m({ rise, steps, L, D, Q, burst });
+                const p = rencanaLompat(q);
+                if (p.hasil !== "lolos") continue;
+                n++;
+                const { tampil, tebal } = undakanUkuran(q.steps, q.L);
+                const drop = cascadePassage(q.rise, q.steps, q.L, q.B, q.D, q.Q, q.burst).stepDrop;
+                const muka = (i: number) => (tampil - 1 - i) * drop;
+                for (let i = 0; i <= 4000; i++) {
+                  const o = lompatPada(p, (p.durasi * i) / 4000);
+                  for (let j = 0; j <= tampil - 2; j++) {
+                    const kanan = (j + 1) * q.L;
+                    if (o.x > kanan - tebal + 1e-9 && o.x < kanan - 1e-9)
+                      assert.ok(
+                        o.z >= muka(j) - 1e-9,
+                        `${JSON.stringify(q)} t ${i}: pusat (${o.x}, ${o.z}) di bawah mercu ${muka(j)} ambang ${j}`
+                      );
+                  }
+                }
+              }
+    assert.ok(n > 50, `keadaan lolos ${n}`);
+  });
+
   it("sudutLompat: ruang nol memberi lompatan tegak, xNaik selalu <= ruang", () => {
     const u = Math.sqrt(2 * G * 0.2);
     const s0 = sudutLompat(u * 2, 0.2, 0)!;
