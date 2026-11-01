@@ -245,8 +245,12 @@ export function BendungOgeeClient() {
           weight: W.thin,
           dash: DASH.hidden,
           label: `He ${fmtPlain(r.He, 3)} m`,
-          labelAt: 0.25,
-          labelDy: -10,
+          /* Di ujung hilir garisnya, segaris dengan garis itu: di
+             seperempat panjangnya label ini bertabrakan dengan pegangan
+             muka air dan dengan teks ukuran h. */
+          labelAt: 1,
+          labelDy: 0,
+          labelAlign: "left",
         });
 
         // Tirai pada tinggi rancangan, sebagai pembanding tetap terhadap
@@ -325,6 +329,11 @@ export function BendungOgeeClient() {
             text: `h ${fmtPlain(h, 2)} m`,
             color: C.water,
             offset: 0,
+            /* Ukuran h yang lebih pendek daripada teksnya: teks di bawah
+               tanda bawah (di dalam genangan hulu), bukan di atas. Di atas,
+               teks menjulur keluar tepi atas bingkai pada h kecil dan
+               menabrak label He serta pegangan muka air. */
+            outside: "below",
           },
           {
             axis: "v",
@@ -365,6 +374,9 @@ export function BendungOgeeClient() {
           muka: { x: xHulu * 0.55, z: h },
           dasar: { x: xHulu * 0.55, z: -P },
         },
+        /* Label He dan nama keadaan (kavitasi, contoh Banjir) menghindari
+           pegangan muka air; pegangannya tetap di muka air. */
+        keepClear: ["muka"],
       };
 
       return drawStructure(ctx, w, ch, spec, lang);

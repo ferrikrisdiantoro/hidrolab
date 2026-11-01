@@ -1,4 +1,4 @@
-import { C, DASH, F, W, stencilWidth } from "./theme.ts";
+import { C, DASH, F, W, stencil, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -94,6 +94,11 @@ export type StructureDim = {
   color?: string;
   /** Geseran garis dimensi dalam piksel, menjauhi bendanya */
   offset?: number;
+  /**
+   * Hanya dimensi tegak: sisi teks bila dimensinya lebih pendek daripada
+   * teksnya. Bawaannya di atas tanda atas; "below" di bawah tanda bawah.
+   */
+  outside?: "above" | "below";
 };
 
 /** Nama bagian yang ditunjuk garis penunjuk dari satu titik. */
@@ -185,6 +190,13 @@ export type StructureSpec = {
    * yang hanya lembar itu yang tahu artinya.
    */
   anchors?: Record<string, { x: number; z: number }>;
+  /**
+   * Nama titik di `anchors` yang ditempati pegangan seret. Sekitar titik itu
+   * (lingkaran pegangan beserta tanda arah seretnya) dihindari label garis
+   * dan nama keadaan, supaya pegangan tidak menimpa tulisan. Pegangannya
+   * sendiri tidak dipindah. Lembar yang tidak mengisinya tidak berubah.
+   */
+  keepClear?: string[];
 };
 
 export function drawStructure(
@@ -404,7 +416,16 @@ export function drawStructure(
   for (const d of s.dims ?? []) {
     const geser = d.offset ?? 0;
     if (d.axis === "v") {
-      dimV(ctx, X(d.at) + geser, Z(d.from), Z(d.to), d.text, d.color ?? C.ink);
+      dimV(
+        ctx,
+        X(d.at) + geser,
+        Z(d.from),
+        Z(d.to),
+        d.text,
+        d.color ?? C.ink,
+        undefined,
+        d.outside === "below" ? "bawah" : "atas"
+      );
     } else {
       dimH(ctx, Z(d.at) + geser, X(d.from), X(d.to), d.text, d.color ?? C.ink);
     }
@@ -431,7 +452,19 @@ export function drawStructure(
     const fx = X(c.x);
     const fy = Z(c.z);
     ctx.font = F.label;
-    const lebar = stencilWidth(ctx, c.text) + 18;
+    /* Teks boleh berisi "\n": baris sesudahnya ditulis 11 px di bawah baris
+       pertama dengan perataan yang sama (dipakai lembar di layar sempit).
+       Teks satu baris tidak berubah. */
+    const baris = c.text.split("\n");
+    const lebar = Math.max(...baris.map((b) => stencilWidth(ctx, b))) + 18;
+    const sisaBaris = (dd: 1 | -1, x: number, y: number) => {
+      if (baris.length < 2) return;
+      ctx.font = F.label;
+      ctx.fillStyle = c.color ?? C.ink2;
+      ctx.textAlign = dd > 0 ? "left" : "right";
+      ctx.textBaseline = "middle";
+      baris.slice(1).forEach((b, i) => stencil(ctx, b, x + dd * 18, y - 0.5 + 11 * (i + 1)));
+    };
     /* Siku paling jauh yang masih membuat tulisannya utuh di dalam bidang,
        untuk tulisan yang menjulur ke kanan (+1) atau ke kiri (-1). */
     const batas = (d: 1 | -1) => (d > 0 ? padL + plotW - 2 - lebar : padL + 2 + lebar);
@@ -440,7 +473,8 @@ export function drawStructure(
     let tx = fx + c.dx;
     if (muat(d, tx)) {
       // Tulisan yang sudah utuh di dalam bidang digambar persis seperti dulu.
-      leader(ctx, fx, fy, tx, fy + c.dy, c.text, c.color ?? C.ink2);
+      leader(ctx, fx, fy, tx, fy + c.dy, baris[0], c.color ?? C.ink2);
+      sisaBaris(d, tx, fy + c.dy);
       continue;
     }
     /*
@@ -466,9 +500,11 @@ export function drawStructure(
     const kx0 = d > 0 ? tx + 14 : tx - lebar;
     const kx1 = d > 0 ? tx + lebar : tx - 14;
     ctx.fillStyle = C.sheet;
-    ctx.fillRect(kx0 + 2, ty - 6, kx1 - kx0 - 2, 12);
-    leader(ctx, fx, fy, tx, ty, c.text, c.color ?? C.ink2, d);
-    taruh.reserve(kx0, kx1, ty - 7, ty + 7);
+    const tambah = 11 * (baris.length - 1);
+    ctx.fillRect(kx0 + 2, ty - 6, kx1 - kx0 - 2, 12 + tambah);
+    leader(ctx, fx, fy, tx, ty, baris[0], c.color ?? C.ink2, d);
+    sisaBaris(d, tx, ty);
+    taruh.reserve(kx0, kx1, ty - 7, ty + 7 + tambah);
   }
 
   /* ---------------- nama gaya ----------------
@@ -486,6 +522,22 @@ export function drawStructure(
       v.color ?? C.energy,
       { align: v.dx < -1 ? "right" : v.dx > 1 ? "left" : "center" }
     );
+  }
+
+  /* ---------------- tempat pegangan ----------------
+     Didaftarkan sebelum label garis dan nama keadaan, supaya keduanya
+     menghindar. Kotaknya tidak ikut dikirim sebagai kotak tulisan. */
+
+  const kotakPegangan: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+  for (const nama of s.keepClear ?? []) {
+    const a = s.anchors?.[nama];
+    if (!a) continue;
+    const kx = X(a.x);
+    const ky = Z(a.z);
+    if (!Number.isFinite(kx) || !Number.isFinite(ky)) continue;
+    const k = { x0: kx - 11, x1: kx + 11, atas: ky - 18, bawah: ky + 18 };
+    kotakPegangan.push(k);
+    taruh.reserve(k.x0, k.x1, k.atas, k.bawah);
   }
 
   /* ---------------- label garis ----------------
@@ -508,7 +560,20 @@ export function drawStructure(
   /* ---------------- nama keadaan ---------------- */
 
   if (s.heading) {
-    taruh.write(s.heading, padL + plotW / 2, padT + 24, s.headingColor ?? C.ink, {
+    /* Lembar yang memakai keepClear: nama keadaan turun selangkah demi
+       selangkah sampai seluruh barisnya muat tanpa terdorong, jadi judul
+       yang terpecah dua baris tetap satu blok (dulu baris pertamanya di
+       atas pegangan dan baris keduanya terdorong ke bawah pegangan dan
+       label He). Bila tidak ada tempat utuh, tempat lama dipakai. Tanpa
+       keepClear tidak berubah. */
+    let yJudul = padT + 24;
+    if (kotakPegangan.length) {
+      const xJudul = padL + plotW / 2;
+      let y = yJudul;
+      while (y < padT + plotH && !taruh.headingFits(s.heading, xJudul, y)) y += 6;
+      if (y < padT + plotH) yJudul = y;
+    }
+    taruh.write(s.heading, padL + plotW / 2, yJudul, s.headingColor ?? C.ink, {
       big: true,
     });
   }
@@ -534,7 +599,15 @@ export function drawStructure(
     Math.round(plotH)
   );
 
-  return keluaranStruktur(s, X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, taruh.boxes());
+  const kotakTulisan = taruh
+    .boxes()
+    .filter(
+      (b) =>
+        !kotakPegangan.some(
+          (k) => k.x0 === b.x0 && k.x1 === b.x1 && k.atas === b.atas && k.bawah === b.bawah
+        )
+    );
+  return keluaranStruktur(s, X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, kotakTulisan);
 }
 
 /**
