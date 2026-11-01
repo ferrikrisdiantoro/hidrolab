@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,13 +10,23 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
-import { fmt, shoal, type Shoal } from "@/lib/hydraulics";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import { drawField, type FieldBody, type FieldLine } from "@/lib/drawField";
+import {
+  SHOAL_OBSTACLE_MAX,
+  createShoalMotion,
+  drawShoalMotion,
+  drawShoalStill,
+  shoalScene,
+} from "@/lib/swarmMotion";
+import { fmt, shoal } from "@/lib/hydraulics";
 import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -65,6 +75,19 @@ const TXT = {
     hR: "Jari-jari dan jarak tetangga",
     hGol: "Penggolongan bentuk",
     rerata: "rerata dari",
+    dR: "Jari-jari rintangan",
+    tambah: "Tambah rintangan",
+    gObs: (k: number) => `Posisi rintangan ${k}`,
+    hapusSemua: "Hapus semua rintangan",
+    rObsN: "Banyaknya rintangan",
+    taruhPetunjuk: (n: number) =>
+      `Klik di gambar untuk menaruh rintangan (paling banyak ${n}); seret untuk memindah, tombol Delete untuk menghapus. Ikan menghindarinya menurut aturan Reynolds (1999). Predator tidak dimodelkan: belum ada sumber jarak lari dan tanggapan ikan terhadap predator yang bisa dirujuk.`,
+    nObs: (n: number) =>
+      `Dengan ${n} rintangan, gambar, kop, dan tabel hasil berasal dari simulasi yang sama dengan rintangannya. Kalimat pembanding di bawah dan blok verifikasi dihitung tanpa rintangan.`,
+    clock: "t = ",
+    clockStep: (k: number) => ` s, langkah ${k} dari 300`,
+    motionNote:
+      "diputar ulang dari langkah 0 sampai 300 (90 s), waktu dipercepat ×3. Garis tipis di belakang ikan = jejak ekor 3 m terakhir",
     ekor: "ekor",
     desakCek:
       "Blok verifikasi di bawah gagal pada cek \u201cKeteraturan arahnya naik bersama bobot penyamaan arah\u201d. Sebabnya gerombolan berdesakan: pada bobot penyamaan arah 2,5 yang dipakai cek itu, {pct} % ikan punya tetangga lebih dekat dari zona menjauh ({zr} m). Aturan berprioritas Couzin dkk. (2002) membuat ikan itu hanya menjauh dan tidak menyamakan arah, jadi keteraturannya tidak naik. Simulasinya tidak diubah; cek dan modelnya masih menunggu keputusan.",
@@ -95,6 +118,19 @@ const TXT = {
     hR: "Radius and neighbour distance",
     hGol: "Classifying the shape",
     rerata: "mean over",
+    dR: "Obstacle radius",
+    tambah: "Add obstacle",
+    gObs: (k: number) => `Position of obstacle ${k}`,
+    hapusSemua: "Remove all obstacles",
+    rObsN: "Number of obstacles",
+    taruhPetunjuk: (n: number) =>
+      `Click the drawing to place an obstacle (at most ${n}); drag to move it, Delete to remove it. The fish avoid it by the rule of Reynolds (1999). Predators are not modelled: there is no source yet for the flight distance and the response of fish to a predator that could be cited.`,
+    nObs: (n: number) =>
+      `With ${n} obstacles, the drawing, the title block, and the result table come from the same simulation with the obstacles. The comparison sentences below and the verification block are computed without obstacles.`,
+    clock: "t = ",
+    clockStep: (k: number) => ` s, step ${k} of 300`,
+    motionNote:
+      "replayed from step 0 to 300 (90 s), time sped up ×3. The thin line behind each fish = its tail trail over the last 3 m",
     ekor: "fish",
     desakCek:
       "The verification block below fails the check \u201cPolarisation rises with the alignment weight\u201d. The cause is crowding: at the alignment weight of 2.5 that check uses, {pct} % of the fish have a neighbour closer than the separation zone ({zr} m). The prioritised rules of Couzin et al. (2002) make those fish only move apart and not align, so the order does not rise. The simulation has not been changed; the check and the model still await a decision.",
@@ -102,6 +138,11 @@ const TXT = {
       "Not one fish on this sheet knows the shape of its own school. Each sees only a few nearest neighbours and runs three simple rules: do not collide, follow their heading, do not fall behind. Out of those three rules, with no leader and no plan, come shapes that all have names in the fisheries literature. What deserves attention is not that the shapes appear but that the changes between them are abrupt. Raise the alignment weight little by little and the group jumps between shapes abruptly, not always in order: from swarming to milling, back to swarming, and only at a large enough weight into a single polarised column. Along the way there is even a narrow band that is already polarised and then disappears again. Two things follow for river engineering. First, schooling fish enter a fish pass as one body rather than one at a time, so a pass whose width was designed from a single fish will block. Second, a disturbance that breaks the school, light, sound, or a suddenly changing current, can remove the schooling behaviour altogether although not one fish is hurt.",
   },
 } as const;
+
+/* Rentang yang SAMA untuk pegangan dan penaruh rintangan. */
+const P_POS: ParamDef = { min: -150, max: 150, step: 0.1, digits: 1 };
+/** Pengali waktu lapis gerak: 300 langkah × 0,3 s = 90 s fisik dalam 30 s layar. */
+const WAKTU = 3;
 
 const REFS = {
   id: [
@@ -128,11 +169,33 @@ export function GerombolanIkanClient() {
   const [selaras, setSelaras] = useState(1);
   const [jauh, setJauh] = useState(1);
   const [dekat, setDekat] = useState(0.5);
+  /* Rintangan dari klik/seret; jari-jari bersama dari satu penggeser. */
+  const [rintangan, setRintangan] = useState<{ x: number; y: number }[]>([]);
+  const [rObs, setRObs] = useState(1.5);
+  const sentuh = useRef<() => void>(() => {});
+  const { playing, toggle: togglePutar } = usePutar();
+
+  const obs = useMemo(
+    () => rintangan.map((p) => ({ x: p.x, y: p.y, r: rObs })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rintangan.map((p) => `${p.x},${p.y}`).join(";"), rObs]
+  );
+  const kunciObs = obs.map((o) => `${o.x},${o.y},${o.r}`).join(";");
 
   /* Simulasinya n² tiap langkah dan dijalankan sebelas kali per keadaan
      (gambar, catatan, blok verifikasi), jadi hanya dihitung ulang bila
-     masukannya berubah, tidak pada setiap render seperti ganti bahasa. */
-  const r = useMemo(() => shoal(jumlah, selaras, jauh, dekat), [jumlah, selaras, jauh, dekat]);
+     masukannya berubah, tidak pada setiap render seperti ganti bahasa.
+     Tanpa rintangan shoalScene = shoal() (M5, identik bit demi bit). */
+  const r = useMemo(
+    () => shoalScene(jumlah, selaras, jauh, dekat, obs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jumlah, selaras, jauh, dekat, kunciObs]
+  );
+  const gerak = useMemo(
+    () => createShoalMotion(jumlah, selaras, jauh, dekat, obs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jumlah, selaras, jauh, dekat, kunciObs]
+  );
   const cek = useMemo(
     () => checksShoal(jumlah, selaras, jauh, dekat),
     [jumlah, selaras, jauh, dekat]
@@ -169,51 +232,72 @@ export function GerombolanIkanClient() {
           ? C.energy
           : C.ink2;
 
-  const ref = useCanvas(
+  /* Bidang gambar memuat seluruh 300 langkah (bukan hanya keadaan akhir),
+     supaya ikan yang bergerak di lapis gerak tidak keluar bingkai, dan
+     semua rintangan. Dibekukan selama seret. */
+  const bidangBaru = useMemo(() => {
+    let x0 = r.xMin;
+    let x1 = r.xMax;
+    let y0 = r.yMin;
+    let y1 = r.yMax;
+    for (const o of obs) {
+      x0 = Math.min(x0, o.x - o.r);
+      x1 = Math.max(x1, o.x + o.r);
+      y0 = Math.min(y0, o.y - o.r);
+      y1 = Math.max(y1, o.y + o.r);
+    }
+    const margin = Math.max(r.nearestNeighbour * 2, 2 * zr, 1);
+    return {
+      xMin: x0 - margin,
+      xMax: x1 + margin,
+      yMin: y0 - margin,
+      yMax: y1 + margin + (y1 - y0 + 2 * margin) * 0.14,
+    };
+  }, [r, obs, zr]);
+  const [beku, setBeku] = useState<typeof bidangBaru | null>(null);
+  const bidang = beku ?? bidangBaru;
+
+  const gayaIkan = {
+    color: warna,
+    bodyLength: zr,
+    minBodyPx: 9,
+    clockPrefix: x.clock,
+    clockStep: x.clockStep,
+  };
+
+  const plate = usePlate(
     (ctx, w, ch) => {
-      const jejak: FieldLine[] = r.trails.map((jalur) => ({
-        pts: jalur,
-        color: C.ink3,
-        weight: W.hair,
-        dash: DASH.solid,
+      const jejak: FieldLine[] = playing
+        ? []
+        : r.trails.map((jalur) => ({
+            pts: jalur,
+            color: C.ink3,
+            weight: W.hair,
+            dash: DASH.solid,
+          }));
+      /* Rintangan: lingkaran pejal berarsir (benda yang dihindari). */
+      const benda: FieldBody[] = obs.map((o) => ({
+        pts: Array.from({ length: 41 }, (_, k) => ({
+          x: o.x + o.r * Math.cos((2 * Math.PI * k) / 40),
+          y: o.y + o.r * Math.sin((2 * Math.PI * k) / 40),
+        })),
+        hatched: true,
       }));
+      const anchors: Record<string, { x: number; y: number }> = {};
+      obs.forEach((o, i) => (anchors[`o${i}`] = { x: o.x, y: o.y }));
 
-      const ikan: FieldMarker[] = r.agents.map((a) => ({
-        x: a.x,
-        y: a.y,
-        heading: Math.atan2(a.vy, a.vx),
-        color: warna,
-        size: 6,
-        filled: false,
-      }));
-
-      /* Bingkai mencakup jejaknya juga, bukan hanya ikannya: jejak ekor
-         yang tertinggal di belakang gerombolan dulu menembus tepi bingkai
-         dan menimpa judul keadaannya. Ruang di atas disisakan untuk judul. */
-      const semua = [...r.agents, ...r.trails.flat()];
-      const xs = semua.map((a) => a.x);
-      const ys = semua.map((a) => a.y);
-      const margin = Math.max(r.nearestNeighbour * 2, r.spread * 0.2, 1);
-      const xMin = Math.min(...xs) - margin;
-      const xMax = Math.max(...xs) + margin;
-      const yMin = Math.min(...ys) - margin;
-      const yMax = Math.max(...ys) + margin + (Math.max(...ys) - Math.min(...ys) + 2 * margin) * 0.14;
-
-      drawField(
+      const out = drawField(
         ctx,
         w,
         ch,
         {
-          xMin,
-          xMax,
-          yMin,
-          yMax,
+          ...bidang,
+          bodies: benda,
           lines: jejak,
-          markers: ikan,
           regions: [
             {
-              x: xMin + (xMax - xMin) * 0.12,
-              y: yMax - (yMax - yMin) * 0.06,
+              x: bidang.xMin + (bidang.xMax - bidang.xMin) * 0.12,
+              y: bidang.yMax - (bidang.yMax - bidang.yMin) * 0.06,
               text: T.shoalLabel,
               color: C.ink3,
             },
@@ -222,11 +306,36 @@ export function GerombolanIkanClient() {
           headingColor: warna,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
+          anchors,
         },
         lang
       );
+      /* Saat diam: ikan pada keadaan akhir (langkah 300), digambar dengan
+         tanda ikan S8 di atas bidang. */
+      if (!playing) drawShoalStill(ctx, out.map, r.agents, gayaIkan);
+      return out;
     },
-    [jumlah, selaras, jauh, dekat, lang]
+    (ctx, _w, _h, tt, dt, out) => {
+      if (!out) return;
+      drawShoalMotion(ctx, out.map, tt, dt, gerak, gayaIkan, 1.5 * WAKTU);
+    },
+    [jumlah, selaras, jauh, dekat, kunciObs, lang, playing, bidang.xMin, bidang.xMax, bidang.yMin, bidang.yMax],
+    { playing, timeScale: WAKTU }
+  );
+
+  const pegangan: HandleSpec[] = rintangan.map(
+    (p, i): HandleSpec => ({
+      id: `u${i}`,
+      anchor: `o${i}`,
+      axis: "xy",
+      label: x.gObs(i + 1),
+      param: [P_POS, P_POS],
+      value: [p.x, p.y],
+      toValue: (px, py, m) => [m.invX(px), m.invY(py)],
+      onChange: ([vx, vy]) => setRintangan((l) => l.map((q, k) => (k === i ? { x: vx, y: vy } : q))),
+      onRemove: () => setRintangan((l) => l.filter((_, k) => k !== i)),
+      format: ([vx, vy]) => `x ${fmt(vx, 1)} m, y ${fmt(vy, 1)} m`,
+    })
   );
 
   return (
@@ -272,8 +381,41 @@ export function GerombolanIkanClient() {
             { label: "d_nn", value: `${fmt(r.nearestNeighbour, 2)} m` },
             { label: "R", value: `${fmt(r.spread, 2)} m` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          {/* Bidang dibekukan selama jari/tetikus turun di atas pegangan
+              atau penangkap taruh. */}
+          <div
+            className="contents"
+            onPointerDown={() => setBeku(bidang)}
+            onPointerUp={() => setBeku(null)}
+            onPointerCancel={() => setBeku(null)}
+            onLostPointerCapture={() => setBeku(null)}
+          >
+            <DragLayer
+              out={plate.outRef.current}
+              touch={() => sentuh.current()}
+              handles={pegangan}
+              place={{
+                id: "rintangan",
+                label: x.tambah,
+                param: [P_POS, P_POS],
+                toValue: (px, py, m) => [m.invX(px), m.invY(py)],
+                onPlace: ([vx, vy]) => setRintangan((l) => [...l, { x: vx, y: vy }]),
+                count: rintangan.length,
+                max: SHOAL_OBSTACLE_MAX,
+                fallback: [(bidang.xMin + bidang.xMax) / 2, (bidang.yMin + bidang.yMax) / 2],
+                format: ([vx, vy]) => `x ${fmt(vx, 1)} m, y ${fmt(vy, 1)} m`,
+              }}
+            />
+          </div>
         </Sheet>
       }
       side={
@@ -284,7 +426,23 @@ export function GerombolanIkanClient() {
               <InputRow symbol="a" label={x.dA} value={selaras} min={0} max={3} step={0.01} digits={2} onChange={setSelaras} tint={C.water} />
               <InputRow symbol="s" label={x.dS} value={jauh} min={0} max={3} step={0.05} digits={2} onChange={setJauh} />
               <InputRow symbol="c" label={x.dC} value={dekat} min={0} max={2} step={0.05} digits={2} onChange={setDekat} tint={C.critical} />
+              <InputRow symbol="r" label={x.dR} value={rObs} min={0.5} max={5} step={0.1} digits={1} unit="m" onChange={setRObs} />
             </InputTable>
+
+            <p className="mt-2.5 text-[0.78rem] leading-snug text-ink-2">{x.taruhPetunjuk(SHOAL_OBSTACLE_MAX)}</p>
+            {rintangan.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  sentuh.current();
+                  setRintangan([]);
+                }}
+                className="label mt-2 border border-rule-strong bg-sheet px-2 py-1 text-[0.75rem] text-ink hover:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water"
+              >
+                {x.hapusSemua}
+              </button>
+            )}
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
@@ -307,6 +465,7 @@ export function GerombolanIkanClient() {
                 { symbol: "d_nn", label: x.rJarak, value: fmt(r.nearestNeighbour, 3), unit: "m" },
                 { symbol: "R", label: x.rSebar, value: fmt(r.spread, 3), unit: "m" },
                 { symbol: "—", label: x.rDesak, value: fmt(desakKini * 100, 0), unit: "%" },
+                ...(rintangan.length > 0 ? [{ symbol: "nᵣ", label: x.rObsN, value: fmt(rintangan.length, 0) }] : []),
               ]}
             />
             <div className="mt-3">
@@ -355,7 +514,7 @@ export function GerombolanIkanClient() {
           <StateCard
             tone={nada}
             badge={nama}
-            {...notice(jumlah, selaras, jauh, dekat, r, cekGagal ? x.desakCek.replace("{pct}", fmt(desakCek * 100, 0)).replace("{zr}", fmt(zr, 2)) : "", lang)}
+            {...notice(jumlah, selaras, jauh, dekat, r, cekGagal ? x.desakCek.replace("{pct}", fmt(desakCek * 100, 0)).replace("{zr}", fmt(zr, 2)) : "", rintangan.length > 0 ? x.nObs(rintangan.length) : "", lang)}
           />
         </>
       }
@@ -396,7 +555,7 @@ export function GerombolanIkanClient() {
 }
 
 /** Bagian ikan yang punya tetangga lebih dekat dari lebar zona menjauh. */
-function berdesakan(g: Shoal, zr: number): number {
+function berdesakan(g: { agents: readonly { x: number; y: number }[] }, zr: number): number {
   const n = g.agents.length;
   if (n < 2) return 0;
   let desak = 0;
@@ -417,8 +576,9 @@ function notice(
   selaras: number,
   jauh: number,
   dekat: number,
-  a: Shoal,
+  a: { polarisation: number; milling: number; nearestNeighbour: number; state: keyof (typeof NAMA)["id"] },
   desakCek: string,
+  obsCek: string,
   lang: Lang
 ): { state: string; notice: string[] } {
   const en = lang === "en";
@@ -438,6 +598,7 @@ function notice(
     : `${NAMA[lang][a.state]}: P = ${fmt(a.polarisation, 2)}, M = ${fmt(a.milling, 2)}.`;
 
   const butir: string[] = [];
+  if (obsCek) butir.push(obsCek);
   if (desakCek) butir.push(desakCek);
   butir.push(
     en

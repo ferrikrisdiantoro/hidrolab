@@ -19,8 +19,16 @@ import {
   vortexTimeScale,
   vortexTrack,
 } from "./swarmMotion.ts";
+import {
+  SHOAL_STEPS,
+  advanceShoalMotion,
+  createShoalMotion,
+  drawShoalMotion,
+  shoalScene,
+} from "./swarmMotion.ts";
 import { vortexInvariants } from "./vorteksTitik.ts";
-import { vortexPair } from "./hydraulics.ts";
+import { shoal, vortexPair } from "./hydraulics.ts";
+import { SHOAL_DT } from "./gerombolan.ts";
 import type { PlateMap } from "./plateOut.ts";
 
 const dekat = (a: number, b: number, tol: number, pesan?: string) =>
@@ -250,4 +258,71 @@ describe("FP-02 skala waktu dan panah", () => {
     assert.ok(u / mentah > 0.5 && u / mentah < 2, `${u} vs ${mentah}`);
     assert.equal(fieldReferenceSpeed(0, 0.02), 0);
   });
+});
+
+/* ------------------------------------------------------------------ *
+ * EH-05: ikan yang bergerak = simulasi M4 yang sama dengan hasil lembar
+ * ------------------------------------------------------------------ */
+
+describe("EH-05 shoalScene tanpa rintangan = shoal() (M5)", () => {
+  for (const [n, a, s, c] of [
+    [40, 1, 1, 0.5],
+    [40, 2.5, 1, 0.6],
+    [17, 0.3, 1, 1],
+  ] as const) {
+    it(`N ${n}, a ${a}, s ${s}, c ${c}: agen, jejak, ukuran identik`, () => {
+      const g = shoal(n, a, s, c);
+      const h = shoalScene(n, a, s, c);
+      assert.deepEqual(h.agents, g.agents);
+      assert.deepEqual(h.trails, g.trails);
+      assert.equal(h.polarisation, g.polarisation);
+      assert.equal(h.milling, g.milling);
+      assert.equal(h.state, g.state);
+      for (const p of g.agents) assert.ok(p.x >= h.xMin && p.x <= h.xMax && p.y >= h.yMin && p.y <= h.yMax);
+    });
+  }
+  it("rintangan memang dipakai: hasil berbeda bila rintangan di jalur", () => {
+    const g = shoalScene(40, 2.5, 1, 0.6);
+    const ox = g.agents.reduce((s, p) => s + p.x, 0) / 40;
+    const oy = g.agents.reduce((s, p) => s + p.y, 0) / 40;
+    const h = shoalScene(40, 2.5, 1, 0.6, [{ x: ox * 0.5, y: oy * 0.5, r: 3 }]);
+    assert.notDeepEqual(h.agents, g.agents);
+  });
+});
+
+describe("EH-05 lapis gerak membaca simulasi yang sama", () => {
+  for (const obs of [[], [{ x: 4, y: 2, r: 2 }, { x: -6, y: -3, r: 1.5 }]]) {
+    it(`${obs.length} rintangan: sesudah ${SHOAL_STEPS} langkah posisi = shoalScene`, () => {
+      const g = shoalScene(30, 1, 1, 0.5, obs);
+      const mo = createShoalMotion(30, 1, 1, 0.5, obs);
+      const px = mo.px;
+      const ctx = ctxTiruan();
+      const map = peta();
+      const gaya2 = { color: "x", bodyLength: 0.8, minBodyPx: 9, clockPrefix: "t = ", clockStep: (k: number) => ` s, ${k}` };
+      let t = 0;
+      /* frame tak rata: 1/60 s dan 1/24 s bergantian, waktu fisik */
+      let f = 0;
+      while (mo.st.steps < SHOAL_STEPS && f < 20000) {
+        const dt = f % 2 ? 1 / 60 : 1 / 24;
+        t += dt;
+        drawShoalMotion(ctx, map, t, dt, mo, gaya2, 1);
+        f++;
+      }
+      assert.equal(mo.st.steps, SHOAL_STEPS);
+      /* langkah ke-k terjadi sesudah k·0,3 s fisik */
+      assert.ok(Math.abs(t - SHOAL_STEPS * SHOAL_DT) < 0.05, `t ${t}`);
+      for (let i = 0; i < 30; i++) {
+        assert.equal(mo.st.x[i], g.agents[i].x);
+        assert.equal(mo.st.y[i], g.agents[i].y);
+      }
+      assert.equal(mo.px, px, "larik sisipan tidak dibuat ulang");
+      /* diam selama hold, lalu kembali ke langkah 0 */
+      advanceShoalMotion(mo, 0.5, 1);
+      assert.equal(mo.st.steps, SHOAL_STEPS);
+      advanceShoalMotion(mo, 0.6, 1);
+      assert.equal(mo.st.steps, 0);
+      const awal = createShoalMotion(30, 1, 1, 0.5, obs);
+      assert.deepEqual(Array.from(mo.st.x), Array.from(awal.st.x));
+    });
+  }
 });

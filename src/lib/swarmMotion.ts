@@ -13,6 +13,20 @@ import {
   type VortexInvariants,
   type VortexSystem,
 } from "./vorteksTitik.ts";
+import {
+  SHOAL_DT,
+  SHOAL_SEED,
+  addObstacle,
+  createShoal,
+  createShoalRng,
+  shoalMetrics,
+  stepShoal,
+  type ShoalMetrics,
+  type ShoalRng,
+  type ShoalState,
+} from "./gerombolan.ts";
+import { drawFish, type FishPose } from "./fishGlyph.ts";
+import { tailBeat, type TailBeat } from "./renangGerak.ts";
 
 /**
  * LAPIS GERAK KAWANAN — batch B5b-2 (FP-02 kinematika vorteks, EH-05
@@ -620,4 +634,291 @@ export function drawVortexMotion(
   const dig = tau < 10 ? 2 : 1;
   cornerLabel(ctx, map, teksAngka(mo.jam, tau, dig, st.clockPrefix, " s"), "bl", 20);
   drawArrowLegend(ctx, map, mo, st.uRef, st.legendPrefix);
+}
+
+/* ================================================================== *
+ * EH-05  Gerombolan ikan (M4)
+ * ================================================================== */
+
+/** Langkah yang dijalankan lembar, sama dengan shoal() (300 × 0,3 s = 90 s). */
+export const SHOAL_STEPS = 300;
+/** Banyaknya rintangan paling banyak di EH-05. */
+export const SHOAL_OBSTACLE_MAX = 8;
+/** Panjang jejak ekor tiap ikan di lapis gerak, langkah (10 × 0,3 m = 3 m). */
+const JEJAK_EKOR = 10;
+
+export type ShoalObstacle = { x: number; y: number; r: number };
+
+export type ShoalScene = ShoalMetrics & {
+  agents: { x: number; y: number; vx: number; vy: number }[];
+  /** Jejak lima ekor pertama pada 59 langkah terakhir (sama dengan shoal()) */
+  trails: { x: number; y: number }[][];
+  /** Kotak yang memuat semua ikan selama seluruh langkah, m */
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+};
+
+/**
+ * Gerombolan EH-05 dengan rintangan: benih SHOAL_SEED, `steps` kali
+ * stepShoal(SHOAL_DT), rintangan dipasang sebelum langkah pertama. Tanpa
+ * rintangan keluarannya identik dengan shoal() / simulateShoal() (M5),
+ * ditambah kotak seluruh lintasan untuk bidang gambar.
+ */
+export function shoalScene(
+  count: number,
+  alignment: number,
+  separation: number,
+  cohesion: number,
+  obstacles: readonly ShoalObstacle[] = [],
+  noise = 0.1,
+  steps = SHOAL_STEPS
+): ShoalScene {
+  const rng = createShoalRng(SHOAL_SEED);
+  const st = createShoal(count, alignment, separation, cohesion, noise, rng, {
+    obstacleCapacity: obstacles.length,
+  });
+  for (const o of obstacles) addObstacle(st, o.x, o.y, o.r);
+  let xMin = Infinity;
+  let xMax = -Infinity;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  const kotak = () => {
+    for (let i = 0; i < st.n; i++) {
+      if (st.x[i] < xMin) xMin = st.x[i];
+      if (st.x[i] > xMax) xMax = st.x[i];
+      if (st.y[i] < yMin) yMin = st.y[i];
+      if (st.y[i] > yMax) yMax = st.y[i];
+    }
+  };
+  kotak();
+  const trails: { x: number; y: number }[][] = [[], [], [], [], []];
+  for (let langkah = 0; langkah < steps; langkah++) {
+    stepShoal(st, SHOAL_DT, rng);
+    kotak();
+    if (langkah > steps - 60)
+      for (let k = 0; k < Math.min(5, st.n); k++) trails[k].push({ x: st.x[k], y: st.y[k] });
+  }
+  const agents = [];
+  for (let i = 0; i < st.n; i++)
+    agents.push({
+      x: st.x[i],
+      y: st.y[i],
+      vx: Math.cos(st.heading[i]) * st.speed,
+      vy: Math.sin(st.heading[i]) * st.speed,
+    });
+  return { agents, trails, ...shoalMetrics(st), xMin, xMax, yMin, yMax };
+}
+
+/**
+ * Keadaan gerak EH-05: simulasi M4 yang SAMA (benih, masukan, rintangan)
+ * dijalankan ulang dari langkah 0 sampai SHOAL_STEPS, langkah demi langkah
+ * mengikuti waktu fisik, lalu diam sebentar dan diulang. Posisi di antara
+ * dua langkah disisip linear untuk tampilan (model tetap berlangkah 0,3 s).
+ * Dibuat sekali per susunan (useMemo); per frame tanpa alokasi.
+ */
+export type ShoalMotion = {
+  st: ShoalState;
+  rng: ShoalRng;
+  /** Posisi dan arah pada langkah sebelumnya, untuk sisipan */
+  px: Float64Array;
+  py: Float64Array;
+  ph: Float64Array;
+  /** Waktu fisik sejak langkah terakhir, s */
+  acc: number;
+  /** Waktu diam di ujung, s fisik */
+  holdLeft: number;
+  args: {
+    count: number;
+    alignment: number;
+    separation: number;
+    cohesion: number;
+    noise: number;
+    obstacles: ShoalObstacle[];
+  };
+  jam: Teks;
+  _fish: FishPose;
+  _tb: TailBeat;
+};
+
+function shoalAwal(a: ShoalMotion["args"]): { st: ShoalState; rng: ShoalRng } {
+  const rng = createShoalRng(SHOAL_SEED);
+  const st = createShoal(a.count, a.alignment, a.separation, a.cohesion, a.noise, rng, {
+    obstacleCapacity: a.obstacles.length,
+    trailLength: JEJAK_EKOR,
+  });
+  for (const o of a.obstacles) addObstacle(st, o.x, o.y, o.r);
+  return { st, rng };
+}
+
+export function createShoalMotion(
+  count: number,
+  alignment: number,
+  separation: number,
+  cohesion: number,
+  obstacles: readonly ShoalObstacle[] = [],
+  noise = 0.1
+): ShoalMotion {
+  const args = { count, alignment, separation, cohesion, noise, obstacles: obstacles.map((o) => ({ ...o })) };
+  const { st, rng } = shoalAwal(args);
+  const mo: ShoalMotion = {
+    st,
+    rng,
+    px: new Float64Array(st.n),
+    py: new Float64Array(st.n),
+    ph: new Float64Array(st.n),
+    acc: 0,
+    holdLeft: 0,
+    args,
+    jam: { kunci: NaN, teks: "" },
+    _fish: { x: 0, y: 0, heading: 0, length: 1, phase: 0 },
+    _tb: { frequency: 0, amplitude: 0, wavelength: 0, outOfRange: false },
+  };
+  mo.px.set(st.x);
+  mo.py.set(st.y);
+  mo.ph.set(st.heading);
+  return mo;
+}
+
+/** Kembali ke langkah 0. Mengalokasi sekali per putaran ulang (bukan per frame). */
+function ulangShoal(mo: ShoalMotion) {
+  const { st, rng } = shoalAwal(mo.args);
+  mo.st = st;
+  mo.rng = rng;
+  mo.px.set(st.x);
+  mo.py.set(st.y);
+  mo.ph.set(st.heading);
+  mo.acc = 0;
+}
+
+/**
+ * Memajukan simulasi sepanjang dt detik fisik: tiap SHOAL_DT satu
+ * stepShoal. Sesudah SHOAL_STEPS langkah diam `hold` detik lalu mulai lagi.
+ */
+export function advanceShoalMotion(mo: ShoalMotion, dt: number, hold: number): void {
+  if (!(dt > 0)) return;
+  if (mo.st.steps >= SHOAL_STEPS) {
+    mo.holdLeft -= dt;
+    if (mo.holdLeft > 0) return;
+    ulangShoal(mo);
+    return;
+  }
+  mo.acc += dt;
+  /* paling banyak 5 langkah per frame: tab yang macet tidak membekukan halaman */
+  let k = 0;
+  while (mo.acc >= SHOAL_DT && mo.st.steps < SHOAL_STEPS && k < 5) {
+    mo.px.set(mo.st.x);
+    mo.py.set(mo.st.y);
+    mo.ph.set(mo.st.heading);
+    stepShoal(mo.st, SHOAL_DT, mo.rng);
+    mo.acc -= SHOAL_DT;
+    k++;
+  }
+  if (mo.acc > SHOAL_DT) mo.acc = SHOAL_DT;
+  if (mo.st.steps >= SHOAL_STEPS) {
+    mo.acc = SHOAL_DT;
+    mo.holdLeft = hold;
+  }
+}
+
+export type ShoalMotionStyle = {
+  /** Warna ikan dan jejak (satu warna; warna per arah belum diputuskan) */
+  color: string;
+  /** Panjang tubuh, m (lembar: lebar zona tolak = ruang pribadi Couzin) */
+  bodyLength: number;
+  /** Panjang tubuh terkecil di layar, px, supaya bentuk ikan terbaca */
+  minBodyPx: number;
+  /** Awalan dan sambungan tulisan jam: "t = ", " s, langkah " */
+  clockPrefix: string;
+  clockStep: (step: number) => string;
+};
+
+/** Ikan pada posisi sisipan, jejak ekor dari cincin model. */
+export function drawShoalMotion(
+  ctx: CanvasRenderingContext2D,
+  map: PlateMap,
+  t: number,
+  dt: number,
+  mo: ShoalMotion,
+  st: ShoalMotionStyle,
+  hold: number
+): void {
+  advanceShoalMotion(mo, dt, hold);
+  const s = mo.st;
+  const r = Math.min(1, Math.max(0, mo.acc / SHOAL_DT));
+  const skala = Math.abs(map.X(1) - map.X(0)) || 1;
+  const L = Math.max(st.bodyLength, st.minBodyPx / skala);
+
+  ctx.save();
+  clipFrame(ctx, map);
+
+  /* Jejak ekor: dari slot tertua di cincin model ke posisi sisipan. */
+  const T = s.trailLength;
+  const nT = s.trailCount;
+  pen(ctx, W.hair, st.color);
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  for (let i = 0; i < s.n; i++) {
+    const xi = mo.px[i] + r * (s.x[i] - mo.px[i]);
+    const yi = mo.py[i] + r * (s.y[i] - mo.py[i]);
+    let mulai = true;
+    for (let q = nT - 1; q >= 1; q--) {
+      const k = (s.trailHead - 1 - q + 2 * T) % T;
+      const X = map.X(s.trailX[i * T + k]);
+      const Y = map.Y(s.trailY[i * T + k]);
+      if (mulai) ctx.moveTo(X, Y);
+      else ctx.lineTo(X, Y);
+      mulai = false;
+    }
+    if (mulai) ctx.moveTo(map.X(mo.px[i]), map.Y(mo.py[i]));
+    else ctx.lineTo(map.X(mo.px[i]), map.Y(mo.py[i]));
+    ctx.lineTo(map.X(xi), map.Y(yi));
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  /* Ikan: kibasan ekor dari tailBeat (Bainbridge) pada laju model. */
+  tailBeat(s.speed, L, mo._tb);
+  const f = mo._fish;
+  for (let i = 0; i < s.n; i++) {
+    f.x = mo.px[i] + r * (s.x[i] - mo.px[i]);
+    f.y = mo.py[i] + r * (s.y[i] - mo.py[i]);
+    const dh = Math.atan2(Math.sin(s.heading[i] - mo.ph[i]), Math.cos(s.heading[i] - mo.ph[i]));
+    f.heading = mo.ph[i] + r * dh;
+    f.length = L;
+    f.phase = 2 * Math.PI * (mo._tb.frequency * t + hash01(i, 11));
+    drawFish(ctx, map, f, { color: st.color });
+  }
+  ctx.restore();
+
+  /* Tulisan jam dibuat ulang hanya bila langkahnya berganti. */
+  const j = mo.jam;
+  if (j.kunci !== s.steps) {
+    j.kunci = s.steps;
+    j.teks = `${st.clockPrefix}${fmtPlain(s.steps * SHOAL_DT, 1)}${st.clockStep(s.steps)}`;
+  }
+  cornerLabel(ctx, map, j.teks, "bl");
+}
+
+/** Keadaan akhir EH-05 untuk lapis statis: ikan diam, satu warna. */
+export function drawShoalStill(
+  ctx: CanvasRenderingContext2D,
+  map: PlateMap,
+  agents: readonly { x: number; y: number; vx: number; vy: number }[],
+  st: Pick<ShoalMotionStyle, "color" | "bodyLength" | "minBodyPx">
+): void {
+  const skala = Math.abs(map.X(1) - map.X(0)) || 1;
+  const L = Math.max(st.bodyLength, st.minBodyPx / skala);
+  const f: FishPose = { x: 0, y: 0, heading: 0, length: L, phase: 0 };
+  ctx.save();
+  clipFrame(ctx, map);
+  for (let i = 0; i < agents.length; i++) {
+    f.x = agents[i].x;
+    f.y = agents[i].y;
+    f.heading = Math.atan2(agents[i].vy, agents[i].vx);
+    f.phase = 2 * Math.PI * hash01(i, 11);
+    drawFish(ctx, map, f, { color: st.color });
+  }
+  ctx.restore();
 }
