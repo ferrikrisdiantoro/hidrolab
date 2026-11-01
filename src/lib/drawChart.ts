@@ -122,6 +122,12 @@ export type ChartSpec = {
   yLog?: boolean;
   axisX: string;
   axisY: string;
+  /**
+   * Tulisan yang terdorong keluar tepi bawah bidang dicoba ke atas. Opt-in
+   * per lembar (DM-02): pada lembar lain dorongan ini memindahkan label
+   * yang sudah tervalidasi, jadi bawaannya mati.
+   */
+  labelUp?: boolean;
   series: ChartSeries[];
   rules?: ChartRule[];
   bands?: ChartBand[];
@@ -331,6 +337,11 @@ export function drawChart(
      bukan menghilangkannya. */
 
   const dipakai: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+  /* Kotak nama kurva yang sudah ditaruh. Nama kurva ditaruh urut dari yang
+     titik tumpunya paling atas; nama yang naik (lihat tempatkan) tidak boleh
+     melompati nama kurva sebelumnya, supaya urutan nama tetap sama dengan
+     urutan kurvanya (EK-04: "35" tidak boleh naik di atas "50"). */
+  const kotakKurva: { x0: number; x1: number; atas: number }[] = [];
 
   const tempatkan = (
     teks: string,
@@ -338,7 +349,11 @@ export function drawChart(
     y: number,
     spacing: number,
     align: CanvasTextAlign = "center",
-    font?: string
+    font?: string,
+    /* false untuk baris blok (tempatkanBlok), yang mengurus sendiri tepi
+       bawahnya supaya urutan barisnya terjaga. */
+    bolehNaik = true,
+    namaKurva = false
   ) => {
     ctx.font = font ?? (spacing > 1 ? F.region : F.labelSm);
     const lebar = stencilWidth(ctx, teks, spacing) + 8;
@@ -359,18 +374,41 @@ export function drawChart(
     const naik = besar ? Number(/(\d+)px/.exec(font as string)?.[1] ?? 15) + 2 : 7;
     const turun = besar ? 3 : 7;
 
-    let yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
-    let putar = 0;
-    while (
-      putar < 10 &&
+    const yAwal = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
+    const tabrak = (yc: number) =>
       dipakai.some(
-        (d) => x0 < d.x1 && x1 > d.x0 && yy - naik < d.bawah && yy + turun > d.atas
-      )
-    ) {
+        (d) => x0 < d.x1 && x1 > d.x0 && yc - naik < d.bawah && yc + turun > d.atas
+      );
+    let yy = yAwal;
+    let putar = 0;
+    while (putar < 10 && tabrak(yy)) {
       yy += 12;
       putar++;
     }
+    /*
+     * Dorongan ke bawah yang keluar dari tepi bawah bidang membuat tulisan
+     * jatuh di atas angka sumbu (DM-02: nama kurva "FILTER" terdorong nama
+     * jendela filter ke bawah garis sumbu). Hanya pada keadaan itu tulisan
+     * dicoba ke ATAS dari tempat asalnya; tulisan yang muat di dalam bidang
+     * tidak berubah tempat.
+     */
+    if (s.labelUp && bolehNaik && yy + turun > padT + plotH - 2) {
+      for (let k = 1; k <= 10; k++) {
+        const yc = yAwal - 12 * k;
+        if (yc - naik < padT + 2) break;
+        if (
+          namaKurva &&
+          kotakKurva.some((d) => x0 < d.x1 && x1 > d.x0 && yc - naik < d.atas)
+        )
+          break;
+        if (!tabrak(yc)) {
+          yy = yc;
+          break;
+        }
+      }
+    }
     dipakai.push({ x0, x1, atas: yy - naik, bawah: yy + turun });
+    if (namaKurva) kotakKurva.push({ x0, x1, atas: yy - naik });
     return { x: xx, y: yy, x0, x1, atas: yy - naik, bawah: yy + turun };
   };
 
@@ -399,7 +437,7 @@ export function drawChart(
       let yb = y0;
       let utuh = true;
       for (const b of baris) {
-        const pos = tempatkan(b, x, yb, spacing, "center", font);
+        const pos = tempatkan(b, x, yb, spacing, "center", font, false);
         if (hasil.length && pos.y !== yb) utuh = false;
         hasil.push(pos);
         yb = pos.bawah + (pos.bawah - pos.atas) - (font ? 2 : 6);
@@ -547,7 +585,20 @@ export function drawChart(
               1.4,
               align
             )
-          : tempatkan(r.label, X(r.at), padT + 12, 1.4, "center");
+          : /* Garis tegak: kotak terpakainya mengikuti perataan yang sama
+               dengan tulisannya. Dulu kotaknya selalu rata tengah pada
+               garis sedangkan tulisannya rata kanan atau kiri, jadi alas
+               kertas menjulur setengah lebar tulisan ke sisi seberang dan
+               memutus kurva di sana (DM-02, "BATAS MENGALIRKAN"). Tulisan
+               rata kiri atau kanan diberi sela 4 px dari garisnya supaya
+               alasnya tidak menutup garis itu sendiri. */
+            tempatkan(
+              r.label,
+              X(r.at) + (align === "left" ? 4 : align === "right" ? -4 : 0),
+              padT + 12,
+              1.4,
+              align
+            );
       alas(pos);
       region(ctx, r.label, pos.x, pos.y, r.color ?? C.ink2, 0, align);
     }
@@ -616,7 +667,10 @@ export function drawChart(
       X(p.x),
       Y(p.y) + (d.labelDy ?? -10),
       1.4,
-      d.labelAlign ?? "center"
+      d.labelAlign ?? "center",
+      undefined,
+      true,
+      true
     );
     alas(pos);
     region(ctx, d.label as string, pos.x, pos.y, d.color ?? C.ink, 0, d.labelAlign ?? "center");

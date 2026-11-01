@@ -227,6 +227,7 @@ export function FilterBendunganClient() {
         {
           xMin: D_MIN,
           xMax: D_MAX,
+          labelUp: true,
           yMin: 0,
           yMax: 100,
           xLog: true,
