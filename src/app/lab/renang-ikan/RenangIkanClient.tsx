@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,23 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
+import {
+  createRenangGerak,
+  drawRenangGerak,
+  drawRenangLajur,
+  renangKeadaan,
+  renangSkalaWaktu,
+  type RenangGerak,
+} from "@/lib/drawRenang";
+import type { ParamDef } from "@/lib/rentang";
 import {
   SWIM_BURST_BL,
   SWIM_BURST_TIME,
@@ -68,6 +79,16 @@ const TXT = {
     hV: "Kecepatan jelajah, sentak, dan maju bersih",
     hL: "Jarak dalam satu sentakan",
     tak: "tak terbatas",
+    hdlV: "Titik kerja: geser mendatar untuk mengubah kecepatan arus V",
+    lTahan: "Menahan diri di tempat",
+    lDorong: (v: string) => `Terdorong mundur ${v} m/s`,
+    lKibas: "kibasan/s",
+    lLuar: "f < 5/s: di luar rentang Bainbridge",
+    lWaktu: (te: string, tahan: string, lelah: boolean) =>
+      lelah ? `lelah sesudah ${tahan}, hanyut` : `t ${te} s dari ${tahan}`,
+    gNyata: "Lajur ikan: waktu nyata. Ikan berenang terhadap air secepat arus (menahan diri) atau, bila tidak mampu, pada kecepatan sentaknya; laju air, kibasan ekor, dan lama bertahan dari hitungan lembar.",
+    gLambat: (s: string, f: string) =>
+      `Lajur ikan: gerak diperlambat ×${s} supaya kibasan ${f} per detik terbaca; waktu yang tertulis tetap waktu fisik. Ikan berenang terhadap air secepat arus (menahan diri) atau, bila tidak mampu, pada kecepatan sentaknya.`,
     batasModel:
       "Batas antara berkelanjutan dan sentak di lembar ini ditaruh model di tengah (Us + Ub)/2, padahal menurut Beamish (1978) sentak berarti bertahan kurang dari 20 detik. Di pita sentak itu ikan masih bertahan sampai ratusan detik; perbaikan modelnya sudah diusulkan.",
     cekBaku:
@@ -112,6 +133,16 @@ const TXT = {
     hV: "Cruising, burst and net ground speed",
     hL: "Distance in one burst",
     tak: "unlimited",
+    hdlV: "Operating point: drag sideways to change the current velocity V",
+    lTahan: "Holding station",
+    lDorong: (v: string) => `Pushed back at ${v} m/s`,
+    lKibas: "beats/s",
+    lLuar: "f < 5/s: outside the Bainbridge range",
+    lWaktu: (te: string, tahan: string, lelah: boolean) =>
+      lelah ? `exhausted after ${tahan}, drifting` : `t ${te} s of ${tahan}`,
+    gNyata: "Fish lane: real time. The fish swims through the water as fast as the current (holding station) or, when it cannot, at its burst speed; water speed, tail beat and endurance come from the sheet's calculation.",
+    gLambat: (s: string, f: string) =>
+      `Fish lane: motion slowed ×${s} so the ${f} per second tail beat is readable; the time written is still physical time. The fish swims through the water as fast as the current (holding station) or, when it cannot, at its burst speed.`,
     batasModel:
       "The boundary between prolonged and burst on this sheet is placed by the model halfway, at (Us + Ub)/2, whereas Beamish (1978) defines burst as lasting under 20 seconds. Inside that burst band the fish still holds for hundreds of seconds; a model correction has been proposed.",
     cekBaku:
@@ -137,6 +168,12 @@ const REFS = {
     "Bell, M.C. (1991). Fisheries Handbook of Engineering Requirements and Biological Criteria. US Army Corps of Engineers.",
   ],
 } as const;
+
+/** Rentang V: satu definisi untuk penggeser dan pegangan di kurva. */
+const P_V: ParamDef = { min: 0.02, max: 6, step: 0.02, digits: 2 };
+/** Tinggi lajur ikan di atas kurva, px. Bidang kurva tetap setinggi semula. */
+const TINGGI_LAJUR = 140;
+const TINGGI_GRAFIK = "clamp(360px, 56vh, 620px)";
 
 export function RenangIkanClient() {
   const { lang } = useLang();
@@ -184,7 +221,40 @@ export function RenangIkanClient() {
   const bawaan = susBL === SWIM_SUSTAINED_BL && burstBL === SWIM_BURST_BL;
   const mati = (v: string) => (r.impossible ? "—" : v);
 
-  const ref = useCanvas(
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<RenangGerak | null>(null);
+  if (gerak.current === null) gerak.current = createRenangGerak();
+
+  /* Lajur ikan: keadaan yang sama dengan titik di kurva (renangKeadaan
+     membaca fishSwim). Pada keadaan mustahil tidak ada gerak. */
+  const k = renangKeadaan(L, V, susBL, burstBL);
+  const skala = renangSkalaWaktu(k);
+  const teksWaktu = (te: number, tahan: number) =>
+    x.lWaktu(
+      fmt(Math.min(te, tahan), 0),
+      Number.isFinite(tahan) ? `${fmt(tahan, 0)} s${k.gagal ? ` (${x.mSentak.toLowerCase()})` : ""}` : "∞",
+      te > tahan
+    );
+  const labelLajur = {
+    state: k.gagal ? x.lDorong(fmt(-k.maju, 2)) : x.lTahan,
+    bl: x.pt,
+    beat: x.lKibas,
+    outOfRange: x.lLuar,
+    impossible: x.mustahil,
+  };
+  const bergerak = playing && k.berlaku;
+  const lajur = usePlate(
+    (ctx, w, h) => drawRenangLajur(ctx, w, h, k, labelLajur, { ikanDiam: !bergerak, lang }),
+    k.berlaku
+      ? (ctx, w, h, tt, dt) => drawRenangGerak(ctx, w, h, tt, dt, k, gerak.current!, teksWaktu)
+      : null,
+    [Lcm, V, susBL, burstBL, lang, bergerak],
+    { playing, timeScale: skala }
+  );
+
+  const grafik = usePlate(
     (ctx, w, h) => {
       const kurva: { x: number; y: number }[] = [];
       for (let i = 0; i <= 300; i++) {
@@ -201,7 +271,7 @@ export function RenangIkanClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -242,12 +312,38 @@ export function RenangIkanClient() {
              dulu. */
           heading: r.impossible ? x.mustahil : tidak ? T.unableZone : undefined,
           headingColor: r.impossible ? C.signal : C.caution,
+          /* Pegangan titik kerja. Ketahanan tak terbatas (jelajah) ditaruh
+             di tepi atas sumbu, tempat kurva meninggalkan bidang. */
+          anchors: r.impossible
+            ? undefined
+            : { kerja: { x: V, y: Math.min(1e5, Math.max(1, r.endurance)) } },
         },
         lang
       );
     },
+    null,
     [Lcm, V, susBL, burstBL, lang]
   );
+
+  /* Ketahanan adalah HASIL model pada V, jadi titik hanya diseret mendatar.
+     Keadaan mustahil: tanpa pegangan. */
+  const handles: HandleSpec[] = r.impossible
+    ? []
+    : [
+        {
+          id: "kerja",
+          anchor: "kerja",
+          axis: "x",
+          label: x.hdlV,
+          hollow: true,
+          tint: C.water,
+          param: P_V,
+          value: V,
+          toValue: (px, _py, m) => m.invX(px),
+          onChange: setV,
+          format: (v) => `V ${fmt(v, 2)} m/s`,
+        },
+      ];
 
   return (
     <LabShell
@@ -296,6 +392,7 @@ export function RenangIkanClient() {
           number="EH-04"
           title={x.sheetTitle}
           rev="A"
+          height={`calc(${TINGGI_GRAFIK} + ${TINGGI_LAJUR + 1}px)`}
           cells={[
             { label: t.tbUnit, value: "SI (m, m/s, s)" },
             { label: "L", value: `${fmt(Lcm, 0)} cm` },
@@ -311,16 +408,35 @@ export function RenangIkanClient() {
             },
             { label: "—", value: r.impossible ? "—" : modeNama },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: lajur.motionAllowed,
+            note: skala < 1 ? x.gLambat(fmt(skala, 2), fmt(k.kibas.frequency, 1)) : x.gNyata,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <div className="flex h-full flex-col">
+            {/* Lajur ikan lebih dulu: kanvas kedua di figure adalah lapis
+                geraknya (alat cek-gerak membaca figure canvas[1]). */}
+            <div className="relative shrink-0" style={{ height: TINGGI_LAJUR }}>
+              <canvas ref={lajur.ref} className="block h-full w-full" />
+              <canvas ref={lajur.motionRef} />
+            </div>
+            <div className="h-px shrink-0 bg-rule" />
+            <div className="relative min-h-0 flex-1">
+              <canvas ref={grafik.ref} className="block h-full w-full" />
+              <DragLayer out={grafik.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="L" label={x.dL} value={Lcm} min={2} max={150} step={1} digits={0} unit="cm" onChange={setLcm} />
-              <InputRow symbol="V" label={x.dV} value={V} min={0.02} max={6} step={0.02} digits={2} unit="m/s" onChange={setV} tint={C.water} />
+              <InputRow symbol="V" label={x.dV} value={V} {...P_V} unit="m/s" onChange={setV} tint={C.water} />
               <InputRow symbol="Us" label={x.dSus} value={susBL} min={0.5} max={5} step={0.1} digits={1} unit={x.pt} onChange={setSusBL} />
               <InputRow symbol="Ub" label={x.dBurst} value={burstBL} min={4} max={20} step={0.5} digits={1} unit={x.pt} onChange={setBurstBL} tint={C.critical} />
             </InputTable>
