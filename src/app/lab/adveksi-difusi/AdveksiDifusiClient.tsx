@@ -10,6 +10,7 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
@@ -204,6 +205,8 @@ export function AdveksiDifusiClient() {
      acak (adveksi U, penyebaran D) diputar ulang 0 sampai saat terakhir,
      satu menit per detik layar. Lapis statis tidak berubah. */
   const { playing, toggle: togglePutar } = usePutar();
+  /* Pemadam tanda contoh untuk pegangan di gambar (di luar Block masukan). */
+  const sentuh = useRef<() => void>(() => {});
   const gerak = useRef<PlumeMotion | null>(null);
   if (gerak.current === null) gerak.current = createPlumeMotion();
   /* Grafik c–t dan putaran ulang mencakup saat awan dari setiap titik
@@ -463,12 +466,13 @@ export function AdveksiDifusiClient() {
         >
           <canvas ref={plate.ref} className="block h-full w-full" />
           <canvas ref={plate.motionRef} />
-          <DragLayer out={plate.outRef.current} handles={pegangan} place={taruh} />
+          <DragLayer out={plate.outRef.current} handles={pegangan} place={taruh} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="M" label={x.dM} value={massa} min={1} max={500} step={1} digits={0} unit="kg" onChange={setMassa} />
               <InputRow symbol="A" label={x.dA} value={luas} min={1} max={100} step={1} digits={0} unit="m²" onChange={setLuas} />
