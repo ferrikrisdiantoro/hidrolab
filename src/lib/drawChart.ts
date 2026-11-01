@@ -101,6 +101,26 @@ export type ChartLegendItem = {
   marker?: boolean;
 };
 
+/**
+ * Batang yang menggantung dari tepi atas bidang, dibaca pada sumbu kanan
+ * yang nolnya di atas: hyetograph terbalik di atas hidrograf (HY-02), atau
+ * deret masukan di atas tanggapannya. Batang berbagi sumbu datar dengan
+ * kurva, dan menempati pita setinggi `heightFrac` bidang di bagian atasnya.
+ */
+export type ChartBars = {
+  /** Tiap batang dari x0 sampai x1 (nilai sumbu datar), tingginya v */
+  bars: { x0: number; x1: number; v: number }[];
+  /** Nilai di tepi bawah pita; nol di tepi atas bidang */
+  max: number;
+  /** Nama besaran di sumbu kanan, juga kunci untuk `hidden` */
+  label: string;
+  unit?: string;
+  /** Bawaan C.water */
+  color?: string;
+  /** Tinggi pita sebagai pecahan tinggi bidang, bawaan 0,3 */
+  heightFrac?: number;
+};
+
 /** Titik kerja dengan jalur baca ke kedua sumbu. */
 export type ChartPoint = {
   x: number;
@@ -159,6 +179,18 @@ export type ChartSpec = {
    * piksel. Tidak digambar; dipakai lembar untuk pegangan seret.
    */
   anchors?: Record<string, { x: number; y: number }>;
+  /**
+   * Batang dari tepi atas dengan sumbu kanan (lihat ChartBars). Bila ada,
+   * ruang kanan bawaan melebar untuk angka dan nama sumbu kanan, dan
+   * seluruh tulisan di dalam bidang ditaruh di bawah pitanya.
+   */
+  topBars?: ChartBars;
+  /**
+   * Label deret yang tidak digambar (legenda yang bisa diklik, OC-10).
+   * Berlaku untuk `series[].label` dan `topBars.label`. Tata letak tidak
+   * berubah saat deret disembunyikan, supaya grafik tidak melompat.
+   */
+  hidden?: ReadonlySet<string>;
 };
 
 export function drawChart(
@@ -172,11 +204,21 @@ export function drawChart(
   ground(ctx, w, h);
 
   const padL = 62;
-  const padR = s.padRight ?? 30;
+  const pita = s.topBars;
+  const padR = s.padRight ?? (pita ? 64 : 30);
   const padT = s.title ? 48 : 26;
   const padB = 52;
   const plotW = Math.max(10, w - padL - padR);
   const plotH = Math.max(10, h - padT - padB);
+  /* Pita batang atas: tingginya dalam piksel, dan batas atas tulisan di
+     dalam bidang. Tanpa topBars batasnya tepi atas bidang, seperti dulu. */
+  const pitaH = pita
+    ? Math.max(0, Math.min(1, pita.heightFrac ?? 0.3)) * plotH
+    : 0;
+  const atasTulisan = padT + pitaH;
+  const tersembunyi = (label: string | undefined) =>
+    !!label && !!s.hidden && s.hidden.has(label);
+  const deret = s.hidden ? s.series.filter((d) => !tersembunyi(d.label)) : s.series;
 
   /* ---------------- pemetaan ---------------- */
 
@@ -211,6 +253,40 @@ export function drawChart(
     x <= s.xMax + tolX &&
     y >= s.yMin - tolY &&
     y <= s.yMax + tolY;
+
+  /* Batang atas, dipanggil di dalam pemotongan bidang sebelum kurva, supaya
+     kurva tetap terbaca di atas batang. Nol di tepi atas, `max` di tepi
+     bawah pita. */
+  const Yb = (v: number) =>
+    padT + (pita && pita.max > 0 ? (Math.min(Math.max(0, v), pita.max) / pita.max) * pitaH : 0);
+  const gambarPita = (b: ChartBars) => {
+    if (!(b.max > 0) || pitaH <= 0) return;
+    const warna = b.color ?? C.water;
+    ctx.save();
+    ctx.beginPath();
+    for (const bar of b.bars) {
+      if (!(bar.v > 0)) continue;
+      const xa = X(bar.x0);
+      const xb = X(bar.x1);
+      ctx.rect(Math.min(xa, xb), padT, Math.abs(xb - xa), Yb(bar.v) - padT);
+    }
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = warna;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    pen(ctx, W.thin, warna, DASH.solid);
+    ctx.stroke();
+    ctx.restore();
+
+    /* Batas bawah pita: garis tipis putus, supaya jelas sampai mana sumbu
+       kanan berlaku */
+    pen(ctx, W.hair, C.ruleStrong, DASH.axis);
+    ctx.beginPath();
+    ctx.moveTo(padL, Math.round(padT + pitaH) + 0.5);
+    ctx.lineTo(padL + plotW, Math.round(padT + pitaH) + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
 
   /* ---------------- kisi dan angka sumbu ----------------
      Sumbu logaritmik diberi garis pada tiap dasawarsa; sumbu biasa pada
@@ -298,6 +374,34 @@ export function drawChart(
   axisTitle(ctx, s.axisX, padL + plotW / 2, padT + plotH + 34, 0, !!s.title);
   axisTitle(ctx, s.axisY, 18, padT + plotH / 2, -Math.PI / 2, !!s.title);
 
+  /* ---------------- sumbu kanan pita batang ----------------
+     Tanda pendek di luar bingkai, angka rata kiri, nama sumbu tegak di tepi
+     kanan kanvas. Tetap digambar saat batangnya disembunyikan supaya tata
+     letaknya tidak melompat. */
+
+  if (pita && pita.max > 0 && pitaH > 0) {
+    const langkah = niceStep(pita.max, pitaH < 70 ? 2 : 3);
+    const nilai: number[] = [];
+    for (let v = 0; v <= pita.max + langkah * 1e-6; v += langkah) nilai.push(v);
+    const dig = desimal(nilai);
+    const kanan = padL + plotW;
+    pen(ctx, W.thin, C.ink, DASH.solid);
+    ctx.beginPath();
+    for (const v of nilai) {
+      const py = Math.round(Yb(v)) + 0.5;
+      ctx.moveTo(kanan, py);
+      ctx.lineTo(kanan + 5, py);
+    }
+    ctx.stroke();
+    for (const v of nilai) axisValue(ctx, fmtPlain(v, dig), kanan + 8, Yb(v), "left", "middle");
+
+    const nama = pita.unit ? `${pita.label} (${pita.unit})` : pita.label;
+    ctx.font = s.title ? '500 12px "Public Sans", system-ui, sans-serif' : F.label;
+    const panjang = s.title ? ctx.measureText(nama).width : stencilWidth(ctx, nama, 1.1);
+    const tengah = Math.max(padT + pitaH / 2, 4 + panjang / 2);
+    axisTitle(ctx, nama, kanan + padR - 13, tengah, Math.PI / 2, !!s.title);
+  }
+
   /* ---------------- daerah di luar rentang ----------------
      Digambar sebelum kurva, supaya kurvanya tetap di atas arsiran. */
 
@@ -342,6 +446,14 @@ export function drawChart(
      melompati nama kurva sebelumnya, supaya urutan nama tetap sama dengan
      urutan kurvanya (EK-04: "35" tidak boleh naik di atas "50"). */
   const kotakKurva: { x0: number; x1: number; atas: number }[] = [];
+  /* Pita batang atas didaftarkan sebagai kotak terpakai, supaya label kurva
+     dan nama wilayah tidak duduk di atas batang (tempatkan juga tidak
+     memulai tulisan di atas atasTulisan). Kotak ini bukan tulisan, jadi
+     tidak ikut dikeluarkan sebagai PlateOut.labels. */
+  const kotakPita = pita
+    ? { x0: padL, x1: padL + plotW, atas: padT, bawah: padT + pitaH }
+    : null;
+  if (kotakPita) dipakai.push(kotakPita);
 
   const tempatkan = (
     teks: string,
@@ -374,7 +486,7 @@ export function drawChart(
     const naik = besar ? Number(/(\d+)px/.exec(font as string)?.[1] ?? 15) + 2 : 7;
     const turun = besar ? 3 : 7;
 
-    const yAwal = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
+    const yAwal = Math.min(Math.max(y, atasTulisan + naik + 2), padT + plotH - turun - 2);
     const tabrak = (yc: number) =>
       dipakai.some(
         (d) => x0 < d.x1 && x1 > d.x0 && yc - naik < d.bawah && yc + turun > d.atas
@@ -395,7 +507,7 @@ export function drawChart(
     if (s.labelUp && bolehNaik && yy + turun > padT + plotH - 2) {
       for (let k = 1; k <= 10; k++) {
         const yc = yAwal - 12 * k;
-        if (yc - naik < padT + 2) break;
+        if (yc - naik < atasTulisan + 2) break;
         if (
           namaKurva &&
           kotakKurva.some((d) => x0 < d.x1 && x1 > d.x0 && yc - naik < d.atas)
@@ -516,7 +628,9 @@ export function drawChart(
   ctx.rect(padL, padT, plotW, plotH);
   ctx.clip();
 
-  for (const d of s.series) {
+  if (pita && !tersembunyi(pita.label)) gambarPita(pita);
+
+  for (const d of deret) {
     if (d.pts.length < 2) continue;
 
     if (d.fill) {
@@ -648,7 +762,7 @@ export function drawChart(
      atas ke bawah membuat dorongan ke bawah tidak pernah dapat melewati
      label yang sudah terpasang, jadi urutannya terjaga apa pun jaraknya. */
 
-  const berlabel = s.series
+  const berlabel = deret
     .filter((d) => d.label && d.pts.length >= 2)
     .map((d) => {
       const f = Math.min(Math.max(d.labelAt ?? 0.5, 0), 1);
@@ -767,7 +881,7 @@ export function drawChart(
       Math.max(...s.legend.map((l) => ctx.measureText(l.text).width)) + contoh + 22;
     const tinggi = s.legend.length * baris + 10;
     const x0 = padL + 10;
-    const y0 = padT + 10;
+    const y0 = atasTulisan + 10;
     ctx.fillStyle = C.sheet;
     ctx.fillRect(x0, y0, lebar, tinggi);
     pen(ctx, W.hair, C.rule ?? C.ink3, DASH.solid);
@@ -822,7 +936,24 @@ export function drawChart(
   );
   const anchors = anchorsFrom(map, s.anchors);
   if (s.point && titikDidalam) anchors.point = { x: X(s.point.x), y: Y(s.point.y) };
-  return { map, anchors, labels: rectsFrom(dipakai) };
+  const out: PlateOut = {
+    map,
+    anchors,
+    labels: rectsFrom(kotakPita ? dipakai.filter((d) => d !== kotakPita) : dipakai),
+  };
+  /* Peta pita batang: sumbu datar sama, sumbu tegak nilai batang (nol di
+     tepi atas). Dipakai lembar untuk menyeret tinggi batang. */
+  if (pita && pita.max > 0 && pitaH > 0)
+    out.maps = {
+      topBars: mapFrom(
+        X,
+        Yb,
+        { x0: padL, y0: padT, x1: padL + plotW, y1: padT + pitaH },
+        [s.xMin, s.xMax],
+        [0, pita.max]
+      ),
+    };
+  return out;
 }
 
 /** Angka dasawarsa ditulis sebagai pangkat sepuluh, seperti kertas log. */
