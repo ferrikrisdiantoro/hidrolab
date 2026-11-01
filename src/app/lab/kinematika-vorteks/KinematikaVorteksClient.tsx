@@ -81,6 +81,9 @@ const TXT = {
     jD: "Pemeriksaan: jarak di akhir pengamatan",
     dK: "Sirkulasi pusaran yang ditaruh",
     pusaranKe: (k: number) => `pusaran ${k}`,
+    keluar: "lintasan keluar bidang",
+    nKasar: (dH: string) =>
+      `Pusarannya berdesakan sangat rapat sehingga langkah hitungnya dikasarkan supaya halaman tidak macet (paling banyak 40 000 langkah per pengamatan). Akibatnya energi H berubah ${dH} % selama pengamatan, padahal mestinya tetap: lintasannya hanya perkiraan. Renggangkan pusarannya atau kecilkan sirkulasinya.`,
     tambah: "Tambah pusaran",
     gPos: (k: number) => `Posisi pusaran ${k}`,
     gD1: "Jarak awal, seret pusaran pertama",
@@ -154,6 +157,9 @@ const TXT = {
     jD: "Check: separation at the end of the observation",
     dK: "Circulation of the placed vortices",
     pusaranKe: (k: number) => `vortex ${k}`,
+    keluar: "path leaves the plot",
+    nKasar: (dH: string) =>
+      `The vortices are packed so closely that the time step was coarsened so the page does not freeze (at most 40 000 steps per observation). As a result the energy H changes by ${dH} % over the observation although it should stay fixed: the paths are only approximate. Spread the vortices or reduce their circulation.`,
     tambah: "Add vortex",
     gPos: (k: number) => `Position of vortex ${k}`,
     gD1: "Initial separation, drag the first vortex",
@@ -291,15 +297,18 @@ export function KinematikaVorteksClient() {
     [kunci]
   );
 
-  /* Bidang gambar mengikuti lintasan. Selama sebuah pegangan diseret
-     bidangnya dibekukan: bila sumbunya ikut berubah di bawah jari, jarak
-     yang diseret dan skala gambar saling kejar. */
+  /* Bidang gambar ditentukan hanya oleh penggeser (lintasan pasangan
+     pusaran 1 dan 2), tidak oleh pusaran yang ditaruh: menaruh, menyeret,
+     atau menghapus pusaran tidak mengubah skala, jadi pusaran tetap di
+     tempat klik. Lintasan yang keluar dipotong bingkai dan diberi penanda.
+     Selama pegangan d diseret bidangnya dibekukan: bila sumbunya ikut
+     berubah di bawah jari, jarak yang diseret dan skala saling kejar. */
   const bidangBaru = useMemo(() => {
     let x0 = Infinity;
     let x1 = -Infinity;
     let y0 = Infinity;
     let y1 = -Infinity;
-    for (const j of jalur)
+    for (const j of [r.pathA, r.pathB])
       for (const p of j) {
         if (p.x < x0) x0 = p.x;
         if (p.x > x1) x1 = p.x;
@@ -316,9 +325,25 @@ export function KinematikaVorteksClient() {
       yMax: y1 + margin + (y1 - y0 + 2 * margin) * 0.16,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kunci]);
+  }, [gA, gB, jarak]);
   const [beku, setBeku] = useState<typeof bidangBaru | null>(null);
   const bidang = beku ?? bidangBaru;
+
+  /* Titik pertama lintasan yang keluar bidang, untuk penanda di tepinya. */
+  const keluar = (() => {
+    const { xMin, xMax, yMin, yMax } = bidang;
+    for (const j of jalur)
+      for (const p of j)
+        if (p.x < xMin || p.x > xMax || p.y < yMin || p.y > yMax) {
+          const dx = 0.1 * (xMax - xMin);
+          const dy = 0.06 * (yMax - yMin);
+          return {
+            x: Math.min(xMax - dx, Math.max(xMin + dx, p.x)),
+            y: Math.min(yMax - 2.5 * dy, Math.max(yMin + dy, p.y)),
+          };
+        }
+    return null;
+  })();
 
   const gMaks = Math.max(Math.abs(gA), Math.abs(gB), banyak ? Math.abs(gK) : 0);
 
@@ -366,6 +391,7 @@ export function KinematikaVorteksClient() {
           ...bidang,
           lines: garis,
           markers: titik,
+          regions: keluar ? [{ x: keluar.x, y: keluar.y, text: x.keluar, color: C.ink3 }] : undefined,
           heading: keadaan,
           headingColor: C.ink2,
           axisX: T.axXMetre,
@@ -711,7 +737,7 @@ export function KinematikaVorteksClient() {
             }
             notice={
               banyak
-                ? [x.nBanyak, x.nInti(fmt(VORTEX_CORE, 1))]
+                ? [...(track.limited ? [x.nKasar(fmt(dHpct, 2))] : []), x.nBanyak, x.nInti(fmt(VORTEX_CORE, 1))]
                 : [...notice(gA, gB, jarak, lang), x.nInti(fmt(VORTEX_CORE, 1))]
             }
           />

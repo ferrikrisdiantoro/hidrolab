@@ -76,6 +76,7 @@ const TXT = {
     hGol: "Penggolongan bentuk",
     rerata: "rerata dari",
     dR: "Jari-jari rintangan",
+    keluar: "ada ikan keluar bidang",
     tambah: "Tambah rintangan",
     gObs: (k: number) => `Posisi rintangan ${k}`,
     hapusSemua: "Hapus semua rintangan",
@@ -119,6 +120,7 @@ const TXT = {
     hGol: "Classifying the shape",
     rerata: "mean over",
     dR: "Obstacle radius",
+    keluar: "some fish leave the plot",
     tambah: "Add obstacle",
     gObs: (k: number) => `Position of obstacle ${k}`,
     hapusSemua: "Remove all obstacles",
@@ -232,30 +234,31 @@ export function GerombolanIkanClient() {
           ? C.energy
           : C.ink2;
 
-  /* Bidang gambar memuat seluruh 300 langkah (bukan hanya keadaan akhir),
-     supaya ikan yang bergerak di lapis gerak tidak keluar bingkai, dan
-     semua rintangan. Dibekukan selama seret. */
+  /* Bidang gambar ditentukan hanya oleh penggeser: kotak seluruh 300
+     langkah gerombolan TANPA rintangan (bukan hanya keadaan akhir, supaya
+     ikan di lapis gerak tidak keluar bingkai). Menaruh, menyeret, atau
+     menghapus rintangan tidak mengubah skala, jadi rintangan tetap di
+     tempat klik. Ikan yang dibelokkan rintangan keluar kotak itu dipotong
+     bingkai dan diberi penanda. */
+  const adaObs = obs.length > 0;
+  const r0 = useMemo(
+    () => (adaObs ? shoalScene(jumlah, selaras, jauh, dekat) : r),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jumlah, selaras, jauh, dekat, adaObs, adaObs ? null : r]
+  );
   const bidangBaru = useMemo(() => {
-    let x0 = r.xMin;
-    let x1 = r.xMax;
-    let y0 = r.yMin;
-    let y1 = r.yMax;
-    for (const o of obs) {
-      x0 = Math.min(x0, o.x - o.r);
-      x1 = Math.max(x1, o.x + o.r);
-      y0 = Math.min(y0, o.y - o.r);
-      y1 = Math.max(y1, o.y + o.r);
-    }
-    const margin = Math.max(r.nearestNeighbour * 2, 2 * zr, 1);
+    const margin = Math.max(r0.nearestNeighbour * 2, 2 * zr, 1);
     return {
-      xMin: x0 - margin,
-      xMax: x1 + margin,
-      yMin: y0 - margin,
-      yMax: y1 + margin + (y1 - y0 + 2 * margin) * 0.14,
+      xMin: r0.xMin - margin,
+      xMax: r0.xMax + margin,
+      yMin: r0.yMin - margin,
+      yMax: r0.yMax + margin + (r0.yMax - r0.yMin + 2 * margin) * 0.14,
     };
-  }, [r, obs, zr]);
+  }, [r0, zr]);
   const [beku, setBeku] = useState<typeof bidangBaru | null>(null);
   const bidang = beku ?? bidangBaru;
+  const ikanKeluar =
+    r.xMin < bidang.xMin || r.xMax > bidang.xMax || r.yMin < bidang.yMin || r.yMax > bidang.yMax;
 
   const gayaIkan = {
     color: warna,
@@ -301,6 +304,16 @@ export function GerombolanIkanClient() {
               text: T.shoalLabel,
               color: C.ink3,
             },
+            ...(ikanKeluar
+              ? [
+                  {
+                    x: bidang.xMin + (bidang.xMax - bidang.xMin) * 0.8,
+                    y: bidang.yMin + (bidang.yMax - bidang.yMin) * 0.05,
+                    text: x.keluar,
+                    color: C.ink3,
+                  },
+                ]
+              : []),
           ],
           heading: nama,
           headingColor: warna,
@@ -319,7 +332,7 @@ export function GerombolanIkanClient() {
       if (!out) return;
       drawShoalMotion(ctx, out.map, tt, dt, gerak, gayaIkan, 1.5 * WAKTU);
     },
-    [jumlah, selaras, jauh, dekat, kunciObs, lang, playing, bidang.xMin, bidang.xMax, bidang.yMin, bidang.yMax],
+    [jumlah, selaras, jauh, dekat, kunciObs, lang, playing, ikanKeluar, bidang.xMin, bidang.xMax, bidang.yMin, bidang.yMax],
     { playing, timeScale: WAKTU }
   );
 

@@ -121,6 +121,8 @@ export type VortexTrack = {
    * Lamb Art. 155, (|Γi| + |Γj|)/(2π r²) dengan r ≥ inti)
    */
   maxPairRate: number;
+  /** Anggaran langkah RK4 tercapai (pusaran berdesakan): ketelitian diturunkan */
+  limited: boolean;
 };
 
 /** Sudut putar paling besar antar dua sampel jejak, rad (sama dengan vortexPair). */
@@ -139,6 +141,12 @@ const SUDUT_RK4 = 0.01;
  * untuk diseret; ΔH yang ditampilkan lembar menunjukkan galatnya.
  */
 const SUDUT_RK4_N = 0.05;
+/**
+ * Anggaran langkah RK4 tiga pusaran atau lebih selama satu pengamatan.
+ * Enam pusaran Γ 40 dalam 0,5 m butuh 474 ms tanpa anggaran (diukur);
+ * dengan 40 000 langkah paling lama sekitar 0,3 s per perubahan.
+ */
+const LANGKAH_MAKS_N = 40000;
 
 /**
  * Menghitung jejak N pusaran selama `span` detik dengan M3
@@ -179,12 +187,22 @@ export function vortexTrack(
   const dtMin = span / K_MAKS;
   let wMaks = 0;
   let t = 0;
+  let limited = false;
   while (span - t > 1e-12 * span) {
     const dtw = vortexTimeStep(sys, SUDUT_SAMPEL);
     if (Number.isFinite(dtw)) wMaks = Math.max(wMaks, SUDUT_SAMPEL / dtw);
     let dt = Math.max(dtMin, Math.min(dtMaks, dtw));
     if (dt > span - t) dt = span - t;
-    if (n > 1) advanceVortices(sys, dt, n === 2 ? SUDUT_RK4 : SUDUT_RK4_N);
+    if (n === 2) advanceVortices(sys, dt, SUDUT_RK4);
+    else if (n > 2) {
+      /* Anggaran langkah RK4: paling sedikit span/LANGKAH_MAKS_N per langkah.
+         Pusaran yang berdesakan rapat lebih rapat dari anggaran itu dipadu
+         dengan langkah lebih kasar (ketelitian turun, ΔH di lembar naik)
+         dan ditandai, bukan membekukan halaman. */
+      const cap = Math.max(1, Math.ceil(dt / (span / LANGKAH_MAKS_N)));
+      if (dt / vortexTimeStep(sys, SUDUT_RK4_N) > cap) limited = true;
+      advanceVortices(sys, dt, SUDUT_RK4_N, cap);
+    }
     t += dt;
     ts.push(t);
     simpan();
@@ -206,6 +224,7 @@ export function vortexTrack(
     start,
     end: vortexInvariants(sys),
     maxPairRate: wMaks,
+    limited,
   };
 }
 
