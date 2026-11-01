@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -9,19 +9,33 @@ import {
   InputTable,
   PresetRow,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   fmt,
   fmtPlain,
-  floodHydrograph,
+
   scsStorage,
   scsUnitHydrograph,
 } from "@/lib/hydraulics";
+import { floodHydrographBlocks } from "@/lib/hidrografHujan";
+import {
+  drawCatchment,
+  drawCatchmentState,
+  drawTimeCursor,
+  offsetMap,
+  readHydrograph,
+  type CatchmentLayout,
+} from "@/lib/drawBasin";
+import type { PlateMap, PlateOut } from "@/lib/plateOut";
+import type { Check } from "@/lib/verify";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -61,6 +75,27 @@ const TXT = {
     hPe0: "P tidak melebihi Ia: Pe = 0, seluruh hujan tertahan",
     hPeak: "Puncak hasil penjumlahan pias",
     hCek: "Pemeriksaan isi",
+    dKursor: "Kursor waktu, jam ke-",
+    gPias: "Hujan pias {i}, seret batang hyetograph naik atau turun",
+    gPilih: "Hyetograph, seret ke kiri atau kanan memilih pias dan naik atau turun mengatur hujannya",
+    lCatchment: "DAS",
+    lOutlet: "outlet",
+    lLumped: "hujan merata di seluruh DAS (model terpusat); awan hanya penanda waktu badai",
+    lRainUnit: "mm/h",
+    barLabel: "hujan",
+    tabelPias: "SCS-CN per pias: CN dipakai pada hujan kumulatif (NEH 630 Bab 10)",
+    kolK: "pias",
+    kolP: "P (mm)",
+    kolPk: "ΣP (mm)",
+    kolPek: "ΣPe (mm)",
+    kolPe: "Pe (mm)",
+    kumulatifNote:
+      "Hyetograph bisa digambar dengan menyeret batangnya; penggeser P menskalakan seluruh batang. Hujan efektif tiap pias dihitung kumulatif (NEH 630 Bab 10, Contoh 10-6): CN dipakai pada hujan kumulatif, limpasan pias = selisih limpasan kumulatif berurutan, jadi hujan awal habis mengisi Ia dan pias belakangan melimpas lebih banyak. Hidrograf = konvolusi limpasan per pias dengan hidrograf satuan segitiga SCS (NEH 630 Bab 16). Model terpusat: letak hujan di DAS tidak mengubah puncak di lembar ini; untuk itu dibutuhkan model terdistribusi (misalnya waktu-luas Clark).",
+    motionNoteA: "Waktu dipercepat: satu detik layar =",
+    motionNoteB: "jam. Peta DAS skematik; hujan dianggap merata, jadi letak awan tidak mengubah debit.",
+    cekVol: "Isi hidrograf hyetograph gambar sama dengan hujan efektif kumulatif",
+    hPiasMaks: "paling banyak 24 pias supaya bisa digambar",
+    dibatasiP: "batang dibatasi: hujan total paling banyak 600 mm",
     andaian:
       "CN dan hidrograf satuan sama-sama andaian: CN berasal dari tabel petak percobaan di Amerika Serikat, dan hidrograf satuan menganggap tanggapan daerah aliran linear (Ponce dan Hawkins 1996).",
     note:
@@ -97,6 +132,27 @@ const TXT = {
     hPe0: "P does not exceed Ia: Pe = 0, all the rain is held back",
     hPeak: "Peak of the summed blocks",
     hCek: "Volume check",
+    dKursor: "Time cursor, hour",
+    gPias: "Rain block {i}, drag the hyetograph bar up or down",
+    gPilih: "Hyetograph, drag left or right to pick a block and up or down to set its rain",
+    lCatchment: "catchment",
+    lOutlet: "outlet",
+    lLumped: "rain uniform over the whole catchment (lumped model); the cloud only marks storm time",
+    lRainUnit: "mm/h",
+    barLabel: "rain",
+    tabelPias: "SCS-CN per block: CN applied to cumulative rain (NEH 630 Chapter 10)",
+    kolK: "block",
+    kolP: "P (mm)",
+    kolPk: "ΣP (mm)",
+    kolPek: "ΣPe (mm)",
+    kolPe: "Pe (mm)",
+    kumulatifNote:
+      "The hyetograph can be drawn by dragging its bars; the P slider scales all bars. Effective rain per block is computed cumulatively (NEH 630 Chapter 10, Example 10-6): CN is applied to cumulative rain and block runoff is the difference of successive cumulative runoff, so early rain fills Ia and later blocks run off more. The hydrograph is the convolution of block runoff with the SCS triangular unit hydrograph (NEH 630 Chapter 16). Lumped model: where the rain falls in the catchment does not change the peak on this sheet; that needs a distributed model (for example Clark time-area).",
+    motionNoteA: "Time is sped up: one screen second =",
+    motionNoteB: "hours. Schematic catchment map; rain is taken as uniform, so the cloud position does not change the flow.",
+    cekVol: "Volume of the drawn-hyetograph hydrograph equals the cumulative effective rain",
+    hPiasMaks: "at most 24 blocks so they can be drawn",
+    dibatasiP: "bar limited: total rain at most 600 mm",
     andaian:
       "The curve number and the unit hydrograph are both assumptions: CN comes from tables of experimental plots in the United States, and the unit hydrograph treats the catchment response as linear (Ponce and Hawkins 1996).",
     note:
@@ -119,30 +175,99 @@ const REFS = {
   ],
 } as const;
 
+/** Rentang hujan satu pias: satu definisi untuk pegangan batang. */
+const P_PIAS: ParamDef = { min: 0, max: 150, step: 0.5, digits: 1 };
+/** Hujan total: penggeser P menskalakan seluruh batang. */
+const P_TOTAL: ParamDef = { min: 5, max: 600, step: 0.1, digits: 1 };
+const P_KURSOR: ParamDef = { min: 0, max: 120, step: 0.1, digits: 1 };
+const N_PIAS_MAKS = 24;
+
+/** Hujan total dibagi rata ke n pias. */
+function rata(P: number, n: number): number[] {
+  return Array.from({ length: n }, () => P / Math.max(n, 1));
+}
+
 export function HidrografBanjirClient() {
   const { lang } = useLang();
   const t = str(lang);
   const x = TXT[lang];
   const T = cl(lang);
 
-  const [P, setP] = useState(80);
   const [dur, setDur] = useState(6);
   const [CN, setCN] = useState(75);
   const [A, setA] = useState(50);
   const [tc, setTc] = useState(4);
+  const [kursor, setKursor] = useState(6);
 
-  const r = floodHydrograph(P, dur, CN, A, tc);
+  /* Pias hyetograph: aturan ΔD floodHydrograph (min(1 h, 0,133 tc)),
+     dibatasi 24 pias supaya tiap batang bisa diseret. Batang yang digambar
+     disimpan bersama jumlah piasnya; bila D atau tc mengubah jumlah pias,
+     hujannya dibagi rata lagi dengan jumlah yang sama. */
+  const nPias = Math.min(Math.ceil(dur / Math.min(1, 0.133 * tc) - 1e-9), N_PIAS_MAKS);
+  const dD = dur / nPias;
+  const [hujan, setHujan] = useState<{ n: number; blok: number[] }>(() => ({ n: 6 * 2, blok: rata(80, 12) }));
+  const totalLama = hujan.blok.reduce((x0, y0) => x0 + y0, 0);
+  const blok = hujan.n === nPias ? hujan.blok : rata(totalLama, nPias);
+  const P = blok.reduce((x0, y0) => x0 + y0, 0);
+  const setP = (v: number) => {
+    const k = P > 0 ? v / P : 0;
+    setDibatasiP(false);
+    setHujan({ n: nPias, blok: P > 0 ? blok.map((q) => q * k) : rata(v, nPias) });
+  };
+  /* Jumlah batang tidak boleh melampaui ujung penggeser P; batang yang
+     diseret dipotong dan diberi penanda di grafik. */
+  const [dibatasiP, setDibatasiP] = useState(false);
+  const setBlok = (i: number, v: number) => {
+    const baru = blok.slice();
+    const lain = P - blok[i];
+    const potong = lain + v > P_TOTAL.max;
+    baru[i] = potong ? Math.max(P_TOTAL.max - lain, 0) : v;
+    setDibatasiP(potong);
+    setHujan({ n: nPias, blok: baru });
+  };
+  const aturContoh = (Pc: number, Dc: number, CNc: number, Ac: number, tcc: number) => {
+    const n = Math.min(Math.ceil(Dc / Math.min(1, 0.133 * tcc) - 1e-9), N_PIAS_MAKS);
+    setHujan({ n, blok: rata(Pc, n) });
+    setDur(Dc);
+    setCN(CNc);
+    setA(Ac);
+    setTc(tcc);
+  };
+
+  const r = floodHydrographBlocks(blok, dD, CN, A, tc, { kehilangan: "kumulatif" });
   const hilang = P - r.effectiveRain;
   const S = scsStorage(CN);
   const Ia = 0.2 * S;
   const adaLimpas = r.effectiveRain > 0;
-  // Pias ΔD dibulatkan model supaya bilangan bulat pias mengisi D tepat.
-  const nPias = Math.round(dur / r.blockLength);
 
-  const ref = useCanvas(
-    (ctx, w, h) => {
+  /* Batas sumbu pita hujan dikunci selama batang diseret. */
+  const [kunci, setKunci] = useState<{ pMax: number } | null>(null);
+  const bebas = { pMax: Math.max(Math.max(...blok) * 1.3, 1) };
+  const bidangRef = useRef(bebas);
+  bidangRef.current = bebas;
+  const bidang = kunci ?? bebas;
+
+  const tAkhir = r.points[r.points.length - 1].t;
+  const [pilih, setPilih] = useState(0);
+  const lebarBatang = useRef(0);
+  const rainMax = Math.max(...blok) / dD;
+  const { playing, toggle: togglePutar } = usePutar();
+  const bergerak = playing;
+  const sentuh = useRef<() => void>(() => {});
+  const tataRef = useRef<CatchmentLayout | null>(null);
+  const petaGrafik = useRef<PlateMap | null>(null);
+  const petaPita = useRef<PlateMap | null>(null);
+  const mulai = useRef<{ tt: number | null; t: number; kini: number }>({ tt: null, t: 6, kini: 6 });
+  const kini = useRef({ Q: 0, rain: 0 });
+  const titikKursor = useRef<[number, string][]>([[0, C.water]]);
+  /** Jam model per detik layar: seluruh deret dalam 12 detik */
+  const LAJU = tAkhir / 12;
+  const labelDas = { catchment: x.lCatchment, outlet: x.lOutlet, lumped: x.lLumped, rainUnit: x.lRainUnit };
+
+  const grafik = (ctx: CanvasRenderingContext2D, w: number, h: number): PlateOut => {
       const tMax = r.points[r.points.length - 1].t;
       const qMax = Math.max(r.peak * 1.25, 1e-6);
+      const pMax = bidang.pMax;
 
       // Hidrograf satuan digambar sebagai pembanding, diperbesar supaya
       // bentuknya terbaca pada sumbu yang sama.
@@ -172,7 +297,7 @@ export function HidrografBanjirClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -195,7 +320,14 @@ export function HidrografBanjirClient() {
           axisX: T.axTimeHour,
           axisY: T.axFlowRate,
           series: deret,
-          bands: [{ axis: "x", from: 0, to: dur, label: T.rainBurst }],
+          topBars: {
+            bars: r.pias.map((q) => ({ x0: q.t0, x1: q.t1, v: q.P })),
+            max: pMax,
+            label: x.barLabel,
+            unit: "mm",
+            heightFrac: 0.32,
+          },
+          regions: dibatasiP ? [{ x: tMax * 0.62, y: qMax * 0.6, text: x.dibatasiP, color: C.caution }] : undefined,
           point: {
             x: r.peakTime,
             y: r.peak,
@@ -204,9 +336,130 @@ export function HidrografBanjirClient() {
         },
         lang
       );
+  };
+
+  const plate = usePlate(
+    (ctx, w, h) => {
+      const hDas = Math.round(Math.min(Math.max(h * 0.34, 150), 240));
+      const tK = Math.min(kursor, tAkhir);
+      const k = { Q: 0, rain: 0 };
+      readHydrograph(r.points, tK, k);
+      const das = drawCatchment(
+        ctx,
+        w,
+        hDas,
+        { areaKm2: A, tc, rainNow: k.rain, rainMax, t: tK, duration: dur, flow: k.Q },
+        { labels: labelDas, withState: !bergerak }
+      );
+      tataRef.current = das.layout;
+      ctx.save();
+      ctx.translate(0, hDas);
+      const out = grafik(ctx, w, h - hDas);
+      ctx.restore();
+      const peta = offsetMap(out.map, 0, hDas);
+      petaGrafik.current = peta;
+      const pita = out.maps?.topBars ? offsetMap(out.maps.topBars, 0, hDas) : null;
+      petaPita.current = pita;
+      if (!bergerak) {
+        titikKursor.current[0][0] = k.Q;
+        drawTimeCursor(ctx, peta, tK, titikKursor.current);
+      }
+      const anchors: Record<string, { x: number; y: number }> = {};
+      if (pita) r.pias.forEach((q, i) => (anchors[`b${i}`] = { x: pita.X((q.t0 + q.t1) / 2), y: pita.Y(q.P) }));
+      if (pita && r.pias.length) {
+        lebarBatang.current = Math.abs(pita.X(r.pias[0].t1) - pita.X(r.pias[0].t0));
+        const q = r.pias[Math.min(pilih, r.pias.length - 1)];
+        anchors.pilih = { x: pita.X((q.t0 + q.t1) / 2), y: pita.Y(q.P) };
+      }
+      const maps: Record<string, PlateMap> = {};
+      if (pita) maps.topBars = pita;
+      return { map: peta, anchors, maps };
     },
-    [P, dur, CN, A, tc, lang]
+    (ctx, w, h, tt) => {
+      const tata = tataRef.current;
+      const peta = petaGrafik.current;
+      if (!tata || !peta) return;
+      const m = mulai.current;
+      if (m.tt === null) m.tt = tt;
+      let t = (m.t + (tt - m.tt) * LAJU) % tAkhir;
+      if (t < 0) t += tAkhir;
+      m.kini = t;
+      const k = kini.current;
+      readHydrograph(r.points, t, k);
+      drawCatchmentState(ctx, tata, t, dur, k.rain, k.Q, tt);
+      titikKursor.current[0][0] = k.Q;
+      drawTimeCursor(ctx, peta, t, titikKursor.current);
+    },
+    [blok.join(","), dur, CN, A, tc, lang, kursor, bergerak, dibatasiP, pilih, kunci ? kunci.pMax : NaN],
+    { playing }
   );
+
+  const putar = () => {
+    if (playing) setKursor(Math.round(mulai.current.kini * 10) / 10);
+    else {
+      mulai.current.tt = null;
+      mulai.current.t = Math.min(kursor, tAkhir);
+    }
+    togglePutar();
+  };
+
+  /* Batang selebar kurang dari 44 px: pegangan 44 px akan bertumpuk,
+     jadi dipakai SATU pegangan dua sumbu: geser mendatar memilih pias,
+     geser tegak mengatur hujannya (menyapu = menggambar hyetograph). */
+  const sempitBatang = lebarBatang.current > 0 && lebarBatang.current < 44;
+  const P_INDEKS: ParamDef = { min: 0, max: Math.max(nPias - 1, 0), step: 1, digits: 0 };
+  const iPilih = Math.min(pilih, nPias - 1);
+  const handlesSempit: HandleSpec[] = [
+    {
+      id: "pilih",
+      anchor: "pilih",
+      axis: "xy",
+      label: x.gPilih,
+      tint: C.water,
+      param: [P_INDEKS, P_PIAS],
+      value: [iPilih, blok[iPilih]],
+      toValue: (px, py) => {
+        const m = petaPita.current;
+        if (!m) return [iPilih, blok[iPilih]];
+        return [Math.floor(m.invX(px) / dD), m.invY(py)];
+      },
+      onChange: ([i, v]) => {
+        setPilih(i);
+        setBlok(i, v);
+      },
+      format: (v) => `${lang === "id" ? "pias" : "block"} ${fmt(v[0] + 1, 0)}: ${fmt(v[1], 1)} mm`,
+    },
+  ];
+  const handlesLebar: HandleSpec[] = blok.map(
+    (v, i): HandleSpec => ({
+      id: `b${i}`,
+      anchor: `b${i}`,
+      axis: "y",
+      label: x.gPias.replace("{i}", String(i + 1)),
+      tint: C.water,
+      param: P_PIAS,
+      value: v,
+      toValue: (_px, py) => (petaPita.current ? petaPita.current.invY(py) : v),
+      onChange: (q) => setBlok(i, q),
+      format: (q) => `${fmt(q, 1)} mm`,
+    })
+  );
+  const handles = sempitBatang ? handlesSempit : handlesLebar;
+  const lepasKunci = () => setKunci(null);
+
+  /* Pemeriksaan yang ikut hyetograph yang digambar: kekekalan isi. */
+  const cekBlok: Check[] = [
+    {
+      label: { id: TXT.id.cekVol, en: TXT.en.cekVol },
+      source: "NEH 630 Bab 16 (konvolusi) dan Bab 10 (CN kumulatif): Dr = V/A = ΣPe",
+      kind: "sifat",
+      expected: r.pias.length ? r.pias[r.pias.length - 1].PeKum : 0,
+      actual: r.runoffDepth,
+      tol: 0.01,
+      unit: "mm",
+      digits: 3,
+    },
+  ];
 
   return (
     <LabShell
@@ -237,6 +490,8 @@ export function HidrografBanjirClient() {
           number="HY-02"
           title={x.sheetTitle}
           rev="A"
+          height="clamp(580px, 84vh, 880px)"
+          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: `${x.motionNoteA} ${fmt(LAJU, 1)} ${x.motionNoteB}` }}
           cells={[
             { label: t.tbUnit, value: "SI (mm, m³/s)" },
             { label: "P", value: `${fmt(P, 0)} mm` },
@@ -245,27 +500,43 @@ export function HidrografBanjirClient() {
             { label: "tpk", value: `${fmt(r.peakTime, 2)} h`, tint: C.energy },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="P" label={x.dP} value={P} min={5} max={400} step={5} digits={0} unit="mm" onChange={setP} tint={C.water} />
+              <InputRow symbol="P" label={x.dP} value={P} {...P_TOTAL} unit="mm" onChange={setP} tint={C.water} />
               <InputRow symbol="D" label={x.dDur} value={dur} min={1} max={36} step={1} digits={0} unit="h" onChange={setDur} />
               <InputRow symbol="CN" label={x.dCN} value={CN} min={30} max={100} step={1} digits={0} onChange={setCN} tint={C.critical} />
               <InputRow symbol="A" label={x.dA} value={A} min={1} max={1000} step={1} digits={0} unit="km²" onChange={setA} />
               <InputRow symbol="tc" label={x.dTc} value={tc} min={0.3} max={24} step={0.1} digits={1} unit="h" onChange={setTc} tint={C.energy} />
+              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={setKursor} />
             </InputTable>
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
                 presets={[
-                  { label: x.pSawah, apply: () => { setP(80); setDur(6); setCN(75); setA(50); setTc(4); } },
-                  { label: x.pKota, apply: () => { setP(150); setDur(3); setCN(92); setA(12); setTc(1.2); } },
-                  { label: x.pHutan, apply: () => { setP(60); setDur(18); setCN(55); setA(300); setTc(14); } },
+                  { label: x.pSawah, apply: () => aturContoh(80, 6, 75, 50, 4) },
+                  { label: x.pKota, apply: () => aturContoh(150, 3, 92, 12, 1.2) },
+                  { label: x.pHutan, apply: () => aturContoh(60, 18, 55, 300, 14) },
                 ]}
               />
             </div>
@@ -310,8 +581,8 @@ export function HidrografBanjirClient() {
                   },
                   {
                     judul: x.rDD,
-                    rumus: <span>ΔD = D / ⌈ D / min( 1; {fmt(0.133, 3)} · tc ) ⌉</span>,
-                    isi: `${fmt(dur, 0)} / ⌈ ${fmt(dur, 0)} / ${fmt(Math.min(1, 0.133 * tc), 4)} ⌉ = ${fmt(dur, 0)} / ${nPias}`,
+                    rumus: <span>ΔD = D / min( ⌈ D / min( 1; {fmt(0.133, 3)} · tc ) ⌉; 24 )</span>,
+                    isi: `${fmt(dur, 0)} / ${nPias} (${x.hPiasMaks})`,
                     hasil: fmt(r.blockLength, 3),
                     satuan: "h",
                   },
@@ -331,9 +602,9 @@ export function HidrografBanjirClient() {
                   },
                   {
                     judul: `${x.hPeak}, tpk = ${fmt(r.peakTime, 2)} h`,
-                    rumus: (<><span>Qp = {lang === "id" ? "maks" : "max"} Σ</span><Frac num="Pe" den="n" /><span>· qp · u( t − k · ΔD )</span></>),
+                    rumus: <span>Qp = {lang === "id" ? "maks" : "max"} Σ Peₖ · qp · u( t − k · ΔD )</span>,
                     isi: adaLimpas
-                      ? `${lang === "id" ? "maks" : "max"} Σ ( ${fmt(r.effectiveRain, 3)} / ${nPias} ) · ${fmt(r.qp, 4)} · u( t − k · ${fmt(r.blockLength, 4)} )`
+                      ? `${lang === "id" ? "maks" : "max"} Σ Peₖ · ${fmt(r.qp, 4)} · u( t − k · ${fmt(r.blockLength, 4)} ),  Pe = ${r.pias.slice(0, 6).map((q) => fmt(q.Pe, 2)).join("; ")}${r.pias.length > 6 ? "; …" : ""}`
                       : "—",
                     hasil: fmt(r.peak, 2),
                     satuan: "m³/s",
@@ -349,16 +620,41 @@ export function HidrografBanjirClient() {
                 ]}
               />
             </div>
+            <div className="mt-3 overflow-x-auto">
+              <p className="stencil mb-1">{x.tabelPias}</p>
+              <table className="w-full text-right text-[0.8rem] tabular-nums">
+                <thead className="text-ink-3">
+                  <tr>
+                    <th className="pr-2 font-normal">{x.kolK}</th>
+                    <th className="pr-2 font-normal">{x.kolP}</th>
+                    <th className="pr-2 font-normal">{x.kolPk}</th>
+                    <th className="pr-2 font-normal">{x.kolPek}</th>
+                    <th className="font-normal">{x.kolPe}</th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink-2">
+                  {r.pias.map((q, k) => (
+                    <tr key={k}>
+                      <td className="pr-2">{k + 1}</td>
+                      <td className="pr-2">{fmt(q.P, 2)}</td>
+                      <td className="pr-2">{fmt(q.Pkum, 2)}</td>
+                      <td className="pr-2">{fmt(q.PeKum, 2)}</td>
+                      <td>{fmt(q.Pe, 2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Block>
 
           <StateCard
             tone={r.blockTooCoarse ? "caution" : adaLimpas ? "water" : "neutral"}
             badge={r.blockTooCoarse ? x.kasar : adaLimpas ? x.adaLimpas : x.tanpaLimpas}
-            {...notice(P, dur, CN, A, tc, r.peak, r.peakTime, r.effectiveRain, r.blockTooCoarse, lang)}
+            {...notice(P, dur, CN, A, tc, r.peak, r.peakTime, r.effectiveRain, r.blockTooCoarse, lang, blok, dD)}
           />
         </>
       }
-      verification={<Verification checks={checksHydrograph(P, dur, CN, A, tc)} />}
+      verification={<Verification checks={[...checksHydrograph(P, dur, CN, A, tc), ...cekBlok]} />}
       below={
         <Basis
           equations={
@@ -392,7 +688,7 @@ export function HidrografBanjirClient() {
               </Eq>
             </>
           }
-          note={x.note}
+          note={`${x.note} ${x.kumulatifNote}`}
           refs={[...REFS[lang]]}
         />
       }
@@ -410,7 +706,9 @@ function notice(
   peakTime: number,
   Pe: number,
   kasar: boolean,
-  lang: Lang
+  lang: Lang,
+  blok: number[],
+  dD: number
 ): { state: string; notice: string[] } {
   const x = TXT[lang];
   const en = lang === "en";
@@ -422,7 +720,7 @@ function notice(
   // Kepekaan CN memakai selisih sebenarnya; pada CN 100 tidak ada lagi
   // yang bisa dinaikkan, jadi butirnya ditekan.
   if (CN2 > CN) {
-    const naik = floodHydrograph(P, dur, CN2, A, tc);
+    const naik = floodHydrographBlocks(blok, dD, CN2, A, tc, { kehilangan: "kumulatif" });
     if (peak <= 1e-9) {
       butir.push(
         naik.peak > 1e-9

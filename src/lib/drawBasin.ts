@@ -787,3 +787,261 @@ export function readRouting(
   out.head = a.head + (b.head - a.head) * u;
   out.storage = a.storage + (b.storage - a.storage) * u;
 }
+
+/* ------------------------------------------------------------------ *
+ * HY-02 Peta DAS dengan awan hujan
+ * ------------------------------------------------------------------ */
+
+export type CatchmentSpec = {
+  areaKm2: number;
+  /** Waktu konsentrasi, jam (ditulis) */
+  tc: number;
+  /** Intensitas hujan saat ini dan terbesar, mm/jam */
+  rainNow: number;
+  rainMax: number;
+  /** Waktu sekarang dan lama hujan, jam */
+  t: number;
+  duration: number;
+  /** Debit di outlet saat ini, m³/s */
+  flow: number;
+};
+
+export type CatchmentLabels = {
+  catchment: string;
+  outlet: string;
+  lumped: string;
+  rainUnit: string;
+};
+
+export type CatchmentLayout = {
+  frame: PlateFrame;
+  /** Poligon batas DAS, piksel x0,y0,x1,y1,... */
+  outline: Float64Array;
+  bx0: number;
+  bx1: number;
+  by0: number;
+  by1: number;
+  outletX: number;
+  outletY: number;
+  rainMax: number;
+  labels: CatchmentLabels;
+};
+
+/** Batas DAS skematik: bentuk daun tetap (bukan peta), outlet di kanan. */
+function batasDas(cx: number, cy: number, rx: number, ry: number): Float64Array {
+  const n = 48;
+  const out = new Float64Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    /* Daun: menyempit ke kanan (outlet), sedikit bergelombang tetap */
+    const sempit = 1 - 0.55 * Math.max(0, Math.cos(a)) ** 3;
+    const gelombang = 1 + 0.06 * Math.sin(5 * a) + 0.04 * Math.sin(9 * a + 1);
+    out[2 * i] = cx + rx * Math.cos(a) * gelombang;
+    out[2 * i + 1] = cy + ry * Math.sin(a) * sempit * gelombang;
+  }
+  return out;
+}
+
+export function drawCatchment(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  s: CatchmentSpec,
+  opts: { labels: CatchmentLabels; withState: boolean }
+): { out: PlateOut; layout: CatchmentLayout } {
+  const sempit = w < 600;
+  const padL = sempit ? 12 : 62;
+  const padR = sempit ? 12 : 30;
+  const frame: PlateFrame = { x0: padL, y0: 30, x1: Math.max(padL + 10, w - padR), y1: Math.max(50, h - 10) };
+  const L = opts.labels;
+  const lebar = frame.x1 - frame.x0;
+  const tinggi = frame.y1 - frame.y0;
+  const rx = Math.min(lebar * 0.36, tinggi * 1.25);
+  const ry = Math.min(tinggi * 0.36, rx * 0.62);
+  const cx = frame.x0 + lebar * 0.42;
+  const cy = frame.y0 + tinggi * 0.6;
+  const garis = batasDas(cx, cy, rx, ry);
+  const outletX = cx + rx * 1.02;
+  const outletY = cy;
+
+  ctx.beginPath();
+  for (let i = 0; i < garis.length; i += 2) {
+    if (i === 0) ctx.moveTo(garis[i], garis[i + 1]);
+    else ctx.lineTo(garis[i], garis[i + 1]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = C.floodplain;
+  ctx.fill();
+  pen(ctx, W.thin, C.ink, DASH.phantom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* Jaringan sungai: alur utama ke outlet dan anak sungai tetap */
+  pen(ctx, W.bold, C.water);
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.85, cy + ry * 0.05);
+  ctx.quadraticCurveTo(cx, cy - ry * 0.25, outletX, outletY);
+  ctx.stroke();
+  pen(ctx, W.thin, C.water);
+  ctx.beginPath();
+  const cabang = [
+    [-0.55, -0.7, -0.35, -0.05],
+    [-0.5, 0.65, -0.25, 0.0],
+    [-0.05, -0.75, 0.15, -0.12],
+    [0.0, 0.7, 0.25, 0.05],
+    [0.45, -0.55, 0.55, -0.07],
+    [0.45, 0.5, 0.6, 0.03],
+  ];
+  for (const [ax, ay, bx, by] of cabang) {
+    ctx.moveTo(cx + rx * ax, cy + ry * ay);
+    ctx.lineTo(cx + rx * bx, cy + ry * by);
+  }
+  ctx.stroke();
+
+  /* Outlet: pos duga */
+  pen(ctx, W.thin, C.ink);
+  ctx.fillStyle = C.sheet;
+  ctx.beginPath();
+  ctx.moveTo(outletX, outletY - 6);
+  ctx.lineTo(outletX + 6, outletY);
+  ctx.lineTo(outletX, outletY + 6);
+  ctx.lineTo(outletX - 6, outletY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  tulis(ctx, L.outlet, outletX + 10, outletY + 14, C.ink2, "left");
+  tulis(ctx, `${L.catchment} ${fmtPlain(s.areaKm2, 0)} km², tc ${fmtPlain(s.tc, 1)} h`, cx, frame.y1 - 4, C.ink2, "center");
+  ctx.font = F.value;
+  ctx.fillStyle = C.ink3;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  /* Tulisan panjang dipotong di titik koma bila tidak muat di kiri tombol putar */
+  const ruangTulis = frame.x1 - frame.x0 - 44;
+  const lumped = ctx.measureText(L.lumped).width <= ruangTulis ? L.lumped : L.lumped.split(";")[0];
+  ctx.fillText(lumped, frame.x0, 14);
+
+  let bx0 = Infinity;
+  let bx1 = -Infinity;
+  let by0 = Infinity;
+  let by1 = -Infinity;
+  for (let i = 0; i < garis.length; i += 2) {
+    bx0 = Math.min(bx0, garis[i]);
+    bx1 = Math.max(bx1, garis[i]);
+    by0 = Math.min(by0, garis[i + 1]);
+    by1 = Math.max(by1, garis[i + 1]);
+  }
+  const layout: CatchmentLayout = {
+    frame,
+    outline: garis,
+    bx0,
+    bx1,
+    by0,
+    by1,
+    outletX,
+    outletY,
+    rainMax: Math.max(s.rainMax, 1e-9),
+    labels: L,
+  };
+  if (opts.withState) drawCatchmentState(ctx, layout, s.t, s.duration, s.rainNow, s.flow, 0);
+  return { out: { map: linearMap(frame, [0, 1], [0, 1]), anchors: {} }, layout };
+}
+
+/**
+ * Keadaan DAS pada saat t: hujan MERATA di seluruh DAS (model terpusat),
+ * jadi seluruh DAS diwarnai sama pekat sebanding intensitas saat itu dan
+ * garis hujan jatuh di seluruh DAS. Awan bergeser dari kiri ke kanan
+ * sepanjang lama hujan: letaknya hanya penanda waktu badai (t/D), bukan
+ * letak hujan. `fase` (detik layar) hanya menggeser garis hujan yang jatuh.
+ */
+export function drawCatchmentState(
+  ctx: CanvasRenderingContext2D,
+  L: CatchmentLayout,
+  t: number,
+  duration: number,
+  rainNow: number,
+  flow: number,
+  fase: number
+): void {
+  const k = Math.min(Math.max(rainNow / L.rainMax, 0), 1);
+  const batas = (c: CanvasRenderingContext2D) => {
+    c.beginPath();
+    for (let i = 0; i < L.outline.length; i += 2) {
+      if (i === 0) c.moveTo(L.outline[i], L.outline[i + 1]);
+      else c.lineTo(L.outline[i], L.outline[i + 1]);
+    }
+    c.closePath();
+  };
+  if (k > 0) {
+    ctx.save();
+    batas(ctx);
+    ctx.globalAlpha = 0.35 * k;
+    ctx.fillStyle = C.water;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.clip();
+    /* Garis hujan: kisi tetap, jatuh 60 px/detik layar, pekat sebanding k */
+    pen(ctx, W.hair, C.water);
+    ctx.globalAlpha = 0.4 + 0.6 * k;
+    ctx.beginPath();
+    const sela = 14;
+    const turun = (fase * 60) % sela;
+    for (let x = L.bx0; x <= L.bx1; x += 9) {
+      const geser = ((x * 7) % sela) + turun;
+      for (let y = L.by0 - sela + geser; y <= L.by1; y += sela) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 2, y + 6);
+      }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /* Awan: penanda waktu badai, bergeser t/D melintasi DAS selama hujan */
+  if (t < duration && duration > 0) {
+    const u = Math.min(Math.max(t / duration, 0), 1);
+    const ax = L.bx0 + (L.bx1 - L.bx0) * u;
+    const ay = L.frame.y0 + 4;
+    pen(ctx, W.thin, C.ink2);
+    ctx.fillStyle = C.sheet;
+    ctx.beginPath();
+    ctx.ellipse(ax, ay + 6, 26, 9, 0, 0, Math.PI * 2);
+    ctx.moveTo(ax - 4 + 14, ay);
+    ctx.ellipse(ax - 4, ay, 14, 9, 0, 0, Math.PI * 2);
+    ctx.moveTo(ax + 12 + 11, ay + 2);
+    ctx.ellipse(ax + 12, ay + 2, 11, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    tulisNilai(ctx, `${fmtPlain(rainNow, 1)} ${L.labels.rainUnit}`, ax + 32, ay + 6, C.water, "left");
+  }
+
+  tulisNilai(ctx, `Q ${fmtPlain(flow, flow < 10 ? 2 : 1)} m³/s`, L.outletX + 10, L.outletY - 12, C.water, "left");
+}
+
+/**
+ * Debit dan intensitas hujan pada waktu t (jam) dari deret hidrograf
+ * banjir; tepat sama di titik deret. Intensitas tidak diinterpolasi
+ * (hujan per pias tetap selama piasnya), debit lurus. Ditulis ke `out`.
+ */
+export function readHydrograph(
+  pts: readonly { t: number; rain: number; Q: number }[],
+  t: number,
+  out: { Q: number; rain: number }
+): void {
+  const n = pts.length;
+  if (n === 0) {
+    out.Q = out.rain = 0;
+    return;
+  }
+  if (n === 1) {
+    out.Q = pts[0].Q;
+    out.rain = pts[0].rain;
+    return;
+  }
+  const k = cariSelang(n, (i) => pts[i].t, t);
+  const a = pts[k];
+  const b = pts[k + 1];
+  const u = Math.min(Math.max((t - a.t) / (b.t - a.t || 1), 0), 1);
+  out.Q = a.Q + (b.Q - a.Q) * u;
+  out.rain = u >= 1 ? b.rain : a.rain;
+}

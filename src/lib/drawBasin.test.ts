@@ -10,7 +10,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { aquiferResponse } from "./hydraulics.ts";
-import { aquiferTableShape, offsetMap, readAquifer, readRouting } from "./drawBasin.ts";
+import { aquiferTableShape, offsetMap, readAquifer, readHydrograph, readRouting } from "./drawBasin.ts";
+import { floodHydrographBlocks } from "./hidrografHujan.ts";
 import { reservoirRouting } from "./hydraulics.ts";
 import { hidrografDariTitik } from "./hidrografKendali.ts";
 import { linearMap } from "./plateOut.ts";
@@ -120,5 +121,24 @@ describe("readRouting (HY-01)", () => {
   it("titik kendali tercatat persis di deret masuk (puncak 120 tidak hilang)", () => {
     for (const p of titik) assert.ok(masuk.some((m) => m.t === p.t && m.Q === p.Q));
     assert.equal(Math.max(...masuk.map((m) => m.Q)), 120);
+  });
+});
+
+describe("readHydrograph (HY-02)", () => {
+  const r = floodHydrographBlocks([2, 10, 25, 8, 0, 5], 0.5, 75, 50, 4, { kehilangan: "kumulatif" });
+  it("debit dan hujan sama persis dengan deret model di titik deret", () => {
+    const k = { Q: 0, rain: 0 };
+    for (const p of r.points) {
+      readHydrograph(r.points, p.t, k);
+      assert.equal(k.Q, p.Q);
+      assert.equal(k.rain, p.rain);
+    }
+  });
+  it("debit lurus di antara titik deret", () => {
+    const k = { Q: 0, rain: 0 };
+    const a = r.points[100];
+    const b = r.points[101];
+    readHydrograph(r.points, (a.t + b.t) / 2, k);
+    assert.ok(Math.abs(k.Q - (a.Q + b.Q) / 2) < 1e-9);
   });
 });
