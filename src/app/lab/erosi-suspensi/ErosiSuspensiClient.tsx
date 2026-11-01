@@ -95,7 +95,7 @@ const TXT = {
     motionSlow: (n: string) => `waktu diperlambat ×${n}`,
     motionDasar: "butir maju dengan laju butir dasar Fernandez Luque dan van Beek, us = 11,5 (u* − 0,7 u*cr)",
     motionLayang:
-      "ambang melayang sama dengan kurva di diagram, u* = ws. Tegak: turun dengan ws dan teraduk turbulensi berdifusivitas κ u* z, jadi sebaran tegaknya mengikuti profil Rouse. Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran",
+      "ambang melayang sama dengan kurva di diagram, u* = ws. Tegak: turun dengan ws dan teraduk turbulensi berdifusivitas κ u* z, jadi sebaran tegaknya mengikuti profil Rouse dekat dasar, c ∝ z^(−ws/(κ u*)). Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran",
     motionAngkut:
       "di antara kurva endap dan kurva erosi butir di dasar tidak terangkat, jadi butir panel tetap diam; butir yang sudah terangkut dari hulu tetap terangkut (tidak digambar)",
     motionEndap: "butir yang masih melayang turun dengan kecepatan endap ws lalu berhenti di dasar",
@@ -145,7 +145,7 @@ const TXT = {
     motionSlow: (n: string) => `time slowed ×${n}`,
     motionDasar: "grains advance at the Fernandez Luque and van Beek bed-load grain velocity, us = 11.5 (u* − 0.7 u*cr)",
     motionLayang:
-      "suspension threshold matches the curve in the diagram, u* = ws. Vertical: falling at ws and mixed by turbulence with diffusivity κ u* z, so the vertical spread follows the Rouse profile. Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity",
+      "suspension threshold matches the curve in the diagram, u* = ws. Vertical: falling at ws and mixed by turbulence with diffusivity κ u* z, so the vertical spread follows the near-bed Rouse profile, c ∝ z^(−ws/(κ u*)). Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity",
     motionAngkut:
       "between the deposition and erosion curves grains on the bed are not lifted, so the panel grains stay at rest; grains already carried from upstream stay in transport (not drawn)",
     motionEndap: "grains still in suspension fall at the settling velocity ws and stop on the bed",

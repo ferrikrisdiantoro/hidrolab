@@ -57,10 +57,11 @@ const X_MAKS = 5000;
 /** Penggeser titik amat; pegangan seret di gambar memakai rentang yang sama. */
 const AMAT: ParamDef = { min: 50, max: X_MAKS, step: 50, digits: 0 };
 /* Titik lepas polutan tambahan (klik). Rentang x memuat seluruh bidang
-   gambar yang mungkin; sumbu tegak klik (kepekatan) tidak dipakai, jadi
+   gambar di ujung penggeser (U 3 m/s, D 100: sumbu sampai 7800 m; U 0,05:
+   mulai −2310 m); sumbu tegak klik (kepekatan) tidak dipakai, jadi
    rentangnya dibuat lebar supaya tidak pernah dipotong. */
 const LEPAS_MAKS = 4;
-const LEPAS_X: ParamDef = { min: -2000, max: 6000, step: 5, digits: 0 };
+const LEPAS_X: ParamDef = { min: -3000, max: 9000, step: 5, digits: 0 };
 const LEPAS_Y: ParamDef = { min: -1e6, max: 1e6, step: 1e-6, digits: 4 };
 const LEPAS_PARAM = [LEPAS_X, LEPAS_Y] as const;
 
