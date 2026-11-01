@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,23 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import { tintBandX } from "@/lib/chartTint";
+import {
+  createPipingMotion,
+  drawFilterPanel,
+  drawPiping,
+  stepPiping,
+  type PipingMotion,
+} from "@/lib/drawFilter";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   FILTER_CU_MAX,
@@ -34,6 +45,13 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksFilter } from "@/lib/checks";
+
+/*
+ * Rentang masukan filter, dipakai bersama penggeser, kotak angka, dan
+ * pegangan seret di kurva gradasi (aturan 4: satu sumber nilai).
+ */
+const P_FD50: ParamDef = { min: 0.05, max: 80, step: 0.05, digits: 2 };
+const P_FCU: ParamDef = { min: 1.2, max: 30, step: 0.2, digits: 1 };
 
 const D_MIN = 0.002;
 const D_MAX = 200;
@@ -71,6 +89,15 @@ const TXT = {
     bJendela: "Jendela filter",
     bKasar: "Terlalu kasar, tidak menahan",
     jendela: "jendela",
+    gTahan: "Butir tanah tertahan",
+    gTerbawa: "Butir halus terbawa",
+    gTanah: "tanah dasar",
+    gFilter: "filter",
+    gRembes: "rembesan",
+    hdlD50: "D50 filter: geser mendatar menggeser kurva filter",
+    hdlD15: "D15 filter: geser mendatar mengubah keseragaman filter (D50 tetap)",
+    motionPiping:
+      "butir tanah yang lebih kecil daripada pori (D15f/4) masuk ke filter. Laju skematik: lembar ini tidak menghitung kecepatan rembesan",
     maks: "maks",
     rRatioTahan: "D15 filter terhadap D85 tanah (≤ 4)",
     rRatioAlir: "D15 filter terhadap D15 tanah (≥ 4)",
@@ -120,6 +147,15 @@ const TXT = {
     bJendela: "Filter window",
     bKasar: "Too coarse, does not retain",
     jendela: "window",
+    gTahan: "Soil particles retained",
+    gTerbawa: "Fine particles wash through",
+    gTanah: "base soil",
+    gFilter: "filter",
+    gRembes: "seepage",
+    hdlD50: "Filter D50: drag sideways to shift the filter curve",
+    hdlD15: "Filter D15: drag sideways to change filter uniformity (D50 fixed)",
+    motionPiping:
+      "soil particles smaller than the pore (D15f/4) enter the filter. Schematic speed: this sheet does not compute the seepage velocity",
     maks: "max",
     rRatioTahan: "Filter D15 over soil D85 (≤ 4)",
     rRatioAlir: "Filter D15 over soil D15 (≥ 4)",
@@ -170,6 +206,10 @@ export function FilterBendunganClient() {
   const [bCu, setBCu] = useState(6);
   const [fD50, setFD50] = useState(3);
   const [fCu, setFCu] = useState(6);
+  const sentuh = useRef<() => void>(() => {});
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<PipingMotion | null>(null);
+  if (gerak.current === null) gerak.current = createPipingMotion();
 
   const r = filterDesign(bD50, bCu, fD50, fCu);
   /* Perbandingan yang dibaca langsung terhadap kedua syarat Terzaghi. */
@@ -186,7 +226,7 @@ export function FilterBendunganClient() {
   ).filter((b) => b.to - b.from > 1e-12);
   const letak = !r.drains ? x.bHalus : !r.retains ? x.bKasar : x.bJendela;
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, ch) => {
       const kurva = (g: typeof r.base): { x: number; y: number }[] => {
         const pts: { x: number; y: number }[] = [];
@@ -220,7 +260,7 @@ export function FilterBendunganClient() {
         },
       ];
 
-      drawChart(
+      const out = drawChart(
         ctx,
         w,
         ch,
@@ -254,6 +294,7 @@ export function FilterBendunganClient() {
             },
             { axis: "y", at: 15, color: C.ink3, dash: DASH.hidden, label: "15 %" },
           ],
+          anchors: { d50f: { x: fD50, y: 50 }, d15f: { x: r.filter.d15, y: 15 } },
           point: {
             x: r.filter.d15,
             y: 15,
@@ -270,9 +311,74 @@ export function FilterBendunganClient() {
         },
         lang
       );
+      /* Jendela kriteria hijau (permintaan klien): warna lolos syarat di
+         atas pita jendela, di antara kedua garis batasnya. */
+      tintBandX(ctx, out.map, r.d15Min, r.d15Max, C.passFill);
+      return out;
     },
+    null,
     [bD50, bCu, fD50, fCu, lang]
   );
+
+  /*
+   * Pegangan di kurva filter. D50 (50 % lolos) diseret mendatar ke D50f,
+   * unik. D15 (15 % lolos) diseret mendatar ke keseragaman dengan D50 tetap:
+   * D15 = D50 e^(z15 σ), σ = ln Cu / (z60 − z10), jadi
+   * Cu = exp( ln(D15/D50) / z15 · (z60 − z10) ), naik lurus saat D15 menjauh
+   * dari D50 ke kiri, juga unik. D15 di kanan D50 memberi Cu < 1, dipotong ke
+   * ujung penggeser dengan penanda. ParamDef dan setter sama dengan InputRow.
+   */
+  const handles: HandleSpec[] = [
+    {
+      id: "d50f",
+      anchor: "d50f",
+      axis: "x",
+      label: x.hdlD50,
+      tint: C.water,
+      param: P_FD50,
+      value: fD50,
+      toValue: (px, _py, m) => m.invX(px),
+      onChange: setFD50,
+      format: (v) => `D50f ${fmt(v, 2)} mm`,
+    },
+    {
+      id: "d15f",
+      anchor: "d15f",
+      axis: "x",
+      label: x.hdlD15,
+      hollow: true,
+      param: P_FCU,
+      value: fCu,
+      toValue: (px, _py, m) => Math.exp((Math.log(m.invX(px) / fD50) / Z15) * Z60_10),
+      onChange: setFCu,
+      format: (v) => `Cuf ${fmt(v, 1)}`,
+    },
+  ];
+
+  /* Panel pori filter: butir halus bergerak hanya bila syarat menahan gagal. */
+  const panel = usePlate(
+    (ctx, w, ch) =>
+      drawFilterPanel(ctx, w, ch, {
+        base: r.base,
+        filter: r.filter,
+        retains: r.retains,
+        title: r.retains ? x.gTahan : x.gTerbawa,
+        tint: r.retains ? C.pass : C.caution,
+        baseLabel: x.gTanah,
+        filterLabel: x.gFilter,
+        flowLabel: x.gRembes,
+        animating: playing,
+      }),
+    r.retains
+      ? null
+      : (ctx, _w, _h, _t, dt, out) => {
+          stepPiping(gerak.current!, dt, r.base, r.filter);
+          drawPiping(ctx, gerak.current!, out, r.base);
+        },
+    [bD50, bCu, fD50, fCu, r.retains, playing, lang],
+    { playing }
+  );
+  if (r.retains && gerak.current) gerak.current.init = false;
 
   const pesan = !r.retains
     ? x.gagalTahan
@@ -324,18 +430,38 @@ export function FilterBendunganClient() {
             { label: "kf/kb", value: fmt(r.kRatio, 0), tint: C.critical },
             { label: x.jendela, value: fmt(r.window, 2) },
           ]}
+          height="auto"
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: panel.motionAllowed,
+            note: r.retains ? undefined : x.motionPiping,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          {/* Panel pori filter di samping kurva gradasi: kanan mulai lebar
+              lg, di atas kurva pada layar sempit. Panel lebih dulu di DOM
+              supaya kanvas gerak menjadi kanvas kedua di figure. */}
+          <div className="flex flex-col lg:h-[clamp(360px,56vh,620px)] lg:flex-row-reverse">
+            <div className="relative h-[220px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
+              <canvas ref={panel.ref} className="block h-full w-full" />
+              <canvas ref={panel.motionRef} />
+            </div>
+            <div className="relative h-[clamp(360px,56vh,620px)] min-w-0 lg:h-auto lg:flex-[2.1]">
+              <canvas ref={plate.ref} className="block h-full w-full" />
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="D50b" label={x.dBaseD50} value={bD50} min={0.01} max={5} step={0.01} digits={2} unit="mm" onChange={setBD50} />
               <InputRow symbol="Cub" label={x.dBaseCu} value={bCu} min={1.2} max={30} step={0.2} digits={1} onChange={setBCu} tint={C.critical} />
-              <InputRow symbol="D50f" label={x.dFilterD50} value={fD50} min={0.05} max={80} step={0.05} digits={2} unit="mm" onChange={setFD50} tint={C.water} />
-              <InputRow symbol="Cuf" label={x.dFilterCu} value={fCu} min={1.2} max={30} step={0.2} digits={1} onChange={setFCu} />
+              <InputRow symbol="D50f" label={x.dFilterD50} value={fD50} {...P_FD50} unit="mm" onChange={setFD50} tint={C.water} />
+              <InputRow symbol="Cuf" label={x.dFilterCu} value={fCu} {...P_FCU} onChange={setFCu} />
             </InputTable>
 
             <div className="mt-3.5">
