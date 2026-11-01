@@ -214,13 +214,16 @@ export function TanggaIkanDenilClient() {
       ];
 
       // Sirip penahan: bidang tipis miring ke hulu, tingginya sebagian
-      // kedalaman palung.
-      for (let i = 1; i <= jumlah; i++) {
+      // kedalaman palung. Sirip yang puncaknya akan menjulur ke hulu
+      // melewati ujung palung (x < 0, di luar genangan; y besar dan S
+      // curam) tidak digambar.
+      const tinggi = y * 0.62;
+      const miring = tinggi * 0.45;
+      const iPertama = Math.max(1, Math.ceil((miring - 1e-9) / jarakSirip));
+      for (let i = iPertama; i <= jumlah; i++) {
         const xx = i * jarakSirip;
         if (xx > panjang) break;
         const z0 = dasarDi(xx);
-        const tinggi = y * 0.62;
-        const miring = tinggi * 0.45;
         badan.push({
           pts: [
             { x: xx, z: z0 },
@@ -238,10 +241,12 @@ export function TanggaIkanDenilClient() {
         muka.push({ x: xx, z: dasarDi(xx) + yTegak });
       }
 
+      /* Sisi kanan diberi ruang untuk ukuran y di hilir ujung palung; di HP
+         0,08 panjang tinggal belasan piksel. */
       const bebas: Bidang = {
         panjang: panjangBebas,
         xMin: -panjangBebas * 0.08,
-        xMax: panjangBebas * 1.08,
+        xMax: panjangBebas * (w < 600 ? 1.15 : 1.08),
         zMin: dasarDi(panjangBebas) - tebal * 3,
         zMax: y * 1.25,
       };
@@ -270,13 +275,16 @@ export function TanggaIkanDenilClient() {
         ],
         dims: [
           {
+            /* Di hilir ujung palung, di luar daerah sirip: di tengah palung
+               teksnya tertimpa sirip. Teks di kiri garis ukurnya, jadi
+               garisnya digeser 20 px supaya teks lepas dari tepi genangan. */
             axis: "v",
-            at: panjang * 0.5,
-            from: potongZ(dasarDi(panjang * 0.5)),
-            to: potongZ(dasarDi(panjang * 0.5) + yTegak),
+            at: panjang,
+            from: potongZ(dasarDi(panjang)),
+            to: potongZ(dasarDi(panjang) + yTegak),
             text: `y·√(1+S²) ${fmtPlain(yTegak, 2)} m`,
             color: C.water,
-            offset: 24,
+            offset: 20,
           },
         ],
         callouts: [
