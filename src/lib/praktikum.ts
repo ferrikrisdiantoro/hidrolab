@@ -32,7 +32,7 @@
 
 import type { Bi } from "./i18n.tsx";
 import type { XlsxCell } from "./xlsx.ts";
-import { G, NOTCH_KH } from "./hydraulics.ts";
+import { G, notchKh } from "./hydraulics.ts";
 import { hash01 } from "./motion.ts";
 
 /* ------------------------------------------------------------------ *
@@ -181,23 +181,23 @@ export function kalibrasiCd(pasangan: readonly { qUkur: number; qTeori: number }
 
 /**
  * Q teori ambang V dengan Cd = 1, rumus sama dengan notchDischarge:
- * Q = (8/15)·√(2g)·tan(θ/2)·(H + kh)^(5/2). kh bawaan NOTCH_KH (model
+ * Q = (8/15)·√(2g)·tan(θ/2)·(H + kh)^(5/2). kh bawaan notchKh(θ) (model
  * lembar FM-01); kh = 0 untuk rumus buku ajar tanpa koreksi.
  */
-export function qTeoriAmbangV(H: number, thetaDeg: number, kh: number = NOTCH_KH): number {
+export function qTeoriAmbangV(H: number, thetaDeg: number, kh: number = notchKh(thetaDeg)): number {
   const he = Math.max(0, H) + kh;
   return (8 / 15) * Math.sqrt(2 * G) * Math.tan((thetaDeg * Math.PI) / 360) * Math.pow(he, 2.5);
 }
 
 /** Cd satu titik ambang V: Q ukur / Q teori. */
-export function cdAmbangV(H: number, Q: number, thetaDeg: number, kh: number = NOTCH_KH): number {
+export function cdAmbangV(H: number, Q: number, thetaDeg: number, kh: number = notchKh(thetaDeg)): number {
   return Q / qTeoriAmbangV(H, thetaDeg, kh);
 }
 
 export function kalibrasiAmbangV(
   titik: readonly { H: number; Q: number }[],
   thetaDeg: number,
-  kh: number = NOTCH_KH
+  kh: number = notchKh(thetaDeg)
 ): Kalibrasi {
   return kalibrasiCd(titik.map((d) => ({ qUkur: d.Q, qTeori: qTeoriAmbangV(d.H, thetaDeg, kh) })));
 }

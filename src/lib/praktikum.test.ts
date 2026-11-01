@@ -34,7 +34,7 @@ import {
   qTeoriVenturi,
   ringkasan,
 } from "./praktikum.ts";
-import { NOTCH_KH, notchCe, notchDischarge, tracerCurve, venturiDischarge } from "./hydraulics.ts";
+import { NOTCH_KH, notchCe, notchDischarge, notchKh, tracerCurve, venturiDischarge } from "./hydraulics.ts";
 import { xlsxBytes } from "./xlsx.ts";
 
 describe("PRNG berbenih", () => {
@@ -146,6 +146,14 @@ describe("kalibrasi Cd", () => {
     const H = 0.1;
     assert.ok(Math.abs(qTeoriAmbangV(H, 90) * notchCe(90) - notchDischarge(H, 90).Q) < 1e-15);
     assert.ok(qTeoriAmbangV(H, 90, 0) < qTeoriAmbangV(H, 90, NOTCH_KH));
+  });
+  it("FM-01: kh bawaan qTeoriAmbangV/kalibrasiAmbangV = notchKh(θ) (USBR WMM Gb. 7-6a)", () => {
+    const H = 0.1;
+    for (const theta of [30, 60, 90]) {
+      assert.equal(qTeoriAmbangV(H, theta), qTeoriAmbangV(H, theta, notchKh(theta)));
+      assert.ok(Math.abs(qTeoriAmbangV(H, theta) * notchCe(theta) - notchDischarge(H, theta).Q) < 1e-15);
+    }
+    assert.ok(qTeoriAmbangV(H, 30) > qTeoriAmbangV(H, 30, NOTCH_KH), "kh 30° lebih besar dari 0,85 mm");
   });
   it("FM-02: data venturiDischarge(D1, D2, Δh, C) kembali ke C", () => {
     const D1 = 0.026, D2 = 0.014; // Armfield F1-15: 26 mm dan 14 mm
