@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,7 +14,16 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createLompatGerak,
+  drawLompatDiam,
+  drawLompatGerak,
+  rencanaLompat,
+  undakanUkuran,
+  type LompatGerak,
+} from "@/lib/drawLompat";
+import { KIBAS_TAMPIL_MAKS } from "@/lib/drawRenang";
 import { drawStructure, type StructureBody, type StructureSpec } from "@/lib/drawStructure";
 import {
   CASCADE_POOL_RATIO,
@@ -51,6 +60,8 @@ const TXT = {
     rBurst45: "Bila melompat pada sudut 45 derajat",
     rEps: "Lesapan daya per satuan isi kolam",
     rPanjang: "Panjang lintasan seluruhnya",
+    gNote: (skala: string, f: string, Lf: string) =>
+      `Ikan rancangan sepanjang ${Lf} cm (Ub dibagi 10 panjang tubuh per detik, sentak bawaan EH-04) melompat dengan kecepatan awal Ub dan g sungguhan; lolos atau gagal dari hitungan lembar. Gerak diperlambat ×${skala} supaya kibasan ${f} per detik terbaca. Kecepatan air di kolam diabaikan. Ikan yang lebih kecil dari 16 px digambar diperbesar (tidak berskala).`,
     b45: "Terlewati juga pada lompatan 45°",
     bTegak: "Hanya lompatan tegak",
     bTinggi: "Terlalu tinggi",
@@ -92,6 +103,8 @@ const TXT = {
     rBurst45: "If jumping at forty-five degrees",
     rEps: "Power dissipated per unit pool volume",
     rPanjang: "Total passage length",
+    gNote: (skala: string, f: string, Lf: string) =>
+      `A design fish ${Lf} cm long (Ub divided by 10 body lengths per second, the EH-04 default burst) jumps with launch speed Ub under real g; pass or fail comes from the sheet's calculation. Motion slowed ×${skala} so the ${f} per second tail beat is readable. Water velocity in the pools is neglected. A fish smaller than 16 px is drawn enlarged (not to scale).`,
     b45: "Passable at 45° too",
     bTegak: "Vertical jump only",
     bTinggi: "Too tall",
@@ -163,10 +176,20 @@ export function LintasanBertingkatClient() {
           ? x.bTegak
           : x.aman;
 
-  const ref = useCanvas(
+  /* Ikan menaiki undakan: rencana lintasan dari cascadePassage, dibuat
+     sekali per keadaan (lapis gerak memulai ulang siklus saat berganti). */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<LompatGerak | null>(null);
+  if (gerak.current === null) gerak.current = createLompatGerak();
+  const rencana = useMemo(
+    () => rencanaLompat({ rise, steps, L, B, D, Q, burst }),
+    [rise, steps, L, B, D, Q, burst]
+  );
+  const skala = Math.min(1, KIBAS_TAMPIL_MAKS / rencana.f);
+
+  const plate = usePlate(
     (ctx, w, ch) => {
-      const tampil = Math.min(steps, 5);
-      const tebal = Math.max(L * 0.07, 0.08);
+      const { tampil, tebal } = undakanUkuran(steps, L);
       const badan: StructureBody[] = [];
       const muka: { x: number; z: number }[] = [];
       const dasar: { x: number; z: number }[] = [];
@@ -267,9 +290,14 @@ export function LintasanBertingkatClient() {
         axisZ: T.axLevel,
       };
 
-      drawStructure(ctx, w, ch, spec, lang);
+      const out = drawStructure(ctx, w, ch, spec, lang);
+      // Dijeda: lintasan lompatan dan ikan diam sebagai penanda.
+      if (!playing) drawLompatDiam(ctx, out, rencana);
+      return out;
     },
-    [rise, steps, L, B, D, Q, burst, lang]
+    (ctx, _w, _h, tt, _dt, out) => drawLompatGerak(ctx, out, tt, rencana, gerak.current!),
+    [rise, steps, L, B, D, Q, burst, lang, playing],
+    { playing, timeScale: skala }
   );
 
   return (
@@ -319,8 +347,15 @@ export function LintasanBertingkatClient() {
             { label: "u", value: `${fmt(r.requiredBurst, 2)} m/s`, tint: r.tooHigh ? C.caution : undefined },
             { label: "ε", value: `${fmt(r.powerDensity, 0)} W/m³`, tint: teraduk ? C.caution : undefined },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.gNote(fmt(skala, 2), fmt(rencana.f, 1), fmt(rencana.Lf * 100, 0)),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
