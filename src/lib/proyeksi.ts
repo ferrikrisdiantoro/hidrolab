@@ -394,6 +394,7 @@ export function warnaMuka(n: V3, k: Kamera, bahan: Bahan = "beton"): string {
   arahCahaya(k, cahayaTmp);
   const L = Math.hypot(n[0], n[1], n[2]) || 1;
   const t = (n[0] * cahayaTmp[0] + n[1] * cahayaTmp[1] + n[2] * cahayaTmp[2]) / L;
+  if (!Number.isFinite(t)) return NADA[bahan][0];
   return NADA[bahan][anakTangga(t)];
 }
 

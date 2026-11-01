@@ -185,7 +185,9 @@ export function Kuis({
   const buka = (i: number) => {
     const q = soal[i];
     setIndeks(i);
-    pindahFokus.current = "soal";
+    // Klik kotak soal yang sudah aktif tidak merender ulang; permintaan fokus
+    // yang tertinggal akan mencuri fokus dari penggeser pada render berikutnya.
+    if (i !== indeks) pindahFokus.current = "soal";
     // Soal atur memasang keadaan awalnya sekali per set, saat pertama dibuka.
     if (q?.jenis === "atur" && q.siapkan && !jawab[q.id] && !disiapkan.current.has(q.id)) {
       disiapkan.current.add(q.id);

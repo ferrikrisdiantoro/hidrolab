@@ -240,8 +240,8 @@ function soal2(benih: number): Soal {
       {
         nilai: a.y1 * a.Fr,
         alasan: {
-          id: "y₂ = y₁·Fr₁ bukan persamaan Belanger. Rasio kedalaman ½·(√(1 + 8·Fr₁²) − 1) hanya mendekati Fr₁ untuk Fr₁ besar.",
-          en: "y₂ = y₁·Fr₁ is not the Bélanger equation. The depth ratio ½·(√(1 + 8·Fr₁²) − 1) only approaches Fr₁ at large Fr₁.",
+          id: "y₂ = y₁·Fr₁ bukan persamaan Belanger. Rasio y₂/y₁ = ½·(√(1 + 8·Fr₁²) − 1) sama dengan Fr₁ hanya pada Fr₁ = 1; untuk Fr₁ > 1 rasionya lebih besar, mendekati √2·Fr₁ − ½.",
+          en: "y₂ = y₁·Fr₁ is not the Bélanger equation. The ratio y₂/y₁ = ½·(√(1 + 8·Fr₁²) − 1) equals Fr₁ only at Fr₁ = 1; for Fr₁ > 1 it is larger, tending to √2·Fr₁ − ½.",
         },
       },
     ],
@@ -336,7 +336,10 @@ function soal3(benih: number): Soal {
         judul: l === "id" ? "Rentang V₁ yang memenuhi" : "Range of V₁ that works",
         rumus: "V₁ = Fr₁ · √( g · y₁ )",
         isi: `5 · √( ${f(G, 2)} · ${f(s.y1, 2)} ) … 6 · √( ${f(G, 2)} · ${f(s.y1, 2)} )`,
-        hasil: `${f(vMin, 1)} – ${f(vMax, 1)}`,
+        // Untuk y₁ ≥ 0,73 m, 6·√(g·y₁) > 16 m/s: ujung atas dipotong penggeser.
+        hasil: `${f(vMin, 1)} – ${f(vMax, 1)}${
+          6 * Math.sqrt(G * s.y1) > P_V1.max ? (l === "id" ? " (batas penggeser)" : " (slider limit)") : ""
+        }`,
         satuan: "m/s",
         tint: C.water,
       },
