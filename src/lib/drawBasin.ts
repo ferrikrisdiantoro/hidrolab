@@ -517,3 +517,273 @@ export function readAquifer(
   out.recharge = a.recharge + (b.recharge - a.recharge) * u;
   out.outflow = a.outflow + (b.outflow - a.outflow) * u;
 }
+
+/* ------------------------------------------------------------------ *
+ * HY-01 Waduk tampak samping
+ * ------------------------------------------------------------------ */
+
+export type ReservoirSpec = {
+  /** Tinggi muka air di atas mercu pelimpah saat ini, m */
+  head: number;
+  /** Tinggi jagaan: puncak bendungan di atas mercu, m */
+  freeboard: number;
+  /** Lebar mercu pelimpah, m (hanya ditulis) */
+  crestWidth: number;
+  /** Tampungan di atas mercu saat ini, m³ */
+  storage: number;
+  /** Muka air pernah melampaui puncak bendungan */
+  overtops: boolean;
+  /** Tinggi muka air tertinggi seluruh banjir, m; garis bayang */
+  headMax: number;
+  /** Debit masuk dan keluar saat ini, m³/s */
+  inflow: number;
+  outflow: number;
+  /** Debit masuk terbesar, m³/s; skala panah (masuk dan keluar sama) */
+  flowMax: number;
+};
+
+export type ReservoirLabels = {
+  reservoir: string;
+  dam: string;
+  spillway: string;
+  damCrest: string;
+  storage: string;
+  hmax: string;
+  overtop: string;
+  /** Satuan juta m³ */
+  millionCubic: string;
+};
+
+export type ReservoirLayout = {
+  map: PlateMap;
+  zTop: number;
+  zBed: number;
+  xBankTop: number;
+  xBankBed: number;
+  xDam: number;
+  freeboard: number;
+  flowMax: number;
+  arrowMax: number;
+  labels: ReservoirLabels;
+};
+
+export function drawReservoir(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  s: ReservoirSpec,
+  opts: { labels: ReservoirLabels; withState: boolean }
+): { out: PlateOut; layout: ReservoirLayout } {
+  const sempit = w < 600;
+  const padL = sempit ? 12 : 62;
+  const padR = sempit ? 12 : 30;
+  const frame: PlateFrame = { x0: padL, y0: 26, x1: Math.max(padL + 10, w - padR), y1: Math.max(40, h - 12) };
+  const atasAir = Math.max(s.freeboard, s.headMax, 0.1);
+  const zTop = atasAir * 1.3;
+  const zBed = -atasAir * 1.4;
+  const map = linearMap(frame, [0, 1], [zBed - atasAir * 0.12, zTop]);
+  const X = map.X;
+  const Y = map.Y;
+  const xBankTop = 0.02;
+  const xBankBed = 0.3;
+  const xDam = 0.7;
+  const xDamCrest = 0.74;
+  const xDamToe = 0.88;
+  const L = opts.labels;
+
+  /* Tanah: tebing kiri, dasar waduk, dasar hilir */
+  const yDasar = Y(zBed);
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(X(0), Y(zTop));
+  ctx.lineTo(X(xBankTop), Y(zTop));
+  ctx.lineTo(X(xBankBed), yDasar);
+  ctx.lineTo(X(1), yDasar);
+  ctx.lineTo(X(1), frame.y1);
+  ctx.lineTo(X(0), frame.y1);
+  ctx.closePath();
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = C.soil;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  pen(ctx, W.bold, C.ink);
+  ctx.beginPath();
+  ctx.moveTo(X(0), Y(zTop));
+  ctx.lineTo(X(xBankTop), Y(zTop));
+  ctx.lineTo(X(xBankBed), yDasar);
+  ctx.lineTo(X(1), yDasar);
+  ctx.stroke();
+
+  /* Kolam tetap di bawah mercu (tampungan mati, tidak ikut penelusuran) */
+  const xTebing = (z: number) => xBankTop + ((zTop - z) / (zTop - zBed)) * (xBankBed - xBankTop);
+  ctx.beginPath();
+  ctx.moveTo(X(xTebing(0)), Y(0));
+  ctx.lineTo(X(xDam), Y(0));
+  ctx.lineTo(X(xDam), yDasar);
+  ctx.lineTo(X(xBankBed), yDasar);
+  ctx.closePath();
+  ctx.fillStyle = C.waterFill;
+  ctx.fill();
+
+  /* Bendungan urugan: trapesium, puncak di z = f */
+  ctx.beginPath();
+  ctx.moveTo(X(xDam), yDasar);
+  ctx.lineTo(X(xDam + 0.01), Y(s.freeboard));
+  ctx.lineTo(X(xDamCrest), Y(s.freeboard));
+  ctx.lineTo(X(xDamToe), yDasar);
+  ctx.closePath();
+  ctx.fillStyle = C.concreteFace;
+  ctx.fill();
+  pen(ctx, W.bold, C.ink);
+  ctx.stroke();
+
+  /* Mercu pelimpah (z = 0): garis tersembunyi melintang bendungan */
+  pen(ctx, W.thin, C.ink2, DASH.hidden);
+  ctx.beginPath();
+  ctx.moveTo(X(xTebing(0)), Y(0) + 0.5);
+  ctx.lineTo(X(xDamToe + 0.04), Y(0) + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* Garis bayang muka air tertinggi */
+  if (s.headMax > 0) {
+    pen(ctx, W.thin, s.overtops ? C.signal : C.water, DASH.phantom);
+    ctx.beginPath();
+    ctx.moveTo(X(xTebing(s.headMax)), Y(s.headMax) + 0.5);
+    ctx.lineTo(X(xDam), Y(s.headMax) + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  tulis(ctx, L.dam, X((xDamCrest + xDamToe) / 2), Y(zBed) - 10, C.ink2, "center");
+  tulis(ctx, L.spillway, frame.x1 - 2, Y(0) + 11, C.ink2, "right");
+  tulis(ctx, `${L.damCrest} f ${fmtPlain(s.freeboard, 1)} m`, X(xDam) - 6, Y(s.freeboard) - 2, C.ink2, "right");
+  tulis(ctx, L.reservoir, X((xBankBed + xDam) / 2), Y(zBed) - 10, C.water, "center");
+  if (s.headMax > 0)
+    tulis(ctx, `${L.hmax} ${fmtPlain(s.headMax, 2)} m`, X(xDam) - 40, Y(s.headMax) - 9, s.overtops ? C.signal : C.water, "right");
+
+  const layout: ReservoirLayout = {
+    map,
+    zTop,
+    zBed,
+    xBankTop,
+    xBankBed,
+    xDam,
+    freeboard: s.freeboard,
+    flowMax: Math.max(s.flowMax, 1e-9),
+    arrowMax: Math.max(30, Math.min(90, (frame.x1 - frame.x0) * 0.12)),
+    labels: L,
+  };
+  if (opts.withState) drawReservoirState(ctx, layout, s.head, s.inflow, s.outflow, s.storage);
+  return { out: { map, anchors: {} }, layout };
+}
+
+/**
+ * Keadaan waduk pada satu saat: muka air di atas mercu, tampungan di atas
+ * mercu diarsir (luas di antara mercu dan muka air = S), panah masuk dan
+ * keluar dengan skala yang sama. Tanpa alokasi.
+ */
+export function drawReservoirState(
+  ctx: CanvasRenderingContext2D,
+  L: ReservoirLayout,
+  head: number,
+  inflow: number,
+  outflow: number,
+  storage: number
+): void {
+  const { map } = L;
+  const X = map.X;
+  const Y = map.Y;
+  const f = map.frame;
+  const melimpas = head > L.freeboard;
+  const warna = melimpas ? C.signal : C.water;
+  const xTebing = (z: number) => L.xBankTop + ((L.zTop - z) / (L.zTop - L.zBed)) * (L.xBankBed - L.xBankTop);
+  const zMuka = Math.max(head, 0);
+  const xKiri = X(xTebing(zMuka));
+  const xKanan = X(L.xDam + 0.01 * Math.min(zMuka / Math.max(L.freeboard, 1e-9), 1));
+
+  if (zMuka > 0) {
+    const tampung = (c: CanvasRenderingContext2D) => {
+      c.beginPath();
+      c.moveTo(xKiri, Y(zMuka));
+      c.lineTo(xKanan, Y(zMuka));
+      c.lineTo(X(L.xDam), Y(0));
+      c.lineTo(X(xTebing(0)), Y(0));
+      c.closePath();
+    };
+    tampung(ctx);
+    ctx.fillStyle = C.waterFillDeep;
+    ctx.fill();
+    hatchWater(ctx, () => tampung(ctx), f.x0, f.x1, Y(zMuka) + 3, Y(0), 6);
+  }
+  pen(ctx, W.bold, warna);
+  ctx.beginPath();
+  ctx.moveTo(xKiri, Math.round(Y(zMuka)) + 0.5);
+  ctx.lineTo(xKanan, Math.round(Y(zMuka)) + 0.5);
+  ctx.stroke();
+  /* Segitiga muka air */
+  const xm = xKiri + (xKanan - xKiri) * 0.3;
+  const ym = Y(zMuka);
+  pen(ctx, W.thin, warna);
+  ctx.beginPath();
+  ctx.moveTo(xm - 5, ym - 8);
+  ctx.lineTo(xm + 5, ym - 8);
+  ctx.lineTo(xm, ym - 1);
+  ctx.closePath();
+  ctx.stroke();
+
+  if (Y(0) - Y(zMuka) > 3) dimV(ctx, xKanan - 14, Y(zMuka), Y(0), `${fmtPlain(head, 2)} m`, warna);
+  tulisNilai(
+    ctx,
+    `S ${fmtPlain(storage / 1e6, 3)} ${L.labels.millionCubic}`,
+    xKiri + (xKanan - xKiri) * 0.55,
+    Y(0) + 12,
+    C.water,
+    "center"
+  );
+  if (melimpas) tulis(ctx, L.labels.overtop, (f.x0 + f.x1) / 2, f.y0 + 8, C.signal, "center");
+
+  /* Panah: masuk di tebing kiri, keluar di hilir pelimpah, skala sama */
+  const k = L.arrowMax / L.flowMax;
+  const yPanah = Math.min(Y(zMuka) - 10, Y(0) - 10);
+  const pIn = inflow * k;
+  flowArrow(ctx, xKiri + 8 + pIn / 2, yPanah, pIn, C.water);
+  tulisNilai(ctx, `I ${fmtPlain(inflow, 1)}`, xKiri + 8, yPanah - 12, C.water, "left");
+  const pOut = outflow * k;
+  const xOut = X(0.9);
+  const yOut = Y(0) - 6;
+  flowArrow(ctx, xOut + pOut / 2, yOut, pOut, melimpas ? C.signal : C.energy);
+  tulisNilai(ctx, `O ${fmtPlain(outflow, outflow < 1 ? 3 : 1)}`, xOut, yOut - 12, melimpas ? C.signal : C.energy, "left");
+}
+
+/**
+ * Keadaan penelusuran pada waktu t (jam), dibaca dari titik hasil
+ * reservoirRouting; tepat sama di titik hasilnya. Ditulis ke `out`.
+ */
+export function readRouting(
+  pts: readonly { t: number; inflow: number; outflow: number; head: number; storage: number }[],
+  t: number,
+  out: { inflow: number; outflow: number; head: number; storage: number }
+): void {
+  const n = pts.length;
+  if (n === 0) {
+    out.inflow = out.outflow = out.head = out.storage = 0;
+    return;
+  }
+  if (n === 1) {
+    out.inflow = pts[0].inflow;
+    out.outflow = pts[0].outflow;
+    out.head = pts[0].head;
+    out.storage = pts[0].storage;
+    return;
+  }
+  const k = cariSelang(n, (i) => pts[i].t, t);
+  const a = pts[k];
+  const b = pts[k + 1];
+  const u = Math.min(Math.max((t - a.t) / (b.t - a.t || 1), 0), 1);
+  out.inflow = a.inflow + (b.inflow - a.inflow) * u;
+  out.outflow = a.outflow + (b.outflow - a.outflow) * u;
+  out.head = a.head + (b.head - a.head) * u;
+  out.storage = a.storage + (b.storage - a.storage) * u;
+}

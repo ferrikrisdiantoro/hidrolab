@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,19 +10,26 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
+import { G, fmt, fmtPlain, reservoirRouting } from "@/lib/hydraulics";
 import {
-  G,
-  fmt,
-  fmtPlain,
-  reservoirRouting,
-  triangularInflow,
-} from "@/lib/hydraulics";
+  drawReservoir,
+  drawReservoirState,
+  drawTimeCursor,
+  offsetMap,
+  readRouting,
+  type ReservoirLayout,
+} from "@/lib/drawBasin";
+import { hidrografDariTitik, rapikanTitik, type TitikHidrograf } from "@/lib/hidrografKendali";
+import type { PlateMap, PlateOut } from "@/lib/plateOut";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -54,7 +61,28 @@ const TXT = {
     aman: "Di bawah puncak bendungan",
     pitaLimpas: "Melimpas, hitungan tidak berlaku",
     sedia: "Waduk meredam",
-    hBase: "Waktu dasar hidrograf masuk",
+    hBase: "Waktu dasar hidrograf masuk (titik kendali terakhir)",
+    dKursor: "Kursor waktu, jam ke-",
+    gPuncak: "Puncak banjir masuk Ip dan tp, seret titik puncak ke mana saja",
+    gTitik: "Titik kendali {i} hidrograf masuk, seret ke mana saja",
+    dibatasiTitik: "titik {i} digeser: urutan waktu dan puncak dijaga",
+    lReservoir: "waduk",
+    lDam: "bendungan",
+    lSpillway: "mercu pelimpah",
+    lDamCrest: "puncak bendungan,",
+    lStorage: "tampungan",
+    lHmax: "hmax",
+    lOvertop: "melimpas di atas puncak bendungan",
+    tabelPuls: "Langkah metode Puls di sekitar puncak keluar",
+    kolT: "t (h)",
+    kolI: "I (m³/s)",
+    kolO: "O (m³/s)",
+    kolH: "h (m)",
+    kolS: "S (juta m³)",
+    kendaliNote:
+      "Hidrograf masuk dibentuk dari lima titik kendali yang bisa diseret di grafik; titik puncak sama dengan penggeser Ip dan tp. Kurva di antara titik disambung monoton (Fritsch dan Carlson 1980) supaya tidak melampaui puncak yang digambar; ini bentuk yang digambar pengguna, bukan hasil model hujan. Ekor nol ditambahkan sampai 1,6 kali waktu titik terakhir.",
+    motionNoteA: "Waktu dipercepat: satu detik layar =",
+    motionNoteB: "jam. Waduk tampak samping skematik: tinggi muka air dan tampungan di atas mercu dibaca dari hasil penelusuran; bentuk tebing dan kolam di bawah mercu tidak dihitung.",
     hDt: "Selang kisi hitungan",
     hStep: "Satu langkah di puncak keluar",
     hStepNote: "diselesaikan dengan Newton atas h₂",
@@ -88,7 +116,28 @@ const TXT = {
     aman: "Below the dam crest",
     pitaLimpas: "Overtopping, calculation invalid",
     sedia: "Reservoir attenuates",
-    hBase: "Base time of the inflow hydrograph",
+    hBase: "Base time of the inflow hydrograph (last control point)",
+    dKursor: "Time cursor, hour",
+    gPuncak: "Inflow peak Ip and tp, drag the peak point anywhere",
+    gTitik: "Inflow hydrograph control point {i}, drag anywhere",
+    dibatasiTitik: "point {i} moved: time order and peak kept",
+    lReservoir: "reservoir",
+    lDam: "dam",
+    lSpillway: "spillway crest",
+    lDamCrest: "dam crest,",
+    lStorage: "storage",
+    lHmax: "hmax",
+    lOvertop: "overtopping the dam crest",
+    tabelPuls: "Puls method steps around the outflow peak",
+    kolT: "t (h)",
+    kolI: "I (m³/s)",
+    kolO: "O (m³/s)",
+    kolH: "h (m)",
+    kolS: "S (million m³)",
+    kendaliNote:
+      "The inflow hydrograph is shaped by five control points that can be dragged on the chart; the peak point is the same as the Ip and tp sliders. The curve between points is joined monotonically (Fritsch and Carlson 1980) so it never overshoots the drawn peak; this is the shape the user draws, not the output of a rainfall model. A zero tail is added up to 1.6 times the time of the last point.",
+    motionNoteA: "Time is sped up: one screen second =",
+    motionNoteB: "hours. The reservoir side view is schematic: the water level and the storage above the crest are read from the routing result; the bank shape and the pool below the crest are not computed.",
     hDt: "Calculation grid interval",
     hStep: "One step at the outflow peak",
     hStepNote: "solved by Newton on h₂",
@@ -116,25 +165,87 @@ const REFS = {
   ],
 } as const;
 
+/* Rentang: satu definisi untuk penggeser dan pegangan seret (aturan 4). */
+const P_IP: ParamDef = { min: 5, max: 2000, step: 5, digits: 0 };
+const P_TP: ParamDef = { min: 0.5, max: 36, step: 0.5, digits: 1 };
+const P_T: ParamDef = { min: 0, max: 150, step: 0.1, digits: 1 };
+const P_Q: ParamDef = { min: 0, max: 2000, step: 1, digits: 0 };
+const P_KURSOR: ParamDef = { min: 0, max: 250, step: 0.1, digits: 1 };
+/** Jarak waktu terkecil antartitik kendali, jam */
+const SELA = 0.25;
+
+/** Lima titik meniru hidrograf segitiga lama: 0, tp/2, tp, tengah sisi turun, tb = 2,67 tp. */
+function titikAwal(Ip: number, tp: number): TitikHidrograf[] {
+  const tb = 2.67 * tp;
+  return [
+    { t: 0, Q: 0 },
+    { t: tp / 2, Q: Ip / 2 },
+    { t: tp, Q: Ip },
+    { t: (tp + tb) / 2, Q: Ip / 2 },
+    { t: tb, Q: 0 },
+  ];
+}
+
+/** Urutan waktu dijaga (rapikanTitik), titik 0 tetap, titik lain tidak melampaui puncak. */
+function rapikan(p: TitikHidrograf[]): { titik: TitikHidrograf[]; dibatasi: boolean[] } {
+  const r = rapikanTitik(p, SELA, { tMin: 0, tMax: P_T.max, QMax: P_Q.max });
+  r.titik[0] = { t: 0, Q: 0 };
+  r.dibatasi[0] = false;
+  const puncak = r.titik[2].Q;
+  for (const i of [1, 3, 4])
+    if (r.titik[i].Q > puncak) {
+      r.titik[i] = { t: r.titik[i].t, Q: puncak };
+      r.dibatasi[i] = true;
+    }
+  return r;
+}
+
 export function PenelusuranWadukClient() {
   const { lang } = useLang();
   const t = str(lang);
   const x = TXT[lang];
   const T = cl(lang);
 
-  const [Qp, setQp] = useState(120);
-  const [tPeak, setTPeak] = useState(6);
+  /* Hidrograf masuk dari lima titik kendali (hidrografKendali.ts, bukan
+     fisika). Titik 0 tetap di (0, 0); titik 2 = puncak = penggeser Ip, tp.
+     Tiap perubahan dirapikan: urutan waktu dijaga dan titik lain tidak
+     boleh melampaui puncak; titik yang digeser diberi penanda. */
+  const [titik, setTitikMentah] = useState<TitikHidrograf[]>(() => titikAwal(120, 6));
+  const [dibatasi, setDibatasi] = useState<boolean[]>([false, false, false, false, false]);
+  const setTitik = (p: TitikHidrograf[]) => {
+    const r = rapikan(p);
+    setTitikMentah(r.titik);
+    setDibatasi(r.dibatasi);
+  };
+  const Qp = titik[2].Q;
+  const tPeak = titik[2].t;
+  /* Penggeser dan pegangan puncak menggeser bentuk: sisi naik diskalakan
+     dengan tp, sisi turun digeser bersama puncak, debit diskalakan dengan Ip. */
+  const setPuncak = (Ip: number, tp: number) => {
+    const lama = titik[2];
+    const kQ = lama.Q > 0 ? Ip / lama.Q : 1;
+    const kT = lama.t > 0 ? tp / lama.t : 1;
+    const geser = tp - lama.t;
+    setTitik([
+      titik[0],
+      { t: titik[1].t * kT, Q: titik[1].Q * kQ },
+      { t: tp, Q: Ip },
+      { t: titik[3].t + geser, Q: titik[3].Q * kQ },
+      { t: titik[4].t + geser, Q: titik[4].Q * kQ },
+    ]);
+  };
+  const setQp = (v: number) => setPuncak(v, tPeak);
+  const setTPeak = (v: number) => setPuncak(Qp, v);
   const [areaHa, setAreaHa] = useState(200);
   const [b, setB] = useState(30);
   const [fb, setFb] = useState(3);
   const [Cd, setCd] = useState(0.6);
+  const [kursor, setKursor] = useState(8);
 
-  // Banjir masuk disusun sebagai hidrograf satuan segitiga yang diskalakan.
-  // triangularInflow menambahkan titik t = tp ke kisi rata, jadi puncak
-  // yang tercatat persis Ip (kisi rata saja melewatkannya: Ip 120 tercatat
-  // 118,95). Lembar ini tentang penelusurannya, bukan asal banjirnya; asal
-  // banjir dibahas lembar HY-02.
-  const masuk = triangularInflow(Qp, tPeak);
+  const tb = titik[4].t;
+  const tEkor = 1.6 * tb;
+  const dtKisi = tEkor / 160;
+  const masuk = hidrografDariTitik([...titik, { t: tEkor, Q: 0 }], dtKisi, "monoton");
 
   const area = areaHa * 1e4;
   const r = reservoirRouting(masuk, area, b, fb, Cd);
@@ -146,8 +257,6 @@ export function PenelusuranWadukClient() {
   // Digit Omax di kop sama dengan label titik di gambar.
   const digitO = r.outflowPeak < 1 ? 3 : 1;
 
-  const tb = 2.67 * tPeak;
-  const dtKisi = (tb * 1.6) / 160;
 
   // Satu langkah hitungan di titik puncak keluar, dibaca dari hasil model.
   const kP = r.points.reduce((m, p, i, a) => (p.outflow > a[m].outflow ? i : m), 0);
@@ -160,9 +269,43 @@ export function PenelusuranWadukClient() {
   // itu satu langkah trapesium di kisi tidak lagi setimbang persis.
   const hampiran = kP > 0 && Math.abs(kiri - kanan) > 1e-6 * Math.max(kanan, 1);
 
-  const ref = useCanvas(
-    (ctx, w, h) => {
-      const tMax = masuk[masuk.length - 1].t;
+  /* Bidang grafik dikunci selama pegangan diseret (pola HS-01): tanpa
+     kunci, sumbu ikut nilai yang diseret dan pegangan saling kejar. */
+  const [kunci, setKunci] = useState<{ tMax: number; qMax: number } | null>(null);
+  const bebas = {
+    tMax: masuk[masuk.length - 1].t,
+    qMax: Math.max(Math.max(...titik.map((p) => p.Q)) * 1.15, 1e-6),
+  };
+  const bidangRef = useRef(bebas);
+  bidangRef.current = bebas;
+  const bidang = kunci ?? bebas;
+
+  const { playing, toggle: togglePutar } = usePutar();
+  const bergerak = playing;
+  const sentuh = useRef<() => void>(() => {});
+  const tataRef = useRef<ReservoirLayout | null>(null);
+  const petaGrafik = useRef<PlateMap | null>(null);
+  const mulai = useRef<{ tt: number | null; t: number; kini: number }>({ tt: null, t: 8, kini: 8 });
+  const kini = useRef({ inflow: 0, outflow: 0, head: 0, storage: 0 });
+  const titikKursor = useRef<[number, string][]>([
+    [0, C.water],
+    [0, C.energy],
+  ]);
+  /** Jam model per detik layar: seluruh hidrograf dalam 12 detik */
+  const LAJU = tEkor / 12;
+  const labelWaduk = {
+    reservoir: x.lReservoir,
+    dam: x.lDam,
+    spillway: x.lSpillway,
+    damCrest: x.lDamCrest,
+    storage: x.lStorage,
+    hmax: x.lHmax,
+    overtop: x.lOvertop,
+    millionCubic: T.millionCubic,
+  };
+
+  const grafik = (ctx: CanvasRenderingContext2D, w: number, h: number): PlateOut => {
+      const tMax = bidang.tMax;
       const deret: ChartSeries[] = [
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.inflow })),
@@ -183,7 +326,7 @@ export function PenelusuranWadukClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         h,
@@ -191,7 +334,7 @@ export function PenelusuranWadukClient() {
           xMin: 0,
           xMax: tMax,
           yMin: 0,
-          yMax: Math.max(Qp * 1.15, 1e-6),
+          yMax: bidang.qMax,
           axisX: T.axTimeHour,
           axisY: T.axFlowRate,
           series: deret,
@@ -206,12 +349,132 @@ export function PenelusuranWadukClient() {
           },
           heading: limpas ? x.limpas : undefined,
           headingColor: C.signal,
+          markers: titik.map((p) => ({ x: p.t, y: p.Q, color: C.water, hollow: true })),
+          regions: dibatasi.some((d) => d)
+            ? [{ x: bidang.tMax * 0.5, y: bidang.qMax * 0.97, text: x.dibatasiTitik.replace("{i}", dibatasi.map((d, i) => (d ? String(i) : "")).filter(Boolean).join(", ")), color: C.caution }]
+            : undefined,
+          anchors: Object.fromEntries(titik.map((p, i) => [`p${i}`, { x: p.t, y: p.Q }])),
         },
         lang
       );
+  };
+
+  const plate = usePlate(
+    (ctx, w, h) => {
+      const hRes = Math.round(Math.min(Math.max(h * 0.38, 160), 270));
+      const tK = Math.min(kursor, tEkor);
+      const k = { inflow: 0, outflow: 0, head: 0, storage: 0 };
+      readRouting(r.points, tK, k);
+      const res = drawReservoir(
+        ctx,
+        w,
+        hRes,
+        {
+          head: k.head,
+          freeboard: fb,
+          crestWidth: b,
+          storage: k.storage,
+          overtops: limpas,
+          headMax: r.maxHead,
+          inflow: k.inflow,
+          outflow: k.outflow,
+          flowMax: r.inflowPeak,
+        },
+        { labels: labelWaduk, withState: !bergerak }
+      );
+      tataRef.current = res.layout;
+      ctx.save();
+      ctx.translate(0, hRes);
+      const out = grafik(ctx, w, h - hRes);
+      ctx.restore();
+      const peta = offsetMap(out.map, 0, hRes);
+      petaGrafik.current = peta;
+      if (!bergerak) {
+        titikKursor.current[0][0] = k.inflow;
+        titikKursor.current[1][0] = k.outflow;
+        drawTimeCursor(ctx, peta, tK, titikKursor.current);
+      }
+      const anchors: Record<string, { x: number; y: number }> = {};
+      for (const key in out.anchors ?? {}) anchors[key] = { x: out.anchors![key].x, y: out.anchors![key].y + hRes };
+      return { map: peta, anchors, maps: { reservoir: res.out.map } };
     },
-    [Qp, tPeak, areaHa, b, fb, Cd, lang]
+    (ctx, w, h, tt) => {
+      const tata = tataRef.current;
+      const peta = petaGrafik.current;
+      if (!tata || !peta) return;
+      const m = mulai.current;
+      if (m.tt === null) m.tt = tt;
+      let t = (m.t + (tt - m.tt) * LAJU) % tEkor;
+      if (t < 0) t += tEkor;
+      m.kini = t;
+      const k = kini.current;
+      readRouting(r.points, t, k);
+      drawReservoirState(ctx, tata, k.head, k.inflow, k.outflow, k.storage);
+      titikKursor.current[0][0] = k.inflow;
+      titikKursor.current[1][0] = k.outflow;
+      drawTimeCursor(ctx, peta, t, titikKursor.current);
+    },
+    [
+      titik.map((p) => `${p.t},${p.Q}`).join(";"),
+      dibatasi.join(","),
+      areaHa,
+      b,
+      fb,
+      Cd,
+      lang,
+      kursor,
+      bergerak,
+      kunci ? kunci.tMax : NaN,
+      kunci ? kunci.qMax : NaN,
+    ],
+    { playing }
   );
+
+  const putar = () => {
+    if (playing) setKursor(Math.round(mulai.current.kini * 10) / 10);
+    else {
+      mulai.current.tt = null;
+      mulai.current.t = Math.min(kursor, tEkor);
+    }
+    togglePutar();
+  };
+
+  const ubahTitik = (i: number) => (v: [number, number]) => {
+    const p = titik.slice();
+    p[i] = { t: v[0], Q: v[1] };
+    setTitik(p);
+  };
+  const handles: HandleSpec[] = [
+    {
+      id: "puncak",
+      anchor: "p2",
+      axis: "xy",
+      label: x.gPuncak,
+      tint: C.water,
+      hollow: true,
+      param: [P_TP, P_IP],
+      value: [tPeak, Qp],
+      toValue: (px, py, m) => [m.invX(px), m.invY(py)],
+      onChange: ([tt, q]) => setPuncak(q, tt),
+      format: (v) => `tp ${fmt(v[0], 1)} h; Ip ${fmt(v[1], 0)} m³/s`,
+    },
+    ...[1, 3, 4].map(
+      (i): HandleSpec => ({
+        id: `p${i}`,
+        anchor: `p${i}`,
+        axis: "xy",
+        label: x.gTitik.replace("{i}", String(i)),
+        tint: C.water,
+        hollow: true,
+        param: [P_T, P_Q],
+        value: [titik[i].t, titik[i].Q],
+        toValue: (px, py, m) => [m.invX(px), m.invY(py)],
+        onChange: ubahTitik(i),
+        format: (v) => `t ${fmt(v[0], 1)} h; Q ${fmt(v[1], 0)} m³/s`,
+      })
+    ),
+  ];
+  const lepasKunci = () => setKunci(null);
 
   const persen = fmtPersen(r.attenuation * 100);
 
@@ -260,6 +523,8 @@ export function PenelusuranWadukClient() {
           number="HY-01"
           title={x.sheetTitle}
           rev="A"
+          height="clamp(560px, 82vh, 860px)"
+          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: `${x.motionNoteA} ${fmt(LAJU, 1)} ${x.motionNoteB}` }}
           cells={[
             { label: t.tbUnit, value: "SI (m³/s, m)" },
             { label: "Imax", value: `${fmt(r.inflowPeak, 1)} m³/s`, tint: C.water },
@@ -272,28 +537,44 @@ export function PenelusuranWadukClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          <div
+            className="contents"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              if (kunci) return;
+              setKunci(bidangRef.current);
+            }}
+            onPointerUp={lepasKunci}
+            onPointerCancel={lepasKunci}
+            onLostPointerCapture={lepasKunci}
+          >
+            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="Ip" label={x.dQp} value={Qp} min={5} max={2000} step={5} digits={0} unit="m³/s" onChange={setQp} tint={C.water} />
-              <InputRow symbol="tp" label={x.dTp} value={tPeak} min={0.5} max={36} step={0.5} digits={1} unit="h" onChange={setTPeak} />
+              <InputRow symbol="Ip" label={x.dQp} value={Qp} {...P_IP} unit="m³/s" onChange={setQp} tint={C.water} />
+              <InputRow symbol="tp" label={x.dTp} value={tPeak} {...P_TP} unit="h" onChange={setTPeak} />
               <InputRow symbol="As" label={x.dArea} value={areaHa} min={1} max={5000} step={1} digits={0} unit="ha" onChange={setAreaHa} tint={C.energy} />
               <InputRow symbol="b" label={x.dB} value={b} min={2} max={200} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} />
               <InputRow symbol="Cd" label={x.dCd} value={Cd} min={0.5} max={0.75} step={0.005} digits={3} onChange={setCd} />
+              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={setKursor} />
             </InputTable>
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
                 presets={[
-                  { label: x.pKecil, apply: () => { setQp(120); setTPeak(6); setAreaHa(40); setB(60); setFb(3); setCd(0.6); } },
-                  { label: x.pSedang, apply: () => { setQp(120); setTPeak(6); setAreaHa(200); setB(30); setFb(3); setCd(0.6); } },
-                  { label: x.pBesar, apply: () => { setQp(120); setTPeak(6); setAreaHa(1200); setB(12); setFb(4); setCd(0.6); } },
+                  { label: x.pKecil, apply: () => { setTitik(titikAwal(120, 6)); setAreaHa(40); setB(60); setFb(3); setCd(0.6); } },
+                  { label: x.pSedang, apply: () => { setTitik(titikAwal(120, 6)); setAreaHa(200); setB(30); setFb(3); setCd(0.6); } },
+                  { label: x.pBesar, apply: () => { setTitik(titikAwal(120, 6)); setAreaHa(1200); setB(12); setFb(4); setCd(0.6); } },
                 ]}
               />
             </div>
@@ -316,14 +597,14 @@ export function PenelusuranWadukClient() {
                 langkah={[
                   {
                     judul: x.hBase,
-                    rumus: <span>tb = {fmt(2.67, 2)} · tp</span>,
-                    isi: `${fmt(2.67, 2)} · ${fmt(tPeak, 1)}`,
+                    rumus: <span>tb = t₄</span>,
+                    isi: `t₄ = ${fmt(tb, 2)}`,
                     hasil: fmt(tb, 2),
                     satuan: "h",
                   },
                   {
                     judul: x.hDt,
-                    rumus: (<><span>Δt =</span><Frac num={`${fmt(1.6, 1)} · tb`} den="160" /></>),
+                    rumus: (<><span>Δt =</span><Frac num={`${fmt(1.6, 1)} · tb`} den="160" /><span>(+ {lang === "id" ? "waktu tiap titik kendali" : "each control point time"})</span></>),
                     isi: `${fmt(1.6, 1)} · ${fmt(tb, 2)} / 160`,
                     hasil: fmt(dtKisi, 4),
                     satuan: "h",
@@ -378,6 +659,34 @@ export function PenelusuranWadukClient() {
                 ]}
               />
             </div>
+            <div className="mt-3 overflow-x-auto">
+              <p className="stencil mb-1">{x.tabelPuls}</p>
+              <table className="w-full text-right text-[0.8rem] tabular-nums">
+                <thead className="text-ink-3">
+                  <tr>
+                    <th className="pr-2 font-normal">{x.kolT}</th>
+                    <th className="pr-2 font-normal">{x.kolI}</th>
+                    <th className="pr-2 font-normal">{x.kolO}</th>
+                    <th className="pr-2 font-normal">{x.kolH}</th>
+                    <th className="font-normal">{x.kolS}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.points.slice(Math.max(kP - 3, 0), kP + 4).map((q, i0) => {
+                    const idx = Math.max(kP - 3, 0) + i0;
+                    return (
+                      <tr key={idx} className={idx === kP ? "font-semibold text-ink" : "text-ink-2"}>
+                        <td className="pr-2">{fmt(q.t, 2)}</td>
+                        <td className="pr-2">{fmt(q.inflow, 2)}</td>
+                        <td className="pr-2">{limpas ? "—" : fmt(q.outflow, 2)}</td>
+                        <td className="pr-2">{fmt(q.head, 3)}</td>
+                        <td>{limpas ? "—" : fmt(q.storage / 1e6, 3)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </Block>
 
           {limpas ? (
@@ -423,7 +732,7 @@ export function PenelusuranWadukClient() {
               </Eq>
             </>
           }
-          note={x.note}
+          note={`${x.note} ${x.kendaliNote}`}
           refs={[...REFS[lang]]}
         />
       }

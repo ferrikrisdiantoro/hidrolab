@@ -10,7 +10,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { aquiferResponse } from "./hydraulics.ts";
-import { aquiferTableShape, offsetMap, readAquifer } from "./drawBasin.ts";
+import { aquiferTableShape, offsetMap, readAquifer, readRouting } from "./drawBasin.ts";
+import { reservoirRouting } from "./hydraulics.ts";
+import { hidrografDariTitik } from "./hidrografKendali.ts";
 import { linearMap } from "./plateOut.ts";
 
 describe("readAquifer (GW-03)", () => {
@@ -81,5 +83,42 @@ describe("offsetMap", () => {
     assert.ok(Math.abs(g.invX(g.X(7.5)) - 7.5) < 1e-12);
     assert.ok(Math.abs(g.invY(g.Y(1.25)) - 1.25) < 1e-12);
     assert.equal(g.frame.y0, 270);
+  });
+});
+
+describe("readRouting (HY-01)", () => {
+  const titik = [
+    { t: 0, Q: 0 },
+    { t: 3, Q: 60 },
+    { t: 6, Q: 120 },
+    { t: 11, Q: 60 },
+    { t: 16, Q: 0 },
+    { t: 25.6, Q: 0 },
+  ];
+  const masuk = hidrografDariTitik(titik, 25.6 / 160, "monoton");
+  const r = reservoirRouting(masuk, 200e4, 30, 3, 0.6);
+
+  it("sama persis dengan hasil penelusuran di tiap titik hasil", () => {
+    const k = { inflow: 0, outflow: 0, head: 0, storage: 0 };
+    for (const p of r.points) {
+      readRouting(r.points, p.t, k);
+      assert.equal(k.inflow, p.inflow);
+      assert.equal(k.outflow, p.outflow);
+      assert.equal(k.head, p.head);
+      assert.equal(k.storage, p.storage);
+    }
+  });
+
+  it("tampungan yang digambar = As · h (waduk prismatik model)", () => {
+    const k = { inflow: 0, outflow: 0, head: 0, storage: 0 };
+    for (const t of [2, 7.3, 11, 20]) {
+      readRouting(r.points, t, k);
+      assert.ok(Math.abs(k.storage - 200e4 * k.head) < 1e-6 * Math.max(1, k.storage));
+    }
+  });
+
+  it("titik kendali tercatat persis di deret masuk (puncak 120 tidak hilang)", () => {
+    for (const p of titik) assert.ok(masuk.some((m) => m.t === p.t && m.Q === p.Q));
+    assert.equal(Math.max(...masuk.map((m) => m.Q)), 120);
   });
 });
