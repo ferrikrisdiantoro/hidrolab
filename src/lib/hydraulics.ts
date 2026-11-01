@@ -8,6 +8,8 @@
  * Satuan: SI. Panjang dalam meter, debit m3/s, kecepatan m/s.
  */
 
+import { simulateShoal } from "./gerombolan.ts";
+
 export const G = 9.81;
 
 /* ------------------------------------------------------------------ *
@@ -5476,8 +5478,16 @@ export type AquiferResponse = {
   lag: number;
   /** Tundaan itu sebagai bagian dari satu musim */
   lagFraction: number;
-  /** Deret waktu hasil hitungan langkah demi langkah, satu musim terakhir */
-  series: { t: number; head: number; recharge: number }[];
+  /**
+   * Deret waktu hasil hitungan langkah demi langkah, satu musim terakhir.
+   * t hari, head meter, recharge dan outflow milimeter tiap hari.
+   * outflow = alpha·head (M8), sehingga neraca tiap titiknya
+   * Sy·d(head)/dt·1000 = recharge − pemompaan − outflow. Bernilai negatif
+   * bila head di bawah ambang keluaran (tampungan lurus apa adanya).
+   */
+  series: { t: number; head: number; recharge: number; outflow: number }[];
+  /** Koefisien pengosongan (tetapan resesi) yang dipakai, 1/hari (M8) */
+  alpha: number;
   /** Simpangan yang TERBACA dari deret di atas, untuk pembanding silang */
   amplitudeSim: number;
   /** Tundaan yang TERBACA dari deret di atas, hari */
@@ -5566,7 +5576,7 @@ export function aquiferResponse(
     (imbuhan(t) - m(pumping) - alpha * h) / Math.max(Sy, 1e-9);
 
   const dt = 0.25;
-  const series: { t: number; head: number; recharge: number }[] = [];
+  const series: AquiferResponse["series"] = [];
   let h = hMean;
   let runsDry = false;
   let minHead = Infinity;
@@ -5580,6 +5590,8 @@ export function aquiferResponse(
         t: t - (span - period),
         head: h,
         recharge: imbuhan(t) * 1000,
+        /* Keluaran alfa h, suku yang sama dengan di laju(), mm/hari (M8) */
+        outflow: alpha * h * 1000,
       });
       if (h < 0) runsDry = true;
     }
@@ -5622,6 +5634,7 @@ export function aquiferResponse(
     minHead: Number.isFinite(minHead) ? minHead : hMean,
     maxHead: Number.isFinite(maxHead) ? maxHead : hMean,
     baseflow: alpha * hMean * 1000,
+    alpha,
   };
 }
 
@@ -7735,215 +7748,23 @@ export function shoal(
   /** Banyaknya langkah yang dijalankan */
   steps = 300
 ): Shoal {
-  /* Pembangkit acak berbenih tetap, supaya gambarnya tidak berubah sendiri */
-  let benih = 20260919;
-  const acak = () => {
-    benih = (benih * 1664525 + 1013904223) % 4294967296;
-    return benih / 4294967296;
-  };
-
-  const n = Math.max(2, Math.round(count));
-  const laju = 1;
-  /* Jarak tempuh tiap langkah, meter */
-  const langkahJarak = 0.3;
   /*
-   * Ketiga bobot dibaca sebagai LEBAR tiga zona bersarang, menurut Couzin
-   * dkk. (2002): zona menjauh, di luarnya zona menyamakan arah, di luarnya
-   * lagi zona mendekat. Aturannya berprioritas: bila ada tetangga di zona
-   * menjauh, ikan itu hanya menjauh; bila tidak, ia menyamakan arah dengan
-   * tetangga di zona tengah sambil menuju tetangga di zona luar.
+   * M5: seluruh simulasinya kini dijalankan oleh model langkah demi
+   * langkah di gerombolan.ts (M4), supaya gambar diam lembar ini dan
+   * animasinya memakai satu model yang sama. simulateShoal = createShoal
+   * berbenih SHOAL_SEED (20260919), lalu steps kali stepShoal dengan
+   * dt SHOAL_DT (laju 1 m/s × 0,3 s = 0,3 m per langkah), jejak lima ekor
+   * pertama pada 59 langkah terakhir, lalu ukuran keteraturan.
    *
-   * Sebelumnya ketiganya dijumlahkan sebagai gaya dalam satu zona yang
-   * sama tanpa batas belok. Susunan itu hampir tidak pernah memutar: dari
-   * tiga ratus setelan hanya satu yang tergolong berputar, dan itu pun di
-   * tepi ambangnya, sehingga tombol "berputar" menampilkan kerumunan biasa.
-   * Justru pemisahan zona dan batas belok itulah yang menurut Couzin
-   * melahirkan cincin berputar.
+   * Susunan zonanya tetap: lebar zona menjauh 0,4 + 0,4·max(0, separation),
+   * zona menyamakan arah 5·alignment, zona mendekat 14·cohesion (m),
+   * berprioritas menurut Couzin dkk. (2002); belok paling besar 0,15 rad
+   * per langkah, sudut buta π/3 di belakang, dan ikan tanpa tetangga
+   * berkelana dengan kegaduhan 12 kali. Keluarannya identik bit demi bit
+   * dengan badan lama fungsi ini (uji shoalM5.test.ts: sidik SHA-256 enam
+   * setelan yang direkam sebelum M5, dan gerombolan.test.ts).
    */
-  const zonaJauh = 0.4 + 0.4 * Math.max(0, separation);
-  const zonaSearah = alignment * 5;
-  const zonaTarik = cohesion * 14;
-  /* Belokan terbesar tiap langkah dan sudut buta di belakang, radian */
-  const belokMaks = 0.15;
-  const sudutButa = Math.PI / 3;
-
-  /* Posisi dan arah disimpan dalam larik bertipe. Pasangan ikan diperiksa
-     n² kali tiap langkah selama tiga ratus langkah, dan objek per ekor
-     membuat lembar ini tersendat tiap kali penggeser digeser. */
-  const px = new Float64Array(n);
-  const py = new Float64Array(n);
-  const arah = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    const a = acak() * Math.PI * 2;
-    px[i] = (acak() - 0.5) * 20;
-    py[i] = (acak() - 0.5) * 20;
-    arah[i] = a;
-  }
-
-  const trails: { x: number; y: number }[][] = [[], [], [], [], []];
-
-  /* Tetangga di belakang, di dalam sudut buta, tidak terlihat. Diperiksa
-     lewat hasil kali titik arah dengan vektor ke tetangga, bukan atan2. */
-  const batasButa = -Math.cos(sudutButa / 2);
-  /* Kelipatan kegaduhan arah bagi ikan yang tidak melihat tetangga */
-  const KELANA = 12;
-  const zona1 = zonaJauh;
-  const zona2 = zonaJauh + zonaSearah;
-  const zona3 = zonaJauh + zonaSearah + zonaTarik;
-  const zona3k = zona3 * zona3;
-  const hx = new Float64Array(n);
-  const hy = new Float64Array(n);
-  const arahBaru = new Float64Array(n);
-
-  for (let langkah = 0; langkah < steps; langkah++) {
-    for (let i = 0; i < n; i++) {
-      hx[i] = Math.cos(arah[i]);
-      hy[i] = Math.sin(arah[i]);
-    }
-    for (let i = 0; i < n; i++) {
-      let jx = 0;
-      let jy = 0;
-      let nJauh = 0;
-      let sx = 0;
-      let sy = 0;
-      let nSearah = 0;
-      let tx = 0;
-      let ty = 0;
-      let nTarik = 0;
-      const xi = px[i];
-      const yi = py[i];
-      const hxi = hx[i];
-      const hyi = hy[i];
-
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        const dx = px[j] - xi;
-        const dy = py[j] - yi;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < 1e-18 || d2 >= zona3k) continue;
-        const d = Math.sqrt(d2);
-        if (hxi * dx + hyi * dy < batasButa * d) continue;
-        if (d < zona1) {
-          jx -= dx / d;
-          jy -= dy / d;
-          nJauh++;
-        } else if (d < zona2) {
-          sx += hx[j];
-          sy += hy[j];
-          nSearah++;
-        } else {
-          tx += dx / d;
-          ty += dy / d;
-          nTarik++;
-        }
-      }
-
-      let dx = hxi;
-      let dy = hyi;
-      if (nJauh > 0) {
-        dx = jx;
-        dy = jy;
-      } else if (nSearah + nTarik > 0) {
-        dx = 0;
-        dy = 0;
-        if (nSearah > 0) {
-          dx += sx / nSearah;
-          dy += sy / nSearah;
-        }
-        if (nTarik > 0) {
-          dx += tx / nTarik;
-          dy += ty / nTarik;
-        }
-      }
-
-      /*
-       * Ikan yang tidak melihat seekor tetangga pun berkelana: arahnya
-       * dibelokkan acak jauh lebih besar. Tanpa itu, pada keadaan tanpa
-       * aturan setiap ekor berenang lurus dengan laju yang sama dari satu
-       * kotak awal, sehingga sesudah tiga ratus langkah seluruhnya duduk
-       * pada satu lingkaran rapi, dan "berpencar" tergambar sebagai cincin.
-       */
-      const sendirian = nJauh + nSearah + nTarik === 0;
-      const ingin =
-        Math.atan2(dy, dx) + (acak() - 0.5) * noise * (sendirian ? KELANA : 1);
-      let belok = Math.atan2(Math.sin(ingin - arah[i]), Math.cos(ingin - arah[i]));
-      /* Batas belok adalah kelembaman berenang di dalam gerombolan; ikan
-         yang berkelana sendirian dibiarkan berbelok sebebas kegaduhannya. */
-      if (!sendirian && Math.abs(belok) > belokMaks)
-        belok = Math.sign(belok) * belokMaks;
-      arahBaru[i] = arah[i] + belok;
-    }
-    for (let i = 0; i < n; i++) {
-      arah[i] = arahBaru[i];
-      px[i] += Math.cos(arah[i]) * langkahJarak;
-      py[i] += Math.sin(arah[i]) * langkahJarak;
-    }
-
-    if (langkah > steps - 60)
-      for (let k = 0; k < Math.min(5, n); k++) trails[k].push({ x: px[k], y: py[k] });
-  }
-
-  const agents: ShoalAgent[] = [];
-  for (let i = 0; i < n; i++)
-    agents.push({
-      x: px[i],
-      y: py[i],
-      vx: Math.cos(arah[i]) * laju,
-      vy: Math.sin(arah[i]) * laju,
-    });
-
-  /* Keteraturan arah: panjang jumlah vektor arah dibagi banyaknya */
-  let jumlahX = 0;
-  let jumlahY = 0;
-  for (const a of agents) {
-    jumlahX += a.vx;
-    jumlahY += a.vy;
-  }
-  const polarisation = Math.hypot(jumlahX, jumlahY) / (n * laju);
-
-  /* Keteraturan putar: momentum sudut terhadap pusat gerombolannya */
-  const mx = agents.reduce((s2, a) => s2 + a.x, 0) / n;
-  const my = agents.reduce((s2, a) => s2 + a.y, 0) / n;
-  let putar = 0;
-  let spread = 0;
-  for (const a of agents) {
-    const rx = a.x - mx;
-    const ry = a.y - my;
-    const r = Math.hypot(rx, ry);
-    spread += r;
-    if (r > 1e-9) putar += (rx * a.vy - ry * a.vx) / (r * laju);
-  }
-  const milling = Math.abs(putar) / n;
-  spread /= n;
-
-  let nn = 0;
-  for (let i = 0; i < n; i++) {
-    let d = Infinity;
-    for (let j = 0; j < n; j++)
-      if (i !== j)
-        d = Math.min(d, Math.hypot(agents[j].x - agents[i].x, agents[j].y - agents[i].y));
-    nn += Number.isFinite(d) ? d : 0;
-  }
-  nn /= n;
-
-  const state: Shoal["state"] =
-    polarisation > 0.75
-      ? "searah"
-      : milling > 0.45
-        ? "berputar"
-        : spread < 9.6
-          ? "bergerombol"
-          : "berpencar";
-
-  return {
-    agents,
-    trails,
-    polarisation,
-    milling,
-    nearestNeighbour: nn,
-    spread,
-    state,
-  };
+  return simulateShoal(count, alignment, separation, cohesion, noise, steps);
 }
 
 /* ------------------------------------------------------------------ *
