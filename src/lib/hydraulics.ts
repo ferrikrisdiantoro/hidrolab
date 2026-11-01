@@ -5478,8 +5478,16 @@ export type AquiferResponse = {
   lag: number;
   /** Tundaan itu sebagai bagian dari satu musim */
   lagFraction: number;
-  /** Deret waktu hasil hitungan langkah demi langkah, satu musim terakhir */
-  series: { t: number; head: number; recharge: number }[];
+  /**
+   * Deret waktu hasil hitungan langkah demi langkah, satu musim terakhir.
+   * t hari, head meter, recharge dan outflow milimeter tiap hari.
+   * outflow = alpha·head (M8), sehingga neraca tiap titiknya
+   * Sy·d(head)/dt·1000 = recharge − pemompaan − outflow. Bernilai negatif
+   * bila head di bawah ambang keluaran (tampungan lurus apa adanya).
+   */
+  series: { t: number; head: number; recharge: number; outflow: number }[];
+  /** Koefisien pengosongan (tetapan resesi) yang dipakai, 1/hari (M8) */
+  alpha: number;
   /** Simpangan yang TERBACA dari deret di atas, untuk pembanding silang */
   amplitudeSim: number;
   /** Tundaan yang TERBACA dari deret di atas, hari */
@@ -5568,7 +5576,7 @@ export function aquiferResponse(
     (imbuhan(t) - m(pumping) - alpha * h) / Math.max(Sy, 1e-9);
 
   const dt = 0.25;
-  const series: { t: number; head: number; recharge: number }[] = [];
+  const series: AquiferResponse["series"] = [];
   let h = hMean;
   let runsDry = false;
   let minHead = Infinity;
@@ -5582,6 +5590,8 @@ export function aquiferResponse(
         t: t - (span - period),
         head: h,
         recharge: imbuhan(t) * 1000,
+        /* Keluaran alfa h, suku yang sama dengan di laju(), mm/hari (M8) */
+        outflow: alpha * h * 1000,
       });
       if (h < 0) runsDry = true;
     }
@@ -5624,6 +5634,7 @@ export function aquiferResponse(
     minHead: Number.isFinite(minHead) ? minHead : hMean,
     maxHead: Number.isFinite(maxHead) ? maxHead : hMean,
     baseflow: alpha * hMean * 1000,
+    alpha,
   };
 }
 
