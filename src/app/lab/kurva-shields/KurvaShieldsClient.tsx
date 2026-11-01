@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,20 +10,38 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
+import { tintCurveSide } from "@/lib/chartTint";
+import {
+  createGrainSwarm,
+  drawGrainPanel,
+  drawGrainSwarm,
+  grainDomain,
+  grainTimeScale,
+  rouseNumber,
+  stepGrains,
+  type GrainStep,
+  type GrainSwarm,
+} from "@/lib/drawGrain";
+import { grainMotion } from "@/lib/sedimenGerak";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import {
   G,
   SEDIMENT_S,
   SHIELDS_PLATEAU,
+  dimensionlessGrain,
   fmt,
   fmtPlain,
   fmtSci,
   shieldsCritical,
+  settlingVelocity,
   shieldsState,
   waterViscosity,
 } from "@/lib/hydraulics";
@@ -59,6 +77,18 @@ const TXT = {
     kohesifPita: "Butir kohesif, kurva Shields tidak berlaku",
     kohesifIsi: "d < 0,06 mm: ambang butir lepas tidak berlaku",
     hTheta: "Tegangan tak berdimensi dan perbandingannya",
+    gDiam: "Butir diam",
+    gDasar: "Menggelinding",
+    gLayang: "Melayang",
+    gKohesif: "Kohesif: tidak berlaku",
+    gAliran: "aliran",
+    hdlPoint: "Titik kerja: geser mendatar mengubah diameter butir, tegak mengubah jari-jari hidrolik",
+    motionReal: "waktu nyata",
+    motionFast: (n: string) => `waktu dipercepat ×${n}`,
+    motionSlow: (n: string) => `waktu diperlambat ×${n}`,
+    motionDasar: "butir maju dengan laju butir dasar Fernandez Luque dan van Beek, us = 11,5 (u* − 0,7 u*cr)",
+    motionLayang:
+      "tegak: turun dengan kecepatan endap ws, diaduk pusaran sebesar 1,25 u* (Bagnold). Mendatar digambar sama dengan laju butir dasar, batas bawah; laju butir melayang yang sebenarnya mendekati kecepatan aliran dan tidak dihitung lembar ini",
     halusNote:
       "Di bawah kira-kira 0,06 mm butirnya masuk golongan lanau dan lempung, dan yang menahannya di dasar bukan lagi beratnya sendiri melainkan gaya tarik antar butir. Kurva Shields diturunkan untuk butir yang lepas, jadi ambang yang ditampilkan di sini tidak berlaku: lempung padat dapat bertahan pada tegangan berkali lipat dari yang diramalkan, sedangkan lumpur yang baru mengendap justru lepas jauh lebih awal. Yang menentukan di daerah ini sejarah pengendapannya, bukan ukuran butirnya.",
     note:
@@ -88,6 +118,18 @@ const TXT = {
     kohesifPita: "Cohesive grain, Shields curve does not apply",
     kohesifIsi: "d < 0.06 mm: loose-grain threshold does not apply",
     hTheta: "Dimensionless stress and its ratio",
+    gDiam: "Grain at rest",
+    gDasar: "Rolling",
+    gLayang: "Suspended",
+    gKohesif: "Cohesive: does not apply",
+    gAliran: "flow",
+    hdlPoint: "Operating point: drag sideways to change grain diameter, up or down to change hydraulic radius",
+    motionReal: "real time",
+    motionFast: (n: string) => `time sped up ×${n}`,
+    motionSlow: (n: string) => `time slowed ×${n}`,
+    motionDasar: "grains advance at the Fernandez Luque and van Beek bed-load grain velocity, us = 11.5 (u* − 0.7 u*cr)",
+    motionLayang:
+      "vertical: falling at the settling velocity ws, stirred by eddies of 1.25 u* (Bagnold). Horizontal is drawn equal to the bed-load grain velocity, a lower bound; the true speed of a suspended grain approaches the flow velocity and is not computed on this sheet",
     halusNote:
       "Below about 0.06 mm the grains fall into the silt and clay class, and what holds them on the bed is no longer their own weight but cohesion between grains. The Shields curve was derived for loose grains, so the threshold shown here does not apply: firm clay can survive stresses many times the predicted value, while freshly settled mud comes loose far earlier. What decides in this region is the deposition history, not the grain size.",
     note:
@@ -110,6 +152,15 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang masukan yang dipakai bersama oleh penggeser, kotak angka, dan
+ * pegangan seret titik kerja (aturan 4: satu sumber nilai).
+ */
+const P_D: ParamDef = { min: 0.004, max: 300, step: 0.002, digits: 3 };
+const P_R: ParamDef = { min: 0.02, max: 10, step: 0.02, digits: 2 };
+/** Banyak butir lepas di panel sketsa butir. */
+const N_BUTIR = 8;
+
 const DSTAR_MIN = 0.3;
 const DSTAR_MAX = 3000;
 /** Batas bawah butir lepas; di bawahnya gaya tarik antar butir menguasai. */
@@ -126,6 +177,13 @@ export function KurvaShieldsClient() {
   const [S, setS] = useState(0.001);
   const [s, setS_] = useState(SEDIMENT_S);
   const [suhu, setSuhu] = useState(15);
+  // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
+  const sentuh = useRef<() => void>(() => {});
+  // Lapis gerak panel butir berjalan sejak awal kecuali peramban meminta
+  // pengurangan gerak; tombol putar/jeda ada di pojok panel butir.
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<GrainSwarm | null>(null);
+  if (gerak.current === null) gerak.current = createGrainSwarm(N_BUTIR);
 
   const nu = waterViscosity(suhu);
   const d = dMm / 1000;
@@ -142,7 +200,7 @@ export function KurvaShieldsClient() {
    */
   const fTheta = (v: number) => (v > 0 && v < 1e-3 ? fmtSci(v) : fmt(v, 4));
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, h) => {
       const ambang: { x: number; y: number }[] = [];
       for (let lg = Math.log10(DSTAR_MIN); lg <= Math.log10(DSTAR_MAX) + 1e-9; lg += 0.02) {
@@ -161,7 +219,7 @@ export function KurvaShieldsClient() {
         },
       ];
 
-      drawChart(
+      const out = drawChart(
         ctx,
         w,
         h,
@@ -192,6 +250,10 @@ export function KurvaShieldsClient() {
             { x: 3, y: 1.5, text: T.grainMoves, color: C.critical },
             { x: 400, y: 0.014, text: T.grainRests, color: C.ink3 },
           ],
+          /* Anchor pegangan selalu ada, juga saat titik kerja lepas sumbu
+             (DragLayer menjepitnya ke tepi bidang), supaya pegangan tidak
+             hilang di tengah seret dan penanda "dibatasi" tetap tampil. */
+          anchors: { titik: { x: r.dStar, y: r.theta } },
           point: {
             x: r.dStar,
             y: r.theta,
@@ -203,8 +265,109 @@ export function KurvaShieldsClient() {
         },
         lang
       );
+      /* Zona berwarna (permintaan klien): di atas kurva ambang butir
+         bergerak, ungu keadaan kritis seperti kurvanya; di bawahnya butir
+         diam, biru seperti pita "butir diam" di skala keadaan. */
+      tintCurveSide(ctx, out.map, ambang, "above", C.criticalFill);
+      tintCurveSide(ctx, out.map, ambang, "below", C.waterFill);
+      return out;
     },
+    null,
     [dMm, R, S, s, suhu, lang]
+  );
+
+  /*
+   * Pegangan seret titik kerja (R4: pemetaan balik harus unik). Sumbu
+   * mendatar lembar ini D*, bukan Re*, dan D* = d [(Gs − 1) g / ν²]^(1/3)
+   * naik lurus dengan d pada Gs dan T tetap, jadi x → d unik. Sumbu tegak
+   * θ = R S / ((Gs − 1) d), jadi pada S dan Gs tetap y → R = θ (Gs − 1) d / S
+   * juga unik. Dua masukan yang dikendalikan: d dan R; S, Gs, T tidak
+   * disentuh. ParamDef sama dengan InputRow d dan R, setter sama.
+   */
+  const perD = dimensionlessGrain(1, s, nu);
+  const handles: HandleSpec[] = [
+    {
+      id: "titik",
+      anchor: "titik",
+      axis: "xy",
+      label: x.hdlPoint,
+      hollow: true,
+      tint: C.critical,
+      param: [P_D, P_R],
+      value: [dMm, R],
+      toValue: (px, py, m) => {
+        const dBaru = m.invX(px) / perD;
+        return [dBaru * 1000, (m.invY(py) * (s - 1) * dBaru) / S];
+      },
+      onChange: ([a, b]) => {
+        setDMm(a);
+        setR(b);
+      },
+      format: (v) => `d ${fmt(v[0], 3)} mm, R ${fmt(v[1], 2)} m`,
+    },
+  ];
+
+  /* Panel sketsa butir: keadaan dan laju dari M1 (grainMotion), ambang
+     melayang Bagnold u* = 0,8 ws (bawaan sedimenGerak). */
+  const ws = settlingVelocity(d, s, nu);
+  const gm = grainMotion(r, ws);
+  const modeButir = kohesif ? "diam" : gm.mode;
+  const langkahButir: GrainStep = { mode: modeButir, us: gm.us, ustar: gm.ustar, ws, dM: d };
+  const skalaWaktu = grainTimeScale(langkahButir);
+  const faktor = (v: number) => Math.round(v).toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanWaktu =
+    skalaWaktu === 1
+      ? x.motionReal
+      : skalaWaktu > 1
+        ? x.motionFast(faktor(skalaWaktu))
+        : x.motionSlow(faktor(1 / skalaWaktu));
+  const catatanGerak = kohesif
+    ? undefined
+    : modeButir === "melayang"
+      ? `${catatanWaktu}; ${x.motionLayang}`
+      : modeButir === "dasar"
+        ? `${catatanWaktu}; ${x.motionDasar}`
+        : undefined;
+  const judulButir = kohesif
+    ? x.gKohesif
+    : modeButir === "diam"
+      ? x.gDiam
+      : modeButir === "dasar"
+        ? x.gDasar
+        : x.gLayang;
+  const fV = (v: number) => (v > 0 && v < 1e-3 ? fmtSci(v) : fmt(v, 3));
+  const nilaiButir =
+    modeButir === "dasar"
+      ? `us = ${fV(gm.us)} m/s; u* = ${fV(gm.ustar)} m/s`
+      : modeButir === "melayang"
+        ? `ws/u* = ${fmt(gm.ratio, 2)}; us = ${fV(gm.us)} m/s`
+        : `u* = ${fV(gm.ustar)} m/s; ws = ${fV(ws)} m/s`;
+  const butir = usePlate(
+    (ctx, w, h) =>
+      drawGrainPanel(ctx, w, h, {
+        dM: d,
+        mode: modeButir,
+        title: judulButir,
+        tint: modeButir === "diam" ? C.water : C.critical,
+        values: nilaiButir,
+        flowLabel: x.gAliran,
+        flowing: gm.ustar > 0,
+        animating: playing,
+        invalid: kohesif,
+        n: N_BUTIR,
+        rouseP: rouseNumber(ws, gm.ustar),
+      }),
+    /* Butir kohesif: kurva tidak berlaku, jadi tidak ada gerak (tanpa
+       tombol); butir digambar diam di lapis statis. */
+    kohesif
+      ? null
+      : (ctx, _w, _h, _t, dt, out) => {
+          if (!out) return;
+          stepGrains(gerak.current!, dt, langkahButir, grainDomain(out.map));
+          drawGrainSwarm(ctx, gerak.current!, out, d, skalaWaktu);
+        },
+    [d, modeButir, judulButir, nilaiButir, gm.ustar, ws, playing, kohesif, lang],
+    { playing, timeScale: skalaWaktu }
   );
 
   /* D* jatuh sampai sekitar 0,02 pada butir terhalus, air dingin, dan Gs
@@ -278,16 +441,40 @@ export function KurvaShieldsClient() {
             { label: "θ", value: fTheta(r.theta), tint: kohesif ? undefined : C.critical },
             { label: "θcr", value: kohesif ? kosong : fmt(r.thetaCritical, 4), tint: C.critical },
           ]}
+          height="auto"
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: butir.motionAllowed,
+            note: catatanGerak,
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          {/* Panel sketsa butir di samping diagram (permintaan klien): kanan
+              mulai lebar lg, di atas diagram pada layar sempit, jadi tombol
+              putar/jeda di pojok kanan atas selalu duduk di panel butir.
+              Panel lebih dulu di DOM supaya kanvas gerak menjadi kanvas
+              kedua di figure, seperti lembar beranimasi lain. */}
+          <div className="flex flex-col lg:h-[clamp(360px,56vh,620px)] lg:flex-row-reverse">
+            <div className="relative h-[200px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
+              <canvas ref={butir.ref} className="block h-full w-full" />
+              <canvas ref={butir.motionRef} />
+            </div>
+            <div className="relative h-[clamp(360px,56vh,620px)] min-w-0 lg:h-auto lg:flex-[2.1]">
+              <canvas ref={plate.ref} className="block h-full w-full" />
+              {/* usePlate menaikkan `version` tiap lapis statis digambar
+                  ulang, jadi pegangan membaca anchor baru dari outRef. */}
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="d" label={x.dD} value={dMm} min={0.004} max={300} step={0.002} digits={3} unit="mm" onChange={setDMm} tint={C.critical} />
-              <InputRow symbol="R" label={x.dR} value={R} min={0.02} max={10} step={0.02} digits={2} unit="m" onChange={setR} tint={C.water} />
+              <InputRow symbol="d" label={x.dD} value={dMm} {...P_D} unit="mm" onChange={setDMm} tint={C.critical} />
+              <InputRow symbol="R" label={x.dR} value={R} {...P_R} unit="m" onChange={setR} tint={C.water} />
               <InputRow symbol="S" label={x.dS} value={S * 1000} min={0.02} max={60} step={0.02} digits={2} unit="‰" onChange={(v) => setS(v / 1000)} />
               <InputRow symbol="Gs" label={x.dRho} value={s} min={1.05} max={4} step={0.05} digits={2} onChange={setS_} />
               <InputRow symbol="T" label={x.dT} value={suhu} min={4} max={40} step={0.5} digits={1} unit="°C" onChange={setSuhu} />
