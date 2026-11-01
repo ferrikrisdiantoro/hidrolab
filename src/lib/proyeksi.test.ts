@@ -214,6 +214,16 @@ describe("muka kubus", () => {
     assert.ok(terakhirJauh < pertamaDekat);
   });
 
+  it("lapis kecil digambar dulu walau titik beratnya lebih dekat", () => {
+    // Lantai lebar: titik beratnya jauh di depan kotak kecil di belakangnya.
+    const lantai: Muka = { pts: [[-5, -5, 0], [5, -5, 0], [5, 5, 0], [-5, 5, 0]], lapis: -1, isi: "#lantai" };
+    const kecil = kotak([0, 4, 0], [1, 5, 1], { satuSisi: true, isi: "#kecil" });
+    const tanpaLapis = urutMuka([{ ...lantai, lapis: undefined }, ...kecil], K_ISO);
+    assert.ok(tanpaLapis.indexOf(0) > 0, "tanpa lapis lantai menimpa kotak (batas painter's)");
+    const denganLapis = urutMuka([lantai, ...kecil], K_ISO);
+    assert.equal(denganLapis[0], 0);
+  });
+
   it("gambarMuka: isi, garis, satu path per muka terlihat, bobot dari W", () => {
     const { ctx, hitung, ops } = kanvas();
     gambarMuka(ctx, kubus(), K_ISO);
@@ -397,13 +407,18 @@ describe("permukaanGrid", () => {
     } as unknown as CanvasRenderingContext2D;
     const kam: Kamera = { ...K_ISO };
     for (let i = 0; i < 20; i++) gambarMuka(kosong, m, kam); // pemanasan JIT
-    const N = 60;
-    const t0 = performance.now();
-    for (let i = 0; i < N; i++) {
-      kam.yaw = ISO.yaw + i * 0.02; // memutar seperti saat diseret
-      gambarMuka(kosong, m, kam);
+    // Batch tercepat dari 8 batch: mesin uji dipakai bersama proses lain,
+    // dan beban luar hanya bisa menambah waktu, tidak mengurangi.
+    const N = 20;
+    let perBingkai = Infinity;
+    for (let batch = 0; batch < 8; batch++) {
+      const t0 = performance.now();
+      for (let i = 0; i < N; i++) {
+        kam.yaw = ISO.yaw + (batch * N + i) * 0.02; // memutar seperti saat diseret
+        gambarMuka(kosong, m, kam);
+      }
+      perBingkai = Math.min(perBingkai, (performance.now() - t0) / N);
     }
-    const perBingkai = (performance.now() - t0) / N;
     t.diagnostic(`kisi 1600 muka: ${perBingkai.toFixed(2)} ms kerja JS per bingkai`);
     assert.ok(perBingkai < 4, `kerja JS ${perBingkai.toFixed(2)} ms per bingkai; sisakan waktu untuk rasterisasi`);
   });

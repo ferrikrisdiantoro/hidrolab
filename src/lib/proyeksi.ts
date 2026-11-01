@@ -68,6 +68,16 @@ export type Muka = {
   satuSisi?: boolean;
   /** Bawaan "air" bila arsir air, selain itu "beton" */
   bahan?: Bahan;
+  /**
+   * Lapis gambar, bawaan 0. Lapis kecil SELALU digambar lebih dulu, baru
+   * di dalam satu lapis diurut kedalaman. Untuk muka besar yang menjadi
+   * alas segalanya (lantai saluran, muka tanah): titik beratnya bisa lebih
+   * dekat ke pengamat daripada benda yang berdiri di atasnya, dan urutan
+   * per titik berat lalu menimpa benda itu. Hanya untuk muka yang memang
+   * tidak pernah menutupi muka lapis lain dari sudut pandang mana pun yang
+   * dipakai lembar (lantai dilihat dari atas, pitch > 0).
+   */
+  lapis?: number;
 };
 
 /* ------------------------------------------------------------------ *
@@ -398,7 +408,7 @@ export function warnaMuka(n: V3, k: Kamera, bahan: Bahan = "beton"): string {
 let bufX = new Float64Array(0);
 let bufY = new Float64Array(0);
 let bufAwal = new Uint32Array(0); // indeks titik pertama tiap muka di bufX/bufY
-let bufDalam = new Float64Array(0);
+let bufKunci = new Float64Array(0); // kunci urut naik (lapis, lalu jauh ke dekat)
 let bufNada = new Int8Array(0); // anak tangga, −1 = muka dibuang
 let bufUrut = new Uint32Array(0);
 
@@ -410,9 +420,9 @@ function siapkan(muka: readonly Muka[]) {
     bufX = new Float64Array(titik * 2);
     bufY = new Float64Array(titik * 2);
   }
-  if (bufDalam.length < n) {
+  if (bufKunci.length < n) {
     bufAwal = new Uint32Array(n * 2 + 1);
-    bufDalam = new Float64Array(n * 2);
+    bufKunci = new Float64Array(n * 2);
     bufNada = new Int8Array(n * 2);
     bufUrut = new Uint32Array(n * 2);
   }
@@ -467,13 +477,21 @@ function olah(muka: readonly Muka[], k: Kamera): number {
     const balik = menghadap > 0 ? -1 : 1;
     const t = (balik * (nx * L0 + ny * L1 + nz * L2)) / nl;
     bufNada[i] = anakTangga(t);
-    bufDalam[i] = dalam / np;
+    /* Satu kunci urut naik: lapis kecil dulu, di dalam lapis yang jauh dulu.
+       Kedalaman gambar lembar jauh di bawah 1e6 m, jadi lapis tidak pernah
+       tertukar oleh kedalaman. */
+    bufKunci[i] = (f.lapis ?? 0) * LAPIS_JARAK - dalam / np;
     bufUrut[m++] = i;
   }
   bufAwal[muka.length] = q;
-  const urut = bufUrut.subarray(0, m);
-  urut.sort((a, b) => bufDalam[b] - bufDalam[a]);
+  bufUrut.subarray(0, m).sort(bandingUrut);
   return m;
+}
+
+const LAPIS_JARAK = 1e9;
+
+function bandingUrut(a: number, b: number): number {
+  return bufKunci[a] - bufKunci[b];
 }
 
 /** Indeks muka terlihat dalam urutan gambar (jauh ke dekat). */
