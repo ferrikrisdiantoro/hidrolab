@@ -34,6 +34,7 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksDam } from "@/lib/checks";
+import { damFailedOutline, damFailureMode } from "@/lib/damFailure";
 
 const DRAIN_AT = 0.1;
 const FS_SLIDE_MIN = 1.5;
@@ -97,6 +98,8 @@ const TXT = {
     tarik: "Tumit tertarik, resultan keluar dari sepertiga tengah",
     geser: "Faktor geser di bawah syarat",
     guling: "Faktor guling di bawah syarat",
+    phantomGuling: "posisi gagal: terguling (skematik)",
+    phantomGeser: "posisi gagal: bergeser (skematik)",
     tarikNote:
       "Resultan jatuh di luar sepertiga tengah dasar, jadi tumitnya tertarik. Yang perlu diperhatikan tentang keadaan ini bukan besarnya tegangan tarik itu melainkan umpan balik yang dimulainya. Beton tidak menahan tarik, jadi tumitnya retak. Retakan itu terhubung dengan waduk, jadi ia terisi air bertekanan penuh. Tekanan angkat karena itu bekerja penuh sepanjang retakan, bukan lagi menurun landai dari tumit ke kaki. Gaya angkat yang naik menggeser resultan lebih jauh lagi ke arah kaki, yang memperpanjang retakan, yang menaikkan angkat lagi. Itu sebabnya aturan sepertiga tengah tidak diperlakukan sebagai batas kenyamanan melainkan sebagai batas mutlak: di sebelah luarnya, kegagalannya memberi makan dirinya sendiri.",
     note:
@@ -159,6 +162,8 @@ const TXT = {
     tarik: "The heel is in tension, the resultant leaves the middle third",
     geser: "The sliding factor is below requirement",
     guling: "The overturning factor is below requirement",
+    phantomGuling: "failure position: overturned (schematic)",
+    phantomGeser: "failure position: sliding (schematic)",
     tarikNote:
       "The resultant falls outside the middle third of the base, so the heel is in tension. What matters about this state is not the size of that tensile stress but the feedback it starts. Concrete does not take tension, so the heel cracks. The crack connects to the reservoir, so it fills with water at full pressure. Uplift therefore acts in full along the crack rather than tapering from heel to toe. The increased uplift pushes the resultant further towards the toe, which lengthens the crack, which raises the uplift again. That is why the middle third rule is treated not as a comfort margin but as an absolute limit: beyond it, the failure feeds itself.",
     note:
@@ -522,6 +527,31 @@ export function StabilitasBendunganClient() {
           labelAt: 0,
           labelDy: -8,
           labelAlign: "left",
+        });
+
+      /* Posisi gagal (Phase 2): hanya bila FS < 1, yaitu badan memang
+         kalah (guling: resultan lewat di luar ujung kaki; geser: gaya
+         penahan dasar kalah). Model statis, jadi bukan gerak: garis
+         phantom badan dengan putaran 4° di ujung kaki atau geseran 0,06 B,
+         keduanya skematik. Masukan yang dipotong atau mercu yang dipotong
+         tidak diberi phantom: badannya sendiri sudah bukan masukan. */
+      const caraGagal =
+        dipotong || mercuDipotong ? null : damFailureMode(r.fsOverturning, r.fsSliding, r.sumV);
+      if (caraGagal)
+        garis.push({
+          pts: damFailedOutline(r.section, B, caraGagal),
+          color: C.caution,
+          weight: W.thin,
+          dash: DASH.phantom,
+          label: caraGagal === "guling" ? x.phantomGuling : x.phantomGeser,
+          /* Ditulis di tumit badan gagal, rata kanan ke arah air hulu,
+             tempat yang paling lapang di bawah panah Pu. Di HP jalur di
+             bawah dasar sudah penuh (ukuran B, tekanan angkat), jadi nama
+             ditulis di atas mercu badan gagal (titik ke-2 garis tertutup
+             lima titik), tempat yang kosong di bawah nama keadaan. */
+          labelAt: sempit ? 0.5 : 0,
+          labelDy: sempit ? -10 : -8,
+          labelAlign: sempit ? "center" : "right",
         });
 
       drawStructure(

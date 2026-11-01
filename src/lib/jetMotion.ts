@@ -164,7 +164,7 @@ export function drawJet(
   m: JetMotion,
   map: PlateMap,
   t: number,
-  opts: { pxMax?: number; alpha?: number; width?: number } = {}
+  opts: { pxMax?: number; alpha?: number; width?: number; color?: string; clip?: ArrayLike<number> } = {}
 ): void {
   const p = m.path;
   const pool = m.pool;
@@ -188,5 +188,7 @@ export function drawJet(
     minPx: 2,
     alpha: opts.alpha ?? 0.55,
     width: opts.width ?? W.thin,
+    color: opts.color,
+    clip: opts.clip,
   });
 }

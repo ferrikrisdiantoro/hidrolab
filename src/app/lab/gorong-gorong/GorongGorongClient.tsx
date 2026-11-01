@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -15,7 +15,10 @@ import {
   Term,
   type RegimeBand,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import { createJetMotion, type JetMotion } from "@/lib/jetMotion";
+import { CAR_HEIGHT, carBox, culvertTransitTime, drawCar, drawCulvertMotion } from "@/lib/culvertMotion";
+import { reachTimeScale } from "@/lib/drawReachMotion";
 import {
   drawStructure,
   type StructureLine,
@@ -57,6 +60,11 @@ const TXT = {
     pMasuk: "Pendek dan curam, kendali masuk",
     pKeluar: "Panjang dan landai, kendali keluar",
     pBanjir: "Banjir melampaui jalan",
+    motionNote: (v: string, skala: string) =>
+      `goresan air di pipa penuh (kendali sisi keluar): laju V = Q/A = ${v} m/s; mobil di jalan setinggi 1,5 m sebagai skala tegak; ${skala}`,
+    waktuNyata: "waktu nyata",
+    dipercepat: (k: string) => `waktu dipercepat ×${k}`,
+    diperlambat: (k: string) => `waktu diperlambat ×${k}`,
     rHw: "Tinggi muka air hulu yang dibutuhkan",
     rHwMasuk: "Bila kendali sisi masuk",
     rHwKeluar: "Bila kendali sisi keluar",
@@ -129,6 +137,11 @@ const TXT = {
     pMasuk: "Short and steep, inlet control",
     pKeluar: "Long and flat, outlet control",
     pBanjir: "Flood overtopping the road",
+    motionNote: (v: string, skala: string) =>
+      `water streaks in the full barrel (outlet control): speed V = Q/A = ${v} m/s; car on the road 1.5 m tall as a vertical scale; ${skala}`,
+    waktuNyata: "real time",
+    dipercepat: (k: string) => `time sped up ×${k}`,
+    diperlambat: (k: string) => `time slowed ×${k}`,
     rHw: "Headwater required",
     rHwMasuk: "Under inlet control",
     rHwKeluar: "Under outlet control",
@@ -247,7 +260,28 @@ export function GorongGorongClient() {
     r.inletForm === "tak-terendam" ? x.fTak : r.inletForm === "terendam" ? x.fTerendam : x.fPeralihan;
   const keadaan = bacaKeadaan({ Q, D, L, S, n, tw, road }, r, takMuat, hwoSah, bentuk, lang);
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): goresan air di dalam pipa HANYA bila model
+     menyatakan pipa penuh di bawah kendali sisi keluar; di situ V = Q/A
+     pipa penuh tepat. Di bawah kendali sisi masuk pipanya mengalir
+     sebagian dan kedalamannya tidak dihitung; saat jalan dilimpasi atau
+     pipa tak muat hitungan tidak berlaku. Tanpa gerak = tanpa tombol.
+     Panah diam di pipa hanya saat dijeda. Mobil 1,5 m di punggung jalan
+     adalah skala tegak dan selalu digambar (lapis statis). */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<JetMotion | null>(null);
+  if (gerak.current === null) gerak.current = createJetMotion(48, "vertical");
+  const adaGerak =
+    r.control === "keluar" && r.flowsFull && !r.overtops && !takMuat && !r.inletBelowChart && hwoSah && Q > 0;
+  const skalaWaktu = reachTimeScale(culvertTransitTime({ L, S, D, V: r.velocity }), 6);
+  const bergerak = playing && adaGerak;
+  const teksSkala =
+    skalaWaktu === 1
+      ? x.waktuNyata
+      : skalaWaktu < 1
+        ? x.diperlambat(fmt(1 / skalaWaktu, 0))
+        : x.dipercepat(fmt(skalaWaktu, 0));
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const zMasuk = 0;
       const zKeluar = -S * L;
@@ -304,7 +338,9 @@ export function GorongGorongClient() {
         xMin: xKiri,
         xMax: xKanan,
         zMin: Math.min(zKeluar - D * 0.8, -D),
-        zMax: Math.max(road, hwGambar) * 1.12,
+        /* Ruang di atas jalan cukup untuk mobil skala 1,5 m (Phase 2,
+           permintaan klien); sebelumnya hanya 12 % di atas jalan. */
+        zMax: Math.max(Math.max(road, hwGambar) * 1.12, road + CAR_HEIGHT * 1.25),
         /*
          * Skala kedua sumbunya dibedakan, seperti lazimnya potongan
          * memanjang. Gorong-gorong boleh sepanjang dua ratus meter
@@ -410,7 +446,9 @@ export function GorongGorongClient() {
             dash: DASH.axis,
             label: T.roadLevel,
             labelAt: 0.5,
-            labelDy: -10,
+            /* Di HP punggung jalan lebih sempit dari namanya; nama ditulis
+               di bawah garis supaya ruang di atasnya untuk mobil skala. */
+            labelDy: w < 560 ? 14 : -10,
           },
         ],
         dims: hwDiLuar
@@ -434,14 +472,16 @@ export function GorongGorongClient() {
             text: T.barrelLabel,
           },
         ],
-        arrows: [
-          {
-            x: L * 0.3,
-            z: (dasarMasuk + dasarKeluar) / 2 + D * 0.45,
-            length: 30,
-            color: r.fishBarrier ? C.critical : C.water,
-          },
-        ],
+        arrows: bergerak
+          ? []
+          : [
+              {
+                x: L * 0.3,
+                z: (dasarMasuk + dasarKeluar) / 2 + D * 0.45,
+                length: 30,
+                color: r.fishBarrier ? C.critical : C.water,
+              },
+            ],
         /*
          * Kepalanya menyebut yang benar-benar terjadi di sini. Sebelumnya
          * terpasang "titik operasi di luar diagram", yang milik lembar
@@ -462,9 +502,19 @@ export function GorongGorongClient() {
         axisZ: T.axLevel,
       };
 
-      drawStructure(ctx, w, ch, spec, lang);
+      const out = drawStructure(ctx, w, ch, spec, lang);
+      /* Mobil di punggung jalan, sesudah semua tulisan ditempatkan supaya
+         letaknya menghindari tulisan itu. */
+      const mobil = carBox(out.map, L * 0.18, L * 0.82, road, out.labels);
+      if (mobil) drawCar(ctx, mobil);
+      return out;
     },
-    [Q, D, L, S, n, tw, road, lang]
+    adaGerak
+      ? (ctx, _w, _h, tt, _dt, out) =>
+          drawCulvertMotion(ctx, tt, out, { L, S, D, V: r.velocity, fishBarrier: r.fishBarrier }, gerak.current!)
+      : null,
+    [Q, D, L, S, n, tw, road, lang, bergerak],
+    { playing: bergerak, timeScale: skalaWaktu }
   );
 
   return (
@@ -512,8 +562,15 @@ export function GorongGorongClient() {
             { label: t.tbRegime, value: r.inletBelowChart ? "—" : controlName, tint: C.critical },
             { label: "V", value: `${fmt(r.velocity, 2)} m/s`, tint: r.fishBarrier ? C.critical : undefined },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote(fmt(r.velocity, 2), teksSkala),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={

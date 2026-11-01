@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -15,7 +15,16 @@ import {
   Term,
   type LangkahHitung,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  EDDY_SPEED_RATIO,
+  REATTACH_PER_STEP,
+  createExpansionMotion,
+  drawExpansionMotion,
+  expansionTransitTime,
+  type ExpansionMotion,
+} from "@/lib/expansionMotion";
+import { reachTimeScale } from "@/lib/drawReachMotion";
 import {
   bendPlan,
   drawStructure,
@@ -77,6 +86,11 @@ const TXT = {
     mendidih: "Tekanan sesudah penyempitan jatuh ke tekanan uap",
     mendidihNote:
       "Debit ini tidak dapat lewat. Untuk memaksanya melalui penampang sesempit ini, tekanan sesudah penyempitan harus turun di bawah tekanan uap air, dan di situ airnya mendidih: kolomnya putus dan alirannya tersedak, jadi debit yang sebenarnya jauh lebih kecil daripada yang dipilih. Angka tekanan dan kehilangan di bawah karena itu tidak dituliskan. Perbesar penampang sesudahnya, kecilkan debitnya, atau naikkan tinggi tekan di hulunya.",
+    motionNote: (lr: string, rasio: string, skala: string) =>
+      `goresan inti: u = Q/A pancaran, V₁ di hulu, V₂ sesudah menempel lagi ke dinding ${lr} tinggi anak tangga di hilir (bentuk dari pustaka, bukan hitungan); pusaran di sudut beredar rata-rata ${rasio}·(V₁ − V₂), taksiran; ${skala}`,
+    waktuNyata: "waktu nyata",
+    dipercepat: (k: string) => `waktu dipercepat ×${k}`,
+    diperlambat: (k: string) => `waktu diperlambat ×${k}`,
     labelStep: "anak tangga",
     labelGaya: "gaya pada anak tangga",
     note:
@@ -114,6 +128,11 @@ const TXT = {
     mendidih: "The pressure after the contraction reaches vapour pressure",
     mendidihNote:
       "This discharge cannot pass. To force it through a section this narrow, the pressure after the contraction would have to fall below the vapour pressure of water, and there the water boils: the column parts and the flow chokes, so the real discharge is far smaller than the one chosen. The pressure and loss figures below are therefore not written. Enlarge the downstream section, reduce the discharge, or raise the upstream pressure head.",
+    motionNote: (lr: string, rasio: string, skala: string) =>
+      `core streaks: u = Q/A of the jet, V₁ upstream, V₂ once it reattaches to the wall ${lr} step heights downstream (shape from the literature, not computed); the corner eddies circulate at ${rasio}·(V₁ − V₂) on average, an estimate; ${skala}`,
+    waktuNyata: "real time",
+    dipercepat: (k: string) => `time sped up ×${k}`,
+    diperlambat: (k: string) => `time slowed ×${k}`,
     labelStep: "step",
     labelGaya: "force on the step",
     note:
@@ -164,7 +183,25 @@ export function MomentumPipaClient() {
   const badge = mati ? x.mendidih : tetap ? x.tetap : r.pressureRises ? x.tekananNaik : x.tekananTurun;
   const warnaNaik = naik >= 0 ? C.water : C.ink2;
 
-  const ref = useCanvas(
+  /* Lapis gerak (Phase 2): hanya pembesaran yang tidak mendidih. Inti
+     pancaran u = Q/A pancaran (V₁ model di hulu, V₂ model sesudah
+     menempel), pusaran di kedua sudut beredar dengan laju taksiran yang
+     ditulis di catatan. Penyempitan dan penampang tetap: tanpa gerak dan
+     tanpa tombol. Lapis statis tidak berubah sama sekali. */
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<ExpansionMotion | null>(null);
+  if (gerak.current === null) gerak.current = createExpansionMotion(60);
+  const panjangGambar = Math.max(D1, D2) * 2.6;
+  const adaGerak = besar && !mati && Q > 0;
+  const skalaWaktu = reachTimeScale(expansionTransitTime({ Q, D1, D2, L: panjangGambar }), 6);
+  const teksSkala =
+    skalaWaktu === 1
+      ? x.waktuNyata
+      : skalaWaktu < 1
+        ? x.diperlambat(fmt(1 / skalaWaktu, 0))
+        : x.dipercepat(fmt(skalaWaktu, 0));
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       /*
        * Bidang ini memakai satu sumbu tegak untuk DUA hal sekaligus: jari-jari
@@ -174,7 +211,7 @@ export function MomentumPipaClient() {
        * mutlaknya yang dipakai, puluhan meter itu akan menyisakan pipa
        * setinggi satu piksel.
        */
-      const L = Math.max(D1, D2) * 2.6;
+      const L = panjangGambar;
       const badan = bendPlan(D1, D2, 0, L, L);
 
       const garis: StructureLine[] = [
@@ -278,7 +315,7 @@ export function MomentumPipaClient() {
         ? -Math.max(tinggi * 3, hv1 * 2)
         : Math.min(-tinggi, naik) * 1.35 - 0.02;
       const zMax = zMaxDasar + (zMaxDasar - zMin) * 0.3;
-      drawStructure(
+      return drawStructure(
         ctx,
         w,
         ch,
@@ -301,7 +338,18 @@ export function MomentumPipaClient() {
         lang
       );
     },
-    [Q, D1, D2, head, lang]
+    adaGerak
+      ? (ctx, _w, _h, tt, _dt, out) =>
+          drawExpansionMotion(
+            ctx,
+            tt,
+            out,
+            { Q, D1, D2, L: panjangGambar, V1: r.velocity1, V2: r.velocity2 },
+            gerak.current!
+          )
+      : null,
+    [Q, D1, D2, head, lang],
+    { playing: playing && adaGerak, timeScale: skalaWaktu }
   );
 
   return (
@@ -352,8 +400,15 @@ export function MomentumPipaClient() {
             { label: "V₁", value: `${fmt(r.velocity1, 2)} m/s` },
             { label: "V₂", value: `${fmt(r.velocity2, 2)} m/s` },
           ]}
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote(fmt(REATTACH_PER_STEP, 0), fmt(EDDY_SPEED_RATIO, 1), teksSkala),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
