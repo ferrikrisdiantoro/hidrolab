@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,11 +10,24 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
 import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import {
+  createWaveMotion,
+  drawWaveOrbit,
+  drawWaveOrbitMotion,
+  waveTimeScale,
+  waveWindow,
+  type WaveMotion,
+  type WaveOrbitSpec,
+} from "@/lib/drawWaveOrbit";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
 import {
   G,
@@ -34,6 +47,8 @@ const HL_MIN = 0.003;
 const HL_MAX = 400;
 /** Periode terpanjang penggeser dan sumbu grafik, detik. */
 const T_MAKS = 60;
+/** Rentang penggeser h; pegangan dasar di panel memakai yang sama. */
+const P_H: ParamDef = { min: 0.5, max: 500, step: 0.5, digits: 1 };
 
 const NADA_REZIM: Record<string, Tone> = {
   dangkal: "critical",
@@ -81,6 +96,16 @@ const TXT = {
     rOrbit: "Setengah panjang gerak mendatar partikel di dasar",
     rSteep: "Kecuraman gelombang",
     rasa: "Gerak airnya masih terasa sampai dasar",
+    wTitle: "Muka air dan orbit partikel, teori linear (Airy)",
+    wBedOut: (h: string) => `dasar di z = −${h} m, di bawah gambar`,
+    wScaleV: (v: string) => `tegak ×${v}`,
+    wScaleM: (m: string) => `simpangan ×${m}`,
+    wInvalid: "gelombang pecah: teori linear tidak berlaku, tanpa gerak",
+    wNote: (waktu: string) =>
+      `Panel bawah: ${waktu}; partikel menempuh orbitnya sekali tiap periode T dan puncak merambat c = L/T. Simpangan digambar dengan satu skala untuk kedua arah, jadi bentuk orbitnya benar. Seret garis dasar untuk mengubah kedalaman h`,
+    wReal: "waktu nyata",
+    wFast: (k: string) => `waktu dipercepat ×${k}`,
+    gDasar: "Kedalaman air h, seret dasar naik atau turun",
     takRasa: "Dasarnya tidak merasakan gelombang ini",
     note:
       "Satu hubungan sebaran mengatur seluruh gelombang permukaan, dan seluruh hampiran yang dipakai sehari-hari adalah potongan darinya. Di air dalam, tangen hiperbolik mendekati satu dan kecepatan rambatnya hanya bergantung pada periode; gelombang yang periodenya panjang melaju lebih cepat, dan itulah sebabnya alun dari badai yang jauh tiba lebih dulu daripada gelombang pendeknya, berhari-hari lebih dulu. Di air dangkal, tangen hiperbolik mendekati sudutnya sendiri dan kecepatannya hanya bergantung pada kedalaman; seluruh periode melaju sama cepat, gelombangnya berhenti tersebar, dan bentuk yang datang bertahan sebagai bentuk. Itulah sebabnya tsunami, yang periodenya menit dan bukan detik, selalu berada dalam air dangkal bahkan di tengah samudra, dan sampai ke pantai masih berbentuk seperti saat berangkat. Satu hal lagi yang pantas diperhatikan adalah kecepatan tenaganya. Di air dalam tenaganya bergerak setengah kecepatan puncaknya, sehingga puncak-puncak gelombang muncul di belakang sekelompok gelombang, berjalan maju melewatinya, dan lenyap di depannya. Di air dangkal keduanya sama, dan gejala itu hilang sama sekali.",
@@ -114,6 +139,16 @@ const TXT = {
     rOrbit: "Half-length of the horizontal particle excursion at the bed",
     rSteep: "Wave steepness",
     rasa: "The water motion still reaches the bed",
+    wTitle: "Water surface and particle orbits, linear (Airy) theory",
+    wBedOut: (h: string) => `bed at z = −${h} m, below the drawing`,
+    wScaleV: (v: string) => `vertical ×${v}`,
+    wScaleM: (m: string) => `excursion ×${m}`,
+    wInvalid: "breaking wave: linear theory does not apply, no motion",
+    wNote: (waktu: string) =>
+      `Lower panel: ${waktu}; each particle runs once round its orbit per period T and the crest travels at c = L/T. Excursions are drawn at one scale in both directions, so the orbit shapes are true. Drag the bed line to change the depth h`,
+    wReal: "real time",
+    wFast: (k: string) => `time sped up ×${k}`,
+    gDasar: "Water depth h, drag the bed up or down",
     takRasa: "The bed does not feel this wave",
     note:
       "One dispersion relation governs every surface wave, and every approximation used in daily work is a slice of it. In deep water the hyperbolic tangent approaches one and the celerity depends on the period alone; waves of longer period travel faster, which is why the swell from a distant storm arrives days before its short waves. In shallow water the tangent approaches its own argument and the celerity depends on the depth alone; every period travels at the same speed, the waves stop dispersing, and a shape that arrives survives as a shape. That is why a tsunami, whose period is minutes rather than seconds, is always in shallow water even in mid-ocean, and reaches the coast still shaped as it set out. One more thing deserves attention, the celerity of the energy. In deep water the energy moves at half the crest speed, so crests appear at the back of a group of waves, run forward through it, and vanish at its front. In shallow water the two are equal and the phenomenon disappears entirely.",
@@ -141,6 +176,8 @@ export function GelombangLinearClient() {
   const x = TXT[lang];
   const T = cl(lang);
 
+  /* Pemadam tanda contoh untuk pegangan dasar (di luar Block masukan). */
+  const sentuh = useRef<() => void>(() => {});
   const [perioda, setPerioda] = useState(8);
   const [dalam, setDalam] = useState(20);
   const [tinggi, setTinggi] = useState(1);
@@ -150,6 +187,70 @@ export function GelombangLinearClient() {
   const kh = r.k * dalam;
   const sigma = (2 * Math.PI) / perioda;
   const sisa = G * r.k * Math.tanh(kh) - sigma * sigma;
+
+  /* Panel ruang fisik (Phase 2): muka air dan orbit partikel teori Airy
+     (gelombangOrbit.ts, k dan T dari linearWave). Jendela kedalamannya
+     mengikuti h, kecuali selama dasar diseret: jendelanya dibekukan sampai
+     jari/tetikus dilepas, supaya skala di bawah pegangan tidak berubah
+     selagi diseret (umpan balik). */
+  const [jendelaBeku, setJendelaBeku] = useState<number | null>(null);
+  const zWin = jendelaBeku ?? waveWindow(dalam, r.length);
+  useEffect(() => {
+    if (jendelaBeku === null) return;
+    const lepas = () => setJendelaBeku(null);
+    window.addEventListener("pointerup", lepas);
+    window.addEventListener("pointercancel", lepas);
+    return () => {
+      window.removeEventListener("pointerup", lepas);
+      window.removeEventListener("pointercancel", lepas);
+    };
+  }, [jendelaBeku]);
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<WaveMotion | null>(null);
+  if (gerak.current === null) gerak.current = createWaveMotion();
+  const skalaWaktu = waveTimeScale(perioda);
+  const bergerak = playing && !pecah;
+  const spek: WaveOrbitSpec = {
+    H: tinggi,
+    k: r.k,
+    L: r.length,
+    T: perioda,
+    h: dalam,
+    zWin,
+    breaking: pecah,
+    faded: bergerak,
+    labels: {
+      title: x.wTitle,
+      bedOut: x.wBedOut,
+      scaleV: x.wScaleV,
+      scaleM: x.wScaleM,
+      invalid: x.wInvalid,
+    },
+  };
+  const panel = usePlate(
+    (ctx, w, ch) => drawWaveOrbit(ctx, w, ch, spek),
+    (ctx, w, ch, tt) => drawWaveOrbitMotion(ctx, w, ch, tt, spek, gerak.current!),
+    [perioda, dalam, tinggi, zWin, lang, bergerak],
+    { playing, timeScale: skalaWaktu }
+  );
+  const pegangan: HandleSpec[] = [
+    {
+      id: "dasar",
+      anchor: "dasar",
+      label: x.gDasar,
+      axis: "y",
+      param: P_H,
+      value: dalam,
+      toValue: (_px, py, m) => -m.invY(py),
+      onChange: (v) => {
+        if (jendelaBeku === null && document.querySelector('[data-handle="dasar"][data-dragging]'))
+          setJendelaBeku(zWin);
+        setDalam(v);
+      },
+      tint: C.water,
+      format: (v) => `${fmt(v, 1)} m`,
+    },
+  ];
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -295,13 +396,36 @@ export function GelombangLinearClient() {
             { label: "cg/c", value: fmt(r.groupRatio, 3), tint: C.critical },
             { label: "h/L", value: fmt(r.relativeDepth, 3), tint: pecah ? C.signal : undefined },
           ]}
+          height="calc(clamp(360px, 56vh, 620px) + clamp(230px, 32vh, 340px) + 1px)"
+          motion={{
+            playing,
+            onToggle: togglePutar,
+            allowed: panel.motionAllowed,
+            note: x.wNote(skalaWaktu === 1 ? x.wReal : x.wFast(fmt(skalaWaktu, 0))),
+            corner: "br",
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          {/* Grafik sebaran (tetap, di atas) dan panel ruang fisik (di
+              bawah). Panel ruang ditulis lebih dulu di DOM supaya kanvas
+              geraknya kanvas kedua di gambar, seperti lembar bergerak lain;
+              urutan tampil diatur `order`. */}
+          <div className="flex h-full flex-col">
+            <div className="relative min-h-0 flex-1" style={{ order: 2 }}>
+              <canvas ref={panel.ref} className="block h-full w-full" />
+              <canvas ref={panel.motionRef} />
+              <DragLayer out={panel.outRef.current} handles={pegangan} touch={() => sentuh.current()} />
+            </div>
+            <div aria-hidden="true" className="bg-rule" style={{ order: 1, height: 1 }} />
+            <div className="relative" style={{ order: 0, height: "clamp(360px, 56vh, 620px)" }}>
+              <canvas ref={ref} className="block h-full w-full" />
+            </div>
+          </div>
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="T" label={x.dT} value={perioda} min={1} max={60} step={0.5} digits={1} unit="s" onChange={setPerioda} tint={C.energy} />
               <InputRow symbol="h" label={x.dH} value={dalam} min={0.5} max={500} step={0.5} digits={1} unit="m" onChange={setDalam} tint={C.water} />
