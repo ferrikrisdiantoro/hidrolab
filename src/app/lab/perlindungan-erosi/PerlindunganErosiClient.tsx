@@ -14,7 +14,8 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { drawRiprapBank } from "@/lib/drawRiprap";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   ISBASH_EMBEDDED,
@@ -53,6 +54,10 @@ const TXT = {
     belumPilihNote:
       "Penggeser ukuran batu masih di nol, artinya belum ada ukuran yang dipilih untuk dibandingkan. Empat baris terakhir tabel hasil karena itu dihitung dengan ukuran yang DITUNTUT alirannya, bukan dengan ukuran yang direncanakan, sehingga perbandingan kecepatan kerja terhadap kecepatan tahan pasti tepat satu. Angka satu di situ bukan hasil melainkan akibat dari belum adanya pilihan. Geser ukuran batunya ke nilai yang benar-benar akan dipakai supaya perbandingannya berarti.",
     goyah: "Batu terpilih terlalu kecil",
+    gPas: "Batu pas d50",
+    gGagal: "posisi gagal: batu terseret (skematik)",
+    gPerlu: "d50 perlu",
+    gLereng: "tebing 1 : 2 (skematik)",
     bandMantap: "Batu mantap",
     bandGerak: "Batu bergerak",
     mD50: "Massa pada d₅₀",
@@ -85,6 +90,10 @@ const TXT = {
     belumPilihNote:
       "The stone-size slider is still at zero, meaning no size has been chosen to compare against. The last four rows of the results are therefore computed with the size the flow DEMANDS rather than with a planned size, so the ratio of working velocity to resisting velocity is bound to be exactly one. That one is not a result but a consequence of nothing having been chosen. Move the stone size to the value that will actually be used, and the ratio starts to mean something.",
     goyah: "Chosen stone is too small",
+    gPas: "Stone at d50",
+    gGagal: "failure position: stones dragged (schematic)",
+    gPerlu: "required d50",
+    gLereng: "bank 1 : 2 (schematic)",
     bandMantap: "Stone stable",
     bandGerak: "Stone moves",
     mD50: "Mass at d₅₀",
@@ -136,7 +145,7 @@ export function PerlindunganErosiClient() {
   const nada: Tone = !adaPilihan ? "neutral" : r.stable ? "pass" : "caution";
   const badge = !adaPilihan ? x.belumPilih : r.stable ? x.mantap : x.goyah;
 
-  const ref = useCanvas(
+  const plate = usePlate(
     (ctx, w, ch) => {
       const kurva = (C_: number) => {
         const pts: { x: number; y: number }[] = [];
@@ -174,7 +183,7 @@ export function PerlindunganErosiClient() {
         },
       ];
 
-      drawChart(
+      return drawChart(
         ctx,
         w,
         ch,
@@ -216,7 +225,30 @@ export function PerlindunganErosiClient() {
         lang
       );
     },
+    null,
     [V, s, Cis, chosenMm, lang]
+  );
+
+  /* Panel potongan tebing: batu sebanding diameter yang dipasang (terpilih,
+     atau d50 Isbash bila belum dipilih), lapis 2d dari riprapSize. Isbash
+     statis, jadi batu yang terlalu kecil tidak dianimasikan bergeser (R5):
+     posisi gagalnya digambar phantom tinta, berlabel skematik. */
+  const judulTebing = !adaPilihan ? x.gPas : r.stable ? x.mantap : x.goyah;
+  const tebing = usePlate(
+    (ctx, w, ch) =>
+      drawRiprapBank(ctx, w, ch, {
+        dUsed: dPakai,
+        dReq: pas.d50,
+        chosen: adaPilihan,
+        stable: r.stable,
+        title: judulTebing,
+        tint: !adaPilihan ? C.ink2 : r.stable ? C.pass : C.caution,
+        phantomLabel: x.gGagal,
+        reqLabel: x.gPerlu,
+        slopeLabel: x.gLereng,
+      }),
+    null,
+    [dPakai, pas.d50, adaPilihan, r.stable, judulTebing, lang]
   );
 
   return (
@@ -272,8 +304,18 @@ export function PerlindunganErosiClient() {
             { label: "m(d₅₀)", value: massa(pas.stoneMass) },
             { label: "C", value: fmt(Cis, 2) },
           ]}
+          height="auto"
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          {/* Panel potongan tebing di samping diagram: kanan mulai lebar lg,
+              di atas diagram pada layar sempit. */}
+          <div className="flex flex-col lg:h-[clamp(360px,56vh,620px)] lg:flex-row-reverse">
+            <div className="relative h-[220px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
+              <canvas ref={tebing.ref} className="block h-full w-full" />
+            </div>
+            <div className="relative h-[clamp(360px,56vh,620px)] min-w-0 lg:h-auto lg:flex-[2.1]">
+              <canvas ref={plate.ref} className="block h-full w-full" />
+            </div>
+          </div>
         </Sheet>
       }
       side={
