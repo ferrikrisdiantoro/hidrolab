@@ -23,6 +23,7 @@ import {
   pathlinePoint,
   plumeConcentration,
   replayTime,
+  sourceStreakPoint,
   reynoldsAxisVelocity,
   reynoldsProfile,
   reynoldsTimeScale,
@@ -155,6 +156,58 @@ describe("FF-05 garis aliran: laju = medan flowLines", () => {
         assert.ok(st.pool.y[i] >= -8 - 1e-5 && st.pool.y[i] <= 8 + 1e-5);
       }
     }
+  });
+});
+
+describe("FF-05 tinta yang dilepas pengguna: garis jejak dari titik lepas", () => {
+  const U = 2;
+  const V = 1.5;
+  const om = 3;
+  const t = 12;
+  const r = flowLines(U, V, om, t, Math.max(10, U * t));
+
+  it("butir dari titik (xs, ys) = garis jejak model digeser (medan seragam)", () => {
+    const o = new Float64Array(2);
+    const n = r.streakline.length - 1;
+    for (const [xs, ys] of [[3, -1.2], [-0.5, 4], [10.25, 0]])
+      for (const i of [0, 33, 120, 160]) {
+        sourceStreakPoint(U, V, om, t, (t * i) / n, xs, ys, o);
+        dekat(o[0], r.streakline[i].x + xs, 1e-9, "x");
+        dekat(o[1], r.streakline[i].y + ys, 1e-9, "y");
+      }
+  });
+
+  it("kecepatan butir yang sudah dilepas (beda hingga terhadap t) = (U, V cos ωt)", () => {
+    const a = new Float64Array(2);
+    const b = new Float64Array(2);
+    for (const tt of [1.3, 4.4, 9.9]) {
+      const h = 1e-6;
+      sourceStreakPoint(U, V, om, tt - h, 0.75, 4, -2, a);
+      sourceStreakPoint(U, V, om, tt + h, 0.75, 4, -2, b);
+      dekat((b[0] - a[0]) / (2 * h), U, 1e-6, "u");
+      dekat((b[1] - a[1]) / (2 * h), V * Math.cos(om * tt), 1e-5, "v");
+    }
+  });
+
+  it("lapis gerak menggambar butir zat warna tiap titik lepas di letak model", () => {
+    const st = createFlowLinesMotion(10);
+    const out = keluaran(-1.44, 26.4, -8, 8);
+    const { ctx, rekam } = konteks();
+    const sumber = [[5, 2], [8, -3]] as const;
+    const tt = 3.1;
+    drawFlowLinesMotion(ctx, tt, 1 / 60, out, { U, V, omega: om, waktu: t, panjang: 24, sources: sumber }, st);
+    const tau = replayTime(tt, t, 1.5);
+    const o = new Float64Array(2);
+    for (const [xs, ys] of sumber)
+      for (let t0 = 0; t0 <= tau; t0 += 0.25) {
+        sourceStreakPoint(U, V, om, tau, t0, xs, ys, o);
+        const px = out.map.X(o[0]);
+        const py = out.map.Y(o[1]);
+        assert.ok(
+          rekam.arc.some(([x, y, rr]) => rr === 1.8 && Math.abs(x - px) < 1e-9 && Math.abs(y - py) < 1e-9),
+          `butir t0 ${t0} dari (${xs}, ${ys})`
+        );
+      }
   });
 });
 

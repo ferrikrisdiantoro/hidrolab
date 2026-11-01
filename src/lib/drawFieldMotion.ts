@@ -120,6 +120,26 @@ export function streakPoint(
       : V * (t - t0);
 }
 
+/**
+ * Butir zat warna dari titik lepas (xs, ys) yang dilepas pada saat t0,
+ * dilihat pada saat t. Medannya seragam, jadi garis jejak dari titik lepas
+ * mana pun adalah garis jejak titik asal yang digeser (xs, ys).
+ */
+export function sourceStreakPoint(
+  U: number,
+  V: number,
+  omega: number,
+  t: number,
+  t0: number,
+  xs: number,
+  ys: number,
+  out: Float64Array
+): void {
+  streakPoint(U, V, omega, t, t0, out);
+  out[0] += xs;
+  out[1] += ys;
+}
+
 export type FlowLinesMotion = {
   pool: Pool;
   jam: Jam;
@@ -140,6 +160,11 @@ export type FlowLinesParams = {
   waktu: number;
   /** Panjang yang digambar lembar, m */
   panjang: number;
+  /**
+   * Titik lepas tinta tambahan yang ditaruh pengguna (x, y dalam m). Tiap
+   * titik melepas butir zat warna tiap 0,25 s, sama dengan titik asal.
+   */
+  sources?: readonly (readonly [number, number])[];
 };
 
 /** Selang lepas butir zat warna, detik waktu fisik. */
@@ -216,27 +241,10 @@ export function drawFlowLinesMotion(
   ctx.lineTo(X(p.panjang), Y(p.U !== 0 ? (vSaat / p.U) * p.panjang : 0));
   ctx.stroke();
 
-  // Garis jejak saat τ: butir yang dilepas pada 0 ≤ t0 ≤ τ.
-  const nJ = 120;
-  pen(ctx, W.thin, C.energy);
-  ctx.beginPath();
-  for (let j = 0; j <= nJ; j++) {
-    streakPoint(p.U, p.V, p.omega, tau, (tau * j) / nJ, tmp2);
-    if (j) ctx.lineTo(X(tmp2[0]), Y(tmp2[1]));
-    else ctx.moveTo(X(tmp2[0]), Y(tmp2[1]));
-  }
-  ctx.stroke();
-  // Butir zat warna yang dilepas tiap 0,25 s: titik materi yang ikut hanyut.
-  ctx.fillStyle = C.energy;
-  ctx.beginPath();
-  for (let t0 = 0; t0 <= tau; t0 += FF05_LEPAS) {
-    streakPoint(p.U, p.V, p.omega, tau, t0, tmp2);
-    const px = X(tmp2[0]);
-    const py = Y(tmp2[1]);
-    ctx.moveTo(px + 1.8, py);
-    ctx.arc(px, py, 1.8, 0, Math.PI * 2);
-  }
-  ctx.fill();
+  // Garis jejak saat τ dari titik asal dan dari tiap titik lepas tinta.
+  streakMotion(ctx, map, p, tau, 0, 0);
+  const src = p.sources;
+  if (src) for (let k = 0; k < src.length; k++) streakMotion(ctx, map, p, tau, src[k][0], src[k][1]);
 
   // Lintasan butir yang dilepas pada saat nol, sampai τ, dan kepalanya.
   const nL = 120;
@@ -259,6 +267,42 @@ export function drawFlowLinesMotion(
   ctx.restore();
 
   clockLabel(ctx, map, jam(st.jam, tau, 1, "τ = ", "s"));
+}
+
+/**
+ * Garis jejak saat τ dari titik lepas (xs, ys): butir yang dilepas pada
+ * 0 ≤ t0 ≤ τ, dan butir zat warna yang dilepas tiap 0,25 s sebagai titik
+ * materi yang ikut hanyut.
+ */
+function streakMotion(
+  ctx: CanvasRenderingContext2D,
+  map: PlateMap,
+  p: FlowLinesParams,
+  tau: number,
+  xs: number,
+  ys: number
+) {
+  const X = map.X;
+  const Y = map.Y;
+  const nJ = 120;
+  pen(ctx, W.thin, C.energy);
+  ctx.beginPath();
+  for (let j = 0; j <= nJ; j++) {
+    sourceStreakPoint(p.U, p.V, p.omega, tau, (tau * j) / nJ, xs, ys, tmp2);
+    if (j) ctx.lineTo(X(tmp2[0]), Y(tmp2[1]));
+    else ctx.moveTo(X(tmp2[0]), Y(tmp2[1]));
+  }
+  ctx.stroke();
+  ctx.fillStyle = C.energy;
+  ctx.beginPath();
+  for (let t0 = 0; t0 <= tau; t0 += FF05_LEPAS) {
+    sourceStreakPoint(p.U, p.V, p.omega, tau, t0, xs, ys, tmp2);
+    const px = X(tmp2[0]);
+    const py = Y(tmp2[1]);
+    ctx.moveTo(px + 1.8, py);
+    ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+  }
+  ctx.fill();
 }
 
 /* ------------------------------------------------------------------ *
