@@ -182,15 +182,7 @@ function soal1(benih: number): Soal {
   }
 
   const pilihan: Pilihan[] = [
-    {
-      id: kunci.key,
-      teks: kunci.label,
-      alasan: bi((f, l) =>
-        l === "id"
-          ? `Fr₁ = ${f(a.Fr, 2)} berada di ${rentangTeks(kunci, l)}.`
-          : `Fr₁ = ${f(a.Fr, 2)} lies in ${rentangTeks(kunci, l)}.`
-      ),
-    },
+    { id: kunci.key, teks: kunci.label },
     ...terpilih.map((c) => ({ id: c.key, teks: KELAS[c.key].label, alasan: c.alasan })),
   ].sort((x, y) => KELAS[x.id].level - KELAS[y.id].level);
 
@@ -209,15 +201,8 @@ function soal1(benih: number): Soal {
         ? `Fr₁ = V₁/√(g·y₁) = ${f(a.Fr, 2)}, jatuh di pita ${kunci.label.id} (${rentangTeks(kunci, l)}). Lihat penanda di pita rezim di atas gambar.`
         : `Fr₁ = V₁/√(g·y₁) = ${f(a.Fr, 2)}, which falls in the ${kunci.label.en} band (${rentangTeks(kunci, l)}). See the marker on the regime scale above the drawing.`
     ),
-    langkah: langkahBi((f, l) => [
-      langkahFr(a, l, f),
-      {
-        judul: l === "id" ? "Pita rezim" : "Regime band",
-        rumus: rentangTeks(kunci, l),
-        isi: `Fr₁ = ${f(a.Fr, 2)}`,
-        hasil: kunci.label[l],
-      },
-    ]),
+    // Satu langkah: pitanya sudah ditulis di pembahasan dan di pita rezim.
+    langkah: langkahBi((f, l) => [langkahFr(a, l, f)]),
     masukan: { y1: a.y1, V1: a.V1 },
   };
 }
@@ -336,6 +321,8 @@ function soal3(benih: number): Soal {
         : `The upstream depth is set to y₁ = ${f(s.y1, 2)} m and stays fixed. Adjust the upstream velocity V₁ until Fr₁ lies between 5 and 6, then check.`
     ),
     ukur: frB3,
+    simbol: "Fr₁",
+    digits: 2,
     target: TARGET_B3,
     geser: { kunci: "V1", p: P_V1 },
     siapkan: { y1: s.y1, V1: s.V0 },

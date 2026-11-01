@@ -10,6 +10,7 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
@@ -37,6 +38,10 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksJump } from "@/lib/checks";
+import { Kuis } from "@/components/Kuis";
+// Rentang penggeser y₁ dan V₁ satu sumber dengan bank kuis.
+import { OC01, P_V1, P_Y1 } from "@/data/kuis/oc01";
+import { keLangkah } from "@/lib/rentang";
 
 const TXT = {
   id: {
@@ -148,6 +153,15 @@ export function LoncatanAirClient() {
   // ulang pada SETIAP render, jadi pembuatannya dijaga di sini.
   const gerak = useRef<JumpMotion | null>(null);
   if (gerak.current === null) gerak.current = createJumpMotion(150);
+
+  // Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+  // memadamkan tanda contoh seperti geseran biasa (SentuhContoh di blok masukan).
+  const sentuh = useRef<() => void>(() => {});
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.y1 !== undefined) setY1(keLangkah(m.y1, P_Y1));
+    if (m.V1 !== undefined) setV1(keLangkah(m.V1, P_V1));
+  };
 
   const Fr1 = froude(V1, y1);
   const hasJump = Fr1 > 1;
@@ -306,9 +320,10 @@ export function LoncatanAirClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="y₁" label={x.d1} value={y1} min={0.08} max={1.2} step={0.01} unit="m" onChange={setY1} tint={C.water} />
-              <InputRow symbol="V₁" label={x.d2} value={V1} min={0.5} max={16} step={0.1} digits={1} unit="m/s" onChange={setV1} tint={C.water} />
+              <InputRow symbol="y₁" label={x.d1} value={y1} min={P_Y1.min} max={P_Y1.max} step={P_Y1.step} unit="m" onChange={setY1} tint={C.water} />
+              <InputRow symbol="V₁" label={x.d2} value={V1} min={P_V1.min} max={P_V1.max} step={P_V1.step} digits={1} unit="m/s" onChange={setV1} tint={C.water} />
             </InputTable>
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5 flex flex-col gap-2.5">
               <PresetRow
@@ -353,6 +368,16 @@ export function LoncatanAirClient() {
             tone={NADA_LONCATAN[klas.key]}
             badge={klas.label[lang]}
             {...notice({ Fr1, digFr, hasJump, lossPct, Lj, y2, y1, klas }, lang)}
+          />
+
+          <Kuis
+            bank={OC01}
+            keadaan={{ y1, V1 }}
+            onTerapkan={terapkanKuis}
+            label={{
+              y1: { simbol: "y₁", satuan: "m", digits: 2 },
+              V1: { simbol: "V₁", satuan: "m/s", digits: 1 },
+            }}
           />
         </>
       }

@@ -72,6 +72,9 @@ export type SoalAtur = Dasar & {
   jenis: "atur";
   /** Besaran yang dinilai, dibaca dari keadaan lembar. */
   ukur: (keadaan: Keadaan) => number;
+  /** Simbol dan jumlah angka besaran yang diukur, untuk tampilan langsung. */
+  simbol?: string;
+  digits?: number;
   target: { min: number; max: number };
   /** Penggeser yang diatur pengguna dan kisinya (untuk uji ≥ 3 langkah). */
   geser: { kunci: string; p: ParamDef };
