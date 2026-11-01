@@ -44,6 +44,16 @@ export const C = {
   critical: "#6e5595",
   signal: "#c0341f",
 
+  /* Laju aliran di lapis gerak (OC-05 tampak atas): goresan partikel tetap
+     keluarga biru air, makin pekat makin cepat. Satu tingkat = laju 20 %
+     di atas tingkat sebelumnya, diukur terhadap kecepatan hulu V₁;
+     tingkat tengah adalah `water` sendiri. Bukan hiasan: warna goresan
+     dibaca sebagai V/V₁. */
+  waterSlower: "#7aa3bb",
+  waterSlow: "#4a7f9d",
+  waterFast: "#164b69",
+  waterFaster: "#0b3249",
+
   /* Material */
   concrete: "#3d4644",
   concreteFace: "#c3c9c6",

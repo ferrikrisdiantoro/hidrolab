@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,13 +10,24 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   type ResultRow,
 } from "@/components/ui";
 import { Verification } from "@/components/Verification";
-import { useCanvas } from "@/lib/useCanvas";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { usePlate, usePutar } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
 import { drawTransition } from "@/lib/drawTransition";
+import {
+  createTransitionMotion,
+  drawTransitionMotion,
+  panjangDenah,
+  transitionFlow,
+  type TransitionMotion,
+} from "@/lib/drawTransitionMotion";
+import { reachTimeScale } from "@/lib/drawReachMotion";
 import { G, fmt, transition } from "@/lib/hydraulics";
 import { checksTransition } from "@/lib/checks";
 import { C, type Tone } from "@/lib/theme";
@@ -58,6 +69,13 @@ export type TransitionTxt = {
  */
 const BATAS_HAMPIR = 12;
 
+/*
+ * Rentang lebar: satu definisi untuk penggeser, kotak angka, dan pegangan
+ * dinding di tampak atas OC-05 (aturan 4, satu sumber nilai).
+ */
+const P_B1: ParamDef = { min: 1, max: 20, step: 0.1, digits: 1 };
+const P_B2: ParamDef = { min: 0.5, max: 20, step: 0.1, digits: 1 };
+
 export function TransitionSheet({
   sheet,
   mode,
@@ -93,17 +111,115 @@ export function TransitionSheet({
   const cadangan = (1 - r.chokeRatio) * 100;
   const keadaan = bacaKeadaan(mode, r, lang, { y1, b1, b2: b2Efektif, dz: dzEfektif });
 
-  const ref = useCanvas(
+  /*
+   * OC-05: lapis gerak dan pegangan dinding. Partikel bergerak dengan
+   * V = Q/(b·y) model di penampang 1 dan 2 (kontinuitas pada geometri
+   * tergambar di antaranya, drawTransitionMotion.ts). Tersendat: kedalaman
+   * yang tergambar bukan kedalaman yang terjadi, jadi tanpa gerak dan tanpa
+   * tombol (transitionFlow null). Saat dijeda, lapis statis menggambar panah
+   * arah aliran diam di sumbu tampak atas.
+   */
+  const gerakAktif = mode === "width";
+  const { playing, toggle: togglePutar } = usePutar();
+  const gerak = useRef<TransitionMotion | null>(null);
+  if (gerak.current === null) gerak.current = createTransitionMotion(220);
+  // Panjang bentang tergambar (m), dibaca dari peta tampak atas sesudah
+  // lapis statis digambar; berubah hanya saat ukuran atau skala berubah.
+  const [panjang, setPanjang] = useState<number | null>(null);
+  const aliran = useMemo(
+    () =>
+      gerakAktif && panjang !== null
+        ? transitionFlow({ r, b1, b2: b2Efektif, y1, dz: dzEfektif }, Q, panjang)
+        : null,
+    // r dihitung ulang dari masukan yang sama; deps primitif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gerakAktif, panjang, Q, b1, y1, b2Efektif, dzEfektif]
+  );
+  const skalaWaktu = aliran ? reachTimeScale(aliran.crossTime) : 1;
+  const panah = gerakAktif && !playing && !r.choked;
+
+  /*
+   * Skala tampak atas dikunci selama dinding diseret. Tanpa kunci, skala
+   * tegaknya max(b₁, b₂): dinding yang diseret melebar akan tetap di tepi
+   * panel dan pegangannya saling kejar dengan skala. Dilepas = skala kembali
+   * dihitung dari nilainya.
+   */
+  const [kunci, setKunci] = useState<number | null>(null);
+  const sentuh = useRef<() => void>(() => {});
+
+  const plate = usePlate(
     (ctx, w, h) =>
       drawTransition(
         ctx,
         w,
         h,
         { r, b1, b2: b2Efektif, y1, dz: dzEfektif },
-        lang
+        lang,
+        { bMaxKunci: kunci ?? undefined, panah }
       ),
-    [Q, b1, y1, b2Efektif, dzEfektif, lang]
+    aliran
+      ? (ctx, _w, _h, _t, dt, out) =>
+          drawTransitionMotion(ctx, dt, out, aliran, skalaWaktu, gerak.current!)
+      : null,
+    [Q, b1, y1, b2Efektif, dzEfektif, lang, panah, kunci ?? NaN],
+    { playing, timeScale: skalaWaktu }
   );
+
+  useEffect(() => {
+    if (!gerakAktif) return;
+    const L = panjangDenah(plate.outRef.current);
+    // Dibulatkan ke mm supaya ukuran piksel yang sama tidak memicu aliran baru.
+    setPanjang(L === null ? null : Math.round(L * 1000) / 1000);
+  }, [gerakAktif, plate.version, plate.outRef]);
+
+  const faktor = (v: number) => v.toLocaleString(lang === "id" ? "id-ID" : "en-US");
+  const catatanGerak =
+    u.motion +
+    (skalaWaktu === 1
+      ? u.motionReal
+      : skalaWaktu > 1
+        ? u.motionFast(faktor(skalaWaktu))
+        : u.motionSlow(faktor(Math.round(1 / skalaWaktu))));
+
+  /*
+   * Pemetaan balik pegangan dinding: sumbu tegak peta tampak atas adalah
+   * jarak dari sumbu saluran (m, positif ke atas), dan tepi atas dinding
+   * berada di b/2, jadi b = 2 · invY(py). Hanya tegak.
+   */
+  const keLebar = (py: number, cadang: number) => {
+    const m = plate.outRef.current?.maps?.plan;
+    return m ? 2 * m.invY(py) : cadang;
+  };
+  const handles: HandleSpec[] =
+    mode === "width"
+      ? [
+          {
+            id: "b1",
+            anchor: "b1Grip",
+            axis: "y",
+            label: u.gB1,
+            param: P_B1,
+            value: b1,
+            toValue: (_px, py) => keLebar(py, b1),
+            onChange: setB1,
+            format: (v) => `b₁ ${fmt(v, 1)} m`,
+          },
+          {
+            id: "b2",
+            anchor: "b2Grip",
+            axis: "y",
+            label: u.gB2,
+            param: P_B2,
+            value: b2,
+            tint: C.critical,
+            toValue: (_px, py) => keLebar(py, b2),
+            onChange: setB2,
+            format: (v) => `b₂ ${fmt(v, 1)} m`,
+          },
+        ]
+      : [];
+  const kunciSkala = () => setKunci(Math.max(b1, b2Efektif));
+  const lepasKunci = () => setKunci(null);
 
   /* Baris hasil. Cadangan energi selalu angka utama; angka utama kedua
      menjawab pertanyaan lembarnya: Δzmax untuk ambang, b₂min untuk
@@ -231,8 +347,39 @@ export function TransitionSheet({
               tint: r.choked ? C.signal : undefined,
             },
           ]}
+          motion={
+            gerakAktif
+              ? {
+                  playing,
+                  onToggle: togglePutar,
+                  allowed: plate.motionAllowed,
+                  note: catatanGerak,
+                }
+              : undefined
+          }
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          {handles.length > 0 && (
+            /* display: contents, jadi pembungkus tidak membuat kotak; hanya
+               menangkap pointerdown/lepas yang menggelembung dari pegangan
+               untuk mengunci skala tampak atas. */
+            <div
+              className="contents"
+              onPointerDown={(e) => {
+                // Hanya tombol utama: DragLayer mengabaikan klik lain, jadi
+                // tanpa capture tidak ada pelepas dan kunci akan tertinggal.
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                if (kunci !== null) return; // jari kedua tidak mengambil kunci baru
+                kunciSkala();
+              }}
+              onPointerUp={lepasKunci}
+              onPointerCancel={lepasKunci}
+              onLostPointerCapture={lepasKunci}
+            >
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          )}
         </Sheet>
       }
       side={
@@ -240,16 +387,17 @@ export function TransitionSheet({
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="Q" label={x.dQ} value={Q} min={0.5} max={80} step={0.5} digits={1} unit="m³/s" onChange={setQ} tint={C.water} />
-              <InputRow symbol="b₁" label={x.db1} value={b1} min={1} max={20} step={0.1} digits={1} unit="m" onChange={setB1} />
+              <InputRow symbol="b₁" label={x.db1} value={b1} {...P_B1} unit="m" onChange={setB1} />
               <InputRow symbol="y₁" label={x.dy1} value={y1} min={0.1} max={5} step={0.01} unit="m" onChange={setY1} tint={C.water} />
               {mode !== "step" && (
-                <InputRow symbol="b₂" label={x.db2} value={b2} min={0.5} max={20} step={0.1} digits={1} unit="m" onChange={setB2} tint={C.critical} />
+                <InputRow symbol="b₂" label={x.db2} value={b2} {...P_B2} unit="m" onChange={setB2} tint={C.critical} />
               )}
               {mode !== "width" && (
                 <InputRow symbol="Δz" label={x.ddz} value={dz} min={-0.5} max={1.5} step={0.005} digits={3} unit="m" onChange={setDz} tint={C.critical} />
               )}
             </InputTable>
 
+            {handles.length > 0 && <SentuhContoh sentuh={sentuh} />}
             <div className="mt-3.5 flex flex-col gap-2.5">
               <PresetRow
                 label={t.presetExample}
@@ -408,6 +556,13 @@ const UMUM = {
     hY2Sup: "Kedalaman hilir pada cabang superkritis (bagi dua)",
     hY2Tersendat: "E₂ < Emin: tidak ada y₂ yang memenuhi",
     gesekan: "Gesekan pada bentang transisi diabaikan (transisi pendek).",
+    gB1: "Lebar hulu b₁, seret dinding saluran di tampak atas ke atas atau ke bawah",
+    gB2: "Lebar hilir b₂, seret dinding saluran di tampak atas ke atas atau ke bawah",
+    motion:
+      "partikel bergerak dengan V = Q/(b·y) penampang, denah berskala sama ke dua arah; warna makin pekat makin cepat, satu tingkat per 20 % terhadap V₁; ",
+    motionReal: "waktu nyata",
+    motionFast: (n: string) => `waktu dipercepat ×${n}`,
+    motionSlow: (n: string) => `waktu diperlambat ×${n}`,
   },
   en: {
     sub: "Subcritical",
@@ -440,12 +595,23 @@ const UMUM = {
     hY2Sup: "Downstream depth on the supercritical branch (bisection)",
     hY2Tersendat: "E₂ < Emin: no y₂ satisfies the equation",
     gesekan: "Friction over the transition reach is neglected (short transition).",
+    gB1: "Upstream width b₁, drag the channel wall in plan view up or down",
+    gB2: "Downstream width b₂, drag the channel wall in plan view up or down",
+    motion:
+      "particles move at the section velocity V = Q/(b·y), plan drawn to the same scale both ways; darker means faster, one step per 20 % relative to V₁; ",
+    motionReal: "real time",
+    motionFast: (n: string) => `time sped up ×${n}`,
+    motionSlow: (n: string) => `time slowed ×${n}`,
   },
 } as const;
 
 // Nilainya dilonggarkan menjadi string biasa, karena `as const` membuat kedua
 // bahasa punya tipe harfiah yang berbeda dan tidak saling tertukar.
-type Umum = { [K in keyof (typeof UMUM)["id"]]: string };
+type Umum = {
+  [K in keyof (typeof UMUM)["id"]]: (typeof UMUM)["id"][K] extends (n: string) => string
+    ? (n: string) => string
+    : string;
+};
 
 /*
  * Tombol OC-04 dihitung ulang (spesifikasi B2, CACAT 1): nilai lama "Aman"
