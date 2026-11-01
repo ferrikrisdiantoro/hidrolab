@@ -68,7 +68,13 @@ export function drawRiprapBank(
   s: RiprapBankState
 ): PlateOut & { stones: number; failed: number; pxPerM: number } {
   ground(ctx, w, h);
-  const top = 44;
+  /* Pita kepala: judul, angka, lalu satu baris per keterangan (posisi
+     gagal, d50 perlu). Keterangan ditulis di pita ini, bukan di dalam
+     gambar, supaya tidak pernah menindih batu; penunjuknya garis rambut. */
+  const gagalAda = s.chosen && !s.stable;
+  const yGagal = 44;
+  const yPerlu = gagalAda ? 60 : 44;
+  const top = 44 + (gagalAda ? 16 : 0) + (s.chosen ? 16 : 0);
   const bottom = h - 34;
   const left = 10;
   const right = w - 10;
@@ -169,52 +175,85 @@ export function drawRiprapBank(
   const lp = createLabelPlacer(ctx, { padL: 4, padT: 2, plotW: w - 8, plotH: h - 4 });
   lp.write(s.title, left, 12, s.tint, { align: "left" });
 
-  /* Tulisan biasa: simbol dan satuan tidak dikapitalkan stensil. */
+  /* Tulisan biasa: simbol dan satuan tidak dikapitalkan stensil. Kotaknya
+     didaftarkan ke penempat yang sama dengan judul, dan tulisan yang
+     menabrak kotak terdaftar (judul, tulisan lain, kelompok batu phantom)
+     digeser turun satu baris, seperti createLabelPlacer.place. */
+  const tabrak = (x0: number, x1: number, a0: number, a1: number) =>
+    lp.boxes().some((d) => x0 < d.x1 && x1 > d.x0 && a0 < d.bawah && a1 > d.atas);
   const tulis = (teks: string, x: number, y: number, warna: string, align: CanvasTextAlign = "left") => {
     ctx.font = F.value;
     const lebarT = ctx.measureText(teks).width;
     const x0 = align === "left" ? x : align === "right" ? x - lebarT : x - lebarT / 2;
     const xx = Math.min(Math.max(x0, 4), w - lebarT - 4);
-    lp.reserve(xx - 2, xx + lebarT + 2, y - 7, y + 7);
+    let yy = y;
+    for (let i = 0; i < 10 && tabrak(xx - 2, xx + lebarT + 2, yy - 7, yy + 7); i++) yy += 15;
+    lp.reserve(xx - 2, xx + lebarT + 2, yy - 7, yy + 7);
     ctx.fillStyle = C.sheet;
-    ctx.fillRect(xx - 2, y - 7, lebarT + 4, 14);
+    ctx.fillRect(xx - 2, yy - 7, lebarT + 4, 14);
     ctx.fillStyle = warna;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(teks, xx, y);
+    ctx.fillText(teks, xx, yy);
+    return { x0: xx, x1: xx + lebarT, y: yy };
   };
 
-  /* Posisi gagal (R5), phantom tinta, tanpa gerak. */
+  const m = (v: number) => `${fmtPlain(v, v >= 1 ? 2 : 3)} m`;
+  tulis(`d = ${m(s.dUsed)}; t = 2d = ${m(2 * s.dUsed)}`, left, 28, C.ink2);
+
+  /* Posisi gagal (R5), phantom tinta, tanpa gerak. Tulisannya di ruang
+     udara kiri atas (di atas air, di kiri lereng), dengan garis penunjuk
+     rambut ke kelompok phantom, supaya tidak menindih batu atau judul. */
   const failed = riprapFailedCount(nBatu, s.chosen, s.stable);
   if (failed > 0) {
     const gx = -ux * RIPRAP_SLIDE_D * dp + nx * RIPRAP_LIFT_D * dp;
     const gy = -uy * RIPRAP_SLIDE_D * dp + ny * RIPRAP_LIFT_D * dp;
     let px = 0;
     let py = 0;
+    let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
     for (let j = nBatu - 1 - failed; j < nBatu - 1; j++) {
       const p = pusat(1, j);
-      batu(p.x + gx, p.y + gy, true);
-      px += p.x + gx;
-      py += p.y + gy;
+      const qx = p.x + gx;
+      const qy = p.y + gy;
+      batu(qx, qy, true);
+      px += qx;
+      py += qy;
+      bx0 = Math.min(bx0, qx - r);
+      bx1 = Math.max(bx1, qx + r);
+      by0 = Math.min(by0, qy - r);
+      by1 = Math.max(by1, qy + r);
     }
-    tulis(s.phantomLabel, px / failed + nx * (t + 14), py / failed + ny * (t + 14), C.ink, "center");
+    lp.reserve(bx0, bx1, by0, by1);
+    const pos = tulis(s.phantomLabel, left, yGagal, C.ink);
+    // Garis penunjuk dari ujung tulisan ke batu phantom terdekat.
+    const ax = Math.min(Math.max(px / failed, pos.x0), pos.x1);
+    pen(ctx, W.hair, C.ink);
+    ctx.beginPath();
+    ctx.moveTo(ax, pos.y + 7);
+    ctx.lineTo(px / failed, by0 - 1);
+    ctx.stroke();
   }
 
-  const m = (v: number) => `${fmtPlain(v, v >= 1 ? 2 : 3)} m`;
-  tulis(`d = ${m(s.dUsed)}; t = 2d = ${m(2 * s.dUsed)}`, left, 28, C.ink2);
-
   /* Pembanding ukuran: d50 yang dituntut, lingkaran garis tersembunyi
-     ungu (warna kurva Isbash), di atas puncak tebing. */
+     ungu (warna kurva Isbash), di ruang udara kiri atas di bawah tulisan
+     lain; ikut tinggi panel: dijepit di antara tulisan dan muka air. */
   if (s.chosen) {
     const rq = (s.dReq * k) / 2;
-    const cx = Cr.x - rq - 6;
-    const cy = Math.max(top + rq + 2, Cr.y - t - rq - 10);
+    // Ruang udara kiri atas, tepat di bawah pita kepala.
+    const cx = left + 6 + rq;
+    const cy = top + rq + 4;
     pen(ctx, W.thin, C.critical, DASH.hidden);
     ctx.beginPath();
     ctx.arc(cx, cy, Math.max(1, rq), 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
-    tulis(`${s.reqLabel} ${m(s.dReq)}`, cx - rq - 6, cy, C.critical, "right");
+    lp.reserve(cx - rq, cx + rq, cy - rq, cy + rq);
+    const pos = tulis(`${s.reqLabel} ${m(s.dReq)}`, left, yPerlu, C.critical, "left");
+    pen(ctx, W.hair, C.critical);
+    ctx.beginPath();
+    ctx.moveTo(Math.min(cx, pos.x1), pos.y + 7);
+    ctx.lineTo(cx, cy - rq - 1);
+    ctx.stroke();
   }
 
   /* Catatan kemiringan skematik di bawah kaki tebing. */

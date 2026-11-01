@@ -309,7 +309,7 @@ export function PerlindunganErosiClient() {
           {/* Panel potongan tebing di samping diagram: kanan mulai lebar lg,
               di atas diagram pada layar sempit. */}
           <div className="flex flex-col lg:h-[clamp(360px,56vh,620px)] lg:flex-row-reverse">
-            <div className="relative h-[220px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
+            <div className="relative h-[260px] min-w-0 border-b border-rule lg:h-auto lg:flex-1 lg:border-b-0 lg:border-l">
               <canvas ref={tebing.ref} className="block h-full w-full" />
             </div>
             <div className="relative h-[clamp(360px,56vh,620px)] min-w-0 lg:h-auto lg:flex-[2.1]">
