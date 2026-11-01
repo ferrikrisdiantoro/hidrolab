@@ -94,6 +94,11 @@ export type StructureDim = {
   color?: string;
   /** Geseran garis dimensi dalam piksel, menjauhi bendanya */
   offset?: number;
+  /**
+   * Hanya dimensi tegak: sisi teks bila dimensinya lebih pendek daripada
+   * teksnya. Bawaannya di atas tanda atas; "below" di bawah tanda bawah.
+   */
+  outside?: "above" | "below";
 };
 
 /** Nama bagian yang ditunjuk garis penunjuk dari satu titik. */
@@ -185,6 +190,13 @@ export type StructureSpec = {
    * yang hanya lembar itu yang tahu artinya.
    */
   anchors?: Record<string, { x: number; z: number }>;
+  /**
+   * Nama titik di `anchors` yang ditempati pegangan seret. Sekitar titik itu
+   * (lingkaran pegangan beserta tanda arah seretnya) dihindari label garis
+   * dan nama keadaan, supaya pegangan tidak menimpa tulisan. Pegangannya
+   * sendiri tidak dipindah. Lembar yang tidak mengisinya tidak berubah.
+   */
+  keepClear?: string[];
 };
 
 export function drawStructure(
@@ -404,7 +416,16 @@ export function drawStructure(
   for (const d of s.dims ?? []) {
     const geser = d.offset ?? 0;
     if (d.axis === "v") {
-      dimV(ctx, X(d.at) + geser, Z(d.from), Z(d.to), d.text, d.color ?? C.ink);
+      dimV(
+        ctx,
+        X(d.at) + geser,
+        Z(d.from),
+        Z(d.to),
+        d.text,
+        d.color ?? C.ink,
+        undefined,
+        d.outside === "below" ? "bawah" : "atas"
+      );
     } else {
       dimH(ctx, Z(d.at) + geser, X(d.from), X(d.to), d.text, d.color ?? C.ink);
     }
@@ -488,6 +509,22 @@ export function drawStructure(
     );
   }
 
+  /* ---------------- tempat pegangan ----------------
+     Didaftarkan sebelum label garis dan nama keadaan, supaya keduanya
+     menghindar. Kotaknya tidak ikut dikirim sebagai kotak tulisan. */
+
+  const kotakPegangan: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+  for (const nama of s.keepClear ?? []) {
+    const a = s.anchors?.[nama];
+    if (!a) continue;
+    const kx = X(a.x);
+    const ky = Z(a.z);
+    if (!Number.isFinite(kx) || !Number.isFinite(ky)) continue;
+    const k = { x0: kx - 11, x1: kx + 11, atas: ky - 18, bawah: ky + 18 };
+    kotakPegangan.push(k);
+    taruh.reserve(k.x0, k.x1, k.atas, k.bawah);
+  }
+
   /* ---------------- label garis ----------------
      Ditempatkan sesudah seluruh garis digambar, supaya tidak ada garis yang
      melintas di atas tulisan yang sudah diberi alas. */
@@ -508,7 +545,20 @@ export function drawStructure(
   /* ---------------- nama keadaan ---------------- */
 
   if (s.heading) {
-    taruh.write(s.heading, padL + plotW / 2, padT + 24, s.headingColor ?? C.ink, {
+    /* Lembar yang memakai keepClear: nama keadaan turun selangkah demi
+       selangkah sampai seluruh barisnya muat tanpa terdorong, jadi judul
+       yang terpecah dua baris tetap satu blok (dulu baris pertamanya di
+       atas pegangan dan baris keduanya terdorong ke bawah pegangan dan
+       label He). Bila tidak ada tempat utuh, tempat lama dipakai. Tanpa
+       keepClear tidak berubah. */
+    let yJudul = padT + 24;
+    if (kotakPegangan.length) {
+      const xJudul = padL + plotW / 2;
+      let y = yJudul;
+      while (y < padT + plotH && !taruh.headingFits(s.heading, xJudul, y)) y += 6;
+      if (y < padT + plotH) yJudul = y;
+    }
+    taruh.write(s.heading, padL + plotW / 2, yJudul, s.headingColor ?? C.ink, {
       big: true,
     });
   }
@@ -534,7 +584,15 @@ export function drawStructure(
     Math.round(plotH)
   );
 
-  return keluaranStruktur(s, X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, taruh.boxes());
+  const kotakTulisan = taruh
+    .boxes()
+    .filter(
+      (b) =>
+        !kotakPegangan.some(
+          (k) => k.x0 === b.x0 && k.x1 === b.x1 && k.atas === b.atas && k.bawah === b.bawah
+        )
+    );
+  return keluaranStruktur(s, X, Z, { x0: padL, y0: padT, x1: padL + plotW, y1: padT + plotH }, kotakTulisan);
 }
 
 /**

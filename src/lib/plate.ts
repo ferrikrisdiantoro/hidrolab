@@ -111,7 +111,14 @@ export function dimV(
   yBottom: number,
   label: string,
   color: string,
-  objX?: number
+  objX?: number,
+  /**
+   * Sisi tempat teks ditaruh bila dimensinya lebih pendek daripada teksnya:
+   * di atas tanda atas (bawaan) atau di bawah tanda bawah. "bawah" dipakai
+   * bila di atasnya ada tepi bingkai atau tulisan lain (HS-01: ukuran h yang
+   * pendek menjulur keluar tepi atas bingkai dan menabrak label He).
+   */
+  luar: "atas" | "bawah" = "atas"
 ) {
   pen(ctx, W.thin, color);
 
@@ -143,10 +150,18 @@ export function dimV(
   ctx.font = F.label;
   const lebar = stencilWidth(ctx, label);
   const muat = Math.abs(yBottom - yTop) >= lebar + 6;
-  ctx.translate(x - 5, muat ? (yTop + yBottom) / 2 : Math.min(yTop, yBottom) - 4);
+  const bawah = !muat && luar === "bawah";
+  ctx.translate(
+    x - 5,
+    muat
+      ? (yTop + yBottom) / 2
+      : bawah
+        ? Math.max(yTop, yBottom) + 4
+        : Math.min(yTop, yBottom) - 4
+  );
   ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = color;
-  ctx.textAlign = muat ? "center" : "left";
+  ctx.textAlign = muat ? "center" : bawah ? "right" : "left";
   ctx.textBaseline = "bottom";
   stencil(ctx, label, 0, 0);
   ctx.restore();
@@ -781,14 +796,16 @@ export function createLabelPlacer(
   const { padL, padT, plotW, plotH } = frame;
   const dipakai: { x0: number; x1: number; atas: number; bawah: number }[] = [];
 
-  const place = (
+  /** Kotak tulisan di tempat asalnya (sudah dijepit ke bidang), belum digeser
+      menghindari tulisan lain. Dipakai `place` dan `headingFits`. */
+  const kotakAsal = (
     teks: string,
     x: number,
     y: number,
     spacing: number,
     align: CanvasTextAlign = "center",
     font?: string
-  ): Placed => {
+  ) => {
     ctx.font = font ?? (spacing > 1 ? F.region : F.labelSm);
     const lebar = stencilWidth(ctx, teks, spacing) + 8;
     const kiri = align === "left" ? 0 : align === "right" ? lebar : lebar / 2;
@@ -828,14 +845,25 @@ export function createLabelPlacer(
     const naik = besar ? ukuran + 2 : 7;
     const turun = besar ? 3 : 7;
 
-    let yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
+    const yy = Math.min(Math.max(y, padT + naik + 2), padT + plotH - turun - 2);
+    return { tx, yy, x0, x1, naik, turun };
+  };
+
+  const tabrak = (x0: number, x1: number, atas: number, bawah: number) =>
+    dipakai.some((d) => x0 < d.x1 && x1 > d.x0 && atas < d.bawah && bawah > d.atas);
+
+  const place = (
+    teks: string,
+    x: number,
+    y: number,
+    spacing: number,
+    align: CanvasTextAlign = "center",
+    font?: string
+  ): Placed => {
+    const { tx, x0, x1, naik, turun, yy: yAsal } = kotakAsal(teks, x, y, spacing, align, font);
+    let yy = yAsal;
     let putar = 0;
-    while (
-      putar < 10 &&
-      dipakai.some(
-        (d) => x0 < d.x1 && x1 > d.x0 && yy - naik < d.bawah && yy + turun > d.atas
-      )
-    ) {
+    while (putar < 10 && tabrak(x0, x1, yy - naik, yy + turun)) {
       yy += 12;
       putar++;
     }
@@ -846,6 +874,82 @@ export function createLabelPlacer(
   const alas = (pos: Placed) => {
     ctx.fillStyle = C.sheet;
     ctx.fillRect(pos.x0 + 3, pos.atas, pos.x1 - pos.x0 - 6, pos.bawah - pos.atas);
+  };
+
+  /**
+   * Fon dan baris judul keadaan. Judul yang lebih lebar daripada bidangnya
+   * dikecilkan; yang masih terlalu lebar sesudah dikecilkan (layar HP: DM-01
+   * menulis "...LTAN KELUAR DARI SEPERTIGA TENGAH" terpotong di kedua tepi)
+   * dipecah menjadi dua baris pada spasi yang paling dekat ke tengah. Judul
+   * yang muat tetap satu baris berfon penuh.
+   */
+  const susunJudul = (teks: string): { fon: string; baris: string[] } => {
+    let fon: string = F.heading;
+    ctx.font = F.heading;
+    if (stencilWidth(ctx, teks, 2) + 14 > plotW) fon = F.heading.replace("15px", "12px");
+    ctx.font = fon;
+    const kata = teks.split(" ");
+    if (kata.length > 1 && stencilWidth(ctx, teks, 2) + 14 > plotW) {
+      let pecah = 1;
+      let selisih = Infinity;
+      for (let i = 1; i < kata.length; i++) {
+        const d = Math.abs(
+          stencilWidth(ctx, kata.slice(0, i).join(" "), 2) -
+            stencilWidth(ctx, kata.slice(i).join(" "), 2)
+        );
+        if (d < selisih) {
+          selisih = d;
+          pecah = i;
+        }
+      }
+      /* Baris terpanjang yang masih melewati bidang dikecilkan lagi,
+         paling kecil 10 piksel, supaya tidak menjulur keluar bingkai
+         menutupi angka sumbu. */
+      const terpanjang = Math.max(
+        stencilWidth(ctx, kata.slice(0, pecah).join(" "), 2),
+        stencilWidth(ctx, kata.slice(pecah).join(" "), 2)
+      );
+      if (terpanjang + 14 > plotW) {
+        const px = Math.max(10, Math.floor((12 * (plotW - 14)) / terpanjang));
+        fon = F.heading.replace("15px", `${px}px`);
+      }
+      return { fon, baris: [kata.slice(0, pecah).join(" "), kata.slice(pecah).join(" ")] };
+    }
+    return { fon, baris: [teks] };
+  };
+
+  /**
+   * Benar bila judul keadaan (`write` dengan big) yang ditaruh di (x, y)
+   * jatuh utuh di tempatnya: tidak dijepit tepi bidang dan tidak satu pun
+   * barisnya terdorong tulisan lain, jadi kedua baris judul yang terpecah
+   * tetap satu blok. Tidak menggambar apa pun.
+   */
+  const headingFits = (teks: string, x: number, y: number): boolean => {
+    const { fon, baris } = susunJudul(teks);
+    /* Ditiru langkah demi langkah seperti write: baris kedua ditaruh 15 px
+       di bawah baris pertama dan didorong `place` bila menabrak baris
+       pertama itu sendiri. Dorongan oleh baris judulnya sendiri boleh;
+       tabrakan dengan tulisan lain tidak. */
+    const sendiri: { x0: number; x1: number; atas: number; bawah: number }[] = [];
+    let yi = y;
+    for (const b of baris) {
+      const k = kotakAsal(b, x, yi, 2, "center", fon);
+      if (k.yy !== yi) return false;
+      let yy = k.yy;
+      for (
+        let putar = 0;
+        putar < 10 &&
+        sendiri.some(
+          (d) => k.x0 < d.x1 && k.x1 > d.x0 && yy - k.naik < d.bawah && yy + k.turun > d.atas
+        );
+        putar++
+      )
+        yy += 12;
+      if (tabrak(k.x0, k.x1, yy - k.naik, yy + k.turun)) return false;
+      sendiri.push({ x0: k.x0, x1: k.x1, atas: yy - k.naik, bawah: yy + k.turun });
+      yi = yy + 15;
+    }
+    return true;
   };
 
   /** Menaruh tulisan sekaligus alasnya, lalu menggambarnya sebagai wilayah. */
@@ -865,44 +969,11 @@ export function createLabelPlacer(
      */
     let fonJudul: string = fonBaris ?? F.heading;
     if (opts.big && !fonBaris) {
-      ctx.font = F.heading;
-      if (stencilWidth(ctx, teks, 2) + 14 > plotW)
-        fonJudul = F.heading.replace("15px", "12px");
-      /*
-       * Yang masih terlalu lebar sesudah dikecilkan (layar HP: DM-01 menulis
-       * "...LTAN KELUAR DARI SEPERTIGA TENGAH" terpotong di kedua tepi)
-       * dipecah menjadi dua baris pada spasi yang paling dekat ke tengah.
-       * Hanya mengenai judul yang sebelumnya terpotong; yang muat tidak
-       * berubah.
-       */
-      ctx.font = fonJudul;
-      const kata = teks.split(" ");
-      if (kata.length > 1 && stencilWidth(ctx, teks, 2) + 14 > plotW) {
-        let pecah = 1;
-        let selisih = Infinity;
-        for (let i = 1; i < kata.length; i++) {
-          const d = Math.abs(
-            stencilWidth(ctx, kata.slice(0, i).join(" "), 2) -
-              stencilWidth(ctx, kata.slice(i).join(" "), 2)
-          );
-          if (d < selisih) {
-            selisih = d;
-            pecah = i;
-          }
-        }
-        /* Baris terpanjang yang masih melewati bidang dikecilkan lagi,
-           paling kecil 10 piksel, supaya tidak menjulur keluar bingkai
-           menutupi angka sumbu. */
-        const terpanjang = Math.max(
-          stencilWidth(ctx, kata.slice(0, pecah).join(" "), 2),
-          stencilWidth(ctx, kata.slice(pecah).join(" "), 2)
-        );
-        if (terpanjang + 14 > plotW) {
-          const px = Math.max(10, Math.floor((12 * (plotW - 14)) / terpanjang));
-          fonJudul = F.heading.replace("15px", `${px}px`);
-        }
-        const atas = write(kata.slice(0, pecah).join(" "), x, y, color, opts, fonJudul);
-        const bawah = write(kata.slice(pecah).join(" "), x, atas.y + 15, color, opts, fonJudul);
+      const susun = susunJudul(teks);
+      fonJudul = susun.fon;
+      if (susun.baris.length > 1) {
+        const atas = write(susun.baris[0], x, y, color, opts, fonJudul);
+        const bawah = write(susun.baris[1], x, atas.y + 15, color, opts, fonJudul);
         return { ...atas, x0: Math.min(atas.x0, bawah.x0), x1: Math.max(atas.x1, bawah.x1), bawah: bawah.bawah };
       }
     }
@@ -935,5 +1006,5 @@ export function createLabelPlacer(
   /** Salinan seluruh kotak terpakai sejauh ini, untuk PlateOut.labels. */
   const boxes = () => dipakai.map((d) => ({ ...d }));
 
-  return { place, alas, write, reserve, boxes };
+  return { place, alas, write, reserve, boxes, headingFits };
 }
