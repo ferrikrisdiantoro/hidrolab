@@ -66,8 +66,8 @@ const TXT = {
     mustahilNote:
       "Kecepatan sentak menurut batasannya adalah kecepatan yang hanya sanggup dipertahankan dua puluh detik, jadi ia tidak mungkin lebih rendah daripada kecepatan yang sanggup dipertahankan selamanya. Tidak ada ikan yang begini. Kurva ketahanan di lembar ini diturunkan dari dua titik itu, dan ketika keduanya bertukar tempat kurvanya berbalik arah sehingga ketahanan justru NAIK bersama kecepatan. Angka yang keluar dari keadaan itu tidak menggambarkan apa pun, dan itu sebabnya lembar ini menolak menggambarnya. Turunkan kecepatan jelajahnya di bawah kecepatan sentaknya.",
     mSentak: "Sentak",
-    mTidak: "Tidak mampu melawan arus",
-    tidak: "Tidak mampu melawan arus",
+    mTidak: "Tidak bisa maju",
+    tidak: "Tidak bisa maju",
     pt: "PT/dtk",
     bJelajah: "Jelajah",
     bLanjut: "Berkelanjutan",
@@ -199,7 +199,13 @@ export function RenangIkanClient() {
           ? x.mSentak
           : x.mTidak;
 
-  const vMax = Math.max(r.burst * 1.3, 0.2);
+  /* Ujung kanan sumbu selalu memuat V (penggeser sampai 6 m/s, sentak ikan
+     kecil bisa < 0,1 m/s) dan dikunci selama pegangan diseret; tanpa kunci
+     sumbu ikut melebar mengejar jari (pola BendungOgee). */
+  const [kunci, setKunci] = useState<number | null>(null);
+  const lepasKunci = () => setKunci(null);
+  const vMaxBebas = Math.max(r.burst * 1.3, 0.2, V * 1.05);
+  const vMax = kunci ?? vMaxBebas;
   const U = L > 0 ? V / L : 0;
   /* Tetapan kurva ln t = a − b U, sama persis dengan fishSwim; ditulis
      ulang hanya untuk baris Hitungan. */
@@ -322,7 +328,7 @@ export function RenangIkanClient() {
       );
     },
     null,
-    [Lcm, V, susBL, burstBL, lang]
+    [Lcm, V, susBL, burstBL, lang, vMax]
   );
 
   /* Ketahanan adalah HASIL model pada V, jadi titik hanya diseret mendatar.
@@ -425,7 +431,21 @@ export function RenangIkanClient() {
             <div className="h-px shrink-0 bg-rule" />
             <div className="relative min-h-0 flex-1">
               <canvas ref={grafik.ref} className="block h-full w-full" />
-              <DragLayer out={grafik.outRef.current} handles={handles} touch={() => sentuh.current()} />
+              {/* display: contents; hanya menangkap pointerdown/lepas dari
+                  pegangan untuk mengunci sumbu. */}
+              <div
+                className="contents"
+                onPointerDown={(e) => {
+                  if (e.pointerType === "mouse" && e.button !== 0) return;
+                  if (kunci !== null) return;
+                  setKunci(vMaxBebas);
+                }}
+                onPointerUp={lepasKunci}
+                onPointerCancel={lepasKunci}
+                onLostPointerCapture={lepasKunci}
+              >
+                <DragLayer out={grafik.outRef.current} handles={handles} touch={() => sentuh.current()} />
+              </div>
             </div>
           </div>
         </Sheet>
@@ -587,6 +607,11 @@ function notice(
   const butir: string[] = [];
   if (tidak) {
     butir.push(x.tidakNote);
+    butir.push(
+      en
+        ? "t = how long the fish can hold station at V; the lane shows the fish at its burst speed, lasting 20 s."
+        : "t = lama menahan diri pada V; lajur menampilkan ikan pada kecepatan sentak, bertahan 20 s."
+    );
     butir.push(
       en
         ? `A current of ${fmt(V, 2)} m/s already matches or exceeds the burst speed of ${fmt(r.burst, 2)} m/s. Reduce the current, or take a larger fish, and watch the distance in the table change from zero to something meaningful.`

@@ -129,3 +129,58 @@ describe("EH-03 lompatan = fisika model", () => {
     dekat(b.phase - a.phase, 2 * Math.PI * p.f * s.dur * 0.5, 1e-9);
   });
 });
+
+describe("EH-03 lompatan muat di ruang ancang-ancang (tidak menembus badan bendung)", () => {
+  /** Periksa tiap lompatan rencana lolos: geseran mendatar <= ruang, tiba di muka hilir mercu. */
+  const periksa = (q: LompatMasukan) => {
+    const p = rencanaLompat(q);
+    if (p.hasil !== "lolos") return false;
+    const { tampil, tebal } = undakanUkuran(q.steps, q.L);
+    const ruang = Math.max(0, q.L - tebal - 3 * p.Lf);
+    p.ruas
+      .filter((s) => s.jenis === 1)
+      .forEach((s, idx) => {
+        const xNaik = -s.a * s.dur;
+        const pesan = `${JSON.stringify(q)} lompatan ${idx}`;
+        assert.ok(xNaik <= ruang + 1e-9, `${pesan}: xNaik ${xNaik} > ruang ${ruang}`);
+        const kanan = (tampil - 1 - idx) * q.L;
+        const xAkhir = s.x0 + s.a * s.dur;
+        assert.ok(xAkhir >= kanan - 1e-9, `${pesan}: tiba di ${xAkhir}, di balik muka ${kanan}`);
+      });
+    return true;
+  };
+
+  it("empat kasus pemicu dari tinjauan", () => {
+    for (const q of [
+      m({ rise: 3, steps: 15, L: 1, D: 1, Q: 0.1, burst: 2.5 }),
+      m({ rise: 3, steps: 15, L: 1, D: 1, Q: 0.1, burst: 4 }),
+      m({ rise: 3, steps: 10, L: 1, D: 1, Q: 0.1, burst: 6 }),
+      m({ rise: 3, steps: 15, L: 2, D: 1, Q: 0.1, burst: 6 }),
+    ])
+      assert.ok(periksa(q), `${JSON.stringify(q)} harus lolos`);
+  });
+
+  it("kisi rentang penggeser", () => {
+    let n = 0;
+    for (const rise of [0.3, 1, 3, 6, 12])
+      for (const steps of [2, 3, 5, 10, 15, 30, 60])
+        for (const L of [1, 1.4, 2, 3, 5, 8])
+          for (const D of [0.1, 0.5, 1, 3])
+            for (const Q of [0.02, 0.2, 1])
+              for (let burst = 0.5; burst <= 6 + 1e-9; burst += 0.5)
+                if (periksa(m({ rise, steps, L, D, Q, burst }))) n++;
+    assert.ok(n > 1000, `keadaan lolos ${n}`);
+  });
+
+  it("sudutLompat: ruang nol memberi lompatan tegak, xNaik selalu <= ruang", () => {
+    const u = Math.sqrt(2 * G * 0.2);
+    const s0 = sudutLompat(u * 2, 0.2, 0)!;
+    dekat(s0.sudut, Math.PI / 2, 1e-12);
+    for (const k of [1, 1.05, 1.3, 2, 4])
+      for (const ruang of [0, 0.01, 0.05, 0.17, 0.5, 2]) {
+        const s = sudutLompat(u * k, 0.2, ruang)!;
+        assert.ok(s.xNaik <= ruang + 1e-12, `k ${k} ruang ${ruang}: ${s.xNaik}`);
+        assert.ok(u * k * Math.sin(s.sudut) >= u - 1e-9, "komponen tegak >= u");
+      }
+  });
+});

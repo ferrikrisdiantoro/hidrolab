@@ -100,8 +100,10 @@ export const C = {
      Kelas "sesuai" TIDAK punya warna sendiri: artinya sama persis dengan
      pass (memenuhi syarat), jadi dipakai TONE.pass lewat HABITAT.suitable.
      Dua kelas tidak sesuai tidak memakai caution: caution berarti "masih
-     berlaku tetapi waspadai", sedangkan terlalu dangkal dan terlalu deras
-     adalah dua alasan berbeda yang harus bisa dibedakan satu sama lain.
+     berlaku tetapi waspadai", sedangkan di bawah nilai terbaik (dangkal
+     atau lambat) dan di atasnya (dalam atau deras) adalah dua alasan
+     berbeda yang harus bisa dibedakan satu sama lain. Nama variabelnya
+     ditulis legenda (drawHabitatMap), bukan oleh warna.
      habitatShallow = cokelat khaki (dasar sungai tampak). habitatFast =
      biru batu tua kelabu, digeser ke nila supaya tidak terbaca sebagai
      water atau waterFast (yang berarti laju V/V₁), dan jauh dari critical.

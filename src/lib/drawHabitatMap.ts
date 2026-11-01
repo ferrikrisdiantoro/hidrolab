@@ -15,22 +15,37 @@ import { shiftPlateOut } from "./plateShift.ts";
  * pias menjadi satu jalur sejajar aliran. Lembar wajib menulis "reach
  * seragam"; reach riffle-pool butuh model geometri dasar yang belum ada.
  *
- * Tiga kelas, dari indeks model sendiri (tanpa rumus baru):
+ * Tiga warna, dari indeks model sendiri (tanpa rumus baru):
  * - layak: f(d)·f(V) ≥ HABITAT_SUITABLE_MIN
- * - selain itu dibagi menurut pembatasnya, yaitu indeks yang lebih kecil
- *   di antara f(d) dan f(V). Pembatas di bawah nilai terbaiknya (terlalu
- *   dangkal atau terlalu lambat) = "terlalu dangkal"; di atasnya (terlalu
- *   dalam atau terlalu deras) = "terlalu deras". Pada penampang ini V naik
- *   bersama d (Manning per pias), jadi kedua sisi itu memang dua ujung yang
- *   sama: tepi yang dangkal dan alur tengah yang dalam dan deras.
+ * - selain itu dibagi menurut SISI pembatasnya. Pembatas = indeks yang lebih
+ *   kecil di antara f(d) dan f(V). Di bawah nilai terbaiknya (dangkal atau
+ *   lambat) = kelas "shallow"; di atasnya (dalam atau deras) = kelas "fast".
+ * Nama kelas di legenda menyebut VARIABEL pembatas yang benar-benar ada di
+ * kelas itu (habitatStats), bukan satu nama tetap per warna. V tidak selalu
+ * naik bersama d: pada sungai landai dan kasar (S 0,2 ‰, n 0,08, Q 5) alur
+ * tengahnya dalam tetapi lambat, jadi kelas di atas nilai terbaik di sana
+ * "terlalu dalam", bukan "terlalu deras", dan tepinya "terlalu lambat".
+ * Pias dalam satu warna bisa dibatasi variabel berbeda; legendanya lalu
+ * menyebut keduanya dengan bagian lebar masing-masing.
  * Warna dari token HABITAT, bukan merah sinyal: tidak layak bagi ikan
  * bukan di luar rentang rumus.
  */
 
-/** Ambang kelas layak pada peta, f(d)·f(V). Ambang tampilan, ditulis di legenda. */
+/**
+ * Ambang kelas layak pada peta, f(d)·f(V). Ambang tampilan pilihan lembar,
+ * bukan bagian model IFIM/WUA; ditulis di legenda dan catatan lembar.
+ */
 export const HABITAT_SUITABLE_MIN = 0.5;
 
+/** shallow = di bawah nilai terbaik (dangkal/lambat); fast = di atasnya (dalam/deras). */
 export type HabitatKind = "shallow" | "suitable" | "fast";
+export type HabitatLimit = "depth" | "velocity";
+
+/** Variabel pembatas pias: indeks yang lebih kecil (kedalaman bila kering atau seri). */
+export function habitatLimit(cell: HabitatCell): HabitatLimit {
+  if (!(cell.depth > 0)) return "depth";
+  return cell.depthIndex <= cell.velocityIndex ? "depth" : "velocity";
+}
 
 export function habitatKind(
   cell: HabitatCell,
@@ -40,8 +55,7 @@ export function habitatKind(
 ): HabitatKind {
   if (!(cell.depth > 0)) return "shallow";
   if (cell.combined >= min) return "suitable";
-  const batasKedalaman = cell.depthIndex <= cell.velocityIndex;
-  const bawah = batasKedalaman ? cell.depth < bestDepth : cell.velocity < bestVelocity;
+  const bawah = habitatLimit(cell) === "depth" ? cell.depth < bestDepth : cell.velocity < bestVelocity;
   return bawah ? "shallow" : "fast";
 }
 
@@ -52,10 +66,62 @@ export function habitatShares(
   bestVelocity: number,
   min = HABITAT_SUITABLE_MIN
 ): Record<HabitatKind, number> {
-  const n = { shallow: 0, suitable: 0, fast: 0 };
-  for (const c of cells) n[habitatKind(c, bestDepth, bestVelocity, min)]++;
+  const s = habitatStats(cells, bestDepth, bestVelocity, min);
+  return { shallow: s.shallow.total, suitable: s.suitable.total, fast: s.fast.total };
+}
+
+/** Bagian lebar satu kelas, dipecah menurut variabel pembatasnya. */
+export type HabitatShare = { total: number; depth: number; velocity: number };
+
+export function habitatStats(
+  cells: readonly HabitatCell[],
+  bestDepth: number,
+  bestVelocity: number,
+  min = HABITAT_SUITABLE_MIN
+): Record<HabitatKind, HabitatShare> {
+  const n = {
+    shallow: { total: 0, depth: 0, velocity: 0 },
+    suitable: { total: 0, depth: 0, velocity: 0 },
+    fast: { total: 0, depth: 0, velocity: 0 },
+  };
+  for (const c of cells) {
+    const b = n[habitatKind(c, bestDepth, bestVelocity, min)];
+    b.total++;
+    b[habitatLimit(c)]++;
+  }
   const t = Math.max(cells.length, 1);
-  return { shallow: n.shallow / t, suitable: n.suitable / t, fast: n.fast / t };
+  for (const b of Object.values(n)) {
+    b.total /= t;
+    b.depth /= t;
+    b.velocity /= t;
+  }
+  return n;
+}
+
+/** Nama kelas dalam bahasa aktif. `none` dipakai bila kelasnya kosong. */
+export type HabitatWords = {
+  suitable: string;
+  shallow: { depth: string; velocity: string; none: string };
+  fast: { depth: string; velocity: string; none: string };
+};
+
+/**
+ * Teks legenda satu kelas: kelas tak layak menyebut tiap variabel pembatas
+ * yang ada beserta bagian lebarnya; nama kedua ditulis huruf kecil di awal.
+ */
+export function habitatLegendText(
+  k: HabitatKind,
+  s: HabitatShare,
+  words: HabitatWords,
+  share: (f: number) => string
+): string {
+  if (k === "suitable") return `${words.suitable} ${share(s.total)}`;
+  const w = words[k];
+  const bagian: string[] = [];
+  if (s.depth > 0) bagian.push(`${w.depth} ${share(s.depth)}`);
+  if (s.velocity > 0) bagian.push(`${w.velocity} ${share(s.velocity)}`);
+  if (!bagian.length) return `${w.none} ${share(0)}`;
+  return bagian.map((b, i) => (i ? b.charAt(0).toLowerCase() + b.slice(1) : b)).join(", ");
 }
 
 export type HabitatMapSpec = {
@@ -68,8 +134,8 @@ export type HabitatMapSpec = {
   title: string;
   widthText: string;
   flowText: string;
-  /** Nama tiap kelas, persentasenya ditambahkan penggambar lewat `share` */
-  kinds: Record<HabitatKind, string>;
+  /** Nama kelas per variabel pembatas, persentase lewat `share` */
+  words: HabitatWords;
   /** Penulis persen dalam bahasa aktif, misalnya (0,3) → "30 %" */
   share: (f: number) => string;
 };
@@ -100,9 +166,9 @@ export function drawHabitatPlate(
   /* Legenda: susun dulu supaya tinggi tepi bawah diketahui. */
   ctx.font = F.labelSm;
   const kotak = 12;
-  const bagian = habitatShares(peta.cells, peta.bestDepth, peta.bestVelocity);
+  const bagian = habitatStats(peta.cells, peta.bestDepth, peta.bestVelocity);
   const item = URUT.map((k) => {
-    const teks = `${peta.kinds[k]} ${peta.share(bagian[k])}`;
+    const teks = habitatLegendText(k, bagian[k], peta.words, peta.share);
     return { k, teks, lebar: kotak + 6 + stencilWidth(ctx, teks, 0.8) + 16 };
   });
   const kiriLeg = 16;

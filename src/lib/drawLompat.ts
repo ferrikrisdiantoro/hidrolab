@@ -18,9 +18,12 @@ import { drawFish, type FishPose } from "./fishGlyph.ts";
  *   ancang-ancang / kehilangan arah). Tidak ada laju yang dikarang.
  * - Lolos: tiap undakan dilompati sebagai peluru dengan kecepatan awal Ub
  *   dari muka air kolam bawah. Sudutnya 45° bila Ub >= u45 (model) dan
- *   lintasannya muat di kolam; selain itu sudut tercuram yang masih sampai
- *   ke mercu, sin θ = u / Ub, yaitu batas lompatan tegak model. Komponen
- *   tegak kecepatan awal tidak pernah kurang dari u = √(2 g Δz).
+ *   lintasannya muat di kolam; selain itu sudut terlandai yang masih sampai
+ *   ke mercu, sin θ = u / Ub, yaitu batas lompatan tegak model. Bila sudut
+ *   pilihan itu pun tidak muat di ruang ancang-ancang, sudutnya dicuramkan
+ *   (bagi dua di antara max(θmin, 45°) dan 90°) sampai geseran mendatar
+ *   saat naik sama dengan ruang; tegak bila ruangnya nol. Komponen tegak
+ *   kecepatan awal tidak pernah kurang dari u = √(2 g Δz).
  *
  * Lompatan berjalan dengan g sungguhan dalam satuan gambar (m, s). Ikan
  * berenang di kolam pada kecepatan sentaknya Ub terhadap dasar (kecepatan
@@ -120,11 +123,22 @@ export function sudutLompat(
     const tNaik = (vz - akar) / G;
     return { sudut: th, tNaik, xNaik: vx * tNaik };
   };
-  if (v0 >= u * Math.SQRT2) {
-    const c = coba(Math.PI / 4);
-    if (c.xNaik <= ruang) return c;
+  // Sudut terlandai yang masih sampai: komponen tegak tepat u.
+  const thMin = Math.asin(Math.min(1, u / v0));
+  const pilih = coba(v0 >= u * Math.SQRT2 ? Math.PI / 4 : thMin);
+  if (pilih.xNaik <= ruang) return pilih;
+  // Tidak muat. xNaik(θ) turun monoton ke 0 di 90° (vx -> 0 dan tNaik
+  // mengecil), jadi bagi dua θ di [max(θmin, 45°), 90°] sampai xNaik = ruang.
+  // Ujung atas selalu memenuhi xNaik <= ruang dan dialah yang dikembalikan.
+  if (!(ruang > 0)) return coba(Math.PI / 2);
+  let lo = Math.max(thMin, Math.PI / 4);
+  let hi = Math.PI / 2;
+  for (let i = 0; i < 60; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (coba(mid).xNaik > ruang) lo = mid;
+    else hi = mid;
   }
-  return coba(Math.asin(Math.min(1, u / v0)));
+  return coba(hi);
 }
 
 /**
