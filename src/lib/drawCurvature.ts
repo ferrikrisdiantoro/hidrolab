@@ -127,7 +127,9 @@ export function drawCurvaturePlate(
      ruang di sisi lain untuk ukuran tali busur. Bergantung pada arah saja,
      tidak pada R. */
   const jauh = c * 0.58;
-  const dekat = c * 0.26;
+  /* Cekung: ukuran c di atas tali, tulisannya di atas garis ukurnya, jadi
+     butuh ruang lebih supaya tidak masuk baris nama panel. */
+  const dekat = c * (g.convex ? 0.26 : 0.38);
   const yMin = g.convex ? -dekat : -jauh;
   const yMax = g.convex ? jauh : dekat;
   const skala = Math.min(plotW / (xMax - xMin), plotH / (yMax - yMin));
@@ -226,7 +228,7 @@ export function drawCurvaturePlate(
   dimV(ctx, xs, Y(tanda * sOk), Y(0), g.sagittaText, C.ink2, X(0) + 10, g.convex ? "atas" : "bawah");
 
   /* Ukuran tali busur di sisi lawan busur. */
-  const yc = Y(0) + tanda * 34;
+  const yc = Y(0) + (g.convex ? 34 : -22);
   dimH(ctx, yc, X(-c / 2), X(c / 2), g.chordText, C.ink2, undefined, [padL, padL + plotW]);
 
   /* Tulisan: nama panel, lalu nama jari-jari di sepanjang garisnya. */
