@@ -18,6 +18,7 @@ import {
 import { Verification } from "@/components/Verification";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate, usePutar } from "@/lib/usePlate";
+import { useHalus } from "@/lib/useHalus";
 import type { ParamDef } from "@/lib/rentang";
 import { drawTransition } from "@/lib/drawTransition";
 import {
@@ -112,6 +113,16 @@ export function TransitionSheet({
   const keadaan = bacaKeadaan(mode, r, lang, { y1, b1, b2: b2Efektif, dz: dzEfektif });
 
   /*
+   * OC-07: muka air turun/naik dengan easing. Yang dianimasikan MASUKAN Δz
+   * (useHalus), dan model dihitung ulang tiap frame dengan Δz antara, jadi
+   * tiap gambar antara adalah keadaan tunak yang sah. Tabel, kop, dan kartu
+   * tetap memakai Δz sasaran. Reduced-motion: langsung, tanpa frame antara.
+   */
+  const dzTampil = useHalus(dzEfektif, mode === "step");
+  const rTampil =
+    dzTampil === dzEfektif ? r : transition({ Q, b1, y1, b2: b2Efektif, dz: dzTampil });
+
+  /*
    * OC-05: lapis gerak dan pegangan dinding. Partikel bergerak dengan
    * V = Q/(b·y) model di penampang 1 dan 2 (kontinuitas pada geometri
    * tergambar di antaranya, drawTransitionMotion.ts). Tersendat: kedalaman
@@ -153,7 +164,7 @@ export function TransitionSheet({
         ctx,
         w,
         h,
-        { r, b1, b2: b2Efektif, y1, dz: dzEfektif },
+        { r: rTampil, b1, b2: b2Efektif, y1, dz: dzTampil },
         lang,
         { bMaxKunci: kunci ?? undefined, panah }
       ),
@@ -161,7 +172,7 @@ export function TransitionSheet({
       ? (ctx, _w, _h, _t, dt, out) =>
           drawTransitionMotion(ctx, dt, out, aliran, skalaWaktu, gerak.current!)
       : null,
-    [Q, b1, y1, b2Efektif, dzEfektif, lang, panah, kunci ?? NaN],
+    [Q, b1, y1, b2Efektif, dzTampil, lang, panah, kunci ?? NaN],
     { playing, timeScale: skalaWaktu }
   );
 
