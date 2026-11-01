@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,12 +10,21 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
-import { drawField, type FieldDim, type FieldLine } from "@/lib/drawField";
+import { DragLayer } from "@/components/DragLayer";
+import { usePlate } from "@/lib/usePlate";
+import type { ParamDef } from "@/lib/rentang";
+import { type FieldDim, type FieldLine, type FieldPatch } from "@/lib/drawField";
+import {
+  CURVATURE_CHORD,
+  drawCurvaturePlate,
+  radiusFromSagitta,
+  sagittaFromRadius,
+} from "@/lib/drawCurvature";
 import {
   G,
   HYDROSTATIC_TOLERANCE,
@@ -37,6 +46,8 @@ const TXT = {
     dV: "Kecepatan rata-rata",
     dD: "Kedalaman aliran",
     dR: "Jari-jari lengkung garis arus",
+    gR: "Jari-jari lengkung R, seret puncak busur garis arus naik atau turun",
+    busur: "Garis arus sepanjang tali busur",
     lengkung: "Arah lengkung",
     cembung: "Cembung ke atas, seperti di atas mercu",
     cekung: "Cekung ke atas, seperti di kaki pelimpah",
@@ -81,6 +92,8 @@ const TXT = {
     dV: "Mean velocity",
     dD: "Flow depth",
     dR: "Radius of streamline curvature",
+    gR: "Curvature radius R, drag the crown of the streamline arc up or down",
+    busur: "Streamline along a chord",
     lengkung: "Direction of curvature",
     cembung: "Convex upward, as over a crest",
     cekung: "Concave upward, as at a spillway toe",
@@ -136,6 +149,13 @@ const REFS = {
   ],
 } as const;
 
+/*
+ * Rentang jari-jari: satu definisi untuk penggeser, kotak angka, dan
+ * pegangan seret di puncak busur garis arus (aturan 4, satu sumber nilai).
+ * Batas bawahnya juga menentukan tali busur ukur (CURVATURE_CHORD = 2 × 0,2).
+ */
+const P_R: ParamDef = { min: 0.2, max: 200, step: 0.2, digits: 1 };
+
 export function AsumsiHidrostatisClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -158,7 +178,9 @@ export function AsumsiHidrostatisClient() {
   const keadaan = lepas ? x.lepas : r.hydrostaticValid ? x.boleh : x.tidak;
   const BATAS = HYDROSTATIC_TOLERANCE;
 
-  const ref = useCanvas(
+  const sentuh = useRef<() => void>(() => {});
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       /*
        * Sumbu datarnya tekanan dan sumbu tegaknya tinggi di atas dasar, jadi
@@ -226,18 +248,60 @@ export function AsumsiHidrostatisClient() {
         },
       ];
 
+      /* Dua bidang tekanan berdampingan dalam dua warna: segitiga
+         hidrostatis (kelabu netral) dan segitiga tekanan sebenarnya (biru
+         air). Pada keadaan terangkat segitiga sebenarnya tidak diisi,
+         karena tekanan di bawah nol itu tidak pernah terjadi. */
+      const bidang: FieldPatch[] = [
+        {
+          pts: [
+            { x: 0, y: 0 },
+            { x: r.hydrostatic, y: 0 },
+            { x: 0, y: d },
+          ],
+          color: C.ink2,
+          fill: C.neutralFill,
+          dash: DASH.hidden,
+        },
+      ];
+      if (!r.liftsOff)
+        bidang.push({
+          pts: [
+            { x: 0, y: 0 },
+            { x: r.actual, y: 0 },
+            { x: 0, y: d },
+          ],
+          color: C.water,
+          fill: C.waterFill,
+        });
+
       const pMax = Math.max(r.hydrostatic, r.actual, 1) * 1.18;
       const pMin = Math.min(0, r.actual) * 1.18;
-      drawField(
+      /* Tinggi busur dalam milimeter: 0,1 mm pada R 200 m sampai 200 mm
+         pada R 0,2 m (setengah lingkaran). */
+      const sMm = sagittaFromRadius(R, CURVATURE_CHORD) * 1000;
+      return drawCurvaturePlate(
         ctx,
         w,
         ch,
+        {
+          R,
+          convex: arah === 0,
+          chord: CURVATURE_CHORD,
+          title: x.busur,
+          radiusText: `R = ${fmtPlain(R, 1)} m`,
+          sagittaText: `s = ${fmtPlain(sMm, sMm < 1 ? 2 : sMm < 10 ? 1 : 0)} mm`,
+          chordText: `c = ${fmtPlain(CURVATURE_CHORD, 2)} m`,
+          radiusColor: C.critical,
+          lineColor: r.liftsOff ? C.signal : C.water,
+        },
         {
           xMin: pMin,
           xMax: pMax,
           yMin: 0,
           yMax: d * 1.2,
           equalScale: false,
+          patches: bidang,
           lines: garis,
           dims,
           regions: [
@@ -265,6 +329,7 @@ export function AsumsiHidrostatisClient() {
         lang
       );
     },
+    null,
     [V, d, R, arah, lang]
   );
 
@@ -318,6 +383,9 @@ export function AsumsiHidrostatisClient() {
           number="FF-04"
           title={x.sheetTitle}
           rev="A"
+          /* Lebih tinggi daripada bawaan: di HP panel busur ditumpuk di atas
+             diagram tekanan. */
+          height="clamp(440px, 60vh, 660px)"
           cells={[
             { label: t.tbUnit, value: "SI (kPa, m, m/s)" },
             { label: "V²/gR", value: fmt(r.curvatureNumber, 3), tint: C.critical },
@@ -330,7 +398,41 @@ export function AsumsiHidrostatisClient() {
             { label: "Δ/p₀", value: lepas ? "—" : `${fmt(r.ratio * 100, 1)} %` },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
+          <DragLayer
+            out={plate.outRef.current}
+            touch={() => sentuh.current()}
+            handles={[
+              {
+                id: "busur",
+                anchor: "apex",
+                axis: "y",
+                label: x.gR,
+                param: P_R,
+                value: R,
+                tint: C.critical,
+                /*
+                 * Pemetaan balik: tinggi busur s dibaca dari panel busur
+                 * (meter, tali busur di 0, positif ke atas; dibalik untuk
+                 * busur cekung), lalu R = (c²/4 + s²)/(2s). Garis lurus
+                 * atau lewat tali (s ≤ 0) memberi tak hingga dan dijepit ke
+                 * 200 m dengan penanda; lewat setengah lingkaran dijepit ke
+                 * 0,2 m. Arah lengkung tidak ikut diseret: tetap pilihan
+                 * cembung/cekung di bawah. Skala panel busur tidak
+                 * bergantung pada R, jadi tidak perlu kunci skala.
+                 */
+                toValue: (_px, py) => {
+                  const m = plate.outRef.current?.maps?.busur;
+                  if (!m) return R;
+                  const s = (arah === 0 ? 1 : -1) * m.invY(py);
+                  return radiusFromSagitta(s, CURVATURE_CHORD);
+                },
+                onChange: setR,
+                format: (v) => `${fmt(v, 1)} m`,
+              },
+            ]}
+          />
         </Sheet>
       }
       side={
@@ -339,8 +441,10 @@ export function AsumsiHidrostatisClient() {
             <InputTable>
               <InputRow symbol="V" label={x.dV} value={V} min={0.1} max={15} step={0.1} digits={1} unit="m/s" onChange={setV} tint={C.water} />
               <InputRow symbol="d" label={x.dD} value={d} min={0.05} max={8} step={0.05} digits={2} unit="m" onChange={setD} />
-              <InputRow symbol="R" label={x.dR} value={R} min={0.2} max={200} step={0.2} digits={1} unit="m" onChange={setR} tint={C.critical} />
+              <InputRow symbol="R" label={x.dR} value={R} {...P_R} unit="m" onChange={setR} tint={C.critical} />
             </InputTable>
+
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5 flex flex-col gap-2">
               <PresetRow
