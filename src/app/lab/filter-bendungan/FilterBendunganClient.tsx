@@ -313,7 +313,7 @@ export function FilterBendunganClient() {
       );
       /* Jendela kriteria hijau (permintaan klien): warna lolos syarat di
          atas pita jendela, di antara kedua garis batasnya. */
-      tintBandX(ctx, out.map, r.d15Min, r.d15Max, C.passFill);
+      tintBandX(ctx, out.map, r.d15Min, r.d15Max, C.passFillOver);
       return out;
     },
     null,
