@@ -481,12 +481,13 @@ export function TingkatTrofikClient() {
           </Block>
 
           <Block heading={x.blkGanggu}>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+            <div role="radiogroup" aria-label={x.blkGanggu} className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
               {Array.from({ length: n }, (_, i) => i + 1).map((i) => (
                 <button
                   key={i}
                   type="button"
-                  aria-pressed={lv === i}
+                  role="radio"
+                  aria-checked={lv === i}
                   onClick={() => ganggu(i)}
                   className={`label pb-px text-[0.8rem] transition-colors ${
                     lv === i
@@ -498,13 +499,14 @@ export function TingkatTrofikClient() {
                 </button>
               ))}
             </div>
-            <div className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+            <div role="radiogroup" aria-label={x.jenisLabel} className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
               <span className="stencil">{x.jenisLabel}</span>
               {(["denyut", "tekan"] as const).map((j) => (
                 <button
                   key={j}
                   type="button"
-                  aria-pressed={jenis === j}
+                  role="radio"
+                  aria-checked={jenis === j}
                   onClick={() => { setJenis(j); sentuh.current(); }}
                   className={`label pb-px text-[0.8rem] transition-colors ${
                     jenis === j
