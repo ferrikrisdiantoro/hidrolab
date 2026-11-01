@@ -58,6 +58,59 @@ export const C = {
   concrete: "#3d4644",
   concreteFace: "#c3c9c6",
 
+  /* Muka bidang pada gambar 3D, turunan concreteFace dan water. Satu arah
+     cahaya tetap (dari kiri atas), jadi terang dan bayang hanya membedakan
+     muka mana yang menghadap ke mana; bukan nilai dan bukan hiasan.
+     faceLit = concreteFace dicampur 30 % ke sheet (muka atas, menghadap
+     cahaya). faceShade = concreteFace dicampur 25 % ke concrete (muka
+     samping yang membelakangi cahaya). waterFaceLit sama dengan waterFill
+     (muka air dilihat dari atas); waterFaceShade untuk potongan badan air
+     yang terlihat dari samping, lebih pekat supaya kedalaman terbaca. */
+  faceLit: "#d3d7d5",
+  faceShade: "#a2a8a6",
+  waterFaceLit: "rgba(31, 95, 130, 0.10)",
+  waterFaceShade: "rgba(31, 95, 130, 0.24)",
+
+  /* Butir dan tanah: warna BENDA, untuk menggambar butir sedimen, batu, dan
+     lapisan tanah (sketsa butir SD-01, SD-03, HS-08, DM-02). Sengaja kusam
+     dan bersaturasi rendah supaya tidak terbaca sebagai kata penilaian:
+     grainSand bukan caution (oker pekat), soil bukan energy (merah bata).
+     Urutan terang ke gelap mengikuti ukuran butir: pasir paling terang,
+     kerikil lebih gelap, batu paling gelap. Selalu dengan garis tepi tinta;
+     warna isian saja tidak pernah menjadi satu-satunya pembeda. */
+  /** Pasir (butir halus, kira-kira 0,06 sampai 2 mm) */
+  grainSand: "#c4b896",
+  /** Kerikil (kira-kira 2 sampai 64 mm) */
+  grainGravel: "#8f8a7e",
+  /** Batu, bongkah, dan batuan dasar */
+  rock: "#6b675e",
+  /** Tanah (lempung dan lanau, lapisan tanah di tepi dan dasar) */
+  soil: "#7d6a52",
+
+  /* Bentang dataran sungai (OC-11). floodplain adalah isian bidang daratan
+     yang tergenang saat banjir: tanah, bukan air, jadi keluarga cokelat
+     zaitun dan bukan biru. oldChannel adalah alur lama yang sudah
+     ditinggalkan aliran: biru kelabu pucat (pernah air, kini tidak
+     mengalir), selalu digambar dengan DASH.phantom karena ia keadaan
+     sebelumnya. Jangan dipakai untuk alur yang masih berair. */
+  floodplain: "rgba(122, 116, 84, 0.13)",
+  oldChannel: "#8a9aa2",
+
+  /* Kelas habitat ikan (EH-06), untuk latar zona pada peta habitat.
+     Kelas "sesuai" TIDAK punya warna sendiri: artinya sama persis dengan
+     pass (memenuhi syarat), jadi dipakai TONE.pass lewat HABITAT.suitable.
+     Dua kelas tidak sesuai tidak memakai caution: caution berarti "masih
+     berlaku tetapi waspadai", sedangkan terlalu dangkal dan terlalu deras
+     adalah dua alasan berbeda yang harus bisa dibedakan satu sama lain.
+     habitatShallow = cokelat khaki (dasar sungai tampak). habitatFast =
+     biru batu tua kelabu, digeser ke nila supaya tidak terbaca sebagai
+     water atau waterFast (yang berarti laju V/V₁), dan jauh dari critical.
+     Bukan merah sinyal: tidak sesuai bagi ikan bukan di luar rentang rumus. */
+  habitatShallow: "#8c7a55",
+  habitatShallowFill: "rgba(140, 122, 85, 0.16)",
+  habitatFast: "#4f5d75",
+  habitatFastFill: "rgba(79, 93, 117, 0.16)",
+
   /* Kosakata penilaian — untuk pita rezim, badge, dan latar zona.
      Hijau kebiruan redup = memenuhi syarat (aman, lolos, dalam batas
      desain). Oker = masih berlaku tetapi perlu diwaspadai (mendekati
@@ -102,6 +155,17 @@ export const TONE: Record<Tone, { line: string; fill: string }> = {
   caution: { line: C.caution, fill: C.cautionFill },
   invalid: { line: C.signal, fill: C.signalFill },
 };
+
+/**
+ * Kelas habitat ikan (EH-06) dalam bentuk garis dan isian seperti TONE.
+ * `suitable` adalah TONE.pass itu sendiri, bukan salinan: kalau warna pass
+ * berubah, kelas sesuai ikut berubah, karena artinya satu.
+ */
+export const HABITAT = {
+  shallow: { line: C.habitatShallow, fill: C.habitatShallowFill },
+  suitable: TONE.pass,
+  fast: { line: C.habitatFast, fill: C.habitatFastFill },
+} as const;
 
 /** Tiga bobot garis. Tidak boleh ada nilai lain di seluruh aplikasi. */
 export const W = {

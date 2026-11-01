@@ -439,6 +439,114 @@ export function hatchRock(
 }
 
 /**
+ * Arsiran kerikil: bulatan lonjong kecil berselang titik.
+ *
+ * Kerikil berada di antara tanah (titik) dan urugan batu (bulatan besar):
+ * butirannya cukup besar untuk punya bentuk, tetapi rongganya terisi butir
+ * halus. Karena itu lonjong kecil dengan arah sumbu yang berganti-ganti,
+ * dan satu titik di antara tiap dua lonjong. Letak, ukuran, dan arahnya
+ * dari deret bilangan tetap, bukan Math.random (alasan sama dengan
+ * hatchSoil).
+ */
+export function hatchGravel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  spacing = 8
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  pen(ctx, W.hair, C.grainGravel);
+  ctx.fillStyle = C.grainGravel;
+  ctx.globalAlpha = 0.85;
+  let n = 0;
+  let row = 0;
+  for (let yy = y; yy <= y + h + spacing; yy += spacing) {
+    /* Baris berselang digeser setengah langkah: butir tersusun seperti
+       tumpukan, bukan kisi. */
+    const geser = row % 2 === 0 ? 0 : spacing / 2;
+    for (let xx = x - spacing + geser; xx <= x + w + spacing; xx += spacing) {
+      const gx = ((n * 7) % 5) - 2;
+      const gy = ((n * 3) % 5) - 2;
+      if (n % 3 === 2) {
+        ctx.beginPath();
+        ctx.arc(Math.round(xx + gx) + 0.5, Math.round(yy + gy) + 0.5, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const rx = 1.8 + ((n * 5) % 3) * 0.5;
+        const ry = rx * (0.55 + ((n * 11) % 3) * 0.12);
+        const sudut = (((n * 13) % 6) / 6) * Math.PI;
+        ctx.beginPath();
+        ctx.ellipse(xx + gx, yy + gy, rx, ry, sudut, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      n++;
+    }
+    row++;
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/**
+ * Arsiran batu kosong (riprap): batu bersudut yang disusun rapat.
+ *
+ * Bedanya dengan hatchRock bukan hiasan. Riprap adalah batu pecah yang
+ * dipasang sebagai pelindung, dan yang membuatnya stabil adalah sudutnya
+ * yang saling mengunci; batu bulat dari hatchRock terbaca sebagai urugan
+ * kali. Tiap batu poligon lima sudut dengan jari-jari dan sudut dari deret
+ * tetap, bukan Math.random.
+ */
+export function hatchRiprap(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  spacing = 14
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  pen(ctx, W.hair, C.rock);
+  ctx.lineJoin = "miter";
+  ctx.globalAlpha = 0.9;
+  const r0 = spacing * 0.42;
+  let n = 0;
+  let row = 0;
+  for (let yy = y; yy <= y + h + spacing; yy += spacing * 0.86) {
+    const geser = row % 2 === 0 ? 0 : spacing / 2;
+    for (let xx = x - spacing + geser; xx <= x + w + spacing; xx += spacing) {
+      const cx = xx + ((n * 5) % 5) - 2;
+      const cy = yy + ((n * 7) % 5) - 2;
+      const putar = (((n * 11) % 7) / 7) * ((Math.PI * 2) / 5);
+      ctx.beginPath();
+      for (let k = 0; k < 5; k++) {
+        const a = putar + (k * Math.PI * 2) / 5 + ((((n + k) * 3) % 5) - 2) * 0.12;
+        const r = r0 * (0.78 + (((n + k * 7) * 13) % 5) * 0.06);
+        const px = cx + r * Math.cos(a);
+        const py = cy + r * Math.sin(a);
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      n++;
+    }
+    row++;
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/**
  * Lapisan kedap di bawah akuifer: garis tebal beserta arsiran rapat di
  * bawahnya, tanda baku untuk batas yang tidak dapat ditembus air.
  */
