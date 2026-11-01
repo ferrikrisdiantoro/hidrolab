@@ -22,7 +22,13 @@ import {
   karmanVortex,
   pathlinePoint,
   plumeConcentration,
+  plumeHorizon,
+  plumeOrigin,
+  plumeSum,
+  plumeTimeScale,
+  shiftMap,
   replayTime,
+  sourceStreakPoint,
   reynoldsAxisVelocity,
   reynoldsProfile,
   reynoldsTimeScale,
@@ -155,6 +161,58 @@ describe("FF-05 garis aliran: laju = medan flowLines", () => {
         assert.ok(st.pool.y[i] >= -8 - 1e-5 && st.pool.y[i] <= 8 + 1e-5);
       }
     }
+  });
+});
+
+describe("FF-05 tinta yang dilepas pengguna: garis jejak dari titik lepas", () => {
+  const U = 2;
+  const V = 1.5;
+  const om = 3;
+  const t = 12;
+  const r = flowLines(U, V, om, t, Math.max(10, U * t));
+
+  it("butir dari titik (xs, ys) = garis jejak model digeser (medan seragam)", () => {
+    const o = new Float64Array(2);
+    const n = r.streakline.length - 1;
+    for (const [xs, ys] of [[3, -1.2], [-0.5, 4], [10.25, 0]])
+      for (const i of [0, 33, 120, 160]) {
+        sourceStreakPoint(U, V, om, t, (t * i) / n, xs, ys, o);
+        dekat(o[0], r.streakline[i].x + xs, 1e-9, "x");
+        dekat(o[1], r.streakline[i].y + ys, 1e-9, "y");
+      }
+  });
+
+  it("kecepatan butir yang sudah dilepas (beda hingga terhadap t) = (U, V cos ωt)", () => {
+    const a = new Float64Array(2);
+    const b = new Float64Array(2);
+    for (const tt of [1.3, 4.4, 9.9]) {
+      const h = 1e-6;
+      sourceStreakPoint(U, V, om, tt - h, 0.75, 4, -2, a);
+      sourceStreakPoint(U, V, om, tt + h, 0.75, 4, -2, b);
+      dekat((b[0] - a[0]) / (2 * h), U, 1e-6, "u");
+      dekat((b[1] - a[1]) / (2 * h), V * Math.cos(om * tt), 1e-5, "v");
+    }
+  });
+
+  it("lapis gerak menggambar butir zat warna tiap titik lepas di letak model", () => {
+    const st = createFlowLinesMotion(10);
+    const out = keluaran(-1.44, 26.4, -8, 8);
+    const { ctx, rekam } = konteks();
+    const sumber = [[5, 2], [8, -3]] as const;
+    const tt = 3.1;
+    drawFlowLinesMotion(ctx, tt, 1 / 60, out, { U, V, omega: om, waktu: t, panjang: 24, sources: sumber }, st);
+    const tau = replayTime(tt, t, 1.5);
+    const o = new Float64Array(2);
+    for (const [xs, ys] of sumber)
+      for (let t0 = 0; t0 <= tau; t0 += 0.25) {
+        sourceStreakPoint(U, V, om, tau, t0, xs, ys, o);
+        const px = out.map.X(o[0]);
+        const py = out.map.Y(o[1]);
+        assert.ok(
+          rekam.arc.some(([x, y, rr]) => rr === 1.8 && Math.abs(x - px) < 1e-9 && Math.abs(y - py) < 1e-9),
+          `butir t0 ${t0} dari (${xs}, ${ys})`
+        );
+      }
   });
 });
 
@@ -297,6 +355,120 @@ describe("FP-04 adveksi dan difusi: kepekatan dan jalan acak", () => {
         const x = out.map.invX(px + w / 2);
         const c = out.map.invY(py + h / 2);
         assert.ok(c >= 0 && c <= plumeConcentration(M, A, U, D, x, tau) + 1e-9, `partikel ${i}`);
+      });
+    }
+  });
+});
+
+describe("FP-04 polutan tambahan, titik amat, grafik c–t", () => {
+  const M = 50;
+  const A = 12;
+  const U = 0.4;
+  const D = 5;
+
+  it("plumeSum = jumlah profil model yang digeser ke tiap titik lepas", () => {
+    const r = advectionDiffusion(M, A, U, D, 800, [60, 300, 900, 1800]);
+    const lepas = [-150, 420];
+    for (const s of r.snapshots)
+      for (const i of [10, 90, 160, 230]) {
+        const x = s.profile[i].x + 37;
+        let harap = 0;
+        for (const x0 of [0, ...lepas]) harap += plumeConcentration(M, A, U, D, x - x0, s.t);
+        dekat(plumeSum(M, A, U, D, x, s.t, lepas), harap, 1e-15 + harap * 1e-12);
+      }
+    // tanpa titik tambahan sama persis dengan profil model
+    const s = r.snapshots[2];
+    dekat(plumeSum(M, A, U, D, s.profile[120].x, s.t, []), s.profile[120].c, 1e-15 + s.profile[120].c * 1e-12);
+  });
+
+  it("massa total = (1 + n) M: tiap lepasan membawa M", () => {
+    const lepas = [100, 700];
+    const t = 900;
+    let m = 0;
+    const dx = 0.5;
+    for (let x = -1500; x <= 3000; x += dx) m += plumeSum(M, A, U, D, x, t, lepas) * A * dx;
+    dekat(m, 3 * M, 1e-6 * M);
+  });
+
+  it("plumeHorizon: awan dari setiap titik lepas di hulu sudah lewat titik amat", () => {
+    const tt = 800 / U;
+    const harap = (800 + 4 * Math.sqrt(2 * D * tt)) / U;
+    const h = plumeHorizon(800, U, D, [], 1800);
+    assert.ok(h >= harap && h < harap + 300 && h % 300 === 0, `${h} lawan ${harap}`);
+    assert.equal(plumeHorizon(100, 3, 1, [], 1800), 1800);
+    // titik lepas di hulu yang lebih jauh memperpanjang; di hilir tidak
+    assert.ok(plumeHorizon(800, U, D, [-1000], 1800) > h);
+    assert.equal(plumeHorizon(800, U, D, [2000], 1800), h);
+    // kepekatan di titik amat pada saat akhir sudah kecil dibanding puncaknya
+    const cAkhir = plumeSum(M, A, U, D, 800, h, []);
+    const cPuncak = plumeConcentration(M, A, U, D, 800, tt);
+    assert.ok(cAkhir < 0.01 * cPuncak, `${cAkhir} lawan ${cPuncak}`);
+  });
+
+  it("plumeTimeScale: putaran ulang 6 sampai 60 detik layar, pangkat sepuluh", () => {
+    for (const tEnd of [1800, 2700, 9000, 1e5]) {
+      const k = plumeTimeScale(tEnd);
+      const layar = tEnd / k;
+      assert.ok(layar > 6 - 1e-9 && layar <= 60 + 1e-9, `${tEnd}: ${layar}`);
+      assert.ok(Number.isInteger(Math.round(Math.log10(k) * 1e9) / 1e9));
+    }
+  });
+
+  it("partikel dibagi bergiliran ke titik lepas, dan lepas ulang dari sana", () => {
+    const lepas = [300, -200];
+    assert.deepEqual([0, 1, 2, 3, 4, 5].map((i) => plumeOrigin(i, lepas)), [0, 300, -200, 0, 300, -200]);
+    const st = createPlumeMotion(30);
+    const out = keluaran(-600, 1600, 0, 0.05);
+    const { ctx } = konteks();
+    drawPlumeMotion(ctx, 0, 0, out, { mass: M, area: A, U, D, tEnd: 1800, sources: lepas }, st);
+    for (let i = 0; i < 30; i++) assert.equal(st.pool.x[i], plumeOrigin(i, lepas));
+  });
+
+  it("kursor grafik c–t di τ/60 dan titiknya = plumeSum(x_amat, τ), sama dengan titik di bidang atas", () => {
+    const lepas = [250];
+    const atas = linearMap({ x0: 60, y0: 26, x1: 760, y1: 400 }, [-400, 1600], [0, 0.05]);
+    const ctMap = shiftMap(linearMap({ x0: 62, y0: 48, x1: 770, y1: 150 }, [0, 90], [0, 30]), 400);
+    const out: PlateOut = { map: atas, maps: { ct: ctMap } };
+    const st = createPlumeMotion(50);
+    const { ctx, rekam } = konteks();
+    const tEnd = 5400;
+    let tt = 0;
+    for (let k = 0; k < 40; k++) {
+      tt += 37;
+      rekam.arc.length = 0;
+      rekam.ruas.length = 0;
+      drawPlumeMotion(ctx, tt, 37, out, { mass: M, area: A, U, D, tEnd, hold: 150, sources: lepas, observe: 800, ctFactor: 1000 }, st);
+      const tau = replayTime(tt, tEnd, 150);
+      const c = plumeSum(M, A, U, D, 800, tau, lepas);
+      const pxCt = ctMap.X(tau / 60);
+      assert.ok(rekam.ruas.some(([x0, y0, x1, y1]) => x0 === pxCt && x1 === pxCt && y0 === ctMap.frame.y0 && y1 === ctMap.frame.y1), "kursor");
+      assert.ok(rekam.arc.some(([x, y, r]) => r === 4 && x === pxCt && Math.abs(y - ctMap.Y(1000 * c)) < 1e-9), "titik c–t (g/m³)");
+      assert.ok(rekam.arc.some(([x, y, r]) => r === 4 && x === atas.X(800) && Math.abs(y - atas.Y(c)) < 1e-9), "titik di garis amat");
+    }
+  });
+
+  it("shiftMap: piksel tegak bergeser dy, kebalikannya tetap kebalikan", () => {
+    const m = shiftMap(linearMap({ x0: 10, y0: 20, x1: 110, y1: 120 }, [0, 10], [0, 5]), 300);
+    dekat(m.Y(0), 420, 1e-12);
+    dekat(m.invY(m.Y(3.3)), 3.3, 1e-12);
+    assert.equal(m.frame.y0, 320);
+  });
+
+  it("titik zat dengan titik lepas tambahan tetap di bawah kurva total", () => {
+    const lepas = [400, -100];
+    const st = createPlumeMotion(300);
+    const out = keluaran(-500, 1600, 0, 0.05);
+    const { ctx, rekam } = konteks();
+    let tt = 0;
+    for (let k = 0; k < 30; k++) {
+      tt += 5;
+      rekam.rect.length = 0;
+      drawPlumeMotion(ctx, tt, 5, out, { mass: M, area: A, U, D, tEnd: 1800, sources: lepas }, st);
+      const tau = replayTime(tt, 1800, 90);
+      rekam.rect.slice(0, -1).forEach(([px, py, w, h], i) => {
+        const x = out.map.invX(px + w / 2);
+        const c = out.map.invY(py + h / 2);
+        assert.ok(c >= 0 && c <= plumeSum(M, A, U, D, x, tau, lepas) + 1e-9, `partikel ${i}`);
       });
     }
   });

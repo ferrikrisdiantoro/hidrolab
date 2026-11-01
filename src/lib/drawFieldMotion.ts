@@ -62,6 +62,21 @@ function clipFrame(ctx: CanvasRenderingContext2D, map: PlateMap) {
   ctx.clip();
 }
 
+/**
+ * Pemetaan bidang yang digambar dengan ctx.translate(0, dy): piksel tegak
+ * digeser dy, supaya lapis gerak dan pegangan memakai piksel kanvas penuh.
+ * Dipakai lembar yang menumpuk dua penggambar dalam satu kanvas (FP-04).
+ */
+export function shiftMap(m: PlateMap, dy: number): PlateMap {
+  return {
+    X: m.X,
+    Y: (v) => m.Y(v) + dy,
+    invX: m.invX,
+    invY: (px) => m.invY(px - dy),
+    frame: { x0: m.frame.x0, y0: m.frame.y0 + dy, x1: m.frame.x1, y1: m.frame.y1 + dy },
+  };
+}
+
 /** Jam di pojok kiri atas bidang gambar, di atas alas kertas. */
 function clockLabel(ctx: CanvasRenderingContext2D, map: PlateMap, text: string) {
   const f = map.frame;
@@ -120,6 +135,26 @@ export function streakPoint(
       : V * (t - t0);
 }
 
+/**
+ * Butir zat warna dari titik lepas (xs, ys) yang dilepas pada saat t0,
+ * dilihat pada saat t. Medannya seragam, jadi garis jejak dari titik lepas
+ * mana pun adalah garis jejak titik asal yang digeser (xs, ys).
+ */
+export function sourceStreakPoint(
+  U: number,
+  V: number,
+  omega: number,
+  t: number,
+  t0: number,
+  xs: number,
+  ys: number,
+  out: Float64Array
+): void {
+  streakPoint(U, V, omega, t, t0, out);
+  out[0] += xs;
+  out[1] += ys;
+}
+
 export type FlowLinesMotion = {
   pool: Pool;
   jam: Jam;
@@ -140,6 +175,11 @@ export type FlowLinesParams = {
   waktu: number;
   /** Panjang yang digambar lembar, m */
   panjang: number;
+  /**
+   * Titik lepas tinta tambahan yang ditaruh pengguna (x, y dalam m). Tiap
+   * titik melepas butir zat warna tiap 0,25 s, sama dengan titik asal.
+   */
+  sources?: readonly (readonly [number, number])[];
 };
 
 /** Selang lepas butir zat warna, detik waktu fisik. */
@@ -216,27 +256,10 @@ export function drawFlowLinesMotion(
   ctx.lineTo(X(p.panjang), Y(p.U !== 0 ? (vSaat / p.U) * p.panjang : 0));
   ctx.stroke();
 
-  // Garis jejak saat τ: butir yang dilepas pada 0 ≤ t0 ≤ τ.
-  const nJ = 120;
-  pen(ctx, W.thin, C.energy);
-  ctx.beginPath();
-  for (let j = 0; j <= nJ; j++) {
-    streakPoint(p.U, p.V, p.omega, tau, (tau * j) / nJ, tmp2);
-    if (j) ctx.lineTo(X(tmp2[0]), Y(tmp2[1]));
-    else ctx.moveTo(X(tmp2[0]), Y(tmp2[1]));
-  }
-  ctx.stroke();
-  // Butir zat warna yang dilepas tiap 0,25 s: titik materi yang ikut hanyut.
-  ctx.fillStyle = C.energy;
-  ctx.beginPath();
-  for (let t0 = 0; t0 <= tau; t0 += FF05_LEPAS) {
-    streakPoint(p.U, p.V, p.omega, tau, t0, tmp2);
-    const px = X(tmp2[0]);
-    const py = Y(tmp2[1]);
-    ctx.moveTo(px + 1.8, py);
-    ctx.arc(px, py, 1.8, 0, Math.PI * 2);
-  }
-  ctx.fill();
+  // Garis jejak saat τ dari titik asal dan dari tiap titik lepas tinta.
+  streakMotion(ctx, map, p, tau, 0, 0);
+  const src = p.sources;
+  if (src) for (let k = 0; k < src.length; k++) streakMotion(ctx, map, p, tau, src[k][0], src[k][1]);
 
   // Lintasan butir yang dilepas pada saat nol, sampai τ, dan kepalanya.
   const nL = 120;
@@ -259,6 +282,42 @@ export function drawFlowLinesMotion(
   ctx.restore();
 
   clockLabel(ctx, map, jam(st.jam, tau, 1, "τ = ", "s"));
+}
+
+/**
+ * Garis jejak saat τ dari titik lepas (xs, ys): butir yang dilepas pada
+ * 0 ≤ t0 ≤ τ, dan butir zat warna yang dilepas tiap 0,25 s sebagai titik
+ * materi yang ikut hanyut.
+ */
+function streakMotion(
+  ctx: CanvasRenderingContext2D,
+  map: PlateMap,
+  p: FlowLinesParams,
+  tau: number,
+  xs: number,
+  ys: number
+) {
+  const X = map.X;
+  const Y = map.Y;
+  const nJ = 120;
+  pen(ctx, W.thin, C.energy);
+  ctx.beginPath();
+  for (let j = 0; j <= nJ; j++) {
+    sourceStreakPoint(p.U, p.V, p.omega, tau, (tau * j) / nJ, xs, ys, tmp2);
+    if (j) ctx.lineTo(X(tmp2[0]), Y(tmp2[1]));
+    else ctx.moveTo(X(tmp2[0]), Y(tmp2[1]));
+  }
+  ctx.stroke();
+  ctx.fillStyle = C.energy;
+  ctx.beginPath();
+  for (let t0 = 0; t0 <= tau; t0 += FF05_LEPAS) {
+    sourceStreakPoint(p.U, p.V, p.omega, tau, t0, xs, ys, tmp2);
+    const px = X(tmp2[0]);
+    const py = Y(tmp2[1]);
+    ctx.moveTo(px + 1.8, py);
+    ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+  }
+  ctx.fill();
 }
 
 /* ------------------------------------------------------------------ *
@@ -540,10 +599,75 @@ export function plumeConcentration(
   return (mass / (A * s * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
 }
 
-export type PlumeMotion = { pool: Pool; jam: Jam; tauLalu: number; k: number; U: number; D: number };
+/**
+ * Kepekatan total dari lepasan di x = 0 dan lepasan tambahan di `sources`
+ * (masing-masing massa sama, dilepas pada saat nol). Persamaan
+ * adveksi-difusi linear, jadi penyelesaiannya jumlah awan Gauss model
+ * yang digeser ke titik lepas masing-masing (superposisi).
+ */
+export function plumeSum(
+  mass: number,
+  area: number,
+  U: number,
+  D: number,
+  x: number,
+  t: number,
+  sources?: readonly number[]
+): number {
+  let c = plumeConcentration(mass, area, U, D, x, t);
+  if (sources)
+    for (let k = 0; k < sources.length; k++) c += plumeConcentration(mass, area, U, D, x - sources[k], t);
+  return c;
+}
+
+/**
+ * Saat terakhir grafik kepekatan-waktu di titik amat, detik: sampai awan
+ * dari setiap titik lepas di hulu titik amat sudah lewat, yaitu
+ * (d + 4σ(d/U)) / U dengan d jarak tempuhnya, dan tidak kurang dari `tMin`.
+ * Dibulatkan ke atas ke kelipatan lima menit. Titik lepas di hilir titik
+ * amat tidak pernah sampai (U > 0) dan tidak dihitung.
+ */
+export function plumeHorizon(
+  observe: number,
+  U: number,
+  D: number,
+  sources: readonly number[],
+  tMin: number
+): number {
+  let t = tMin;
+  if (U > 0) {
+    const lewat = (d: number) => {
+      if (!(d > 0)) return 0;
+      const tt = d / U;
+      return (d + 4 * Math.sqrt(2 * Math.max(D, 1e-9) * tt)) / U;
+    };
+    t = Math.max(t, lewat(observe));
+    for (const s of sources) t = Math.max(t, lewat(observe - s));
+  }
+  return Math.ceil(t / 300 - 1e-9) * 300;
+}
+
+/**
+ * Pengali waktu FP-04: putaran ulang 0 → tEnd lamanya 6 sampai 60 detik
+ * layar (pangkat sepuluh, supaya catatan "×100" dapat dibaca langsung).
+ */
+export function plumeTimeScale(tEnd: number): number {
+  return decadeTimeScale(1 / Math.max(tEnd, 1e-9), 1 / 60);
+}
+
+export type PlumeMotion = {
+  pool: Pool;
+  jam: Jam;
+  tauLalu: number;
+  k: number;
+  U: number;
+  D: number;
+  /** Ringkasan titik lepas putaran ini; berubah = lepas ulang */
+  kunci: number;
+};
 
 export function createPlumeMotion(n = 420): PlumeMotion {
-  return { pool: createPool(n), jam: { kunci: NaN, teks: "" }, tauLalu: Infinity, k: 0, U: NaN, D: NaN };
+  return { pool: createPool(n), jam: { kunci: NaN, teks: "" }, tauLalu: Infinity, k: 0, U: NaN, D: NaN, kunci: NaN };
 }
 
 export type PlumeParams = {
@@ -551,11 +675,19 @@ export type PlumeParams = {
   area: number;
   U: number;
   D: number;
-  /** Saat terakhir yang digambar lembar, detik */
+  /** Saat terakhir putaran ulang, detik */
   tEnd: number;
+  /** Lama diam di akhir putaran, detik fisik. Bawaan 90 s. */
+  hold?: number;
+  /** Titik lepas tambahan, m (massa sama, saat nol) */
+  sources?: readonly number[];
+  /** Jarak titik amat, m: penanda c(x_amat, τ) di bidang utama dan grafik c–t */
+  observe?: number;
+  /** Pengali kepekatan pada sumbu grafik c–t (1000 bila sumbunya g/m³). Bawaan 1. */
+  ctFactor?: number;
 };
 
-/** Pengali waktu FP-04: satu menit fisik per detik layar. */
+/** Pengali waktu lama FP-04 (sebelum grafik c–t): satu menit per detik layar. */
 export const PLUME_TIME_SCALE = 60;
 const FP04_DIAM = 90;
 
@@ -580,11 +712,29 @@ export function stepPlume(pool: Pool, U: number, D: number, dt: number, k: numbe
   }
 }
 
+/** Titik lepas partikel ke-i: dibagi bergiliran di antara x = 0 dan sources. */
+export function plumeOrigin(i: number, sources?: readonly number[]): number {
+  const n = 1 + (sources ? sources.length : 0);
+  const k = i % n;
+  return k === 0 || !sources ? 0 : sources[k - 1];
+}
+
+function kunciSumber(s: readonly number[] | undefined): number {
+  if (!s) return 0;
+  let h = s.length;
+  for (let k = 0; k < s.length; k++) h = h * 31 + s[k] * 1.000123;
+  return h;
+}
+
 /**
- * FP-04. Putaran ulang 0 → saat terakhir (×60): kurva kepekatan c(x, τ)
- * dan partikel zat yang berjalan acak dengan adveksi U dan penyebaran D.
+ * FP-04. Putaran ulang 0 → tEnd: kurva kepekatan total c(x, τ) dan
+ * partikel zat yang berjalan acak dengan adveksi U dan penyebaran D, dari
+ * x = 0 dan dari tiap titik lepas tambahan (dibagi rata bergiliran).
  * Tinggi tiap partikel = bilangan acak tetapnya × c(x, τ), jadi titiknya
  * mengisi luas di bawah kurva; rapatnya mengikuti kepekatan.
+ * Bila `observe` ada: titik c(x_amat, τ) di garis titik amat, dan di bidang
+ * `out.maps.ct` (grafik c–t, sumbu datar menit) kursor waktu τ dengan
+ * titik kepekatannya, jadi kedua bidang membaca saat yang sama.
  */
 export function drawPlumeMotion(
   ctx: CanvasRenderingContext2D,
@@ -598,21 +748,24 @@ export function drawPlumeMotion(
   const map = out.map;
   const f = map.frame;
   const pool = st.pool;
-  const tau = replayTime(t, p.tEnd, FP04_DIAM);
-  // U atau D digeser selagi berputar: lepas ulang dari x = 0. Langkah
-  // pertama sesudahnya sepanjang τ penuh, dan untuk jalan acak Gauss satu
-  // langkah τ sama sebarannya dengan banyak langkah kecil (rerata Uτ,
-  // ragam 2Dτ), jadi titik langsung mengisi kurva yang baru.
-  if (p.U !== st.U || p.D !== st.D) {
+  const src = p.sources;
+  const tau = replayTime(t, p.tEnd, p.hold ?? FP04_DIAM);
+  // U, D, atau titik lepas berubah selagi berputar: lepas ulang dari titik
+  // lepasnya. Langkah pertama sesudahnya sepanjang τ penuh, dan untuk jalan
+  // acak Gauss satu langkah τ sama sebarannya dengan banyak langkah kecil
+  // (rerata Uτ, ragam 2Dτ), jadi titik langsung mengisi kurva yang baru.
+  const kunci = kunciSumber(src);
+  if (p.U !== st.U || p.D !== st.D || kunci !== st.kunci) {
     st.U = p.U;
     st.D = p.D;
+    st.kunci = kunci;
     st.tauLalu = Infinity;
   }
   if (tau < st.tauLalu) {
-    // Putaran baru: seluruh zat dilepas lagi di titik lepas x = 0.
+    // Putaran baru: seluruh zat dilepas lagi di titik lepasnya.
     for (let i = 0; i < pool.n; i++) {
       relane(pool, i);
-      pool.x[i] = 0;
+      pool.x[i] = plumeOrigin(i, src);
       pool.age[i] = 0;
     }
     st.tauLalu = 0;
@@ -629,14 +782,14 @@ export function drawPlumeMotion(
   ctx.fillStyle = C.water;
   ctx.globalAlpha = 0.55;
   for (let i = 0; i < pool.n; i++) {
-    const c = plumeConcentration(p.mass, p.area, p.U, p.D, pool.x[i], tau);
+    const c = plumeSum(p.mass, p.area, p.U, p.D, pool.x[i], tau, src);
     const px = map.X(pool.x[i]);
     const py = map.Y(c * (0.03 + 0.94 * pool.seed[i]));
     ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6);
   }
   ctx.globalAlpha = 1;
 
-  // Kurva kepekatan saat τ.
+  // Kurva kepekatan total saat τ.
   const xa = map.invX(f.x0);
   const xb = map.invX(f.x1);
   const n = 220;
@@ -644,25 +797,63 @@ export function drawPlumeMotion(
   ctx.beginPath();
   for (let j = 0; j <= n; j++) {
     const x = xa + ((xb - xa) * j) / n;
-    const yy = map.Y(plumeConcentration(p.mass, p.area, p.U, p.D, x, tau));
+    const yy = map.Y(plumeSum(p.mass, p.area, p.U, p.D, x, tau, src));
     if (j) ctx.lineTo(map.X(x), yy);
     else ctx.moveTo(map.X(x), yy);
   }
   ctx.stroke();
 
-  // Pusat awan saat τ.
+  // Pusat tiap awan saat τ.
   if (tau > 0) {
-    const xc = p.U * tau;
     ctx.fillStyle = C.water;
     ctx.strokeStyle = C.sheet;
-    ctx.beginPath();
-    ctx.arc(map.X(xc), map.Y(plumeConcentration(p.mass, p.area, p.U, p.D, xc, tau)), 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const nS = 1 + (src ? src.length : 0);
+    for (let k = 0; k < nS; k++) {
+      const xc = (k === 0 || !src ? 0 : src[k - 1]) + p.U * tau;
+      ctx.beginPath();
+      ctx.arc(map.X(xc), map.Y(plumeSum(p.mass, p.area, p.U, p.D, xc, tau, src)), 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  // Kepekatan di titik amat saat τ.
+  const xo = p.observe;
+  if (xo !== undefined) {
+    const co = plumeSum(p.mass, p.area, p.U, p.D, xo, tau, src);
+    titikAmat(ctx, map.X(xo), map.Y(co));
   }
   ctx.restore();
 
+  // Grafik c–t: kursor waktu dan titik kepekatan saat τ.
+  const ct = out.maps?.ct;
+  if (ct && xo !== undefined) {
+    const g = ct.frame;
+    const px = ct.X(tau / 60);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(g.x0, g.y0, g.x1 - g.x0, g.y1 - g.y0);
+    ctx.clip();
+    pen(ctx, W.thin, C.ink2);
+    ctx.beginPath();
+    ctx.moveTo(px, g.y0);
+    ctx.lineTo(px, g.y1);
+    ctx.stroke();
+    titikAmat(ctx, px, ct.Y((p.ctFactor ?? 1) * plumeSum(p.mass, p.area, p.U, p.D, xo, tau, src)));
+    ctx.restore();
+  }
+
   clockLabel(ctx, map, jam(st.jam, tau / 60, 1, "t = ", "min"));
+}
+
+function titikAmat(ctx: CanvasRenderingContext2D, px: number, py: number) {
+  ctx.fillStyle = C.water;
+  ctx.strokeStyle = C.sheet;
+  ctx.lineWidth = W.thin;
+  ctx.beginPath();
+  ctx.arc(px, py, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
 }
 
 /* ------------------------------------------------------------------ *

@@ -10,18 +10,26 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
 import { usePlate, usePutar } from "@/lib/usePlate";
 import {
-  PLUME_TIME_SCALE,
   createPlumeMotion,
   drawPlumeMotion,
+  plumeHorizon,
+  plumeSum,
+  plumeTimeScale,
+  shiftMap,
   type PlumeMotion,
 } from "@/lib/drawFieldMotion";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
+import { drawChart } from "@/lib/drawChart";
+import { DragLayer, type HandleSpec, type PlaceSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
+import type { PlateMap } from "@/lib/plateOut";
 import {
   TRACER_PECLET_MIN,
   advectionDiffusion,
@@ -46,13 +54,30 @@ const PE_MAX = 3e4;
 /** Jarak titik amat terjauh pada penggeser, meter. */
 const X_MAKS = 5000;
 
+/** Penggeser titik amat; pegangan seret di gambar memakai rentang yang sama. */
+const AMAT: ParamDef = { min: 50, max: X_MAKS, step: 50, digits: 0 };
+/* Titik lepas polutan tambahan (klik). Rentang x memuat seluruh bidang
+   gambar yang mungkin; sumbu tegak klik (kepekatan) tidak dipakai, jadi
+   rentangnya dibuat lebar supaya tidak pernah dipotong. */
+const LEPAS_MAKS = 4;
+const LEPAS_X: ParamDef = { min: -2000, max: 6000, step: 5, digits: 0 };
+const LEPAS_Y: ParamDef = { min: -1e6, max: 1e6, step: 1e-6, digits: 4 };
+const LEPAS_PARAM = [LEPAS_X, LEPAS_Y] as const;
+
 /** Kepekatan kecil ditulis bentuk pangkat; fmt(…, 4) dulu menulis 0,0000. */
 const angkaC = (c: number, d: number) => (c > 0 && c < 1e-3 ? fmtSci(c) : fmt(c, d));
 
 const TXT = {
   id: {
     title: "Adveksi dan difusi",
-    motionNote: "diputar ulang 0 sampai 30 min, waktu dipercepat ×60",
+    motionNote: (tMin: string, k: string) =>
+      `diputar ulang 0 sampai ${tMin} min, waktu dipercepat ×${k}. Klik gambar atas untuk melepas polutan lagi di titik itu (massa M yang sama, saat nol; paling banyak 4); tabel hasil tetap untuk lepasan di x = 0. Garis titik amat bisa diseret`,
+    axCt: "waktu sejak dilepas, min",
+    axCtC: "kepekatan, g/m³",
+    ctJudul: (x: string) => `Kepekatan di titik amat x = ${x} m`,
+    gAmat: "Titik amat x, seret ke kiri atau kanan",
+    gLepas: (i: number) => `Titik lepas polutan ${i}`,
+    gTambah: "Lepas polutan di titik baru",
     sheetTitle: "Awan zat terlarut pada empat saat sesudah dilepas",
     dM: "Massa yang dilepas",
     dA: "Luas penampang sungai",
@@ -87,7 +112,14 @@ const TXT = {
   },
   en: {
     title: "Advection and diffusion",
-    motionNote: "replayed from 0 to 30 min, time sped up ×60",
+    motionNote: (tMin: string, k: string) =>
+      `replayed from 0 to ${tMin} min, time sped up ×${k}. Click the upper drawing to release pollutant again at that point (same mass M, at time zero; at most 4); the results table stays for the release at x = 0. The observation line can be dragged`,
+    axCt: "time since release, min",
+    axCtC: "concentration, g/m³",
+    ctJudul: (x: string) => `Concentration at the observation point x = ${x} m`,
+    gAmat: "Observation point x, drag left or right",
+    gLepas: (i: number) => `Pollutant release point ${i}`,
+    gTambah: "Release pollutant at a new point",
     sheetTitle: "A solute cloud at four instants after release",
     dM: "Mass released",
     dA: "River cross-sectional area",
@@ -148,6 +180,10 @@ export function AdveksiDifusiClient() {
   const [U, setU] = useState(0.4);
   const [D, setD] = useState(5);
   const [titik, setTitik] = useState(800);
+  /* Titik lepas tambahan, m. Persamaannya linear, jadi kepekatannya jumlah
+     awan model yang digeser ke titik lepas masing-masing (plumeSum). */
+  const [lepas, setLepas] = useState<number[]>([]);
+  const kunciLepas = lepas.join(";");
 
   const r = advectionDiffusion(massa, luas, U, D, titik, WAKTU);
   /*
@@ -169,8 +205,14 @@ export function AdveksiDifusiClient() {
      acak (adveksi U, penyebaran D) diputar ulang 0 sampai saat terakhir,
      satu menit per detik layar. Lapis statis tidak berubah. */
   const { playing, toggle: togglePutar } = usePutar();
+  /* Pemadam tanda contoh untuk pegangan di gambar (di luar Block masukan). */
+  const sentuh = useRef<() => void>(() => {});
   const gerak = useRef<PlumeMotion | null>(null);
   if (gerak.current === null) gerak.current = createPlumeMotion();
+  /* Grafik c–t dan putaran ulang mencakup saat awan dari setiap titik
+     lepas di hulu sudah melewati titik amat, paling sedikit 30 menit. */
+  const tCt = plumeHorizon(titik, U, D, lepas, T_AKHIR);
+  const skalaWaktu = plumeTimeScale(tCt);
 
   const plate = usePlate(
     (ctx, w, ch) => {
@@ -181,18 +223,30 @@ export function AdveksiDifusiClient() {
        * lepas jatuh di ekornya yang datar di dasar gambar, lalu terdesak
        * keluar bingkai dan menimpa angka sumbu ("6(1 MIN").
        */
+      /* Profil tiap saat: profil model, ditambah awan yang sama digeser ke
+         tiap titik lepas tambahan (superposisi). Absisnya gabungan absis
+         profil model yang digeser, jadi tanpa titik lepas tambahan gambarnya
+         persis profil model. */
+      const profil = r.snapshots.map((s) => {
+        if (lepas.length === 0) return s.profile;
+        const xs = s.profile.map((p) => p.x);
+        for (const L0 of lepas) for (const p of s.profile) xs.push(p.x + L0);
+        xs.sort((a, b) => a - b);
+        return xs.map((xx) => ({ x: xx, c: plumeSum(massa, luas, U, D, xx, s.t, lepas) }));
+      });
       const garis: FieldLine[] = r.snapshots.map((s, i) => {
+        const pr = profil[i];
         let iPuncak = 0;
-        s.profile.forEach((p, j) => {
-          if (p.c > s.profile[iPuncak].c) iPuncak = j;
+        pr.forEach((p, j) => {
+          if (p.c > pr[iPuncak].c) iPuncak = j;
         });
         return {
-          pts: s.profile.map((p) => ({ x: p.x, y: p.c })),
+          pts: pr.map((p) => ({ x: p.x, y: p.c })),
           color: warna[i % warna.length],
           weight: i === r.snapshots.length - 1 ? W.bold : W.thin,
           dash: i === r.snapshots.length - 1 ? DASH.solid : DASH.hidden,
           label: `${fmtPlain(s.t / 60, 0)} min`,
-          labelAt: s.profile.length > 1 ? iPuncak / (s.profile.length - 1) : 0.5,
+          labelAt: pr.length > 1 ? iPuncak / (pr.length - 1) : 0.5,
           labelDy: -10,
           labelAlign: "center",
         } satisfies FieldLine;
@@ -200,7 +254,7 @@ export function AdveksiDifusiClient() {
 
       /* Titik amatnya, sebagai garis tegak pada jarak yang dipilih. */
       const puncakSemua = Math.max(
-        ...r.snapshots.flatMap((s) => s.profile.map((p) => p.c)),
+        ...profil.flatMap((pr) => pr.map((p) => p.c)),
         1e-12
       );
       garis.push({
@@ -216,13 +270,30 @@ export function AdveksiDifusiClient() {
       const tanda: FieldMarker[] = [
         { x: r.centre, y: r.peak, color: C.water, size: 5, filled: true },
       ];
+      /* Titik lepas tambahan: segitiga menghadap ke atas di dasar sumbu. */
+      const anchors: Record<string, { x: number; y: number }> = {
+        amat: { x: titik, y: puncakSemua },
+      };
+      lepas.forEach((L0, i) => {
+        tanda.push({ x: L0, y: 0, heading: Math.PI / 2, color: C.ink, size: 5, filled: true });
+        anchors[`lepas${i}`] = { x: L0, y: 0 };
+      });
 
+      /* Rentang datar hanya dari awan model (lepasan x = 0) dan titik amat:
+         titik lepas tambahan tidak mengubah skala, jadi titik yang baru
+         diklik tetap di bawah tetikus. Awan tambahan yang keluar bingkai
+         terpotong di tepi. */
       const xs = r.snapshots.flatMap((s) => s.profile.map((p) => p.x));
 
-      return drawField(
+      /* Dua bidang dalam satu kanvas: awan c(x) di atas, grafik c–t di
+         titik amat di bawah. Satu kanvas = satu jam gerak, jadi kursor waktu
+         grafik bawah selalu membaca saat yang sama dengan awan di atas. */
+      const hCt = Math.round(Math.min(240, Math.max(170, ch * 0.3)));
+      const hAtas = ch - hCt;
+      const atas = drawField(
         ctx,
         w,
-        ch,
+        hAtas,
         {
           xMin: Math.min(...xs, 0),
           xMax: Math.max(...xs, titik * 1.05),
@@ -239,9 +310,42 @@ export function AdveksiDifusiClient() {
           headingColor: warnaKeadaan,
           axisX: T.axXMetre,
           axisY: T.axConcentration,
+          anchors,
         },
         lang
       );
+
+      const n = 240;
+      const ct: { x: number; y: number }[] = [];
+      for (let j = 0; j <= n; j++) {
+        const tt = (tCt * j) / n;
+        ct.push({ x: tt / 60, y: 1000 * plumeSum(massa, luas, U, D, titik, tt, lepas) });
+      }
+      const cMaksCt = Math.max(...ct.map((p) => p.y));
+      ctx.save();
+      ctx.translate(0, hAtas);
+      const bawah = drawChart(
+        ctx,
+        w,
+        hCt,
+        {
+          xMin: 0,
+          xMax: tCt / 60,
+          yMin: 0,
+          yMax: cMaksCt > 0 ? cMaksCt * 1.3 : 1e-3,
+          axisX: x.axCt,
+          axisY: x.axCtC,
+          title: x.ctJudul(fmtPlain(titik, 0)),
+          series: [{ pts: ct, color: C.water, weight: W.bold }],
+          rules:
+            r.travelTime <= tCt
+              ? [{ axis: "x", at: r.travelTime / 60, color: C.ink3, weight: W.hair, dash: DASH.hidden, label: "tt", labelAlign: "left" }]
+              : [],
+        },
+        lang
+      );
+      ctx.restore();
+      return { ...atas, maps: { ct: shiftMap(bawah.map, hAtas) } };
     },
     (ctx, _w, _h, tt, dt, out) =>
       drawPlumeMotion(
@@ -249,12 +353,63 @@ export function AdveksiDifusiClient() {
         tt,
         dt,
         out,
-        { mass: massa, area: luas, U, D, tEnd: WAKTU[WAKTU.length - 1] },
+        {
+          mass: massa,
+          area: luas,
+          U,
+          D,
+          tEnd: tCt,
+          hold: 1.5 * skalaWaktu,
+          sources: lepas,
+          observe: titik,
+          ctFactor: 1000,
+        },
         gerak.current!
       ),
-    [massa, luas, U, D, titik, lang],
-    { playing, timeScale: PLUME_TIME_SCALE }
+    [massa, luas, U, D, titik, lang, kunciLepas],
+    { playing, timeScale: skalaWaktu }
   );
+
+  const keX = (px: number, _py: number, m: PlateMap) => m.invX(px);
+  const pegangan: HandleSpec[] = [
+    {
+      id: "amat",
+      anchor: "amat",
+      label: x.gAmat,
+      axis: "x",
+      param: AMAT,
+      value: titik,
+      toValue: keX,
+      onChange: setTitik,
+      format: (v) => `${fmt(v, 0)} m`,
+    },
+    ...lepas.map(
+      (L0, i): HandleSpec => ({
+        id: `u${i}`,
+        anchor: `lepas${i}`,
+        label: x.gLepas(i + 1),
+        axis: "x",
+        param: LEPAS_X,
+        value: L0,
+        toValue: keX,
+        onChange: (v) => setLepas((d) => d.map((q, j) => (j === i ? v : q))),
+        onRemove: () => setLepas((d) => d.filter((_, j) => j !== i)),
+        format: (v) => `${fmt(v, 0)} m`,
+      })
+    ),
+  ];
+  const taruh: PlaceSpec = {
+    id: "lepas",
+    label: x.gTambah,
+    param: LEPAS_PARAM,
+    toValue: (px, py, m) => [m.invX(px), m.invY(py)] as const,
+    onPlace: (v) => setLepas((d) => (d.length < LEPAS_MAKS ? [...d, v[0]] : d)),
+    count: lepas.length,
+    max: LEPAS_MAKS,
+    /* Tombol Tambah (keyboard): separuh jalan ke titik amat. */
+    fallback: [Math.round(titik / 2), 0],
+    format: (v) => `x ${fmt(v[0], 0)} m`,
+  };
 
   return (
     <LabShell
@@ -301,20 +456,23 @@ export function AdveksiDifusiClient() {
             { label: "σ", value: `${fmt(r.sigma, 1)} m` },
             { label: "tp", value: beku ? `${fmt(tp / 60, 1)} min` : "—" },
           ]}
+          height="calc(clamp(360px, 56vh, 620px) + clamp(170px, 24vh, 240px))"
           motion={{
             playing,
             onToggle: togglePutar,
             allowed: plate.motionAllowed,
-            note: x.motionNote,
+            note: x.motionNote(fmtPlain(tCt / 60, 0), fmtPlain(skalaWaktu, 0)),
           }}
         >
           <canvas ref={plate.ref} className="block h-full w-full" />
           <canvas ref={plate.motionRef} />
+          <DragLayer out={plate.outRef.current} handles={pegangan} place={taruh} touch={() => sentuh.current()} />
         </Sheet>
       }
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="M" label={x.dM} value={massa} min={1} max={500} step={1} digits={0} unit="kg" onChange={setMassa} />
               <InputRow symbol="A" label={x.dA} value={luas} min={1} max={100} step={1} digits={0} unit="m²" onChange={setLuas} />

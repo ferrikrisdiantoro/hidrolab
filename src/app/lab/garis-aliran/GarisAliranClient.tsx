@@ -32,8 +32,20 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksFlowLines } from "@/lib/checks";
+import { DragLayer, type HandleSpec, type PlaceSpec } from "@/components/DragLayer";
+import type { ParamDef } from "@/lib/rentang";
 
 const SPAN = 10;
+
+/* Titik lepas tinta yang ditaruh dengan klik. Rentangnya memuat seluruh
+   bidang gambar yang mungkin pada rentang penggeser (x sampai 1,1 · 8 · 20
+   = 176 m; y sampai ±1,25 · |V/U| · panjang); titik yang jatuh di luar
+   bidang sesudah masukan diubah tetap disimpan dan pegangannya dijepit ke
+   tepi bidang. */
+const TINTA_MAKS = 4;
+const TINTA_X: ParamDef = { min: -10, max: 180, step: 0.05, digits: 2 };
+const TINTA_Y: ParamDef = { min: -4000, max: 4000, step: 0.05, digits: 2 };
+const TINTA_PARAM = [TINTA_X, TINTA_Y] as const;
 
 const TXT = {
   id: {
@@ -66,7 +78,9 @@ const TXT = {
     jAmp: "Simpangan terbesar yang dicapai lintasan sampai saat t",
     jPisah: "Jarak terjauh lintasan dari garis arus",
     jT: "Periode ayunan",
-    motionNote: "diputar ulang 0 sampai t, waktu nyata",
+    motionNote: "diputar ulang 0 sampai t, waktu nyata. Klik gambar untuk melepas tinta di titik itu (paling banyak 4)",
+    tTambah: "Lepas tinta di titik baru",
+    tTitik: (i: number) => `Titik lepas tinta ${i}`,
     note:
       "Tiga garis ini berbeda meskipun dilahirkan satu medan kecepatan yang sama, dan perbedaannya bukan soal halus melainkan soal yang menentukan cara membaca setiap foto aliran yang pernah diambil. Garis arus menjawab pertanyaan ke mana air menuju pada satu saat, dan ia dibekukan pada saat itu. Lintasan partikel menjawab ke mana satu butir air pergi sepanjang waktu. Garis jejak menjawab di mana semua butir yang pernah lewat satu titik sekarang berada, dan itulah yang terlihat bila zat warna diteteskan terus-menerus dari satu jarum. Yang pertama milik satu saat dan seluruh ruang; yang kedua milik satu butir dan seluruh waktu; yang ketiga milik satu titik dan seluruh waktu. Ketiganya hanya berimpit bila medannya tidak berubah terhadap waktu, dan di situ pula satu-satunya tempat foto zat warna boleh dibaca sebagai garis arus. Setiap foto aliran tak tunak yang pernah dimuat buku teks adalah garis jejak, dan membacanya sebagai garis arus adalah kekeliruan yang jarang diucapkan tetapi sering dilakukan. Perhatikan pula bahwa garis jejak dan lintasan partikel di sini sama-sama sinus tetapi berbeda fase. Keduanya tampak serupa sekilas, dan justru keserupaan itulah yang membuat kekeliruannya bertahan.",
   },
@@ -100,7 +114,9 @@ const TXT = {
     jAmp: "Largest excursion the pathline reaches up to time t",
     jPisah: "Greatest gap between pathline and streamline",
     jT: "Period of the oscillation",
-    motionNote: "replayed from 0 to t, real time",
+    motionNote: "replayed from 0 to t, real time. Click the drawing to release dye at that point (at most 4)",
+    tTambah: "Release dye at a new point",
+    tTitik: (i: number) => `Dye release point ${i}`,
     note:
       "These three lines differ although one and the same velocity field gives birth to all of them, and the difference is not a fine point but the thing that decides how every flow photograph ever taken should be read. A streamline answers where the water is heading at one instant, frozen at that instant. A pathline answers where one grain of water went over time. A streakline answers where all the grains that once passed one point are now, and that is what is seen when dye is released continuously from a needle. The first belongs to one instant and all of space; the second to one grain and all of time; the third to one point and all of time. They coincide only when the field does not change with time, and that is also the only case in which a dye photograph may be read as a streamline. Every photograph of an unsteady flow ever printed in a textbook is a streakline, and reading it as a streamline is a mistake seldom spoken of and often made. Notice too that the streakline and the pathline here are both sine curves, differing only in phase. At a glance they look alike, and it is exactly that likeness that keeps the mistake alive.",
   },
@@ -131,6 +147,10 @@ export function GarisAliranClient() {
   const [V, setV] = useState(1);
   const [omega, setOmega] = useState(1);
   const [waktu, setWaktu] = useState(5);
+  /* Titik lepas tinta tambahan, m. Medannya seragam, jadi garis jejak dari
+     titik (xs, ys) adalah garis jejak model dari titik asal digeser
+     (xs, ys): tidak ada model baru. */
+  const [tinta, setTinta] = useState<[number, number][]>([]);
 
   /*
    * Panjang yang digambar mengikuti lintasan partikelnya, bukan tetap
@@ -168,6 +188,8 @@ export function GarisAliranClient() {
   const gerak = useRef<FlowLinesMotion | null>(null);
   if (gerak.current === null) gerak.current = createFlowLinesMotion();
   const bergerak = playing;
+  /* deps usePlate wajib primitif: daftar titik diringkas jadi satu teks. */
+  const kunciTinta = tinta.map((p) => `${p[0]},${p[1]}`).join(";");
 
   const plate = usePlate(
     (ctx, w, ch) => {
@@ -243,6 +265,21 @@ export function GarisAliranClient() {
         { x: 0, y: 0, color: C.ink, size: 4, filled: true },
       ];
 
+      /* Garis jejak saat t dari tiap titik lepas tinta, dengan rupa yang
+         sama dengan garis jejak titik asal. Tanpa nama: warnanya sudah
+         menyatakan jenisnya, dan empat nama sekaligus menutup gambar. */
+      const anchors: Record<string, { x: number; y: number }> = {};
+      tinta.forEach(([xs, ys], i) => {
+        garis.push({
+          pts: r.streakline.map((p) => ({ x: p.x + xs, y: p.y + ys })),
+          color: C.energy,
+          weight: bergerak ? W.hair : W.thin,
+          dash: bergerak ? DASH.phantom : DASH.solid,
+        });
+        titik.push({ x: xs, y: ys, color: C.energy, size: 4, filled: true });
+        anchors[`tinta${i}`] = { x: xs, y: ys };
+      });
+
       return drawField(
         ctx,
         w,
@@ -259,15 +296,54 @@ export function GarisAliranClient() {
           heading: r.steady ? x.tunak : undefined,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
+          anchors,
         },
         lang
       );
     },
     (ctx, _w, _h, tt, dt, out) =>
-      drawFlowLinesMotion(ctx, tt, dt, out, { U, V, omega, waktu, panjang }, gerak.current!),
-    [U, V, omega, waktu, lang, bergerak],
+      drawFlowLinesMotion(
+        ctx,
+        tt,
+        dt,
+        out,
+        { U, V, omega, waktu, panjang, sources: tinta },
+        gerak.current!
+      ),
+    [U, V, omega, waktu, lang, bergerak, kunciTinta],
     { playing }
   );
+
+  const keNilai = (px: number, py: number, m: { invX: (p: number) => number; invY: (p: number) => number }) =>
+    [m.invX(px), m.invY(py)] as const;
+  const teksTitik = (v: readonly [number, number]) => `x ${fmt(v[0], 2)} m; y ${fmt(v[1], 2)} m`;
+  const pegangan: HandleSpec[] = tinta.map((v, i) => ({
+    id: `u${i}`,
+    anchor: `tinta${i}`,
+    label: x.tTitik(i + 1),
+    tint: C.energy,
+    hollow: true,
+    axis: "xy",
+    param: TINTA_PARAM,
+    value: v,
+    toValue: keNilai,
+    onChange: (b) => setTinta((d) => d.map((q, j) => (j === i ? b : q))),
+    onRemove: () => setTinta((d) => d.filter((_, j) => j !== i)),
+    format: teksTitik,
+  }));
+  const taruh: PlaceSpec = {
+    id: "tinta",
+    label: x.tTambah,
+    param: TINTA_PARAM,
+    toValue: keNilai,
+    onPlace: (v) => setTinta((d) => (d.length < TINTA_MAKS ? [...d, v] : d)),
+    count: tinta.length,
+    max: TINTA_MAKS,
+    /* Tombol Tambah (keyboard): seperempat panjang, sedikit di atas
+       sumbu, supaya garis jejaknya tidak berimpit dengan garis asal. */
+    fallback: [panjang * 0.25, batasGambar * 0.3],
+    format: teksTitik,
+  };
 
   return (
     <LabShell
@@ -316,6 +392,7 @@ export function GarisAliranClient() {
         >
           <canvas ref={plate.ref} className="block h-full w-full" />
           <canvas ref={plate.motionRef} />
+          <DragLayer out={plate.outRef.current} handles={pegangan} place={taruh} />
         </Sheet>
       }
       side={
