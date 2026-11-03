@@ -7,6 +7,7 @@ import {
   Hitungan,
   InputRow,
   InputTable,
+  panahRadio,
   PresetRow,
   RegimeScale,
   ResultTable,
@@ -84,9 +85,9 @@ const TXT = {
     hEq: "Keseimbangan rantai dinamis",
     hLag: "Tundaan tanggapan (10 % simpangan terbesar)",
     motionNote:
-      "Waktu dipercepat: satu detik layar = 4 tahun. Gangguan terjadi pada tahun ke-2. Kerangka merah bata = aliran energi (model piramida); isian kelabu = biomassa model rantai dinamis dibagi keseimbangannya; bulatan berisi = tingkat itu sudah menanggapi.",
+      "Waktu dipercepat: satu detik layar = {laju} tahun. Gangguan terjadi pada tahun ke-{tg}. Kerangka merah bata = aliran energi (model piramida); isian kelabu = biomassa model rantai dinamis dibagi keseimbangannya; bulatan berisi = tingkat itu sudah menanggapi.",
     dinamisNote:
-      "Model dinamis adalah rantai Lotka–Volterra linear dengan produsen tumbuh logistik (Oksanen dkk. 1981; Carpenter dkk. 1985). Laju makan dan kematian tiap tingkat angka tetap lembar ini, bukan dari sumber, jadi tundaan dan besar simpangannya gambaran pola, bukan ramalan lapangan. Efisiensi ε yang sama dipakai kedua model.",
+      "Model dinamis adalah rantai Lotka–Volterra linear dengan produsen tumbuh logistik (Oksanen dkk. 1981; Carpenter dkk. 1985). Laju makan dan kematian tiap tingkat angka tetap lembar ini, bukan dari sumber, jadi tundaan dan besar simpangannya gambaran pola, bukan ramalan lapangan. Laju tingkat 5 sampai 7 sengaja dipilih (makan makin besar, kematian makin kecil ke atas) supaya rantai yang panjang tetap bisa bertahan di keseimbangan. Efisiensi ε yang sama dipakai kedua model.",
     hE: "Energi tiap tingkat",
     hEn: "Energi di tingkat teratas",
     hFrac: "Bagian yang sampai ke puncak",
@@ -140,9 +141,9 @@ const TXT = {
     hEq: "Equilibrium of the dynamic chain",
     hLag: "Response lag (10 % of the largest deviation)",
     motionNote:
-      "Time is sped up: one screen second = 4 years. The disturbance happens in year 2. Brick-red outline = energy flow (pyramid model); grey fill = dynamic chain biomass divided by its equilibrium; filled dot = that level has responded.",
+      "Time is sped up: one screen second = {laju} years. The disturbance happens in year {tg}. Brick-red outline = energy flow (pyramid model); grey fill = dynamic chain biomass divided by its equilibrium; filled dot = that level has responded.",
     dinamisNote:
-      "The dynamic model is a linear Lotka–Volterra chain with logistic producers (Oksanen et al. 1981; Carpenter et al. 1985). The feeding and mortality rates of each level are this sheet's fixed figures, not from a source, so the lags and the size of the swings show the pattern, not a field forecast. The same efficiency ε is used by both models.",
+      "The dynamic model is a linear Lotka–Volterra chain with logistic producers (Oksanen et al. 1981; Carpenter et al. 1985). The feeding and mortality rates of each level are this sheet's fixed figures, not from a source, so the lags and the size of the swings show the pattern, not a field forecast. The rates of levels 5 to 7 are chosen on purpose (feeding rising and mortality falling up the chain) so that a long chain can still persist at equilibrium. The same efficiency ε is used by both models.",
     hE: "Energy at each level",
     hEn: "Energy at the top level",
     hFrac: "Fraction reaching the top",
@@ -175,6 +176,10 @@ const REFS = {
 /** Lama simulasi dan saat gangguan, tahun */
 const TAHUN = 60;
 const T_GANGGU = 2;
+/** Tahun model per detik layar animasi */
+const LAJU = 4;
+/** Batas atas sumbu rasio N/N*; deret di atasnya ditandai luapan */
+const Y_RASIO_MAKS = 6;
 /** Kursor waktu: satu definisi untuk penggeser dan pegangan di grafik */
 const P_TAHUN: ParamDef = { min: 0, max: TAHUN, step: 0.5, digits: 1 };
 /**
@@ -245,8 +250,6 @@ export function TingkatTrofikClient() {
   const bufN = useRef(new Float64Array(7));
   const bufSudah = useRef(new Uint8Array(7));
   const titik = useRef<[number, string][]>([]);
-  /** Tahun model per detik layar */
-  const LAJU = 4;
 
   const labelPiramida = {
     names: [...x.namaTingkat],
@@ -280,11 +283,21 @@ export function TingkatTrofikClient() {
     d.length = k;
   };
 
+  /* Sumbu tegak berhenti di Y_RASIO_MAKS supaya simpangan biasa tetap
+     terbaca. Deret yang melewatinya (contoh "Subur", ganggu tingkat 5,
+     tekan, f 0,1: rasio 6,42) ditandai di tepi atas: panah di jam
+     puncaknya dan tulisan nilai puncaknya (aturan 4). */
+  const yMaxGrafik = Math.min(Math.max(2, rasioMaks * 1.08), Y_RASIO_MAKS);
   const grafik = (ctx: CanvasRenderingContext2D, w: number, ch: number): PlateOut => {
     const deret: ChartSeries[] = [];
+    const luap: { t: number; v: number; i: number }[] = [];
     for (let i = 0; i < n; i++) {
       if (!(kas.equilibrium[i] > 0)) continue;
       const e = kas.equilibrium[i];
+      let kMaks = 0;
+      for (let k = 1; k < kas.t.length; k++) if (kas.biomass[k][i] > kas.biomass[kMaks][i]) kMaks = k;
+      const vMaks = kas.biomass[kMaks][i] / e;
+      if (vMaks > yMaxGrafik) luap.push({ t: kas.t[kMaks], v: vMaks, i });
       deret.push({
         pts: kas.t.map((tt, k) => ({ x: tt, y: kas.biomass[k][i] / e })),
         color: WARNA[i],
@@ -295,7 +308,7 @@ export function TingkatTrofikClient() {
         labelDy: -9,
       });
     }
-    return drawChart(
+    const out = drawChart(
       ctx,
       w,
       ch,
@@ -303,7 +316,13 @@ export function TingkatTrofikClient() {
         xMin: 0,
         xMax: TAHUN,
         yMin: 0,
-        yMax: Math.min(Math.max(2, rasioMaks * 1.08), 6),
+        yMax: yMaxGrafik,
+        regions: luap.map((l) => ({
+          x: l.t,
+          y: yMaxGrafik * 0.9,
+          text: `T${l.i + 1} ${t.offScale} ${fmt(l.v, 2)}`,
+          color: WARNA[l.i],
+        })),
         axisX: x.axTahun,
         axisY: x.axRasio,
         series: deret,
@@ -314,6 +333,22 @@ export function TingkatTrofikClient() {
       },
       lang
     );
+    /* Panah luapan di tepi atas bidang, pada jam puncak deret itu */
+    const f = out.map.frame;
+    for (const l of luap) {
+      const px = Math.round(Math.min(Math.max(out.map.X(l.t), f.x0 + 6), f.x1 - 6)) + 0.5;
+      ctx.strokeStyle = WARNA[l.i];
+      ctx.lineWidth = W.thin;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(px - 4, f.y0 + 9);
+      ctx.lineTo(px, f.y0 + 4);
+      ctx.lineTo(px + 4, f.y0 + 9);
+      ctx.moveTo(px, f.y0 + 4);
+      ctx.lineTo(px, f.y0 + 14);
+      ctx.stroke();
+    }
+    return out;
   };
 
   const plate = usePlate(
@@ -442,7 +477,7 @@ export function TingkatTrofikClient() {
           title={x.sheetTitle}
           rev="A"
           height="clamp(560px, 82vh, 860px)"
-          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: x.motionNote }}
+          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: x.motionNote.replace("{laju}", fmt(LAJU, 0)).replace("{tg}", fmt(T_GANGGU, 0)) }}
           cells={[
             { label: t.tbUnit, value: `SI (${x.satE})` },
             { label: "P", value: `${fmt(P, 0)}` },
@@ -488,6 +523,8 @@ export function TingkatTrofikClient() {
                   type="button"
                   role="radio"
                   aria-checked={lv === i}
+                  tabIndex={lv === i ? 0 : -1}
+                  onKeyDown={panahRadio}
                   onClick={() => ganggu(i)}
                   className={`label pb-px text-[0.8rem] transition-colors ${
                     lv === i
@@ -507,6 +544,8 @@ export function TingkatTrofikClient() {
                   type="button"
                   role="radio"
                   aria-checked={jenis === j}
+                  tabIndex={jenis === j ? 0 : -1}
+                  onKeyDown={panahRadio}
                   onClick={() => { setJenis(j); sentuh.current(); }}
                   className={`label pb-px text-[0.8rem] transition-colors ${
                     jenis === j

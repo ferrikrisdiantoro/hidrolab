@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -363,6 +364,7 @@ export function InputRow({
   onChange,
   tint,
   editable = true,
+  penanda,
 }: {
   symbol: string;
   label: string;
@@ -376,6 +378,12 @@ export function InputRow({
   tint?: string;
   /** Kotak angka yang bisa diketik di samping penggeser. Bawaan: ya. */
   editable?: boolean;
+  /**
+   * Penanda dari lembar, misalnya nilai yang digeser karena batas rentangnya
+   * mengecil (aturan 4). Tampil di tempat catatan kotak bila kotak sendiri
+   * tidak sedang punya catatan; lembar yang memadamkannya saat nilai diubah.
+   */
+  penanda?: string | null;
 }) {
   const lingkup = useContext(PresetContext);
   const { lang } = useLang();
@@ -483,6 +491,7 @@ export function InputRow({
         ? `${t.inReadAs} ${angkaTafsir(catatan.tafsir)}${ubah ? `, ${ubah}` : ""}`
         : ubah;
   }
+  if (!teksCatatan && penanda) teksCatatan = penanda;
   // Lebar kotak menurut angka terpanjang di rentangnya, supaya kolom nilai
   // tidak melebar dan tidak bergoyang saat angkanya berubah. Yang diukur
   // dua bentuk: tampilan diam (fmt, dengan pemisah ribuan "1.200") dan
@@ -784,6 +793,37 @@ export function Block({
       </section>
     </PresetContext.Provider>
   );
+}
+
+/**
+ * Papan tombol untuk kelompok tombol role="radio" (pola WAI-ARIA radio group).
+ *
+ * Pasang pada onKeyDown tiap tombol radio, dan beri tabIndex 0 hanya pada
+ * yang terpilih (roving tabindex): Tab masuk ke pilihan yang berlaku, panah
+ * kanan/bawah dan kiri/atas pindah ke tetangganya (berputar), Home dan End ke
+ * ujung. Pilihan ikut fokus: tombol tujuan diklik, jadi onClick-nya yang
+ * menyetel nilai, satu jalur dengan tetikus.
+ */
+export function panahRadio(e: KeyboardEvent<HTMLElement>) {
+  const kunci = e.key;
+  if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(kunci)) return;
+  const grup = e.currentTarget.closest('[role="radiogroup"]');
+  if (!grup) return;
+  const radio = Array.from(grup.querySelectorAll<HTMLElement>('[role="radio"]'));
+  const i = radio.indexOf(e.currentTarget);
+  if (i < 0 || radio.length === 0) return;
+  e.preventDefault();
+  const n = radio.length;
+  const j =
+    kunci === "Home"
+      ? 0
+      : kunci === "End"
+        ? n - 1
+        : kunci === "ArrowRight" || kunci === "ArrowDown"
+          ? (i + 1) % n
+          : (i - 1 + n) % n;
+  radio[j].focus();
+  radio[j].click();
 }
 
 /** Catatan naratif. Serif, karena ini kalimat yang dibaca, bukan data. */

@@ -75,7 +75,7 @@ const TXT = {
     lSchematic: "penampang skematik",
     lReversed: "q negatif, tidak berlaku",
     motionNote:
-      "Waktu dipercepat: satu detik layar = 24 hari. Yang dihitung model hanya satu tinggi muka air h; lengkung muka air di penampang dan letak sumur skematik, dan muka sungai tetap karena aliran sungai ke akuifer tidak dimodelkan.",
+      "Waktu dipercepat: satu detik layar = {laju} hari. Yang dihitung model hanya satu tinggi muka air h; lengkung muka air di penampang dan letak sumur skematik, dan muka sungai tetap karena aliran sungai ke akuifer tidak dimodelkan.",
     hTau: "Tetapan waktu akuifer",
     hMean: "Muka air rata-rata",
     hAmp: "Peredaman dan simpangan",
@@ -126,7 +126,7 @@ const TXT = {
     lSchematic: "schematic section",
     lReversed: "q negative, invalid",
     motionNote:
-      "Time is sped up: one screen second = 24 days. The model computes a single water table height h; the curved table in the section and the well position are schematic, and the river level is fixed because river-to-aquifer flow is not modelled.",
+      "Time is sped up: one screen second = {laju} days. The model computes a single water table height h; the curved table in the section and the well position are schematic, and the river level is fixed because river-to-aquifer flow is not modelled.",
     hTau: "Aquifer time constant",
     hMean: "Mean water table",
     hAmp: "Damping and swing",
@@ -468,7 +468,7 @@ export function ResponsAirTanahClient() {
           title={x.sheetTitle}
           rev="A"
           height="clamp(560px, 82vh, 860px)"
-          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: x.motionNote }}
+          motion={{ playing, onToggle: putar, allowed: plate.motionAllowed, note: x.motionNote.replace("{laju}", fmt(LAJU, 0)) }}
           cells={[
             { label: t.tbUnit, value: lang === "id" ? "SI (m, mm/hari)" : "SI (m, mm/day)" },
             { label: "τ", value: `${fmt(r.tau, 0)} ${lang === "id" ? "hari" : "d"}`, tint: C.critical },

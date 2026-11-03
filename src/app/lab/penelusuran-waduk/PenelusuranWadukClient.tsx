@@ -63,6 +63,7 @@ const TXT = {
     sedia: "Waduk meredam",
     hBase: "Waktu dasar hidrograf masuk (titik kendali terakhir)",
     dKursor: "Kursor waktu, jam ke-",
+    kursorJepit: "digeser ke {v} h karena hidrograf memendek",
     gPuncak: "Puncak banjir masuk Ip dan tp, seret titik puncak ke mana saja",
     gTitik: "Titik kendali {i} hidrograf masuk, seret ke mana saja",
     dibatasiTitik: "titik {i} digeser: urutan waktu dan puncak dijaga",
@@ -118,6 +119,7 @@ const TXT = {
     sedia: "Reservoir attenuates",
     hBase: "Base time of the inflow hydrograph (last control point)",
     dKursor: "Time cursor, hour",
+    kursorJepit: "moved to {v} h because the hydrograph got shorter",
     gPuncak: "Inflow peak Ip and tp, drag the peak point anywhere",
     gTitik: "Inflow hydrograph control point {i}, drag anywhere",
     dibatasiTitik: "point {i} moved: time order and peak kept",
@@ -170,11 +172,19 @@ const P_IP: ParamDef = { min: 5, max: 2000, step: 5, digits: 0 };
 const P_TP: ParamDef = { min: 0.5, max: 36, step: 0.5, digits: 1 };
 const P_T: ParamDef = { min: 0, max: 150, step: 0.1, digits: 1 };
 const P_Q: ParamDef = { min: 0, max: 2000, step: 1, digits: 0 };
-const P_KURSOR: ParamDef = { min: 0, max: 250, step: 0.1, digits: 1 };
+/** Kursor waktu: batas atasnya ekor hidrograf tEkor, dihitung di dalam lembar. */
+const LANGKAH_KURSOR = 0.1;
+/** Membulatkan ke bawah ke kelipatan 0,1 jam (pembagian 10 supaya tidak 25,500000000000004). */
+const keBawahKursor = (v: number) => Math.floor(v * 10 + 1e-9) / 10;
 /** Jarak waktu terkecil antartitik kendali, jam */
 const SELA = 0.25;
 
-/** Lima titik meniru hidrograf segitiga lama: 0, tp/2, tp, tengah sisi turun, tb = 2,67 tp. */
+/**
+ * Lima titik kendali awal: 0, tp/2, tp, tengah sisi turun, tb = 2,67 tp.
+ * Letaknya mengikuti hidrograf segitiga SCS, tetapi kurva di antaranya
+ * sambungan kubik monoton Fritsch–Carlson (hidrografDariTitik "monoton"),
+ * bukan garis lurus.
+ */
 function titikAwal(Ip: number, tp: number): TitikHidrograf[] {
   const tb = 2.67 * tp;
   return [
@@ -245,6 +255,24 @@ export function PenelusuranWadukClient() {
   const tb = titik[4].t;
   const tEkor = 1.6 * tb;
   const dtKisi = tEkor / 160;
+  /* Kursor waktu hanya sampai ekor hidrograf: satu ParamDef untuk penggeser
+     dan kotak angkanya. Bila tEkor mengecil di bawah kursor, kursor digeser
+     ke ujung baru dan diberi penanda di bawah kotaknya (aturan 4). */
+  const P_KURSOR: ParamDef = {
+    min: 0,
+    max: keBawahKursor(tEkor),
+    step: LANGKAH_KURSOR,
+    digits: 1,
+  };
+  const [kursorJepit, setKursorJepit] = useState<number | null>(null);
+  if (kursor > P_KURSOR.max) {
+    setKursor(P_KURSOR.max);
+    setKursorJepit(P_KURSOR.max);
+  }
+  const ubahKursor = (v: number) => {
+    setKursorJepit(null);
+    setKursor(v);
+  };
   const masuk = hidrografDariTitik([...titik, { t: tEkor, Q: 0 }], dtKisi, "monoton");
 
   const area = areaHa * 1e4;
@@ -362,7 +390,7 @@ export function PenelusuranWadukClient() {
   const plate = usePlate(
     (ctx, w, h) => {
       const hRes = Math.round(Math.min(Math.max(h * 0.38, 160), 270));
-      const tK = Math.min(kursor, tEkor);
+      const tK = kursor;
       const k = { inflow: 0, outflow: 0, head: 0, storage: 0 };
       readRouting(r.points, tK, k);
       const res = drawReservoir(
@@ -431,10 +459,11 @@ export function PenelusuranWadukClient() {
   );
 
   const putar = () => {
-    if (playing) setKursor(Math.round(mulai.current.kini * 10) / 10);
+    // Dibulatkan ke bawah supaya tetap di dalam P_KURSOR (kini < tEkor).
+    if (playing) ubahKursor(keBawahKursor(mulai.current.kini));
     else {
       mulai.current.tt = null;
-      mulai.current.t = Math.min(kursor, tEkor);
+      mulai.current.t = kursor;
     }
     togglePutar();
   };
@@ -564,7 +593,7 @@ export function PenelusuranWadukClient() {
               <InputRow symbol="b" label={x.dB} value={b} min={2} max={200} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} />
               <InputRow symbol="Cd" label={x.dCd} value={Cd} min={0.5} max={0.75} step={0.005} digits={3} onChange={setCd} />
-              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={setKursor} />
+              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={ubahKursor} penanda={kursorJepit !== null && kursorJepit === kursor ? x.kursorJepit.replace("{v}", fmt(kursorJepit, 1)) : null} />
             </InputTable>
             <SentuhContoh sentuh={sentuh} />
 

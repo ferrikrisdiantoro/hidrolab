@@ -76,6 +76,7 @@ const TXT = {
     hPeak: "Puncak hasil penjumlahan pias",
     hCek: "Pemeriksaan isi",
     dKursor: "Kursor waktu, jam ke-",
+    kursorJepit: "digeser ke {v} h karena hidrograf memendek",
     gPias: "Hujan pias {i}, seret batang hyetograph naik atau turun",
     gPilih: "Hyetograph, seret ke kiri atau kanan memilih pias dan naik atau turun mengatur hujannya",
     lCatchment: "DAS",
@@ -133,6 +134,7 @@ const TXT = {
     hPeak: "Peak of the summed blocks",
     hCek: "Volume check",
     dKursor: "Time cursor, hour",
+    kursorJepit: "moved to {v} h because the hydrograph got shorter",
     gPias: "Rain block {i}, drag the hyetograph bar up or down",
     gPilih: "Hyetograph, drag left or right to pick a block and up or down to set its rain",
     lCatchment: "catchment",
@@ -175,11 +177,17 @@ const REFS = {
   ],
 } as const;
 
-/** Rentang hujan satu pias: satu definisi untuk pegangan batang. */
-const P_PIAS: ParamDef = { min: 0, max: 150, step: 0.5, digits: 1 };
 /** Hujan total: penggeser P menskalakan seluruh batang. */
 const P_TOTAL: ParamDef = { min: 5, max: 600, step: 0.1, digits: 1 };
-const P_KURSOR: ParamDef = { min: 0, max: 120, step: 0.1, digits: 1 };
+/** Rentang hujan satu pias: satu definisi untuk pegangan batang. Batas atasnya
+    sama dengan P total, karena penggeser P bisa menaruh seluruh hujan di satu
+    pias (D 1 h, tc 14 h: satu pias 600 mm), sehingga nilai batang selalu di
+    dalam rentang pegangannya. Jumlah batang tetap dibatasi P_TOTAL.max di setBlok. */
+const P_PIAS: ParamDef = { min: 0, max: P_TOTAL.max, step: 0.5, digits: 1 };
+/** Kursor waktu: batas atasnya ujung deret tAkhir, dihitung di dalam lembar. */
+const LANGKAH_KURSOR = 0.1;
+/** Membulatkan ke bawah ke kelipatan 0,1 jam (pembagian 10 supaya tidak 13,100000000000001). */
+const keBawahKursor = (v: number) => Math.floor(v * 10 + 1e-9) / 10;
 const N_PIAS_MAKS = 24;
 
 /** Hujan total dibagi rata ke n pias. */
@@ -248,6 +256,19 @@ export function HidrografBanjirClient() {
   const bidang = kunci ?? bebas;
 
   const tAkhir = r.points[r.points.length - 1].t;
+  /* Kursor waktu hanya sampai ujung deret: satu ParamDef untuk penggeser dan
+     kotak angkanya. Bila tAkhir mengecil di bawah kursor, kursor digeser ke
+     ujung baru dan diberi penanda di bawah kotaknya (aturan 4). */
+  const P_KURSOR: ParamDef = { min: 0, max: keBawahKursor(tAkhir), step: LANGKAH_KURSOR, digits: 1 };
+  const [kursorJepit, setKursorJepit] = useState<number | null>(null);
+  if (kursor > P_KURSOR.max) {
+    setKursor(P_KURSOR.max);
+    setKursorJepit(P_KURSOR.max);
+  }
+  const ubahKursor = (v: number) => {
+    setKursorJepit(null);
+    setKursor(v);
+  };
   const [pilih, setPilih] = useState(0);
   const lebarBatang = useRef(0);
   const rainMax = Math.max(...blok) / dD;
@@ -341,7 +362,7 @@ export function HidrografBanjirClient() {
   const plate = usePlate(
     (ctx, w, h) => {
       const hDas = Math.round(Math.min(Math.max(h * 0.34, 150), 240));
-      const tK = Math.min(kursor, tAkhir);
+      const tK = kursor;
       const k = { Q: 0, rain: 0 };
       readHydrograph(r.points, tK, k);
       const das = drawCatchment(
@@ -395,10 +416,11 @@ export function HidrografBanjirClient() {
   );
 
   const putar = () => {
-    if (playing) setKursor(Math.round(mulai.current.kini * 10) / 10);
+    // Dibulatkan ke bawah supaya tetap di dalam P_KURSOR (kini < tAkhir).
+    if (playing) ubahKursor(keBawahKursor(mulai.current.kini));
     else {
       mulai.current.tt = null;
-      mulai.current.t = Math.min(kursor, tAkhir);
+      mulai.current.t = kursor;
     }
     togglePutar();
   };
@@ -526,7 +548,7 @@ export function HidrografBanjirClient() {
               <InputRow symbol="CN" label={x.dCN} value={CN} min={30} max={100} step={1} digits={0} onChange={setCN} tint={C.critical} />
               <InputRow symbol="A" label={x.dA} value={A} min={1} max={1000} step={1} digits={0} unit="km²" onChange={setA} />
               <InputRow symbol="tc" label={x.dTc} value={tc} min={0.3} max={24} step={0.1} digits={1} unit="h" onChange={setTc} tint={C.energy} />
-              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={setKursor} />
+              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={ubahKursor} penanda={kursorJepit !== null && kursorJepit === kursor ? x.kursorJepit.replace("{v}", fmt(kursorJepit, 1)) : null} />
             </InputTable>
             <SentuhContoh sentuh={sentuh} />
 
