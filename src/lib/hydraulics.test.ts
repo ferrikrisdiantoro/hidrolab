@@ -24,6 +24,7 @@ import {
   normalDepth,
   notchCe,
   notchDischarge,
+  notchKh,
   rectGeometry,
   reynolds,
   FLUME_C,
@@ -465,6 +466,34 @@ describe("Ambang ukur V", () => {
       assert.ok(Q > prev, `Q harus naik pada H=${H.toFixed(2)}`);
       prev = Q;
     }
+  });
+
+  /* kh fungsi sudut. Sumber: USBR Water Measurement Manual (1997, ed. 3
+     rev. 2001) bab 7 bagian 7, Gambar 7-6a "Head correction factor, kh,
+     for V-notches of any angle" (Kulin dan Compton 1975, NBS). Nilai dibaca
+     dari gambar (digitasi piksel, 1 piksel = 0,0001 ft = 0,03 mm), jadi
+     toleransi baca grafik 0,06 mm. */
+  it("kh(θ) mengikuti Gambar 7-6a USBR WMM: 0,85 mm pada 90°, membesar pada sudut lancip", () => {
+    const mm = (v: number) => v * 1000;
+    close(mm(notchKh(90)), 0.85, 1e-9, "kh 90° = 0,85 mm (ISO 1438, USBR Gb. 7-6a)");
+    const bacaGrafik: [number, number][] = [
+      [20, 2.8], [30, 2.1], [45, 1.51], [60, 1.14], [80, 0.91], [100, 0.83],
+    ];
+    for (const [th, khMm] of bacaGrafik) {
+      assert.ok(Math.abs(mm(notchKh(th)) - khMm) <= 0.06, `kh(${th}°)=${mm(notchKh(th))} mm, grafik ${khMm} mm`);
+    }
+    for (let th = 21; th <= 100; th++) {
+      assert.ok(notchKh(th) <= notchKh(th - 1), `kh tidak naik pada ${th}°`);
+    }
+  });
+
+  it("notchDischarge memakai kh(θ), bukan 0,85 mm tetap", () => {
+    for (const th of [30, 60, 90]) {
+      const r = notchDischarge(0.1, th);
+      close(r.he, 0.1 + notchKh(th), 1e-15, `he pada ${th}°`);
+      close(r.kh, notchKh(th), 1e-15, `kh pada ${th}°`);
+    }
+    assert.ok(notchDischarge(0.1, 30).he - 0.1 > 0.002, "kh 30° sekitar 2,1 mm");
   });
 
   it("tidak menghasilkan nilai negatif pada tinggi muka air nol", () => {

@@ -1132,13 +1132,56 @@ export function transition(inp: TransitionInput): TransitionResult {
  * Ambang ukur V (thin-plate V-notch weir)
  * ------------------------------------------------------------------ */
 
-/** Tinggi tambahan yang memperhitungkan tegangan permukaan dan kekentalan. */
+/**
+ * Tinggi tambahan kh untuk takik 90 derajat (tegangan permukaan dan
+ * kekentalan). Hanya berlaku untuk 90°; sudut lain pakai notchKh(θ).
+ */
 export const NOTCH_KH = 0.00085;
+
+/**
+ * Titik kurva kh terhadap sudut takik, [θ derajat, kh mm].
+ *
+ * Sumber: USBR Water Measurement Manual (ed. 3, 1997, rev. 2001), bab 7
+ * bagian 7, Gambar 7-6a "Head correction factor, kh, for V-notches of any
+ * angle" (dari Kulin dan Compton 1975, National Bureau of Standards),
+ * kurva Kindsvater-Shen yang sama dengan ISO 1438. Dibaca lewat digitasi
+ * piksel gambar F07_06A.GIF (sumbu 0–0,012 ft; 1 piksel = 0,0001 ft
+ * = 0,03 mm), lalu ft dikali 304,8. Kurva berakhir sekitar 98°, nilai 100°
+ * diambil dari ujung kurva yang sudah mendatar. Pembanding: pas polinom
+ * LMNO Engineering atas kurva yang sama memberi 2,13 / 1,50 / 1,13 /
+ * 0,88 mm pada 30 / 45 / 60 / 90°.
+ */
+const NOTCH_KH_TABLE: readonly (readonly [number, number])[] = [
+  [20, 2.8], [25, 2.41], [30, 2.1], [35, 1.84], [40, 1.67], [45, 1.51],
+  [50, 1.35], [60, 1.14], [70, 0.99], [80, 0.91], [90, 0.85], [100, 0.83],
+];
+
+/**
+ * kh (m) fungsi sudut takik, interpolasi linear pada NOTCH_KH_TABLE.
+ * Di luar 20–100° nilainya ditahan pada ujung tabel (kurva sumber tidak
+ * melewati rentang itu; di atas 100° kurvanya sudah datar).
+ */
+export function notchKh(thetaDeg: number): number {
+  const tb = NOTCH_KH_TABLE;
+  const t = Math.min(tb[tb.length - 1][0], Math.max(tb[0][0], thetaDeg));
+  for (let i = 1; i < tb.length; i++) {
+    const [t1, k1] = tb[i];
+    if (t <= t1) {
+      const [t0, k0] = tb[i - 1];
+      return ((k0 + ((k1 - k0) * (t - t0)) / (t1 - t0)) / 1000);
+    }
+  }
+  return tb[tb.length - 1][1] / 1000;
+}
 
 /**
  * Koefisien debit efektif untuk ambang V berdinding tipis dengan
  * kontraksi penuh. Nilainya bergantung sudut takik, terendah di sekitar
- * 90 derajat dan naik pada sudut yang lebih lancip.
+ * 72 derajat dan naik pada sudut yang lebih lancip.
+ *
+ * Polinom pas LMNO Engineering atas kurva Ce–θ Kindsvater-Shen; dicek
+ * terhadap USBR WMM bab 7 Gambar 7-6b (digitasi: 0,591 pada 21°, 0,577
+ * pada 60°, 0,578 pada 90°), selisih di bawah 0,001.
  */
 export function notchCe(thetaDeg: number): number {
   const t = Math.min(120, Math.max(20, thetaDeg));
@@ -1151,6 +1194,8 @@ export type NotchOutOfRange = "tinggi-rendah" | "tinggi-tinggi" | "sudut" | null
 export type NotchResult = {
   Q: number;
   Ce: number;
+  /** Koreksi tinggi kh (m) pada sudut ini, notchKh(θ) */
+  kh: number;
   he: number;
   /** Benar bila tinggi muka air atau sudut takik di luar rentang keberlakuan rumus */
   outOfRange: boolean;
@@ -1170,7 +1215,8 @@ export type NotchResult = {
  */
 export function notchDischarge(H: number, thetaDeg: number): NotchResult {
   const Ce = notchCe(thetaDeg);
-  const he = Math.max(0, H) + NOTCH_KH;
+  const kh = notchKh(thetaDeg);
+  const he = Math.max(0, H) + kh;
   const theta = (thetaDeg * Math.PI) / 180;
   const Q =
     (8 / 15) * Ce * Math.sqrt(2 * G) * Math.tan(theta / 2) * Math.pow(he, 2.5);
@@ -1182,7 +1228,7 @@ export function notchDischarge(H: number, thetaDeg: number): NotchResult {
         : thetaDeg < NOTCH_THETA_MIN || thetaDeg > NOTCH_THETA_MAX
           ? "sudut"
           : null;
-  return { Q, Ce, he, outOfRange: reason !== null, reason };
+  return { Q, Ce, kh, he, outOfRange: reason !== null, reason };
 }
 
 /**
