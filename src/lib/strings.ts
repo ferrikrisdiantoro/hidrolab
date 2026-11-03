@@ -108,6 +108,19 @@ export const S = {
     motionToggle: "Animasi",
     motionPlay: "Putar animasi",
     motionPause: "Jeda animasi",
+    /* tampak gambar dan tombol pandang 3D (Sheet views, TombolPandang) */
+    viewLabel: "Tampak",
+    viewSection: "Potongan",
+    viewIso: "Isometrik",
+    viewControls: "Arah pandang gambar isometrik",
+    viewLeft: "Putar benda ke kiri",
+    viewRight: "Putar benda ke kanan",
+    viewUp: "Pandang lebih dari atas",
+    viewDown: "Pandang lebih mendatar",
+    viewHome: "Pandangan awal",
+    viewYaw: "arah",
+    viewPitch: "angkat",
+    viewSurface: "Gambar isometrik. Seret area kosong gambar atau tekan tombol panah untuk memutar, Home untuk pandangan awal.",
   },
 
   en: {
@@ -203,6 +216,18 @@ export const S = {
     motionToggle: "Animation",
     motionPlay: "Play animation",
     motionPause: "Pause animation",
+    viewLabel: "View",
+    viewSection: "Section",
+    viewIso: "Isometric",
+    viewControls: "Isometric view direction",
+    viewLeft: "Turn the object left",
+    viewRight: "Turn the object right",
+    viewUp: "View more from above",
+    viewDown: "View more level",
+    viewHome: "Initial view",
+    viewYaw: "azimuth",
+    viewPitch: "elevation",
+    viewSurface: "Isometric drawing. Drag an empty part of the drawing or press the arrow keys to turn it, Home for the initial view.",
   },
 } as const;
 

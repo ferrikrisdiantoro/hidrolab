@@ -140,6 +140,72 @@ function MotionToggle({ motion }: { motion: SheetMotion }) {
   );
 }
 
+/**
+ * Pilihan tampak gambar (D2 Phase 3): gambar 2D lama lawan isometrik.
+ * Lembar memegang keadaannya sendiri dan memberi isi bidang gambar yang
+ * sesuai sebagai children; Sheet hanya menggambar tombol segmen, alat
+ * tampak (tombol pandang) dan catatan tampak.
+ */
+export type SheetView = "potongan" | "isometrik";
+
+export type SheetViews = {
+  aktif: SheetView;
+  onChange: (v: SheetView) => void;
+  /**
+   * Nama tampak 2D lembar ini bila bukan potongan (mis. "Tampak atas"),
+   * sudah dalam bahasa lembar. Bawaan: "Potongan" / "Section".
+   */
+  label2D?: string;
+  /** Alat di kanan tombol segmen, hanya saat isometrik (TombolPandang). */
+  alat?: ReactNode;
+  /** Catatan di bawah gambar saat isometrik (apa yang skematik). */
+  catatan?: string;
+};
+
+/**
+ * Tombol segmen tampak. Dua tombol aria-pressed, bukan tab: isi bidang
+ * gambar tetap satu figur yang sama, hanya cara menggambarnya berganti.
+ * Yang aktif bergaris tinta tebal di bawah seperti tombol contoh, supaya
+ * kosakata "sedang dipakai" di seluruh lembar satu.
+ */
+function PilihTampak({ views }: { views: SheetViews }) {
+  const t = str(useLang().lang);
+  const pilihan: { v: SheetView; label: string }[] = [
+    { v: "potongan", label: views.label2D ?? t.viewSection },
+    { v: "isometrik", label: t.viewIso },
+  ];
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 border-b border-rule px-3.5">
+      <div role="group" aria-label={t.viewLabel} className="flex items-center gap-x-3">
+        <span className="stencil">{t.viewLabel}</span>
+        {pilihan.map(({ v, label }) => {
+          const nyala = views.aktif === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={nyala}
+              onClick={() => views.onChange(v)}
+              className="group flex h-11 items-center outline-none"
+            >
+              <span
+                className={`label pb-px text-[0.8rem] transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-water ${
+                  nyala
+                    ? "border-b-2 border-ink font-semibold text-ink"
+                    : "border-b border-rule-strong text-ink-2 group-hover:border-ink group-hover:text-ink"
+                }`}
+              >
+                {label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {views.aktif === "isometrik" && views.alat}
+    </div>
+  );
+}
+
 export function Sheet({
   number,
   title,
@@ -148,6 +214,7 @@ export function Sheet({
   height = "clamp(360px, 56vh, 620px)",
   rev = "—",
   motion,
+  views,
 }: {
   number: string;
   title: string;
@@ -160,12 +227,19 @@ export function Sheet({
    * Tanpa prop ini tampilan Sheet persis seperti sebelumnya.
    */
   motion?: SheetMotion;
+  /**
+   * Tombol segmen Potongan | Isometrik di atas bidang gambar, dan catatan
+   * tampak di bawahnya saat isometrik. Tanpa prop ini tampilan Sheet persis
+   * seperti sebelumnya (tidak ada elemen tambahan sama sekali).
+   */
+  views?: SheetViews;
 }) {
   const { lang } = useLang();
   const t = str(lang);
 
   return (
     <figure className="sheet">
+      {views && <PilihTampak views={views} />}
       <div className="relative w-full" style={{ height }}>
         {children}
         {motion?.allowed && <MotionToggle motion={motion} />}
@@ -179,6 +253,12 @@ export function Sheet({
       {motion?.allowed && motion.note && (
         <p className="label border-t border-rule px-3.5 py-1 text-[0.68rem] leading-snug text-ink-2">
           {motion.note}
+        </p>
+      )}
+
+      {views?.aktif === "isometrik" && views.catatan && (
+        <p className="label border-t border-rule px-3.5 py-1 text-[0.68rem] leading-snug text-ink-2">
+          {views.catatan}
         </p>
       )}
 
