@@ -13,7 +13,12 @@ import {
   Sheet,
   StateCard,
   Term,
+  type SheetView,
 } from "@/components/ui";
+import { TombolPandang } from "@/components/Pandangan";
+import { usePandangan } from "@/lib/usePandangan";
+import { drawIsoLabirin } from "@/lib/drawIsoLabirin";
+import { ISO } from "@/lib/proyeksi";
 import { useCanvas } from "@/lib/useCanvas";
 import {
   drawStructure,
@@ -39,6 +44,11 @@ const TXT = {
   id: {
     title: "Bendung labirin",
     sheetTitle: "Bendung labirin trapesium — tampak atas dan perlipatan panjang mercu",
+    tampakAtas: "Tampak atas",
+    isoHeading: "tampak isometrik",
+    isoCatatan: (t: string) =>
+      `Isometrik skematik. Tebal dinding tidak ada di model; digambar ${t}. Tirai luapan dan air di dalam siklus belum digambar, muka air hulu datar setinggi P + h.`,
+    isoTebal: (pct: string, min: string) => `${pct} % lebar siklus, paling tipis ${min} m`,
     dH: "Tinggi muka air di atas mercu",
     dP: "Tinggi mercu",
     dW: "Lebar saluran",
@@ -91,6 +101,11 @@ const TXT = {
   en: {
     title: "Labyrinth weir",
     sheetTitle: "Trapezoidal labyrinth weir — plan view and crest length magnification",
+    tampakAtas: "Plan view",
+    isoHeading: "isometric view",
+    isoCatatan: (t: string) =>
+      `Schematic isometric. Wall thickness is not in the model; it is drawn as ${t}. The nappes and the water inside the cycles are not drawn yet, and the upstream water level is flat at P + h.`,
+    isoTebal: (pct: string, min: string) => `${pct} % of the cycle width, at least ${min} m`,
     dH: "Water level above the crest",
     dP: "Crest height",
     dW: "Channel width",
@@ -168,6 +183,11 @@ export function BendungLabirinClient() {
   const [Wch, setWch] = useState(30);
   const [cycles, setCycles] = useState(6);
   const [B, setB] = useState(6);
+
+  /* Tampak gambar (Phase 3 pilot 3D). Bawaan = tampak atas lama, jadi
+     lembar yang dibuka tanpa disentuh tetap menggambar apa yang dulu. */
+  const [tampak, setTampak] = useState<SheetView>("potongan");
+  const pandang = usePandangan({ yaw: -ISO.yaw, pitch: ISO.pitch });
 
   const r = labyrinthWeir(h, P, Wch, cycles, B);
 
@@ -272,6 +292,30 @@ export function BendungLabirinClient() {
     [h, P, Wch, cycles, B, lang]
   );
 
+  /* Tampak isometrik: kanvas kedua di pembungkus yang menerima seret dan
+     panah. Keduanya selalu terpasang (yang tidak aktif disembunyikan),
+     karena useCanvas mengamati ukuran induk kanvas sejak pasang: kanvas
+     yang baru lahir sesudah ganti tampak tidak akan ikut digambar ulang
+     saat ukuran layar berubah. Pembungkus isometrik yang muncul berubah
+     ukuran dari 0, jadi pengamat ukuran menggambarnya saat itu juga. */
+  const refIso = useCanvas(
+    (ctx, cw, chh) => {
+      if (tampak !== "isometrik") return;
+      drawIsoLabirin(
+        ctx,
+        cw,
+        chh,
+        { h, P, W: Wch, cycles, B, outOfRange: sempit || r.interference },
+        {
+          yaw: pandang.yaw,
+          pitch: pandang.pitch,
+          heading: sempit ? x.tajam : r.interference ? T.nappeMeet : x.isoHeading,
+        }
+      );
+    },
+    [tampak, pandang.yaw, pandang.pitch, h, P, Wch, cycles, B, lang]
+  );
+
   return (
     <LabShell
       status={
@@ -336,8 +380,28 @@ export function BendungLabirinClient() {
               tint: r.interference ? C.signal : undefined,
             },
           ]}
+          views={{
+            aktif: tampak,
+            onChange: setTampak,
+            label2D: x.tampakAtas,
+            alat: <TombolPandang p={pandang} />,
+            catatan: x.isoCatatan(x.isoTebal(fmt(5, 0), fmt(0.12, 2))),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas
+            ref={ref}
+            className={`${tampak === "isometrik" ? "hidden" : "block"} h-full w-full`}
+          />
+          <div
+            {...pandang.permukaan}
+            role="application"
+            aria-label={t.viewSurface}
+            className={`absolute inset-0 select-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-water ${
+              tampak === "isometrik" ? "" : "hidden"
+            }`}
+          >
+            <canvas ref={refIso} className="block h-full w-full" />
+          </div>
         </Sheet>
       }
       side={
