@@ -20,7 +20,6 @@ import {
   G,
   NOTCH_H_MAX,
   NOTCH_H_MIN,
-  NOTCH_KH,
   NOTCH_THETA_MAX,
   NOTCH_THETA_MIN,
   fmt,
@@ -65,7 +64,7 @@ const TXT = {
     hQ: "Debit",
     hS: "Kepekaan terhadap salah baca 1 mm",
     hRendah: "H di bawah 5 cm: rumus pangkat 5/2 tidak berlaku",
-    note: "Rumus ambang V berdinding tipis berlaku untuk kontraksi penuh, yaitu bila jarak takik ke dasar dan ke dinding saluran cukup besar sehingga aliran mendekat tidak terganggu. Tinggi efektif memakai tambahan kh sebesar 0,85 mm yang memperhitungkan tegangan permukaan dan kekentalan; koreksi kecil ini nyaris tidak berpengaruh pada tinggi muka air besar, tetapi menjadi penting pada tinggi kecil. Di bawah sekitar 5 cm, tegangan permukaan mulai menguasai dan rumus pangkat lima per dua berhenti berlaku — daerah itu digambar dengan garis titik rapat, bukan disembunyikan.",
+    note: "Rumus ambang V berdinding tipis berlaku untuk kontraksi penuh, yaitu bila jarak takik ke dasar dan ke dinding saluran cukup besar sehingga aliran mendekat tidak terganggu. Tinggi efektif memakai tambahan kh yang memperhitungkan tegangan permukaan dan kekentalan, dibaca dari kurva kh terhadap sudut takik (USBR Water Measurement Manual Gb. 7-6a: 0,85 mm pada 90°, 2,1 mm pada 30°); koreksi kecil ini nyaris tidak berpengaruh pada tinggi muka air besar, tetapi menjadi penting pada tinggi kecil. Di bawah sekitar 5 cm, tegangan permukaan mulai menguasai dan rumus pangkat lima per dua berhenti berlaku — daerah itu digambar dengan garis titik rapat, bukan disembunyikan.",
   },
   en: {
     title: "V-notch weir",
@@ -97,7 +96,7 @@ const TXT = {
     hQ: "Discharge",
     hS: "Sensitivity to a 1 mm misreading",
     hRendah: "H below 5 cm: the five-halves power law does not hold",
-    note: "The thin-plate V-notch formula applies to fully contracted conditions, that is when the notch sits far enough from the channel bed and walls for the approach flow to be undisturbed. The effective head includes a correction kh of 0.85 mm accounting for surface tension and viscosity; this small correction barely matters at large heads but becomes significant at small ones. Below about 5 cm, surface tension begins to dominate and the five-halves power law stops holding — that region is drawn with fine dots rather than hidden.",
+    note: "The thin-plate V-notch formula applies to fully contracted conditions, that is when the notch sits far enough from the channel bed and walls for the approach flow to be undisturbed. The effective head includes a correction kh for surface tension and viscosity, read from the kh versus notch angle curve (USBR Water Measurement Manual Fig. 7-6a: 0.85 mm at 90°, 2.1 mm at 30°); this small correction barely matters at large heads but becomes significant at small ones. Below about 5 cm, surface tension begins to dominate and the five-halves power law stops holding — that region is drawn with fine dots rather than hidden.",
   },
 } as const;
 
@@ -124,7 +123,7 @@ export function AmbangVClient() {
   const [H, setH] = useState(0.2);
   const [theta, setTheta] = useState(90);
 
-  const { Q, Ce, he, outOfRange, reason } = notchDischarge(H, theta);
+  const { Q, Ce, he, kh, outOfRange, reason } = notchDischarge(H, theta);
   /* Model memberi satu sebab saja, berurutan tinggi lalu sudut. Sudut
      diperiksa sendiri supaya H di luar rentang tidak menyembunyikan Ce
      yang juga ekstrapolasi. */
@@ -154,7 +153,7 @@ export function AmbangVClient() {
     {
       judul: x.hHe,
       rumus: <span>he = H + kh</span>,
-      isi: `${fmt(H, 3)} + ${fmt(NOTCH_KH, 5)}`,
+      isi: `${fmt(H, 3)} + ${fmt(kh, 5)}`,
       hasil: fmt(he, 4),
       satuan: "m",
     },
@@ -311,7 +310,7 @@ export function AmbangVClient() {
               </Eq>
               <Eq>
                 <span>he = H + kh</span>
-                <span className="ml-5 text-ink-3">kh = {fmt(NOTCH_KH * 1000, 2)} mm</span>
+                <span className="ml-5 text-ink-3">kh(θ) = {fmt(kh * 1000, 2)} mm</span>
               </Eq>
             </>
           }
