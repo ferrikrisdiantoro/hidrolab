@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,8 +14,17 @@ import {
   StateCard,
   Term,
 } from "@/components/ui";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate, usePutar } from "@/lib/usePlate";
 import { drawField, type FieldLine } from "@/lib/drawField";
+import { niceStep } from "@/lib/plate";
+import { meanderFrameAt, meanderFramePath, meanderOxbow, meanderTimeline } from "@/lib/meanderWaktu";
+import {
+  createMeanderMotion,
+  drawMeanderMotion,
+  drawMeanderState,
+  oxbowSet,
+  type MeanderMotion,
+} from "@/lib/drawMeanderMotion";
 import {
   MEANDER_CUTOFF,
   MEANDER_PEAK_RATIO,
@@ -52,6 +61,36 @@ const TXT = {
     lipatNote:
       "Jari-jari lengkung terkecil lintasannya sudah kurang dari separuh lebar sungainya, sehingga tebing dalamnya harus berbelok dengan jari-jari negatif: garis tebingnya melipat dan membelit dirinya sendiri, seperti yang tergambar putus-putus. Bentuk itu tidak dapat ada. Sungai yang sebenarnya sudah memotong lehernya jauh sebelum sampai ke sini, jadi laju pindahnya tidak dituliskan. Sempitkan sungainya, panjangkan gelombangnya, atau kurangi sudut ayunnya.",
     uM: "W/tahun",
+    uTahun: "tahun",
+    dT: "Waktu sejak keadaan awal",
+    blkLini: "Lini masa",
+    putar: "Putar",
+    jeda: "Jeda",
+    lompat: "Lompat ke cutoff",
+    ulang: "Kembali ke awal",
+    kecepatan: "Kecepatan",
+    terpotong: "Leher terpotong, kelokan menjadi danau oxbow",
+    oxbow: "danau oxbow",
+    alurAwal: "alur awal",
+    dataranBanjir: "dataran banjir",
+    sinPenjelasan: (p: string) =>
+      `Sinusitas P = panjang alur dibagi panjang lembah. Saat ini P = ${p}: makin besar ayunnya, makin panjang alur yang harus ditempuh air untuk maju satu meter di lembah, dan makin sempit leher di antara dua kelokan.`,
+    takAdaLini: "Lini masa tidak tersedia untuk masukan ini (lihat kartu keadaan).",
+    motionNote: (yps: string, tc: string) =>
+      `1 detik layar = ${yps} tahun; diputar ulang 0 sampai ${tc} tahun, diam di saat leher terpotong. Garis putus pudar = alur beberapa saat sebelumnya`,
+    rTc: "Waktu sampai leher terpotong",
+    rWc: "Sudut ayun saat leher terpotong",
+    rPt: "Sinusitas pada saat t",
+    hWc: "Sudut potong: celah garis tengah di leher sama dengan lebar sungai",
+    hTc: "Waktu sampai terpotong: tebing di puncak bergeser ṁ · W tiap tahun",
+    nAwalPotong: (wc: string) =>
+      `Sudut ayun awal sudah melewati sudut potong ${wc}° untuk sungai selebar ini: lehernya sudah terpotong sejak awal, jadi tidak ada lini masa yang bisa diputar. Kecilkan sudut ayunnya.`,
+    nAwalSilang:
+      "Sudut ayun awal melewati 120,9°: garis tengah kurva sinus sudah bersilang dengan dirinya sendiri, bentuk yang tidak bisa dialiri. Lini masa tidak diputar.",
+    nLipatJalan:
+      "Sebelum lehernya terpotong, jari-jari terkecilnya turun di bawah setengah lebar sungai dan tebing dalamnya melipat (tergambar merah putus-putus di lini masa). Bentuk itu tidak dapat ada; sungai sebenarnya sudah berubah lebih dulu.",
+    nJujur:
+      "Yang perlu diingat dari lini masa ini: laju pindah ṁ diambil dari lengkung Hickin dan Nanson (1984) yang besar dan bentuknya belum dapat dicek ke makalah aslinya (baru abstraknya); perpindahan kelokan ke hilir tidak dimodelkan, kelokan hanya tumbuh melintang lembah; dan sesudah leher terpotong alur dikembalikan ke sudut awal hanya sebagai konvensi tampilan, bukan hasil hitungan.",
     lurusTak: "∞ (lurus)",
     bLipat: "Tebing melipat, mustahil",
     bTajam: "Terlalu tajam, melambat",
@@ -91,6 +130,36 @@ const TXT = {
     lipatNote:
       "The smallest radius of the path is already less than half the river width, so the inner bank would have to turn on a negative radius: its line folds and loops over itself, as drawn dashed. That shape cannot exist. A real river cuts its neck long before it gets here, so no migration rate is written. Narrow the river, lengthen the wavelength, or reduce the swing angle.",
     uM: "W/year",
+    uTahun: "years",
+    dT: "Time since the initial state",
+    blkLini: "Timeline",
+    putar: "Play",
+    jeda: "Pause",
+    lompat: "Jump to cutoff",
+    ulang: "Back to start",
+    kecepatan: "Speed",
+    terpotong: "Neck cut off, the bend becomes an oxbow lake",
+    oxbow: "oxbow lake",
+    alurAwal: "initial channel",
+    dataranBanjir: "floodplain",
+    sinPenjelasan: (p: string) =>
+      `Sinuosity P = channel length over valley length. Now P = ${p}: the larger the swing, the longer the channel the water must travel to advance one metre down the valley, and the narrower the neck between two bends.`,
+    takAdaLini: "No timeline for these inputs (see the state card).",
+    motionNote: (yps: string, tc: string) =>
+      `1 screen second = ${yps} years; replayed from 0 to ${tc} years, pausing when the neck is cut off. Faded dashed lines = the channel a little earlier`,
+    rTc: "Time until the neck is cut off",
+    rWc: "Swing angle at neck cutoff",
+    rPt: "Sinuosity at time t",
+    hWc: "Cutoff angle: the centreline gap at the neck equals the river width",
+    hTc: "Time to cutoff: the bank at the apex moves ṁ · W each year",
+    nAwalPotong: (wc: string) =>
+      `The initial swing is already past the cutoff angle of ${wc}° for a river this wide: the neck is cut off from the start, so there is no timeline to play. Reduce the swing angle.`,
+    nAwalSilang:
+      "The initial swing is past 120.9°: the centreline of the sine curve already crosses itself, a shape no water can follow. The timeline is not played.",
+    nLipatJalan:
+      "Before the neck is cut off, the smallest radius falls below half the river width and the inner bank folds (drawn red dashed on the timeline). That shape cannot exist; a real river would have changed earlier.",
+    nJujur:
+      "Worth remembering about this timeline: the migration rate ṁ comes from the Hickin and Nanson (1984) curve, whose size and shape could not yet be checked against the original paper (only its abstract); downstream translation of the bends is not modelled, the bends only grow across the valley; and after the neck is cut off the channel returns to the initial angle only as a display convention, not as a computed result.",
     lurusTak: "∞ (straight)",
     bLipat: "Bank folds, impossible",
     bTajam: "Too sharp, slowing",
@@ -151,6 +220,10 @@ export function PerkembanganMeanderClient() {
   const [W_, setW] = useState(30);
   const [L, setL] = useState(330);
   const [sudut, setSudut] = useState(40);
+  /* Lini masa: waktu sejak keadaan awal (tahun) dan kecepatan putar. */
+  const [tahun, setTahun] = useState(0);
+  const [laju, setLaju] = useState(1);
+  const { playing, toggle: togglePutar } = usePutar();
 
   const r = meanderPath(W_, L, sudut);
   /*
@@ -165,6 +238,30 @@ export function PerkembanganMeanderClient() {
   const D = Math.hypot(akhir.x - r.path[0].x, akhir.y - r.path[0].y);
   const omegaRad = (sudut * Math.PI) / 180;
 
+  /* Lini masa M6 (50 sampai 70 ms), hanya saat masukan berubah. */
+  const tl = useMemo(() => meanderTimeline(W_, L, sudut), [W_, L, sudut]);
+  const Tc = tl.timeToCutoff;
+  /* Lini masa hanya ada bila leher belum terpotong sejak awal dan
+     tebingnya tidak melipat. */
+  const adaLini = !tl.cutoffAtStart && !terlipat && Tc > 0 && Number.isFinite(Tc);
+  const tNow = adaLini ? Math.min(Math.max(tahun, 0), Tc) : 0;
+  const fNow = meanderFrameAt(tl, tNow);
+  const sudahPotong = adaLini && tNow >= Tc;
+  /* Tebing melipat di tengah perjalanan (sebelum leher terpotong). */
+  const lipatDiJalan = adaLini && tl.frames.some((f) => f.radiusRatio < 0.5);
+  const fC = tl.frames[tl.frames.length - 1];
+  const oxbows = useMemo(
+    () => (adaLini ? oxbowSet(meanderOxbow(fC), tl.valleyWavelength, W_, 2) : oxbowSet([], 1, 1, 2)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tl, adaLini]
+  );
+  /* Satu putaran lini masa sekitar 12 detik layar pada ×1. */
+  const yps = adaLini ? (Tc / 12) * laju : 1;
+  const gerak = useRef<MeanderMotion | null>(null);
+  if (gerak.current === null) gerak.current = createMeanderMotion(400, 2);
+  const diam = useRef<MeanderMotion | null>(null);
+  if (diam.current === null) diam.current = createMeanderMotion(400, 2);
+
   /* Nada keadaan mengikuti pita Rc/W (Hickin dan Nanson 1984: tercepat
      di 1,7 sampai 3,3, sama dengan fastestMigration), kecuali leher yang
      sudah terpotong. Merah sinyal hanya untuk tebing yang melipat. */
@@ -178,89 +275,196 @@ export function PerkembanganMeanderClient() {
           ? "pass"
           : "neutral";
 
-  const ref = useCanvas(
+  /* Bidang tetap selama lini masa: lembah dua gelombang, tinggi sampai
+     amplitudo saat terpotong, ditambah ruang judul. */
+  const lv = tl.valleyWavelength;
+  const yAmp = fC.amplitude + W_;
+  const bidang = {
+    xMin: -W_,
+    xMax: 2 * lv + W_,
+    yMin: -yAmp,
+    yMax: yAmp + 2 * yAmp * 0.22,
+  };
+  const rrNow = fNow.radiusRatio;
+  const judulLini = sudahPotong
+    ? x.terpotong
+    : Math.abs(rrNow - MEANDER_PEAK_RATIO) < 0.8
+      ? x.cepat
+      : undefined;
+  const gaya = {
+    width: W_,
+    oxbows,
+    oxbowLabel: x.oxbow,
+    ghostStep: Tc / 8,
+    folded: rrNow < 0.5,
+  };
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       const setengah = W_ / 2;
+      if (!adaLini) {
+        /* Tanpa lini masa: gambar diam seperti sebelumnya. */
+        const garis: FieldLine[] = [
+          {
+            pts: [
+              { x: r.path[0].x, y: r.path[0].y },
+              { x: akhir.x, y: akhir.y },
+            ],
+            color: C.ink3,
+            weight: W.hair,
+            dash: DASH.axis,
+            label: T.straightLine,
+            labelAt: 0.5,
+            labelDy: 14,
+            labelAlign: "center",
+          },
+          {
+            pts: tebing(r.path, setengah, 1),
+            color: terlipat ? C.signal : C.ink2,
+            weight: W.thin,
+            dash: terlipat ? DASH.hidden : DASH.solid,
+            label: T.outerBank,
+            labelAt: 0.24,
+            labelDy: -10,
+            labelAlign: "center",
+          },
+          {
+            pts: tebing(r.path, setengah, -1),
+            color: terlipat ? C.signal : C.ink2,
+            weight: W.thin,
+            dash: terlipat ? DASH.hidden : DASH.solid,
+          },
+          {
+            pts: r.path,
+            // Leher terpotong adalah keadaan sah yang perlu diwaspadai, bukan
+            // di luar rentang; merah sinyal hanya untuk tebing yang melipat.
+            color: r.cutoff ? C.caution : C.water,
+            weight: W.bold,
+            dash: DASH.solid,
+            label: T.riverPath,
+            labelAt: 0.72,
+            labelDy: -12,
+            labelAlign: "center",
+            arrow: true,
+          },
+        ];
+        const xs = r.path.map((p) => p.x);
+        const ys = r.path.map((p) => p.y);
+        const xMin = Math.min(...xs) - W_;
+        const xMax = Math.max(...xs) + W_;
+        const yMin = Math.min(...ys) - W_;
+        /* Ruang di atas untuk judul keadaan, supaya tidak menimpa kelokannya */
+        const adaJudul = terlipat || r.cutoff || r.fastestMigration;
+        const yMax = Math.max(...ys) + W_ + (adaJudul ? (Math.max(...ys) - Math.min(...ys) + 2 * W_) * 0.22 : 0);
+        return drawField(
+          ctx,
+          w,
+          ch,
+          {
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            lines: garis,
+            heading: terlipat
+              ? x.lipat
+              : r.cutoff
+                ? x.potong
+                : r.fastestMigration
+                  ? x.cepat
+                  : undefined,
+            headingColor: terlipat ? C.signal : r.cutoff ? C.caution : C.critical,
+            axisX: T.axXMetre,
+            axisY: T.axYMetre,
+          },
+          lang
+        );
+      }
+
+      /* Dataran banjir: isian seluruh bidang (dipotong bingkai). */
+      const B = 10 * (bidang.xMax - bidang.xMin + bidang.yMax - bidang.yMin);
+      const awal = meanderFramePath(tl.frames[0], 2, 400);
+      const kini = meanderFramePath(sudahPotong ? tl.frames[0] : fNow, 2, 400);
       const garis: FieldLine[] = [
         {
-          pts: [
-            { x: r.path[0].x, y: r.path[0].y },
-            { x: akhir.x, y: akhir.y },
-          ],
-          color: C.ink3,
-          weight: W.hair,
-          dash: DASH.axis,
-          label: T.straightLine,
-          labelAt: 0.5,
+          /* Alur awal: keadaan sebelumnya, phantom. */
+          pts: awal,
+          color: C.oldChannel,
+          weight: W.thin,
+          dash: DASH.phantom,
+          label: tNow === 0 && !playing ? undefined : x.alurAwal,
+          labelAt: 0.1,
           labelDy: 14,
           labelAlign: "center",
+          noStroke: tNow === 0 && !playing,
         },
         {
-          pts: tebing(r.path, setengah, 1),
-          color: terlipat ? C.signal : C.ink2,
-          weight: W.thin,
-          dash: terlipat ? DASH.hidden : DASH.solid,
-          label: T.outerBank,
-          labelAt: 0.24,
-          labelDy: -10,
-          labelAlign: "center",
-        },
-        {
-          pts: tebing(r.path, setengah, -1),
-          color: terlipat ? C.signal : C.ink2,
-          weight: W.thin,
-          dash: terlipat ? DASH.hidden : DASH.solid,
-        },
-        {
-          pts: r.path,
-          // Leher terpotong adalah keadaan sah yang perlu diwaspadai, bukan
-          // di luar rentang; merah sinyal hanya untuk tebing yang melipat.
-          color: r.cutoff ? C.caution : C.water,
-          weight: W.bold,
-          dash: DASH.solid,
+          /* Nama alur sekarang saja; alurnya digambar drawMeanderState. */
+          pts: kini,
+          noStroke: true,
           label: T.riverPath,
           labelAt: 0.72,
-          labelDy: -12,
+          labelDy: -14,
           labelAlign: "center",
-          arrow: true,
+          color: C.water,
         },
       ];
-
-      const xs = r.path.map((p) => p.x);
-      const ys = r.path.map((p) => p.y);
-      const xMin = Math.min(...xs) - W_;
-      const xMax = Math.max(...xs) + W_;
-      const yMin = Math.min(...ys) - W_;
-      /* Ruang di atas untuk judul keadaan, supaya tidak menimpa kelokannya */
-      const adaJudul = terlipat || r.cutoff || r.fastestMigration;
-      const yMax = Math.max(...ys) + W_ + (adaJudul ? (Math.max(...ys) - Math.min(...ys) + 2 * W_) * 0.22 : 0);
-
-      drawField(
+      const out = drawField(
         ctx,
         w,
         ch,
         {
-          xMin,
-          xMax,
-          yMin,
-          yMax,
+          ...bidang,
+          patches: [
+            {
+              pts: [
+                { x: -B, y: -B },
+                { x: B, y: -B },
+                { x: B, y: B },
+                { x: -B, y: B },
+              ],
+              fill: C.floodplain,
+              color: C.floodplain,
+            },
+          ],
           lines: garis,
-          heading: terlipat
-            ? x.lipat
-            : r.cutoff
-              ? x.potong
-              : r.fastestMigration
-                ? x.cepat
-                : undefined,
-          headingColor: terlipat ? C.signal : r.cutoff ? C.caution : C.critical,
+          regions: [
+            {
+              x: bidang.xMin + (bidang.xMax - bidang.xMin) * 0.88,
+              y: bidang.yMin + (bidang.yMax - bidang.yMin) * 0.06,
+              text: x.dataranBanjir,
+              color: C.ink3,
+            },
+          ],
+          heading: judulLini,
+          headingColor: sudahPotong ? C.caution : C.critical,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
         },
         lang
       );
+      if (!playing) drawMeanderState(ctx, out.map, tl, tNow, diam.current!, gaya);
+      return out;
     },
-    [W_, L, sudut, lang]
+    adaLini
+      ? (ctx, _w, _h, _t, dt, out) => {
+          if (!out) return;
+          drawMeanderMotion(ctx, out.map, dt, tl, gerak.current!, {
+            ...gaya,
+            tProp: tahun,
+            onTime: setTahun,
+            yearsPerSecond: yps,
+            holdSeconds: 2.5,
+          });
+        }
+      : null,
+    [W_, L, sudut, lang, playing, adaLini, tNow, judulLini ?? ""],
+    { playing: playing && adaLini, timeScale: yps }
   );
+
+  const langkahT = adaLini ? niceStep(Tc, 100) : 1;
+  const digT = langkahT >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(langkahT) - 1e-9));
+  const teksYps = fmt(yps, yps >= 10 ? 0 : 1);
 
   return (
     <LabShell
@@ -322,17 +526,38 @@ export function PerkembanganMeanderClient() {
           rev="A"
           cells={[
             { label: t.tbUnit, value: "SI (m)" },
-            { label: "P", value: fmt(r.sinuosity, 3), tint: r.cutoff ? C.caution : C.water },
-            {
-              label: "Rc/W",
-              value: fmt(r.radiusRatio, 2),
-              tint: terlipat ? C.signal : r.fastestMigration ? C.critical : undefined,
-            },
-            { label: "λ/W", value: fmt(r.wavelength / W_, 1) },
-            { label: "ṁ", value: terlipat ? "—" : `${fmt(r.migrationRate, 3)} ${x.uM}` },
+            ...(adaLini
+              ? [
+                  /* Kop hidup: nilai pada saat t lini masa. */
+                  { label: "P", value: fmt(sudahPotong ? tl.frames[0].sinuosity : fNow.sinuosity, 3), tint: C.water },
+                  {
+                    label: "Rc/W",
+                    value: fmt(sudahPotong ? tl.frames[0].radiusRatio : fNow.radiusRatio, 2),
+                    tint: Math.abs(rrNow - MEANDER_PEAK_RATIO) < 0.8 && !sudahPotong ? C.critical : undefined,
+                  },
+                  { label: "ṁ", value: `${fmt(sudahPotong ? tl.frames[0].migrationRate : fNow.migrationRate, 3)} ${x.uM}` },
+                  { label: "t", value: `${fmt(tNow, digT)} / ${fmt(Tc, 0)} ${x.uTahun}` },
+                ]
+              : [
+                  { label: "P", value: fmt(r.sinuosity, 3), tint: r.cutoff ? C.caution : C.water },
+                  {
+                    label: "Rc/W",
+                    value: fmt(r.radiusRatio, 2),
+                    tint: terlipat ? C.signal : r.fastestMigration ? C.critical : undefined,
+                  },
+                  { label: "λ/W", value: fmt(r.wavelength / W_, 1) },
+                  { label: "ṁ", value: terlipat ? "—" : `${fmt(r.migrationRate, 3)} ${x.uM}` },
+                ]),
           ]}
+          motion={{
+            playing: playing && adaLini,
+            onToggle: togglePutar,
+            allowed: plate.motionAllowed,
+            note: x.motionNote(teksYps, fmt(Tc, 0)),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas ref={plate.motionRef} />
         </Sheet>
       }
       side={
@@ -356,6 +581,44 @@ export function PerkembanganMeanderClient() {
             </div>
           </Block>
 
+          <Block heading={x.blkLini}>
+            {adaLini ? (
+              <>
+                <InputTable>
+                  <InputRow symbol="t" label={x.dT} value={tNow} min={0} max={Tc} step={langkahT} digits={digT} unit={x.uTahun} onChange={setTahun} tint={C.water} />
+                </InputTable>
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={togglePutar} aria-pressed={playing} className={TOMBOL}>
+                    {playing ? x.jeda : x.putar}
+                  </button>
+                  <button type="button" onClick={() => setTahun(Tc)} className={TOMBOL}>
+                    {x.lompat}
+                  </button>
+                  <button type="button" onClick={() => setTahun(0)} className={TOMBOL}>
+                    {x.ulang}
+                  </button>
+                  <span className="label ml-1 text-[0.75rem] text-ink-2">{x.kecepatan}</span>
+                  {[0.5, 1, 2, 4].map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setLaju(k)}
+                      aria-pressed={laju === k}
+                      className={`${TOMBOL} ${laju === k ? "border-ink bg-paper-sunk" : ""}`}
+                    >
+                      ×{fmt(k, k < 1 ? 1 : 0)}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2.5 text-[0.78rem] leading-snug text-ink-2">
+                  {x.sinPenjelasan(fmt(sudahPotong ? tl.frames[0].sinuosity : fNow.sinuosity, 3))}
+                </p>
+              </>
+            ) : (
+              <p className="text-[0.78rem] leading-snug text-ink-2">{x.takAdaLini}</p>
+            )}
+          </Block>
+
           <Block heading={t.blkResult}>
             <ResultTable
               rows={[
@@ -365,6 +628,13 @@ export function PerkembanganMeanderClient() {
                 { symbol: "Rc/W", label: x.rNisbah, value: fmt(r.radiusRatio, 3), tint: terlipat ? C.signal : C.critical, strong: true },
                 { symbol: "ṁ", label: x.rPindah, value: terlipat ? "—" : fmt(r.migrationRate, 4), unit: terlipat ? undefined : x.uM },
                 { symbol: "λL", label: x.rLeopold, value: fmt(r.wavelengthLeopold, 1), unit: "m" },
+                ...(adaLini
+                  ? [
+                      { symbol: "T_c", label: x.rTc, value: fmt(Tc, 0), unit: x.uTahun, tint: C.water, strong: true },
+                      { symbol: "ω_c", label: x.rWc, value: fmt(tl.cutoffOmegaDeg, 1), unit: "°" },
+                      { symbol: "P(t)", label: x.rPt, value: fmt(sudahPotong ? tl.frames[0].sinuosity : fNow.sinuosity, 4) },
+                    ]
+                  : []),
               ]}
             />
             <div className="mt-3">
@@ -401,6 +671,25 @@ export function PerkembanganMeanderClient() {
                     hasil: terlipat ? "—" : fmt(r.migrationRate, 4),
                     satuan: terlipat ? undefined : x.uM,
                   },
+                  ...(adaLini
+                    ? [
+                        {
+                          judul: x.hWc,
+                          rumus: (<><Frac num="M" den="π" /><span>∫₀^ψ* cos( ω sin ψ ) dψ = W</span></>),
+                          isi: `W = ${fmt(W_, 0)} m, λ ${lang === "id" ? "lembah" : "valley"} = ${fmt(tl.valleyWavelength, 1)} m`,
+                          hasil: fmt(tl.cutoffOmegaDeg, 1),
+                          satuan: "°",
+                        },
+                        {
+                          judul: x.hTc,
+                          rumus: (<><span>T_c = ∫</span><Frac num="dA / dω" den="W · ṁ(ω)" /><span>dω</span></>),
+                          isi: `Simpson ${lang === "id" ? "per" : "every"} ${fmt(0.5, 1)}°: ω ${fmt(sudut, 0)}° → ${fmt(tl.cutoffOmegaDeg, 1)}°`,
+                          hasil: fmt(Tc, 0),
+                          satuan: x.uTahun,
+                          tint: C.water,
+                        },
+                      ]
+                    : []),
                   {
                     judul: x.rLeopold,
                     rumus: <span>λL = {fmt(10.9, 1)} · W^{fmt(1.01, 2)}</span>,
@@ -416,7 +705,13 @@ export function PerkembanganMeanderClient() {
           <StateCard
             tone={nada}
             badge={terlipat ? x.lipat : r.cutoff ? x.potong : r.fastestMigration ? x.cepat : x.lambat}
-            {...notice(W_, L, sudut, x.lipatNote, x.potongNote, lang)}
+            {...tambahCatatan(notice(W_, L, sudut, x.lipatNote, x.potongNote, lang), [
+              ...(tl.cutoffAtStart && !terlipat
+                ? [sudut > 120.9 ? x.nAwalSilang : x.nAwalPotong(fmt(tl.cutoffOmegaDeg, 1))]
+                : []),
+              ...(lipatDiJalan ? [x.nLipatJalan] : []),
+              ...(adaLini ? [x.nJujur] : []),
+            ])}
           />
         </>
       }
@@ -455,6 +750,17 @@ export function PerkembanganMeanderClient() {
       }
     />
   );
+}
+
+/** Tombol kecil lini masa (krom, bukan data). */
+const TOMBOL =
+  "label border border-rule-strong bg-sheet px-2 py-1 text-[0.75rem] text-ink hover:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water";
+
+function tambahCatatan(
+  n: { state: string; notice: string[] },
+  lebih: string[]
+): { state: string; notice: string[] } {
+  return { state: n.state, notice: [...lebih, ...n.notice] };
 }
 
 /*
