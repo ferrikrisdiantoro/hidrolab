@@ -37,7 +37,7 @@ type ResetCtx = {
    * menanyakan dulu bila ada satu saja yang terdaftar, karena data ketikan
    * atau unggahan tidak bisa dikembalikan seperti penggeser.
    */
-  jaga: (id: string, aktif: boolean) => void;
+  jaga: (id: string, aktif: boolean, pesan?: string) => void;
   /** Benar sekali sesudah reset, supaya fokus pindah ke tombol baru. */
   ambilFokus: () => boolean;
 };
@@ -48,15 +48,19 @@ export function ResetScope({ children }: { children: ReactNode }) {
   const t = str(useLang().lang);
   const [gen, setGen] = useState(0);
   const fokus = useRef(false);
-  const dijaga = useRef(new Set<string>());
+  // id penjaga -> pesan konfirmasinya sendiri (kosong = pesan tabel data).
+  const dijaga = useRef(new Map<string, string | undefined>());
   const reset = useCallback(() => {
-    if (dijaga.current.size > 0 && !window.confirm(t.resetConfirm)) return;
+    if (dijaga.current.size > 0) {
+      const pesan = [...new Set([...dijaga.current.values()].map((v) => v ?? t.resetConfirm))];
+      if (!window.confirm(pesan.join("\n\n"))) return;
+    }
     dijaga.current.clear();
     fokus.current = true;
     setGen((g) => g + 1);
   }, [t.resetConfirm]);
-  const jaga = useCallback((id: string, aktif: boolean) => {
-    if (aktif) dijaga.current.add(id);
+  const jaga = useCallback((id: string, aktif: boolean, pesan?: string) => {
+    if (aktif) dijaga.current.set(id, pesan);
     else dijaga.current.delete(id);
   }, []);
   const ambilFokus = useCallback(() => {
@@ -90,17 +94,19 @@ export function useLabReset() {
 
 /**
  * Mendaftarkan data isian yang sudah diubah pengguna, supaya Reset meminta
- * konfirmasi lebih dulu. `aktif` = isinya berbeda dari bawaan.
+ * konfirmasi lebih dulu. `aktif` = isinya berbeda dari bawaan. `pesan`
+ * mengganti teks konfirmasi bawaan (yang menyebut data contoh) untuk data
+ * yang tidak punya contoh, misalnya tabel pengamatan praktikum.
  */
-export function useResetGuard(aktif: boolean) {
+export function useResetGuard(aktif: boolean, pesan?: string) {
   const lingkup = useLabReset();
   const id = useId();
   const jaga = lingkup?.jaga;
   useEffect(() => {
     if (!jaga) return;
-    jaga(id, aktif);
+    jaga(id, aktif, pesan);
     return () => jaga(id, false);
-  }, [jaga, id, aktif]);
+  }, [jaga, id, aktif, pesan]);
 }
 
 /**
