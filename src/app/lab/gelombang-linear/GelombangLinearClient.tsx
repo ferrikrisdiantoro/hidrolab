@@ -27,7 +27,10 @@ import {
   type WaveOrbitSpec,
 } from "@/lib/drawWaveOrbit";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
+import { Kuis } from "@/components/Kuis";
+// Rentang penggeser dan nama rezim satu sumber dengan bank kuis.
+import { FP03, P_A, P_H, P_T, REZIM } from "@/data/kuis/fp03";
 import { drawField, type FieldLine, type FieldMarker } from "@/lib/drawField";
 import {
   G,
@@ -46,9 +49,9 @@ import { C, DASH, W, type Tone } from "@/lib/theme";
 const HL_MIN = 0.003;
 const HL_MAX = 400;
 /** Periode terpanjang penggeser dan sumbu grafik, detik. */
-const T_MAKS = 60;
-/** Rentang penggeser h; pegangan dasar di panel memakai yang sama. */
-const P_H: ParamDef = { min: 0.5, max: 500, step: 0.5, digits: 1 };
+const T_MAKS = P_T.max;
+/* Rentang penggeser T, h, H dari bank kuis fp03.ts; pegangan dasar di panel
+   memakai P_H yang sama. */
 
 const NADA_REZIM: Record<string, Tone> = {
   dangkal: "critical",
@@ -60,11 +63,6 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksWave } from "@/lib/checks";
-
-const REZIM = {
-  id: { dangkal: "Air dangkal", menengah: "Kedalaman menengah", dalam: "Air dalam" },
-  en: { dangkal: "Shallow water", menengah: "Intermediate depth", dalam: "Deep water" },
-} as const;
 
 const TXT = {
   id: {
@@ -181,6 +179,14 @@ export function GelombangLinearClient() {
   const [perioda, setPerioda] = useState(8);
   const [dalam, setDalam] = useState(20);
   const [tinggi, setTinggi] = useState(1);
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa. */
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.T !== undefined) setPerioda(keLangkah(m.T, P_T));
+    if (m.h !== undefined) setDalam(keLangkah(m.h, P_H));
+    if (m.H !== undefined) setTinggi(keLangkah(m.H, P_A));
+  };
 
   const r = linearWave(perioda, dalam, tinggi);
   const pecah = r.breaking;
@@ -427,9 +433,9 @@ export function GelombangLinearClient() {
           <Block heading={t.blkInput}>
             <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="T" label={x.dT} value={perioda} min={1} max={60} step={0.5} digits={1} unit="s" onChange={setPerioda} tint={C.energy} />
-              <InputRow symbol="h" label={x.dH} value={dalam} min={0.5} max={500} step={0.5} digits={1} unit="m" onChange={setDalam} tint={C.water} />
-              <InputRow symbol="H" label={x.dA} value={tinggi} min={0.1} max={6} step={0.1} digits={1} unit="m" onChange={setTinggi} />
+              <InputRow symbol="T" label={x.dT} value={perioda} min={P_T.min} max={P_T.max} step={P_T.step} digits={1} unit="s" onChange={setPerioda} tint={C.energy} />
+              <InputRow symbol="h" label={x.dH} value={dalam} min={P_H.min} max={P_H.max} step={P_H.step} digits={1} unit="m" onChange={setDalam} tint={C.water} />
+              <InputRow symbol="H" label={x.dA} value={tinggi} min={P_A.min} max={P_A.max} step={P_A.step} digits={1} unit="m" onChange={setTinggi} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -532,6 +538,17 @@ export function GelombangLinearClient() {
               {...notice(perioda, dalam, tinggi, lang)}
             />
           )}
+
+          <Kuis
+            bank={FP03}
+            keadaan={{ T: perioda, h: dalam, H: tinggi }}
+            onTerapkan={terapkanKuis}
+            label={{
+              T: { simbol: "T", satuan: "s", digits: 1 },
+              h: { simbol: "h", satuan: "m", digits: 1 },
+              H: { simbol: "H", satuan: "m", digits: 1 },
+            }}
+          />
         </>
       }
       verification={<Verification checks={checksWave(perioda, dalam, tinggi)} />}
