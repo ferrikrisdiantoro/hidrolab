@@ -750,12 +750,42 @@ export type ShoalScene = ShoalMetrics & {
   agents: { x: number; y: number; vx: number; vy: number }[];
   /** Jejak lima ekor pertama pada 59 langkah terakhir (sama dengan shoal()) */
   trails: { x: number; y: number }[][];
+  /**
+   * Ikan di dalam rintangan pejal (aturan Reynolds hanya membelokkan dengan
+   * laju belok terbatas, jadi rintangan bisa ditembus). Banyaknya ikan yang
+   * sudah di dalam pada langkah 0 (rintangan ditaruh di atas gerombolan).
+   */
+  obstacleStartInside: number;
+  /** Banyaknya ikan yang mulai di luar lalu pernah masuk rintangan */
+  obstacleEntered: number;
+  /** Jarak terdekat ke pusat rintangan dibagi jari-jarinya, dari ikan yang masuk kemudian; ∞ bila tidak ada */
+  obstacleClosest: number;
   /** Kotak yang memuat semua ikan selama seluruh langkah, m */
   xMin: number;
   xMax: number;
   yMin: number;
   yMax: number;
 };
+
+/**
+ * Jarak relatif terkecil titik (x, y) ke rintangan: min |p − o| / r atas
+ * k < count; rintangan disimpan [x, y, r] berurutan (ShoalState.obstacles).
+ */
+function jarakRelatif(obs: ArrayLike<number>, count: number, x: number, y: number): number {
+  let q = Infinity;
+  for (let k = 0; k < count; k++) {
+    const r = obs[3 * k + 2];
+    if (!(r > 0)) continue;
+    const d = Math.hypot(x - obs[3 * k], y - obs[3 * k + 1]) / r;
+    if (d < q) q = d;
+  }
+  return q;
+}
+
+/** Ikan di (x, y) berada di dalam salah satu rintangan pejal (tepi tidak termasuk). */
+export function fishInObstacle(obs: ArrayLike<number>, count: number, x: number, y: number): boolean {
+  return jarakRelatif(obs, count, x, y) < 1;
+}
 
 /**
  * Gerombolan EH-05 dengan rintangan: benih SHOAL_SEED, `steps` kali
@@ -790,10 +820,27 @@ export function shoalScene(
     }
   };
   kotak();
+  /* Penghitung ikan di dalam rintangan; model tidak diubah, hanya dibaca. */
+  const awalDalam = new Uint8Array(st.n);
+  const pernahMasuk = new Uint8Array(st.n);
+  let terdekat = Infinity;
+  const nObs = st.obstacleCount;
+  if (nObs > 0)
+    for (let i = 0; i < st.n; i++)
+      if (fishInObstacle(st.obstacles, nObs, st.x[i], st.y[i])) awalDalam[i] = 1;
   const trails: { x: number; y: number }[][] = [[], [], [], [], []];
   for (let langkah = 0; langkah < steps; langkah++) {
     stepShoal(st, SHOAL_DT, rng);
     kotak();
+    if (nObs > 0)
+      for (let i = 0; i < st.n; i++) {
+        if (awalDalam[i]) continue;
+        const q = jarakRelatif(st.obstacles, nObs, st.x[i], st.y[i]);
+        if (q < 1) {
+          pernahMasuk[i] = 1;
+          if (q < terdekat) terdekat = q;
+        }
+      }
     if (langkah > steps - 60)
       for (let k = 0; k < Math.min(5, st.n); k++) trails[k].push({ x: st.x[k], y: st.y[k] });
   }
@@ -805,7 +852,24 @@ export function shoalScene(
       vx: Math.cos(st.heading[i]) * st.speed,
       vy: Math.sin(st.heading[i]) * st.speed,
     });
-  return { agents, trails, ...shoalMetrics(st), xMin, xMax, yMin, yMax };
+  let obstacleStartInside = 0;
+  let obstacleEntered = 0;
+  for (let i = 0; i < st.n; i++) {
+    obstacleStartInside += awalDalam[i];
+    obstacleEntered += pernahMasuk[i];
+  }
+  return {
+    agents,
+    trails,
+    ...shoalMetrics(st),
+    obstacleStartInside,
+    obstacleEntered,
+    obstacleClosest: terdekat,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+  };
 }
 
 /**
@@ -926,6 +990,11 @@ export type ShoalMotionStyle = {
   bodyLength: number;
   /** Panjang tubuh terkecil di layar, px, supaya bentuk ikan terbaca */
   minBodyPx: number;
+  /**
+   * Warna ikan yang sedang di dalam rintangan pejal (di luar rentang
+   * berlaku model: C.signal). Tanpa ini ikan itu digambar warna biasa.
+   */
+  insideColor?: string;
   /** Awalan dan sambungan tulisan jam: "t = ", " s, langkah " */
   clockPrefix: string;
   clockStep: (step: number) => string;
@@ -975,8 +1044,11 @@ export function drawShoalMotion(
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  /* Ikan: kibasan ekor dari tailBeat (Bainbridge) pada laju model. */
-  tailBeat(s.speed, L, mo._tb);
+  /* Ikan: kibasan ekor dari tailBeat (Bainbridge) pada laju dan panjang
+     MODEL. Panjang tampil L hanya membesar supaya terbaca saat bidang
+     diperkecil; frekuensinya tidak boleh ikut zoom. */
+  tailBeat(s.speed, st.bodyLength, mo._tb);
+  const nObs = s.obstacleCount;
   const f = mo._fish;
   for (let i = 0; i < s.n; i++) {
     f.x = mo.px[i] + r * (s.x[i] - mo.px[i]);
@@ -985,7 +1057,8 @@ export function drawShoalMotion(
     f.heading = mo.ph[i] + r * dh;
     f.length = L;
     f.phase = 2 * Math.PI * (mo._tb.frequency * t + hash01(i, 11));
-    drawFish(ctx, map, f, { color: st.color });
+    const dalam = nObs > 0 && st.insideColor !== undefined && fishInObstacle(s.obstacles, nObs, f.x, f.y);
+    drawFish(ctx, map, f, { color: dalam ? st.insideColor! : st.color });
   }
   ctx.restore();
 
@@ -1003,8 +1076,16 @@ export function drawShoalStill(
   ctx: CanvasRenderingContext2D,
   map: PlateMap,
   agents: readonly { x: number; y: number; vx: number; vy: number }[],
-  st: Pick<ShoalMotionStyle, "color" | "bodyLength" | "minBodyPx">
+  st: Pick<ShoalMotionStyle, "color" | "bodyLength" | "minBodyPx" | "insideColor">,
+  obstacles: readonly ShoalObstacle[] = []
 ): void {
+  /* rintangan sebagai larik [x, y, r] untuk fishInObstacle (sekali per gambar diam) */
+  const obs = new Float64Array(3 * obstacles.length);
+  obstacles.forEach((o, k) => {
+    obs[3 * k] = o.x;
+    obs[3 * k + 1] = o.y;
+    obs[3 * k + 2] = o.r;
+  });
   const skala = Math.abs(map.X(1) - map.X(0)) || 1;
   const L = Math.max(st.bodyLength, st.minBodyPx / skala);
   const f: FishPose = { x: 0, y: 0, heading: 0, length: L, phase: 0 };
@@ -1015,7 +1096,8 @@ export function drawShoalStill(
     f.y = agents[i].y;
     f.heading = Math.atan2(agents[i].vy, agents[i].vx);
     f.phase = 2 * Math.PI * hash01(i, 11);
-    drawFish(ctx, map, f, { color: st.color });
+    const dalam = st.insideColor !== undefined && fishInObstacle(obs, obstacles.length, f.x, f.y);
+    drawFish(ctx, map, f, { color: dalam ? st.insideColor! : st.color });
   }
   ctx.restore();
 }

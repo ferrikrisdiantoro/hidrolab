@@ -82,9 +82,14 @@ const TXT = {
     hapusSemua: "Hapus semua rintangan",
     rObsN: "Banyaknya rintangan",
     taruhPetunjuk: (n: number) =>
-      `Klik di gambar untuk menaruh rintangan (paling banyak ${n}); seret untuk memindah, tombol Delete untuk menghapus. Ikan menghindarinya menurut aturan Reynolds (1999). Predator tidak dimodelkan: belum ada sumber jarak lari dan tanggapan ikan terhadap predator yang bisa dirujuk.`,
-    nObs: (n: number) =>
-      `Dengan ${n} rintangan, gambar, kop, dan tabel hasil berasal dari simulasi yang sama dengan rintangannya. Kalimat pembanding di bawah dan blok verifikasi dihitung tanpa rintangan.`,
+      `Klik di gambar untuk menaruh rintangan (paling banyak ${n}); seret untuk memindah, tombol Delete untuk menghapus. Ikan dibelokkan menjauhinya menurut aturan Reynolds (1999), tetapi aturan Reynolds hanya membelokkan dengan laju belok terbatas; rintangan besar atau yang ditaruh di atas gerombolan bisa ditembus. Ikan yang sedang di dalam rintangan digambar merah. Predator tidak dimodelkan: belum ada sumber jarak lari dan tanggapan ikan terhadap predator yang bisa dirujuk.`,
+    nObs: (n: number, awal: number, masuk: number, terdekat: string) =>
+      `Dengan ${n} rintangan, gambar, kop, dan tabel hasil berasal dari simulasi yang sama dengan rintangannya. Kalimat pembanding di bawah dan blok verifikasi dihitung tanpa rintangan.${
+        awal + masuk > 0
+          ? ` Rintangan pejal ditembus: ${awal} ikan sudah di dalamnya pada langkah 0 dan ${masuk} ikan masuk kemudian${masuk > 0 ? ` (paling dalam sampai ${terdekat} r dari pusat)` : ""}. Aturan Reynolds hanya membelokkan dengan laju belok terbatas; rintangan besar atau yang ditaruh di atas gerombolan bisa ditembus. Ikan yang sedang di dalam rintangan digambar merah: di situ modelnya di luar rentang berlaku.`
+          : " Tidak ada ikan yang masuk ke dalam rintangan selama 300 langkah."
+      }`,
+    obsLuar: (k: number) => `${k} rintangan di luar bingkai`,
     clock: "t = ",
     clockStep: (k: number) => ` s, langkah ${k} dari 300`,
     motionNote:
@@ -126,9 +131,14 @@ const TXT = {
     hapusSemua: "Remove all obstacles",
     rObsN: "Number of obstacles",
     taruhPetunjuk: (n: number) =>
-      `Click the drawing to place an obstacle (at most ${n}); drag to move it, Delete to remove it. The fish avoid it by the rule of Reynolds (1999). Predators are not modelled: there is no source yet for the flight distance and the response of fish to a predator that could be cited.`,
-    nObs: (n: number) =>
-      `With ${n} obstacles, the drawing, the title block, and the result table come from the same simulation with the obstacles. The comparison sentences below and the verification block are computed without obstacles.`,
+      `Click the drawing to place an obstacle (at most ${n}); drag to move it, Delete to remove it. The fish are steered away from it by the rule of Reynolds (1999), but that rule only steers with a limited turning rate; a large obstacle or one placed on top of the school can be passed through. Fish currently inside an obstacle are drawn red. Predators are not modelled: there is no source yet for the flight distance and the response of fish to a predator that could be cited.`,
+    nObs: (n: number, awal: number, masuk: number, terdekat: string) =>
+      `With ${n} obstacles, the drawing, the title block, and the result table come from the same simulation with the obstacles. The comparison sentences below and the verification block are computed without obstacles.${
+        awal + masuk > 0
+          ? ` The solid obstacles are passed through: ${awal} fish are already inside at step 0 and ${masuk} enter later${masuk > 0 ? ` (deepest to ${terdekat} r from the centre)` : ""}. The Reynolds rule only steers with a limited turning rate; a large obstacle or one placed on top of the school can be passed through. Fish currently inside an obstacle are drawn red: there the model is outside its valid range.`
+          : " No fish enters an obstacle during the 300 steps."
+      }`,
+    obsLuar: (k: number) => `${k} ${k === 1 ? "obstacle" : "obstacles"} outside the frame`,
     clock: "t = ",
     clockStep: (k: number) => ` s, step ${k} of 300`,
     motionNote:
@@ -259,11 +269,18 @@ export function GerombolanIkanClient() {
   const bidang = beku ?? bidangBaru;
   const ikanKeluar =
     r.xMin < bidang.xMin || r.xMax > bidang.xMax || r.yMin < bidang.yMin || r.yMax > bidang.yMax;
+  /* Rintangan yang tertinggal di luar bingkai saat penggeser mengecilkan
+     bidang: tidak tergambar dan tidak bisa diseret, jadi jumlahnya ditulis. */
+  const obsLuar = obs.filter(
+    (o) => o.x < bidang.xMin || o.x > bidang.xMax || o.y < bidang.yMin || o.y > bidang.yMax
+  ).length;
 
   const gayaIkan = {
     color: warna,
     bodyLength: zr,
     minBodyPx: 9,
+    /* ikan di dalam rintangan pejal: di luar rentang berlaku model */
+    insideColor: C.signal,
     clockPrefix: x.clock,
     clockStep: x.clockStep,
   };
@@ -314,6 +331,16 @@ export function GerombolanIkanClient() {
                   },
                 ]
               : []),
+            ...(obsLuar > 0
+              ? [
+                  {
+                    x: bidang.xMin + (bidang.xMax - bidang.xMin) * 0.2,
+                    y: bidang.yMin + (bidang.yMax - bidang.yMin) * 0.05,
+                    text: x.obsLuar(obsLuar),
+                    color: C.ink3,
+                  },
+                ]
+              : []),
           ],
           heading: nama,
           headingColor: warna,
@@ -325,7 +352,7 @@ export function GerombolanIkanClient() {
       );
       /* Saat diam: ikan pada keadaan akhir (langkah 300), digambar dengan
          tanda ikan S8 di atas bidang. */
-      if (!playing) drawShoalStill(ctx, out.map, r.agents, gayaIkan);
+      if (!playing) drawShoalStill(ctx, out.map, r.agents, gayaIkan, obs);
       return out;
     },
     (ctx, _w, _h, tt, dt, out) => {
@@ -527,7 +554,7 @@ export function GerombolanIkanClient() {
           <StateCard
             tone={nada}
             badge={nama}
-            {...notice(jumlah, selaras, jauh, dekat, r, cekGagal ? x.desakCek.replace("{pct}", fmt(desakCek * 100, 0)).replace("{zr}", fmt(zr, 2)) : "", rintangan.length > 0 ? x.nObs(rintangan.length) : "", lang)}
+            {...notice(jumlah, selaras, jauh, dekat, r, cekGagal ? x.desakCek.replace("{pct}", fmt(desakCek * 100, 0)).replace("{zr}", fmt(zr, 2)) : "", rintangan.length > 0 ? x.nObs(rintangan.length, r.obstacleStartInside, r.obstacleEntered, fmt(r.obstacleClosest, 2)) : "", lang)}
           />
         </>
       }

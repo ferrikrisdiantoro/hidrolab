@@ -20,6 +20,7 @@ import {
   vortexTrack,
   hamiltonianDrift,
   TRACER_ALIAS_ANGLE,
+  fishInObstacle,
 } from "./swarmMotion.ts";
 import {
   SHOAL_STEPS,
@@ -406,5 +407,45 @@ describe("FP-02 pelacak dekat inti tidak terlempar (sudut per sublangkah dibatas
     assert.equal(mo.fast[0], 1, "dekat inti: ω·dt ≈ 10,6 rad");
     assert.equal(mo.fast[1], 0, "r 3 m: ω·dt ≈ 0,01 rad");
     assert.equal(TRACER_ALIAS_ANGLE, 1);
+  });
+});
+
+describe("EH-05 penghitung ikan di dalam rintangan pejal", () => {
+  it("N 120, r 5 di (0;0): 23 ikan mulai di dalam, 2 masuk kemudian, terdalam 0,775 r", () => {
+    const g = shoalScene(120, 1, 1, 0.5, [{ x: 0, y: 0, r: 5 }]);
+    assert.equal(g.obstacleStartInside, 23);
+    assert.equal(g.obstacleEntered, 2);
+    dekat(g.obstacleClosest, 0.7745, 1e-3, "jarak terdekat / r");
+  });
+
+  it("tanpa rintangan: semua penghitung nol, jarak terdekat tak hingga", () => {
+    const g = shoalScene(40, 1, 1, 0.5);
+    assert.equal(g.obstacleStartInside, 0);
+    assert.equal(g.obstacleEntered, 0);
+    assert.equal(g.obstacleClosest, Infinity);
+  });
+
+  it("fishInObstacle: di dalam lingkaran, di tepi, di luar", () => {
+    const o = new Float64Array([0, 0, 5, 20, 0, 1]);
+    assert.equal(fishInObstacle(o, 2, 1, 1), true);
+    assert.equal(fishInObstacle(o, 2, 20.5, 0), true);
+    assert.equal(fishInObstacle(o, 2, 5, 0), false, "tepi bukan di dalam");
+    assert.equal(fishInObstacle(o, 2, 10, 0), false);
+    assert.equal(fishInObstacle(o, 1, 20.5, 0), false, "hanya k < count yang dibaca");
+  });
+});
+
+describe("EH-05 kibasan ekor memakai panjang model, bukan panjang tampil", () => {
+  it("frekuensi kibasan sama pada dua skala gambar yang berbeda", () => {
+    const mo = createShoalMotion(10, 1, 1, 0.5);
+    const ctx = ctxTiruan();
+    const gaya2 = { color: "x", bodyLength: 0.8, minBodyPx: 9, clockPrefix: "t = ", clockStep: (k: number) => ` s, ${k}` };
+    const besar = peta();
+    /* peta kecil: 1 m = 2 px, panjang tampil naik ke minBodyPx */
+    const kecil: PlateMap = { ...besar, X: (v) => 60 + 2 * v, invX: (p) => (p - 60) / 2 };
+    drawShoalMotion(ctx, besar, 0, 0.01, mo, gaya2, 1);
+    const f1 = mo._tb.frequency;
+    drawShoalMotion(ctx, kecil, 0.01, 0.01, mo, gaya2, 1);
+    assert.equal(mo._tb.frequency, f1);
   });
 });
