@@ -18,7 +18,10 @@ import {
 } from "@/components/ui";
 import { DataEntry, ptsFromRows, rowsFromPts, type Row } from "@/components/DataEntry";
 import { useResetGuard } from "@/components/ResetScope";
-import { useCanvas } from "@/lib/useCanvas";
+import { usePlate } from "@/lib/usePlate";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { desimal, type ParamDef } from "@/lib/rentang";
+import { keluarkanTitik, langkahRapi, pindahTitik, sisipTitik } from "@/lib/titikPenampang";
 import {
   drawStructure,
   type StructureBody,
@@ -202,6 +205,51 @@ const REFS = {
 
 const SHAPES: SectionShape[] = ["lingkaran", "persegi", "alam"];
 
+/* Teks edit titik di gambar (B11), dipisah dari TXT supaya gabungan dengan
+   perubahan label lain di TXT tetap mudah. */
+const TXT_TITIK = {
+  id: {
+    petunjuk:
+      "Titik penampang bisa diseret langsung di gambar. Klik di bidang gambar untuk menambah titik (disisipkan menurut x); Delete pada titik yang terfokus mengeluarkannya dari hitungan, barisnya tetap di tabel tanpa centang.",
+    tambah: "Tambah titik penampang",
+    pegangan: (i: number, hapus: boolean) =>
+      `Titik ${i} penampang: seret atau panah untuk memindah${hapus ? ", Delete untuk mengeluarkan dari hitungan" : ""}`,
+  },
+  en: {
+    petunjuk:
+      "Section points can be dragged directly on the drawing. Click in the drawing to add a point (inserted by x); Delete on a focused point removes it from the calculation, and its row stays in the table unticked.",
+    tambah: "Add section point",
+    pegangan: (i: number, hapus: boolean) =>
+      `Section point ${i}: drag or use arrows to move${hapus ? ", Delete to remove from the calculation" : ""}`,
+  },
+} as const;
+
+/** Paling banyak titik penampang yang bisa ditaruh dengan klik. */
+const TITIK_MAKS = 120;
+
+/**
+ * Sumbu gambar penampang alam. Elevasi digambar dari titik terendah
+ * (`geser`), sama dengan kedalaman di penggeser. Dihitung di luar
+ * penggambar supaya bisa dikunci selama titik diseret: tanpa kunci, sumbu
+ * ikut bergeser bersama titik yang diseret dan tiap piksel geseran mengubah
+ * skala yang dipakai membaca piksel berikutnya.
+ */
+type SumbuAlam = { xMin: number; xMax: number; zMin: number; zMax: number; geser: number };
+function sumbuAlam(pts: Pt[], H: number): SumbuAlam {
+  const geser = Math.min(...pts.map((p) => p.y));
+  const xs = pts.map((p) => p.x);
+  const zs = pts.map((p) => p.y - geser);
+  const kaki = -Math.max(0.3, (Math.max(...zs) || 1) * 0.25);
+  const lebar = Math.max(...xs) - Math.min(...xs) || 1;
+  return {
+    xMin: Math.min(...xs) - lebar * 0.08,
+    xMax: Math.max(...xs) + lebar * 0.08,
+    zMin: kaki,
+    zMax: Math.max(...zs, H) + (Math.max(...zs) - kaki) * 0.3,
+    geser,
+  };
+}
+
 /** Bulatan setengah cincin dinding pipa, dari puncak ke dasar di satu sisi */
 function setengahCincin(rr: number, t: number, sisi: 1 | -1): { x: number; z: number }[] {
   const n = 48;
@@ -236,6 +284,8 @@ export function DebitPenampangClient() {
   const [n, setN] = useState(0.013);
   const [Cz, setCz] = useState(50);
   const [rc, setRc] = useState<RatingFit | null>(null);
+  /* Sumbu penampang alam dikunci selama jari/tetikus turun di gambar. */
+  const [kunciSumbu, setKunciSumbu] = useState<SumbuAlam | null>(null);
 
   /* Lengkung dari HY-04, dibaca saat lembar dibuka dan tiap kali tab lain
      menyimpannya. */
@@ -306,10 +356,29 @@ export function DebitPenampangClient() {
   const hMaksSlider = Math.max(0.1, tinggi * 1.25);
   const langkahH = hMaksSlider > 4 ? 0.05 : 0.01;
 
-  const ref = useCanvas(
+  /* Penampang alam: sumbu (terkunci selama seret) dan rentang pegangan
+     titik. Rentang pegangan = bidang gambar, dalam koordinat tabel (y asli,
+     bukan dari titik terendah), jadi titik yang diseret ke tepi bidang
+     dibatasi dengan penanda "dibatasi ke" dari DragLayer. */
+  const alam = shape === "alam" && cukup;
+  const sumbu = alam ? (kunciSumbu ?? sumbuAlam(pts, H)) : null;
+  const pX: ParamDef | null = sumbu
+    ? (() => {
+        const step = langkahRapi(sumbu.xMax - sumbu.xMin);
+        return { min: sumbu.xMin, max: sumbu.xMax, step, digits: desimal(step) };
+      })()
+    : null;
+  const pY: ParamDef | null = sumbu
+    ? (() => {
+        const step = langkahRapi(sumbu.zMax - sumbu.zMin);
+        return { min: sumbu.zMin + sumbu.geser, max: sumbu.zMax + sumbu.geser, step, digits: desimal(step) };
+      })()
+    : null;
+
+  const plate = usePlate(
     (ctx, w, ch) => {
       if (!cukup) {
-        drawStructure(
+        return drawStructure(
           ctx,
           w,
           ch,
@@ -326,7 +395,6 @@ export function DebitPenampangClient() {
           },
           lang
         );
-        return;
       }
 
       const bodies: StructureBody[] = [];
@@ -339,6 +407,10 @@ export function DebitPenampangClient() {
       /* Semua elevasi digambar dari titik terendah penampang, sama dengan
          kedalaman di penggeser. */
       let geser = 0;
+      /* Titik terendah penampang di atas datum gambar. Nol, kecuali saat
+         sumbu dikunci dan titik terendahnya sedang diseret: kedalaman model
+         tetap diukur dari titik terendah yang sebenarnya. */
+      let dasar = 0;
       /* Absis ukuran kedalaman: di luar dinding, bukan di tepi air, supaya
          tulisannya tidak jatuh di atas arsiran dinding */
       let absisUkur = 0;
@@ -370,10 +442,10 @@ export function DebitPenampangClient() {
         dims.push({ axis: "h", at: -tb, from: k, to: ka, text: `W ${fmtPlain(Wd, 2)} m`, offset: 24 });
         absisUkur = ka + tb;
       } else {
-        geser = Math.min(...pts.map((p) => p.y));
-        const xs = pts.map((p) => p.x);
-        const zs = pts.map((p) => p.y - geser);
-        const kaki = -Math.max(0.3, (Math.max(...zs) || 1) * 0.25);
+        const sb = sumbu ?? sumbuAlam(pts, H);
+        geser = sb.geser;
+        dasar = Math.min(...pts.map((p) => p.y)) - geser;
+        const kaki = sb.zMin;
         bodies.push({
           pts: [
             ...pts.map((p) => ({ x: p.x, z: p.y - geser })),
@@ -382,11 +454,10 @@ export function DebitPenampangClient() {
           ],
           hatch: "soil",
         });
-        const lebar = Math.max(...xs) - Math.min(...xs) || 1;
-        xMin = Math.min(...xs) - lebar * 0.08;
-        xMax = Math.max(...xs) + lebar * 0.08;
-        zMin = kaki;
-        zMax = Math.max(...zs, H) + (Math.max(...zs) - kaki) * 0.3;
+        xMin = sb.xMin;
+        xMax = sb.xMax;
+        zMin = sb.zMin;
+        zMax = sb.zMax;
       }
 
       /* Air: satu genangan untuk tiap poligon basah. Titik tak berurut:
@@ -399,8 +470,8 @@ export function DebitPenampangClient() {
         return {
           surface:
             Math.abs(kiri.x - kanan.x) < 1e-9
-              ? [{ x: kiri.x - 1e-6, z: f.depth }, { x: kanan.x + 1e-6, z: f.depth }]
-              : [{ x: kiri.x, z: f.depth }, { x: kanan.x, z: f.depth }],
+              ? [{ x: kiri.x - 1e-6, z: dasar + f.depth }, { x: kanan.x + 1e-6, z: dasar + f.depth }]
+              : [{ x: kiri.x, z: dasar + f.depth }, { x: kanan.x, z: dasar + f.depth }],
           bed: pz.slice().reverse(),
         };
       });
@@ -408,8 +479,8 @@ export function DebitPenampangClient() {
       if (f.overtopped) {
         lines.push({
           pts: [
-            { x: xMin, z: H },
-            { x: xMax, z: H },
+            { x: xMin, z: dasar + H },
+            { x: xMax, z: dasar + H },
           ],
           color: C.signal,
           weight: W.thin,
@@ -428,15 +499,15 @@ export function DebitPenampangClient() {
         dims.push({
           axis: "v",
           at: kanan,
-          from: 0,
-          to: f.depth,
+          from: dasar,
+          to: dasar + f.depth,
           text: `y ${fmtPlain(f.depth, 2)} m`,
           color: C.water,
           offset: 30,
         });
       }
 
-      drawStructure(
+      return drawStructure(
         ctx,
         w,
         ch,
@@ -465,12 +536,56 @@ export function DebitPenampangClient() {
           headingColor: C.signal,
           axisX: T.axAcrossSection,
           axisZ: T.axElevSection,
+          anchors:
+            shape === "alam"
+              ? Object.fromEntries(pts.map((p, i) => [`titik${i}`, { x: p.x, z: p.y - geser }]))
+              : undefined,
+          keepClear: shape === "alam" ? pts.map((_, i) => `titik${i}`) : undefined,
         },
         lang
       );
     },
-    [shape, D, Wd, Hc, kunciTitik, H, S, method, n, Cz, lang]
+    null,
+    [shape, D, Wd, Hc, kunciTitik, H, S, method, n, Cz, lang, kunciSumbu]
   );
+
+  /* Pegangan titik penampang alam: satu sumber dengan baris DataEntry.
+     Seret menulis baris titik itu, Delete mencabut centangnya (paling
+     sedikit dua titik tersisa), klik di bidang menyisipkan baris menurut x. */
+  const xt = TXT_TITIK[lang];
+  const fmtTitik = (v: readonly [number, number]) =>
+    `x ${fmt(v[0], pX?.digits ?? 2)} m, y ${fmt(v[1], pY?.digits ?? 2)} m`;
+  const peganganTitik: HandleSpec[] =
+    sumbu && pX && pY
+      ? pts.map((p, i): HandleSpec => ({
+          id: `titik${i}`,
+          anchor: `titik${i}`,
+          axis: "xy",
+          label: xt.pegangan(i + 1, pts.length > 2),
+          param: [pX, pY],
+          value: [p.x, p.y],
+          toValue: (px, py, m) => [m.invX(px), m.invY(py) + sumbu.geser],
+          onChange: (v) => setRows((r) => pindahTitik(r, i, v)),
+          onRemove: pts.length > 2 ? () => setRows((r) => keluarkanTitik(r, i)) : undefined,
+          format: fmtTitik,
+        }))
+      : [];
+  /* Titik taruh tombol Tambah (keyboard): tengah ruas terpanjang, jadi
+     bentuk penampang tidak berubah sampai titiknya diseret. */
+  const ruasPanjang = pts.slice(1).reduce(
+    (best, p, i) => {
+      const d = Math.hypot(p.x - pts[i].x, p.y - pts[i].y);
+      return d > best.d ? { d, i } : best;
+    },
+    { d: -1, i: 0 }
+  );
+  const fallbackTitik: readonly [number, number] =
+    pts.length >= 2
+      ? [
+          (pts[ruasPanjang.i].x + pts[ruasPanjang.i + 1].x) / 2,
+          (pts[ruasPanjang.i].y + pts[ruasPanjang.i + 1].y) / 2,
+        ]
+      : [0, 0];
 
   const pilihBentuk = (s: SectionShape) => {
     setShape(s);
@@ -538,7 +653,35 @@ export function DebitPenampangClient() {
             },
           ]}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas ref={plate.ref} className="block h-full w-full" />
+          {alam && sumbu && pX && pY && (
+            <div
+              className="contents"
+              onPointerDown={(e) => {
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                setKunciSumbu(sumbu);
+              }}
+              onPointerUp={() => setKunciSumbu(null)}
+              onPointerCancel={() => setKunciSumbu(null)}
+              onLostPointerCapture={() => setKunciSumbu(null)}
+            >
+              <DragLayer
+                out={plate.outRef.current}
+                handles={peganganTitik}
+                place={{
+                  id: "titikPenampang",
+                  label: xt.tambah,
+                  param: [pX, pY],
+                  toValue: (px, py, m) => [m.invX(px), m.invY(py) + sumbu.geser],
+                  onPlace: (v) => setRows((r) => sisipTitik(r, v).rows),
+                  count: pts.length,
+                  max: TITIK_MAKS,
+                  fallback: fallbackTitik,
+                  format: fmtTitik,
+                }}
+              />
+            </div>
+          )}
         </Sheet>
       }
       side={
@@ -609,6 +752,7 @@ export function DebitPenampangClient() {
 
           {shape === "alam" && (
             <Block heading={x.blkKoordinat}>
+              <p className="mb-2 text-[0.78rem] leading-snug text-ink-2">{TXT_TITIK[lang].petunjuk}</p>
               <DataEntry rows={rows} onChange={setRows} headX={x.hX} headY={x.hY} sample={SAMPLE_SECTION} maxHeight="12rem" />
             </Block>
           )}
