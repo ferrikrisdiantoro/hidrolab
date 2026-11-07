@@ -3,6 +3,7 @@ import { createLabelPlacer, ground } from "./plate.ts";
 import { rectsFrom, type PlateOut } from "./plateOut.ts";
 import {
   ISO,
+  anchor3,
   gambarMuka,
   kameraPas,
   kotak,
@@ -86,53 +87,102 @@ export function ruasLabirin(W: number, cycles: number, B: number): RuasDinding[]
   return out;
 }
 
-/** Batas panjang miter terhadap setengah tebal (sudut tajam di kaki siklus). */
+/**
+ * Batas panjang miter terhadap setengah tebal. Di atasnya (sudut lebih
+ * tajam) sisi CEMBUNG sambungan dibevel: miter penuh di V hulu (α 6°)
+ * menjulurkan taji ±1,2 m ke kolam hulu, dan miter yang dijepit menipiskan
+ * dinding ke 1,5·t·sin α (default α 11,8°: 0,61 t). Sisi cekung selalu
+ * miter penuh: titik itu perpotongan sejati kedua muka dinding.
+ */
 const MITER_MAKS = 3;
 
+type Titik2 = { x: number; y: number };
+
 /**
- * Dinding mercu sebagai rangkaian prisma tegak 0..P, satu per ruas.
- * Ruas bertetangga berbagi titik sambungan miter, jadi tepi sambungan
- * berimpit (satu garis) dan tidak ada dinding yang bertumpuk.
+ * Denah dinding: satu segi empat per ruas (berlawanan jarum jam dilihat
+ * dari atas: kanan-awal, kanan-akhir, kiri-akhir, kiri-awal), ditambah
+ * baji segitiga di tiap sambungan yang dibevel. Setiap titik segi empat
+ * ruas berjarak tepat t/2 dari garis tengah ruasnya (tebal penuh di mana
+ * pun). Ujung ruas pertama dan terakhir dipotong di dinding saluran y = 0
+ * dan y = W, bukan menjulur keluar.
  */
-function dindingMiter(ruas: readonly RuasDinding[], t: number, P: number): Muka[] {
-  const v = [ruas[0].a, ...ruas.map((r) => r.b)];
-  const n = v.length;
-  // Normal kiri satuan tiap ruas.
-  const nr = ruas.map((r) => {
+export function alasDinding(
+  ruas: readonly RuasDinding[],
+  t: number,
+  W: number
+): { ruas: Titik2[][]; baji: Titik2[][] } {
+  const m = ruas.length;
+  const arah = ruas.map((r) => {
     const dx = r.b.x - r.a.x;
     const dy = r.b.y - r.a.y;
     const L = Math.hypot(dx, dy) || 1;
-    return { x: -dy / L, y: dx / L };
+    return { x: dx / L, y: dy / L };
   });
-  const kiri: { x: number; y: number }[] = [];
-  const kanan: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    let mx: number, my: number, len: number;
-    if (i === 0 || i === n - 1) {
-      const q = nr[i === 0 ? 0 : n - 2];
-      mx = q.x;
-      my = q.y;
-      len = t / 2;
+  // Normal kiri satuan tiap ruas.
+  const nl = arah.map((d) => ({ x: -d.y, y: d.x }));
+  const h = t / 2;
+  const kiriA: Titik2[] = [], kiriB: Titik2[] = [], kananA: Titik2[] = [], kananB: Titik2[] = [];
+  const baji: Titik2[][] = [];
+
+  /* Ujung saluran: perpotongan garis muka (offset ±t/2) dengan y = yc. */
+  const diDinding = (j: number, sisi: 1 | -1, yc: number): Titik2 => {
+    const o = { x: ruas[j].a.x + sisi * nl[j].x * h, y: ruas[j].a.y + sisi * nl[j].y * h };
+    const s = Math.abs(arah[j].y) > 1e-12 ? (yc - o.y) / arah[j].y : 0;
+    return { x: o.x + arah[j].x * s, y: yc };
+  };
+  kiriA[0] = diDinding(0, 1, 0);
+  kananA[0] = diDinding(0, -1, 0);
+  kiriB[m - 1] = diDinding(m - 1, 1, W);
+  kananB[m - 1] = diDinding(m - 1, -1, W);
+
+  for (let i = 1; i < m; i++) {
+    const v = ruas[i].a;
+    const a = nl[i - 1];
+    const b = nl[i];
+    const sx = a.x + b.x;
+    const sy = a.y + b.y;
+    const sl = Math.hypot(sx, sy);
+    // Belok kiri (silang > 0): sisi kanan cembung, sisi kiri cekung.
+    const silang = arah[i - 1].x * arah[i].y - arah[i - 1].y * arah[i].x;
+    const cos = sl > 1e-12 ? (sx / sl) * a.x + (sy / sl) * a.y : 0;
+    const miter = sl > 1e-12 ? { x: (sx / sl) * (h / cos), y: (sy / sl) * (h / cos) } : { x: 0, y: 0 };
+    const kiriM = { x: v.x + miter.x, y: v.y + miter.y };
+    const kananM = { x: v.x - miter.x, y: v.y - miter.y };
+    if (cos >= 1 / MITER_MAKS) {
+      kiriB[i - 1] = kiriA[i] = kiriM;
+      kananB[i - 1] = kananA[i] = kananM;
+    } else if (silang > 0) {
+      kiriB[i - 1] = kiriA[i] = kiriM;
+      kananB[i - 1] = { x: v.x - a.x * h, y: v.y - a.y * h };
+      kananA[i] = { x: v.x - b.x * h, y: v.y - b.y * h };
+      baji.push([kiriM, kananB[i - 1], kananA[i]]);
     } else {
-      const a = nr[i - 1];
-      const b = nr[i];
-      const sx = a.x + b.x;
-      const sy = a.y + b.y;
-      const sl = Math.hypot(sx, sy) || 1;
-      mx = sx / sl;
-      my = sy / sl;
-      const cos = mx * a.x + my * a.y;
-      len = (t / 2) / Math.max(cos, 1 / MITER_MAKS);
+      kananB[i - 1] = kananA[i] = kananM;
+      kiriB[i - 1] = { x: v.x + a.x * h, y: v.y + a.y * h };
+      kiriA[i] = { x: v.x + b.x * h, y: v.y + b.y * h };
+      baji.push([kananM, kiriA[i], kiriB[i - 1]]);
     }
-    kiri.push({ x: v[i].x + mx * len, y: v[i].y + my * len });
-    kanan.push({ x: v[i].x - mx * len, y: v[i].y - my * len });
   }
+  const segi = ruas.map((_, j) => [kananA[j], kananB[j], kiriB[j], kiriA[j]]);
+  // Baji berlawanan jarum jam (luas bertanda positif) untuk prisma.
+  for (const tri of baji) {
+    const [p, q, r] = tri;
+    if ((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x) < 0) tri.reverse();
+  }
+  return { ruas: segi, baji };
+}
+
+/**
+ * Dinding mercu sebagai rangkaian prisma tegak 0..P: satu per ruas dan
+ * satu per baji bevel. Ruas bertetangga berbagi titik sambungan, jadi tepi
+ * sambungan berimpit (satu garis) dan tidak ada dinding yang bertumpuk.
+ */
+function dindingMercu(ruas: readonly RuasDinding[], t: number, P: number, W_: number): Muka[] {
+  const { ruas: segi, baji } = alasDinding(ruas, t, W_);
   const out: Muka[] = [];
-  for (let j = 0; j < ruas.length; j++) {
-    // Berlawanan jarum jam dilihat dari atas: kanan maju, kiri mundur.
-    const alas = [kanan[j], kanan[j + 1], kiri[j + 1], kiri[j]];
-    out.push(...prisma(alas, 0, P, { satuSisi: true, bobot: W.bold, garis: C.concrete }));
-  }
+  const gaya = { satuSisi: true, bobot: W.bold, garis: C.concrete } as const;
+  for (const alas of segi) out.push(...prisma(alas, 0, P, gaya));
+  for (const alas of baji) out.push(...prisma(alas, 0, P, gaya));
   return out;
 }
 
@@ -157,7 +207,7 @@ export function mukaLabirin(s: IsoLabirinState): { muka: Muka[]; batas: { min: V
   }
   muka.push(...dasar);
 
-  muka.push(...dindingMiter(ruasLabirin(s.W, s.cycles, s.B), t, s.P));
+  muka.push(...dindingMercu(ruasLabirin(s.W, s.cycles, s.B), t, s.P, s.W));
 
   // Kolam hulu, muka air datar P + h (skematik, lihat catatan berkas).
   const air = kotak([-hulu, 0, 0], [0, s.W, s.P + s.h], {
@@ -177,7 +227,36 @@ export function mukaLabirin(s: IsoLabirinState): { muka: Muka[]; batas: { min: V
 }
 
 /** Ruang judul di atas gambar, px. */
-const RUANG_JUDUL = 34;
+export const RUANG_JUDUL_ISO = 34;
+const RUANG_JUDUL = RUANG_JUDUL_ISO;
+/** Margin kameraPas di keempat sisi, px. */
+export const MARGIN_ISO = 20;
+
+/**
+ * Tinggi/lebar kotak batas terproyeksi pada pandangan awal. Lembar memakai
+ * ini untuk tinggi bidang gambar isometrik: tinggi = rasio·(lebar − 2·margin)
+ * + 2·margin + ruang judul, jadi di HP (bidang sempit) gambar tidak duduk
+ * kecil di tengah bidang yang tinggi. Pandangan yang diputar tetap muat
+ * (kameraPas), hanya bisa lebih kecil.
+ */
+export function rasioIsoLabirin(
+  s: IsoLabirinState,
+  yaw: number = -ISO.yaw,
+  pitch: number = ISO.pitch
+): number {
+  const { batas } = mukaLabirin(s);
+  const k = kameraPas(batas, 1000, 1e9, yaw, pitch, 0);
+  let y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    const p = anchor3(
+      [i & 1 ? batas.max[0] : batas.min[0], i & 2 ? batas.max[1] : batas.min[1], i & 4 ? batas.max[2] : batas.min[2]],
+      k
+    );
+    if (p.y < y0) y0 = p.y;
+    if (p.y > y1) y1 = p.y;
+  }
+  return (y1 - y0) / 1000;
+}
 
 /**
  * Menggambar HS-02 isometrik. Mengembalikan PlateOut (anchor terproyeksi:
@@ -198,7 +277,7 @@ export function drawIsoLabirin(
      hilir terlihat. */
   const yaw = opts.yaw ?? -ISO.yaw;
   const pitch = opts.pitch ?? ISO.pitch;
-  const k = kameraPas(batas, w, h - RUANG_JUDUL, yaw, pitch, 20);
+  const k = kameraPas(batas, w, h - RUANG_JUDUL, yaw, pitch, MARGIN_ISO);
   k.cy += RUANG_JUDUL;
 
   const bingkai = { x0: 0, y0: 0, x1: w, y1: h };

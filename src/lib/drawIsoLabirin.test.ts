@@ -1,9 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { drawIsoLabirin, mukaLabirin, ruasLabirin, tebalDinding } from "./drawIsoLabirin.ts";
+import {
+  MARGIN_ISO,
+  RUANG_JUDUL_ISO,
+  alasDinding,
+  drawIsoLabirin,
+  mukaLabirin,
+  rasioIsoLabirin,
+  ruasLabirin,
+  tebalDinding,
+} from "./drawIsoLabirin.ts";
 import { labyrinthWeir } from "./hydraulics.ts";
-import { anchor3, normalMuka } from "./proyeksi.ts";
+import { ISO, anchor3, isometrikBaku, kameraPas, normalMuka } from "./proyeksi.ts";
 
 /*
  * HS-02 pilot 3D: geometri dinding dari denah model, bukan karangan, dan
@@ -72,7 +81,7 @@ describe("drawIsoLabirin geometri", () => {
         assert.ok(Math.abs(n[2]) < 1e-9);
       }
     }
-    assert.equal(atas, 18, "satu muka atas per ruas");
+    assert.equal(atas, 18 + 5, "satu muka atas per ruas, ditambah satu baji bevel per V tajam");
   });
 });
 
@@ -96,4 +105,69 @@ describe("drawIsoLabirin gambar", () => {
       assert.deepEqual(out.anchors!.puncak, anchor3([S.B, S.W / S.cycles / 2, S.P], out.kamera));
     });
   }
+});
+
+/* Putaran 2, perbaikan pilot (spesifikasi 3D-HS02-TIRAI, bagian pertama). */
+describe("drawIsoLabirin perbaikan pilot", () => {
+  for (const [W, n, B] of [
+    [30, 6, 6], // α 11,8°, V tajam
+    [30, 10, 14], // α 3,1°, di bawah rentang uji
+    [12, 1, 2], // α 56°, tanpa V
+  ]) {
+    it(`tebal dinding penuh t/2 di kedua sisi tiap ruas, juga di V tajam (W ${W}, N ${n}, B ${B})`, () => {
+      const t = tebalDinding(W, n);
+      const ruas = ruasLabirin(W, n, B);
+      const { ruas: alas } = alasDinding(ruas, t, W);
+      assert.equal(alas.length, ruas.length);
+      alas.forEach((q, j) => {
+        const r = ruas[j];
+        const L = Math.hypot(r.b.x - r.a.x, r.b.y - r.a.y);
+        const nx = -(r.b.y - r.a.y) / L;
+        const ny = (r.b.x - r.a.x) / L;
+        for (const p of q) {
+          const d = Math.abs((p.x - r.a.x) * nx + (p.y - r.a.y) * ny);
+          assert.ok(Math.abs(d - t / 2) < 1e-9, `ruas ${j}: jarak ${d} lawan t/2 ${t / 2}`);
+        }
+      });
+    });
+
+    it(`dinding tidak menembus keluar saluran 0..W (W ${W}, N ${n}, B ${B})`, () => {
+      const t = tebalDinding(W, n);
+      const { ruas: alas, baji } = alasDinding(ruasLabirin(W, n, B), t, W);
+      for (const p of [...alas.flat(), ...baji.flat()])
+        assert.ok(p.y >= -1e-9 && p.y <= W + 1e-9, `y ${p.y}`);
+      // Ujung pertama dan terakhir tepat di dinding saluran.
+      assert.ok(Math.abs(alas[0][0].y) < 1e-9 && Math.abs(alas[0][3].y) < 1e-9);
+      const akhir = alas[alas.length - 1];
+      assert.ok(Math.abs(akhir[1].y - W) < 1e-9 && Math.abs(akhir[2].y - W) < 1e-9);
+    });
+  }
+
+  it("sambungan V tajam diisi baji bevel, sudut cembung x = B tetap miter", () => {
+    const t = tebalDinding(30, 6);
+    const { baji } = alasDinding(ruasLabirin(30, 6, 6), t, 30);
+    assert.equal(baji.length, 5, "satu baji per V di x = 0 antar siklus");
+    // Di kaki siklus (x = 0), bukan di puncak x = B.
+    for (const tri of baji) for (const p of tri) assert.ok(p.x < 1, `baji di x ${p.x}`);
+    assert.ok(t > 0);
+  });
+
+  it("isometrik baku hanya pada angkat 35,26° dan arah 45° + k·90°", () => {
+    assert.ok(isometrikBaku(-ISO.yaw, ISO.pitch));
+    assert.ok(isometrikBaku(ISO.yaw + Math.PI / 2, ISO.pitch));
+    assert.ok(!isometrikBaku(-ISO.yaw + Math.PI / 12, ISO.pitch));
+    assert.ok(!isometrikBaku(-ISO.yaw, ISO.pitch + Math.PI / 12));
+  });
+
+  it("tinggi bidang dari kotak batas: gambar 342 px lebar mengisi tinggi yang tersedia", () => {
+    const r = rasioIsoLabirin(S);
+    assert.ok(r > 0.2 && r < 1.5, `rasio ${r}`);
+    const w = 342;
+    const h = r * (w - 2 * MARGIN_ISO) + 2 * MARGIN_ISO + RUANG_JUDUL_ISO;
+    const { batas } = mukaLabirin(S);
+    const k = kameraPas(batas, w, h - RUANG_JUDUL_ISO, -ISO.yaw, ISO.pitch, MARGIN_ISO);
+    // Lebar dan tinggi sama-sama penuh: skala dari lebar = skala dari tinggi.
+    const kW = kameraPas(batas, w, 1e6, -ISO.yaw, ISO.pitch, MARGIN_ISO);
+    assert.ok(Math.abs(k.skala - kW.skala) / kW.skala < 1e-6, `${k.skala} vs ${kW.skala}`);
+  });
 });

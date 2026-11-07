@@ -48,6 +48,18 @@ export type Kamera = {
 /** Isometrik baku: yaw 45°, pitch atan(1/√2) ≈ 35,26°. */
 export const ISO = { yaw: Math.PI / 4, pitch: Math.atan(Math.SQRT1_2) } as const;
 
+/**
+ * Benar bila pandangan ini isometrik baku: angkat 35,26° dan arah 45° +
+ * k·90° (ketiga sumbu sama pendek di layar). Sudut lain aksonometri umum;
+ * judul gambar tidak boleh lagi menyebutnya isometrik.
+ */
+export function isometrikBaku(yaw: number, pitch: number, tol = 1e-6): boolean {
+  if (Math.abs(pitch - ISO.pitch) > tol) return false;
+  const q = Math.PI / 2;
+  const r = (((yaw - ISO.yaw) % q) + q) % q; // 0..q
+  return r < tol || q - r < tol;
+}
+
 /** Bahan muka, menentukan pasangan token terang/bayang. */
 export type Bahan = "beton" | "air";
 
