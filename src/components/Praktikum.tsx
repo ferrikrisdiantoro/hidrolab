@@ -313,6 +313,7 @@ export function LembarPraktikum<R>({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
               <button
                 ref={tombolCatat}
+                data-praktikum-catat
                 type="button"
                 onClick={tambah}
                 disabled={!bisaCatat}
@@ -343,7 +344,9 @@ export function LembarPraktikum<R>({
 
           {/* Tabel pengamatan */}
           <div
-            className="mt-4 overflow-x-auto"
+            // relative: teks sr-only (absolute) di dalam tabel ikut terpotong
+            // wadah gulir, tidak melebarkan halaman di 390.
+            className="relative mt-4 overflow-x-auto"
             role="region"
             aria-label={`${x.tabel}. ${x.gulir}`}
             tabIndex={0}

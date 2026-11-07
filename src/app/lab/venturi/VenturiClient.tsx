@@ -590,7 +590,7 @@ function hitunganFm02(b: BacaanFm02, lang: Lang): LangkahHitung[] {
     },
     {
       judul: x.hCd,
-      rumus: (<><span>Cd =</span><Frac num="Q ukur" den="Qₜ" /></>),
+      rumus: (<><span>Cd =</span><Frac num={lang === "en" ? "Q measured" : "Q ukur"} den="Qₜ" /></>),
       isi: `${fmt(b.Q * 1000, 3)} / ${fmt(qt * 1000, 3)}`,
       hasil: fmt(b.Q / qt, 4),
     },
