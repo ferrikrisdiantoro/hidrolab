@@ -9,6 +9,7 @@ import {
   InputTable,
   PresetRow,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
@@ -33,9 +34,11 @@ import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksFlowLines } from "@/lib/checks";
 import { DragLayer, type HandleSpec, type PlaceSpec } from "@/components/DragLayer";
-import type { ParamDef } from "@/lib/rentang";
-
-const SPAN = 10;
+import { keLangkah, type ParamDef } from "@/lib/rentang";
+import type { Soal } from "@/lib/kuis";
+import { Kuis } from "@/components/Kuis";
+// Rentang penggeser dan panjang gambar satu sumber dengan bank kuis.
+import { FF05, P_T, P_U, P_V, P_W, SPAN, panjangGambar } from "@/data/kuis/ff05";
 
 /* Titik lepas tinta yang ditaruh dengan klik. Rentangnya memuat seluruh
    bidang gambar yang mungkin pada rentang penggeser (x sampai 1,1 · 8 · 20
@@ -81,6 +84,7 @@ const TXT = {
     motionNote: "diputar ulang 0 sampai t, waktu nyata. Klik gambar untuk melepas tinta di titik itu (paling banyak 4)",
     tTambah: "Lepas tinta di titik baru",
     tTitik: (i: number) => `Titik lepas tinta ${i}`,
+    labelSembunyi: "Nama garis disembunyikan sampai soal kuis dijawab",
     note:
       "Tiga garis ini berbeda meskipun dilahirkan satu medan kecepatan yang sama, dan perbedaannya bukan soal halus melainkan soal yang menentukan cara membaca setiap foto aliran yang pernah diambil. Garis arus menjawab pertanyaan ke mana air menuju pada satu saat, dan ia dibekukan pada saat itu. Lintasan partikel menjawab ke mana satu butir air pergi sepanjang waktu. Garis jejak menjawab di mana semua butir yang pernah lewat satu titik sekarang berada, dan itulah yang terlihat bila zat warna diteteskan terus-menerus dari satu jarum. Yang pertama milik satu saat dan seluruh ruang; yang kedua milik satu butir dan seluruh waktu; yang ketiga milik satu titik dan seluruh waktu. Ketiganya hanya berimpit bila medannya tidak berubah terhadap waktu, dan di situ pula satu-satunya tempat foto zat warna boleh dibaca sebagai garis arus. Setiap foto aliran tak tunak yang pernah dimuat buku teks adalah garis jejak, dan membacanya sebagai garis arus adalah kekeliruan yang jarang diucapkan tetapi sering dilakukan. Perhatikan pula bahwa garis jejak dan lintasan partikel di sini sama-sama sinus tetapi berbeda fase. Keduanya tampak serupa sekilas, dan justru keserupaan itulah yang membuat kekeliruannya bertahan.",
   },
@@ -117,6 +121,7 @@ const TXT = {
     motionNote: "replayed from 0 to t, real time. Click the drawing to release dye at that point (at most 4)",
     tTambah: "Release dye at a new point",
     tTitik: (i: number) => `Dye release point ${i}`,
+    labelSembunyi: "Line names hidden until the quiz question is answered",
     note:
       "These three lines differ although one and the same velocity field gives birth to all of them, and the difference is not a fine point but the thing that decides how every flow photograph ever taken should be read. A streamline answers where the water is heading at one instant, frozen at that instant. A pathline answers where one grain of water went over time. A streakline answers where all the grains that once passed one point are now, and that is what is seen when dye is released continuously from a needle. The first belongs to one instant and all of space; the second to one grain and all of time; the third to one point and all of time. They coincide only when the field does not change with time, and that is also the only case in which a dye photograph may be read as a streamline. Every photograph of an unsteady flow ever printed in a textbook is a streakline, and reading it as a streamline is a mistake seldom spoken of and often made. Notice too that the streakline and the pathline here are both sine curves, differing only in phase. At a glance they look alike, and it is exactly that likeness that keeps the mistake alive.",
   },
@@ -152,6 +157,32 @@ export function GarisAliranClient() {
      (xs, ys): tidak ada model baru. */
   const [tinta, setTinta] = useState<[number, number][]>([]);
 
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa (SentuhContoh di blok
+     masukan). */
+  const sentuh = useRef<() => void>(() => {});
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.U !== undefined) setU(keLangkah(m.U, P_U));
+    if (m.V !== undefined) setV(keLangkah(m.V, P_V));
+    if (m.w !== undefined) setOmega(keLangkah(m.w, P_W));
+    if (m.t !== undefined) setWaktu(keLangkah(m.t, P_T));
+  };
+  /* Soal tebak (FF-05-5): saat dibuka, masukannya dipasang sekali dan nama
+     ketiga garis disembunyikan sampai soal itu dijawab. Satu objek soal per
+     set, jadi Soal baru menyembunyikan lagi. */
+  const [soalAktif, setSoalAktif] = useState<Soal | null>(null);
+  const [terungkap, setTerungkap] = useState<Soal | null>(null);
+  const tebakDipasang = useRef(new WeakSet<Soal>());
+  const aktifKuis = (q: Soal | null) => {
+    setSoalAktif(q);
+    if (q?.jenis === "tebak" && q.masukan && !tebakDipasang.current.has(q)) {
+      tebakDipasang.current.add(q);
+      terapkanKuis(q.masukan);
+    }
+  };
+  const sembunyiLabel = soalAktif?.jenis === "tebak" && terungkap !== soalAktif;
+
   /*
    * Panjang yang digambar mengikuti lintasan partikelnya, bukan tetap
    * sepuluh meter. Partikel yang dilepas pada saat nol sudah menempuh U·t
@@ -160,7 +191,7 @@ export function GarisAliranClient() {
    * dan garis jejaknya keluar dari bingkai (labelnya ikut hilang), dan Δ
    * dilaporkan di tempat yang tidak tergambar.
    */
-  const panjang = Math.max(SPAN, U * waktu);
+  const panjang = panjangGambar(U, waktu);
   const r = flowLines(U, V, omega, waktu, panjang);
   const miring = U !== 0 ? (V * Math.cos(omega * waktu)) / U : 0;
   /* Simpangan yang BENAR-BENAR dicapai lintasan sampai saat t, bukan
@@ -215,7 +246,7 @@ export function GarisAliranClient() {
           color: C.critical,
           weight: bergerak ? W.hair : W.bold,
           dash: bergerak ? DASH.phantom : DASH.solid,
-          label: T.streamlineLabel,
+          label: sembunyiLabel ? undefined : T.streamlineLabel,
           labelAt: 0.88,
           labelDy: -10,
           labelAlign: "right",
@@ -225,7 +256,7 @@ export function GarisAliranClient() {
           color: C.water,
           weight: bergerak ? W.hair : W.bold,
           dash: bergerak ? DASH.phantom : DASH.hidden,
-          label: T.pathlineLabel,
+          label: sembunyiLabel ? undefined : T.pathlineLabel,
           labelAt: 0.55,
           labelDy: 16,
           labelAlign: "center",
@@ -236,7 +267,7 @@ export function GarisAliranClient() {
           color: C.energy,
           weight: bergerak ? W.hair : W.thin,
           dash: bergerak ? DASH.phantom : DASH.solid,
-          label: T.streaklineLabel,
+          label: sembunyiLabel ? undefined : T.streaklineLabel,
           labelAt: 0.3,
           labelDy: -12,
           labelAlign: "center",
@@ -293,7 +324,7 @@ export function GarisAliranClient() {
           lines: garis,
           arrows: bergerak ? [] : panah,
           markers: titik,
-          heading: r.steady ? x.tunak : undefined,
+          heading: r.steady ? x.tunak : sembunyiLabel ? x.labelSembunyi : undefined,
           axisX: T.axXMetre,
           axisY: T.axYMetre,
           anchors,
@@ -310,7 +341,7 @@ export function GarisAliranClient() {
         { U, V, omega, waktu, panjang, sources: tinta },
         gerak.current!
       ),
-    [U, V, omega, waktu, lang, bergerak, kunciTinta],
+    [U, V, omega, waktu, lang, bergerak, kunciTinta, sembunyiLabel],
     { playing }
   );
 
@@ -399,11 +430,12 @@ export function GarisAliranClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="U" label={x.dU} value={U} min={0.2} max={8} step={0.1} digits={1} unit="m/s" onChange={setU} />
-              <InputRow symbol="V" label={x.dV} value={V} min={0} max={4} step={0.1} digits={1} unit="m/s" onChange={setV} tint={C.water} />
-              <InputRow symbol="ω" label={x.dW} value={omega} min={0} max={4} step={0.05} digits={2} unit="rad/s" onChange={setOmega} tint={C.critical} />
-              <InputRow symbol="t" label={x.dT} value={waktu} min={0.5} max={20} step={0.5} digits={1} unit="s" onChange={setWaktu} />
+              <InputRow symbol="U" label={x.dU} value={U} min={P_U.min} max={P_U.max} step={P_U.step} digits={1} unit="m/s" onChange={setU} />
+              <InputRow symbol="V" label={x.dV} value={V} min={P_V.min} max={P_V.max} step={P_V.step} digits={1} unit="m/s" onChange={setV} tint={C.water} />
+              <InputRow symbol="ω" label={x.dW} value={omega} min={P_W.min} max={P_W.max} step={P_W.step} digits={2} unit="rad/s" onChange={setOmega} tint={C.critical} />
+              <InputRow symbol="t" label={x.dT} value={waktu} min={P_T.min} max={P_T.max} step={P_T.step} digits={1} unit="s" onChange={setWaktu} />
             </InputTable>
+            <SentuhContoh sentuh={sentuh} />
 
             <div className="mt-3.5">
               <PresetRow
@@ -491,6 +523,20 @@ export function GarisAliranClient() {
             state={r.steady ? x.sTunak(x.tunak) : x.sState(x.takTunak, fmt(r.separation, 2))}
             notice={notice(U, V, omega, waktu, lang)}
           />
+
+          <Kuis
+            bank={FF05}
+            keadaan={{ U, V, w: omega, t: waktu }}
+            onTerapkan={terapkanKuis}
+            onAktif={aktifKuis}
+            onUngkap={() => setTerungkap(soalAktif)}
+            label={{
+              U: { simbol: "U", satuan: "m/s", digits: 1 },
+              V: { simbol: "V", satuan: "m/s", digits: 1 },
+              w: { simbol: "ω", satuan: "rad/s", digits: 2 },
+              t: { simbol: "t", satuan: "s", digits: 1 },
+            }}
+          />
         </>
       }
       verification={<Verification checks={checksFlowLines(U, V, omega, waktu)} />}
@@ -540,7 +586,7 @@ export function GarisAliranClient() {
  */
 function notice(U: number, V: number, omega: number, t: number, lang: Lang): string[] {
   const x = TXT[lang];
-  const panjang = Math.max(SPAN, U * t);
+  const panjang = panjangGambar(U, t);
   const a = flowLines(U, V, omega, t, panjang);
   if (a.steady) return [x.nTunak];
   const cepat = flowLines(U, V, omega * 3, t, panjang);
