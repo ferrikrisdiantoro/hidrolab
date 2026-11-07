@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -18,8 +18,12 @@ import {
 } from "@/components/ui";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
 import { drawGvf, gvfScale } from "@/lib/drawGvf";
+import { Kuis } from "@/components/Kuis";
+import type { Keadaan, Soal } from "@/lib/kuis";
+// Rentang penggeser satu sumber dengan bank kuis (S₀ dalam ‰).
+import { LANGKAH_GVF, OC03, P_B, P_L, P_N, P_Q, P_S0, P_Y } from "@/data/kuis/oc03";
 import {
   G,
   criticalDepth,
@@ -135,10 +139,28 @@ const REFS = {
 } as const;
 
 /*
- * Rentang kedalaman kendali: satu definisi untuk penggeser, kotak angka, dan
- * pegangan seret di penampang kendali (aturan 4, satu sumber nilai).
+ * Rentang masukan (P_Q … P_L, di data/kuis/oc03.ts): satu definisi untuk
+ * penggeser, kotak angka, pegangan seret di penampang kendali (aturan 4,
+ * satu sumber nilai), dan bank kuis.
  */
-const P_Y: ParamDef = { min: 0.1, max: 6, step: 0.05, digits: 2 };
+
+/* Teks mode tebak: profil disembunyikan sampai soal tebak dijawab. */
+const TEBAK = {
+  id: {
+    tutup: "Profil disembunyikan sampai soal tebak dijawab",
+    tutupSub: "Data saluran, y₀, dan yc ada di soal dan di tabel hasil.",
+    skala: "Disembunyikan sampai soal dijawab",
+    badge: "Tebak dulu",
+    state: "Nama profil, arah penelusuran, dan kartu keadaan disembunyikan sampai soal tebak di bawah dijawab. Kedalaman normal dan kritis di tabel hasil boleh dipakai untuk menebak.",
+  },
+  en: {
+    tutup: "The profile is hidden until the guess is answered",
+    tutupSub: "The channel data, y₀ and yc are in the question and in the results.",
+    skala: "Hidden until the question is answered",
+    badge: "Guess first",
+    state: "The profile name, computation direction and state card are hidden until the guess below is answered. The normal and critical depths in the results may be used to guess.",
+  },
+} as const;
 
 /** Kunci selama seret: ujung atas sumbu elevasi dan letak kendali awal, m. */
 type Kunci = { zTop: number; xCtl: number };
@@ -158,7 +180,7 @@ export function ProfilGvfClient() {
   const yc = criticalDepth(Q / b);
   const y0 = normalDepth(Q, b, n, S0);
   const terjangkau = normalDepthReachable(Q, b, n, S0);
-  const result = gvfProfile(Q, b, n, S0, yCtl, L, 400);
+  const result = gvfProfile(Q, b, n, S0, yCtl, L, LANGKAH_GVF);
   const FrCtl = froude(Q / (b * yCtl), yCtl);
 
   // Profil yang berhenti di kedalaman kritis lebih pendek daripada bentangnya.
@@ -209,6 +231,52 @@ export function ProfilGvfClient() {
         : "neutral";
 
   const sentuh = useRef<() => void>(() => {});
+
+  /*
+   * Kuis. Masukan soal dipasang lewat setter penggeser yang sama dan
+   * memadamkan tanda contoh seperti geseran biasa. S₀ di kuis dalam ‰.
+   */
+  const terapkanKuis = (m: Keadaan) => {
+    sentuh.current();
+    if (m.Q !== undefined) setQ(keLangkah(m.Q, P_Q));
+    if (m.b !== undefined) setB(keLangkah(m.b, P_B));
+    if (m.n !== undefined) setN(keLangkah(m.n, P_N));
+    if (m.S0 !== undefined) setS0(keLangkah(m.S0, P_S0) / 1000);
+    if (m.y !== undefined) setYCtl(keLangkah(m.y, P_Y));
+    if (m.L !== undefined) setL(keLangkah(m.L, P_L));
+  };
+
+  /*
+   * Mode tebak (OC-03-1, OC-03-2). Selama soal tebak yang belum dijawab
+   * tampil, gambar, nama profil, arah, dan kartu keadaan ditutup, dan lembar
+   * memasang masukan soal itu. Mode ini baru menyala sesudah pengguna
+   * menyentuh kuis (klik atau tombol keyboard di dalamnya), supaya lembar
+   * yang baru dibuka tetap menampilkan contohnya. Soal yang sudah dijawab
+   * dicatat per objek soal: set soal baru atau Reset membuat objek baru,
+   * jadi tebakannya tertutup lagi.
+   */
+  const [aktif, setAktif] = useState<Soal | null>(null);
+  const [disentuh, setDisentuh] = useState(false);
+  const terungkap = useRef(new WeakSet<Soal>());
+  const [, setUngkapKe] = useState(0);
+  const sembunyi =
+    disentuh && aktif !== null && aktif.jenis === "tebak" && !terungkap.current.has(aktif);
+  const sentuhKuis = () => {
+    if (!disentuh) setDisentuh(true);
+  };
+  const ungkap = (id: string) => {
+    if (aktif && aktif.id === id) {
+      terungkap.current.add(aktif);
+      setUngkapKe((v) => v + 1);
+    }
+  };
+  useEffect(() => {
+    if (sembunyi && aktif?.masukan) terapkanKuis(aktif.masukan);
+    // Hanya saat soal tebak mulai ditutup; terapkanKuis berganti tiap render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sembunyi, aktif]);
+  const tb = TEBAK[lang];
+
   /*
    * Skala dikunci selama kedalaman kendali diseret. Tanpa kunci ujung atas
    * sumbu elevasi = 1,12 × muka air tertinggi, dan muka air tertinggi profil
@@ -257,14 +325,25 @@ export function ProfilGvfClient() {
   return (
     <LabShell
       status={
-        <RegimeScale
-          symbol="y"
-          value={terjangkau ? yCtl : NaN}
-          invalid={!terjangkau}
-          pesan={terjangkau ? undefined : x.tak}
-          digits={2}
-          bands={pitaZona}
-        />
+        sembunyi ? (
+          // Pita zona menyebut nama profil; selama menebak hanya skalanya.
+          <RegimeScale
+            symbol="y"
+            value={NaN}
+            pesan={tb.skala}
+            digits={2}
+            bands={[{ from: 0, to: puncak, label: tb.badge, tone: "neutral" }]}
+          />
+        ) : (
+          <RegimeScale
+            symbol="y"
+            value={terjangkau ? yCtl : NaN}
+            invalid={!terjangkau}
+            pesan={terjangkau ? undefined : x.tak}
+            digits={2}
+            bands={pitaZona}
+          />
+        )
       }
       sheet="OC-03"
       subject={SUBJECTS.OC[lang]}
@@ -296,11 +375,20 @@ export function ProfilGvfClient() {
             { label: "Q", value: `${fmt(Q, 1)} m³/s`, tint: C.water },
             { label: "y₀", value: terjangkau ? `${fmt(y0, 3)} m` : "—", tint: C.water },
             { label: "yc", value: `${fmt(yc, 3)} m`, tint: C.critical },
-            { label: t.tbSlope, value: terjangkau ? (result.mild ? x.mild : x.steep) : "—" },
-            { label: x.rProfile, value: terjangkau ? result.profile : "—" },
+            { label: t.tbSlope, value: sembunyi ? "?" : terjangkau ? (result.mild ? x.mild : x.steep) : "—" },
+            { label: x.rProfile, value: sembunyi ? "?" : terjangkau ? result.profile : "—" },
           ]}
         >
           <canvas ref={plate.ref} className="block h-full w-full" />
+          {sembunyi && (
+            <div
+              data-tebak-tutup
+              className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-sheet px-6 text-center"
+            >
+              <p className="stencil text-ink">{tb.tutup}</p>
+              <p className="max-w-[44ch] text-[0.86rem] leading-[1.5] text-ink-2">{tb.tutupSub}</p>
+            </div>
+          )}
           {/* display: contents: pembungkus tidak membuat kotak, hanya
               menangkap pointerdown/lepas yang menggelembung dari pegangan
               untuk mengunci skala. */}
@@ -317,7 +405,9 @@ export function ProfilGvfClient() {
             onPointerCancel={lepasKunci}
             onLostPointerCapture={lepasKunci}
           >
-            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            {!sembunyi && (
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            )}
           </div>
         </Sheet>
       }
@@ -325,12 +415,12 @@ export function ProfilGvfClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="Q" label={x.dQ} value={Q} min={0.5} max={120} step={0.5} digits={1} unit="m³/s" onChange={setQ} tint={C.water} />
-              <InputRow symbol="b" label={x.db} value={b} min={0.5} max={25} step={0.1} digits={1} unit="m" onChange={setB} />
-              <InputRow symbol="n" label={x.dn} value={n} min={0.01} max={0.07} step={0.001} digits={3} onChange={setN} />
-              <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} min={0.05} max={40} step={0.05} digits={2} unit="‰" onChange={(v) => setS0(v / 1000)} />
+              <InputRow symbol="Q" label={x.dQ} value={Q} {...P_Q} unit="m³/s" onChange={setQ} tint={C.water} />
+              <InputRow symbol="b" label={x.db} value={b} {...P_B} unit="m" onChange={setB} />
+              <InputRow symbol="n" label={x.dn} value={n} {...P_N} onChange={setN} />
+              <InputRow symbol="S₀" label={x.dS} value={S0 * 1000} {...P_S0} unit="‰" onChange={(v) => setS0(v / 1000)} />
               <InputRow symbol="y" label={x.dyc} value={yCtl} {...P_Y} unit="m" onChange={setYCtl} tint={C.water} />
-              <InputRow symbol="L" label={x.dL} value={L} min={100} max={4000} step={50} digits={0} unit="m" onChange={setL} />
+              <InputRow symbol="L" label={x.dL} value={L} {...P_L} unit="m" onChange={setL} />
             </InputTable>
 
             <SentuhContoh sentuh={sentuh} />
@@ -354,13 +444,13 @@ export function ProfilGvfClient() {
           <Block heading={t.blkResult}>
             <ResultTable
               rows={[
-                { symbol: "—", label: x.rProfile, value: terjangkau ? result.profile : "—", tint: C.critical, strong: true },
+                { symbol: "—", label: x.rProfile, value: sembunyi ? "?" : terjangkau ? result.profile : "—", tint: C.critical, strong: true },
                 { symbol: "y₀", label: x.rY0, value: fmt(tampil(y0), 3), unit: terjangkau ? "m" : undefined, tint: C.water, strong: true },
                 { symbol: "yc", label: x.rYc, value: fmt(yc, 3), unit: "m", tint: C.critical },
                 { symbol: "Fr", label: x.rFrC, value: fmt(FrCtl) },
-                { symbol: "—", label: x.rDir, value: result.direction === "hulu" ? x.dirUp : x.dirDown },
-                { symbol: "Δy", label: x.rDy, value: fmt(tampil(dy), 3), unit: terjangkau ? "m" : undefined },
-                ...(result.endsAtCritical
+                { symbol: "—", label: x.rDir, value: sembunyi ? "?" : result.direction === "hulu" ? x.dirUp : x.dirDown },
+                { symbol: "Δy", label: x.rDy, value: sembunyi ? "?" : fmt(tampil(dy), 3), unit: terjangkau && !sembunyi ? "m" : undefined },
+                ...(result.endsAtCritical && !sembunyi
                   ? [
                       {
                         symbol: "Lp",
@@ -420,12 +510,15 @@ export function ProfilGvfClient() {
                       : `Δy = ${fmt(tampil(dy), 3)}`,
                     satuan: result.endsAtCritical || terjangkau ? "m" : undefined,
                   },
-                ]}
+                  // Selama menebak, penggolongan dan arah penelusuran ditahan.
+                ].slice(0, sembunyi ? 3 : undefined)}
               />
             </div>
           </Block>
 
-          {terjangkau ? (
+          {sembunyi ? (
+            <StateCard tone="neutral" badge={tb.badge} state={tb.state} />
+          ) : terjangkau ? (
             <StateCard
               tone={nada}
               badge={result.endsAtCritical ? x.berhenti : `${result.profile} (${result.mild ? x.mild : x.steep})`}
@@ -434,6 +527,25 @@ export function ProfilGvfClient() {
           ) : (
             <StateCard tone="invalid" badge={x.tak} state={x.takNote} />
           )}
+
+          {/* Penangkap sentuhan kuis: menyalakan mode tebak (lihat sembunyi). */}
+          <div onPointerDownCapture={sentuhKuis} onKeyDownCapture={sentuhKuis}>
+            <Kuis
+              bank={OC03}
+              keadaan={{ Q, b, n, S0: S0 * 1000, y: yCtl, L }}
+              onTerapkan={terapkanKuis}
+              onAktif={setAktif}
+              onUngkap={ungkap}
+              label={{
+                Q: { simbol: "Q", satuan: "m³/s", digits: 1 },
+                b: { simbol: "b", satuan: "m", digits: 1 },
+                n: { simbol: "n", digits: 3 },
+                S0: { simbol: "S₀", satuan: "‰", digits: 2 },
+                y: { simbol: "y", satuan: "m", digits: 2 },
+                L: { simbol: "L", satuan: "m", digits: 0 },
+              }}
+            />
+          </div>
         </>
       }
       verification={<Verification checks={checksGvf(Q, b, n, S0)} />}

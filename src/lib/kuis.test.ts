@@ -15,7 +15,21 @@ import {
   type Soal,
 } from "./kuis.ts";
 import { BANK_KUIS } from "../data/kuis/index.ts";
-import { G, classifyJump, conjugateDepth, fmt, froude, jumpEnergyLoss, setNumberLocale } from "./hydraulics.ts";
+import {
+  G,
+  classifyJump,
+  conjugateDepth,
+  criticalDepth,
+  ductEnergy,
+  fmt,
+  froude,
+  gvfProfile,
+  jumpEnergyLoss,
+  normalDepth,
+  normalDepthReachable,
+  setNumberLocale,
+  transition,
+} from "./hydraulics.ts";
 
 /**
  * Uji kuis (K3). Setiap bank dibangkitkan dengan 1000 benih. Yang dijaga:
@@ -23,8 +37,9 @@ import { G, classifyJump, conjugateDepth, fmt, froude, jumpEnergyLoss, setNumber
  *  - tepat satu pilihan benar, dan teks pilihan berbeda SESUDAH fmt ID/EN
  *  - kesalahan umum soal hitung berjarak ≥ 2× toleransi dan beda sesudah fmt
  *  - toleransi hitung lebih besar daripada galat pembulatan tampilan
- *  - soal atur punya ≥ 3 langkah penggeser yang memenuhi, dan keadaan awal
- *    yang dipasang belum memenuhi
+ *  - soal atur punya ≥ 3 langkah penggeser yang memenuhi (atau langkahMin
+ *    soalnya; FF-01 B4: 2 menurut revisi insinyur), dan keadaan awal yang
+ *    dipasang belum memenuhi
  *  - soal klasifikasi OC-01 tidak berada di margin batas pita
  */
 
@@ -303,6 +318,127 @@ describe(`OC-01 loncatan air: kunci dari lib, ${BENIH} benih`, () => {
       const E1 = y1 + (V1 * V1) / (2 * G);
       assert.equal(q.kunci, (jumpEnergyLoss(y1, y2) / E1) * 100);
       assert.equal(q.toleransi, 1);
+    }
+  });
+});
+
+/* ---------------------------------------------------------------- *
+ * Pembantu uji bank K-A1
+ * ---------------------------------------------------------------- */
+
+type Kisi = { min: number; max: number; step: number };
+const diKisiP = (v: number, p: Kisi) =>
+  v >= p.min - 1e-12 && v <= p.max + 1e-12 && Math.abs(v / p.step - Math.round(v / p.step)) < 1e-9;
+const kisiUji = (p: Kisi) => {
+  const out: number[] = [];
+  for (let k = Math.ceil(p.min / p.step - 1e-9); k <= Math.floor(p.max / p.step + 1e-9); k++)
+    out.push(Number((k * p.step).toFixed(6)));
+  return out;
+};
+
+/* ---------------------------------------------------------------- *
+ * OC-03: kunci = gvfProfile, huruf dari .mild, margin zona
+ * ---------------------------------------------------------------- */
+
+describe(`OC-03 profil GVF: kunci dari lib, ${BENIH} benih`, () => {
+  const bank = BANK_KUIS["OC-03"];
+  const P = {
+    Q: { min: 0.5, max: 120, step: 0.5 },
+    b: { min: 0.5, max: 25, step: 0.1 },
+    n: { min: 0.01, max: 0.07, step: 0.001 },
+    S0: { min: 0.05, max: 40, step: 0.05 },
+    y: { min: 0.1, max: 6, step: 0.05 },
+    L: { min: 100, max: 4000, step: 50 },
+  };
+  const soal = (b: number, id: string) => bank.buat(b).find((q) => q.id === id)!;
+  const gvf = (m: Record<string, number>, L = m.L) => gvfProfile(m.Q, m.b, m.n, m.S0 / 1000, m.y, L, 400);
+  const margin = (m: Record<string, number>) => {
+    const yc = criticalDepth(m.Q / m.b);
+    const y0 = normalDepth(m.Q, m.b, m.n, m.S0 / 1000);
+    assert.ok(normalDepthReachable(m.Q, m.b, m.n, m.S0 / 1000));
+    assert.ok(Math.abs(y0 / yc - 1) > 0.15, `y0 ${y0} yc ${yc}`);
+    for (const d of [y0, yc]) {
+      assert.ok(Math.abs(m.y - d) >= 0.05 - 1e-12, `y ${m.y} dekat ${d}`);
+      assert.ok(Math.abs(m.y / d - 1) >= 0.1 - 1e-12, `y ${m.y} dekat ${d}`);
+    }
+  };
+
+  it("masukan tiap soal ada di kisi penggeser lembar", () => {
+    for (let b = 1; b <= BENIH; b++)
+      for (const q of bank.buat(b)) {
+        const m = q.jenis === "atur" ? { ...q.siapkan, ...q.tetap } : q.masukan;
+        assert.ok(m, q.id);
+        for (const k of Object.keys(P) as (keyof typeof P)[]) assert.ok(diKisiP(m[k], P[k]), `${q.id} ${k} ${m[k]}`);
+      }
+  });
+
+  it("B1 tebak: kunci = gvfProfile().profile, huruf dari .mild, keenam profil muncul", () => {
+    const kena = new Map<string, number>();
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc03-1");
+      assert.equal(q.jenis, "tebak");
+      if (q.jenis !== "tebak") continue;
+      const r = gvf(q.masukan!);
+      assert.equal(q.kunci, r.profile);
+      assert.equal(q.kunci[0], r.mild ? "M" : "S");
+      margin(q.masukan!);
+      kena.set(q.kunci, (kena.get(q.kunci) ?? 0) + 1);
+    }
+    assert.equal(kena.size, 6, `profil: ${[...kena.keys()]}`);
+    for (const [k, n] of kena) assert.ok(n >= 100, `${k} hanya ${n}`);
+  });
+
+  it("B2 tebak: kunci mengikuti gvfProfile().direction", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc03-2");
+      if (q.jenis !== "tebak") assert.fail("jenis");
+      const r = gvf(q.masukan!);
+      assert.equal(q.kunci, r.direction === "hulu" ? "hulu-sub" : "hilir-sup");
+      margin(q.masukan!);
+    }
+  });
+
+  it("B3: kunci = endsAtCritical dengan margin panjang (≤ 0,8 L bila benar, 1,25 L tetap salah)", () => {
+    let benar = 0;
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc03-3");
+      if (q.jenis !== "pilih") assert.fail("jenis");
+      const m = q.masukan!;
+      const r = gvf(m);
+      assert.equal(q.kunci, r.endsAtCritical ? "berhenti-yc" : "menuju-y0");
+      if (r.endsAtCritical) {
+        benar++;
+        const xs = r.points.map((p) => p.x);
+        assert.ok(Math.max(...xs) - Math.min(...xs) <= 0.8 * m.L + 1e-9);
+      } else {
+        assert.equal(gvf(m, 1.25 * m.L).endsAtCritical, false);
+      }
+    }
+    assert.ok(benar > 300 && benar < 700, `berhenti di yc ${benar} dari ${BENIH}`);
+  });
+
+  it("B4 hitung: kunci = criticalDepth(Q/b), toleransi 1 %", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc03-4");
+      if (q.jenis !== "hitung") assert.fail("jenis");
+      const m = q.masukan!;
+      assert.equal(q.kunci, criticalDepth(m.Q / m.b));
+      assert.ok(q.toleransi >= 0.01 * q.kunci - 1e-12);
+    }
+  });
+
+  it("B5 atur: sasaran = langkah y yang memberi M2 menurut gvfProfile, ≥ 4 langkah, Q b n S₀ tetap", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc03-5");
+      if (q.jenis !== "atur") assert.fail("jenis");
+      assert.equal(q.geser.kunci, "y");
+      const m = { ...q.siapkan!, ...q.tetap! };
+      for (const k of ["Q", "b", "n", "S0"]) assert.ok(k in q.tetap!, k);
+      const m2 = kisiUji(P.y).filter((y) => gvfProfile(m.Q, m.b, m.n, m.S0 / 1000, y, m.L, 1).profile === "M2");
+      assert.ok(m2.length >= 4, `${m2.length}`);
+      assert.equal(q.target.min, m2[0]);
+      assert.equal(q.target.max, m2[m2.length - 1]);
+      assert.notEqual(gvf(m).profile, "M2");
     }
   });
 });

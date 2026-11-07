@@ -4,7 +4,9 @@
  */
 import type { BankKuis } from "../../lib/kuis.ts";
 import { OC01 } from "./oc01.ts";
+import { OC03 } from "./oc03.ts";
 
 export const BANK_KUIS: Record<string, BankKuis> = {
   "OC-01": OC01,
+  "OC-03": OC03,
 };
