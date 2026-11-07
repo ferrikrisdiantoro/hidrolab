@@ -30,6 +30,7 @@ import {
   setNumberLocale,
   transition,
 } from "./hydraulics.ts";
+import { ff01Kasus2, stasiunBernoulli } from "../data/kuis/ff01.ts";
 
 /**
  * Uji kuis (K3). Setiap bank dibangkitkan dengan 1000 benih. Yang dijaga:
@@ -228,7 +229,7 @@ for (const bank of Object.values(BANK_KUIS)) {
           if (q.jenis !== "atur") continue;
           const dasar = { ...(q.siapkan ?? {}), ...(q.tetap ?? {}) };
           const lolos = kisi(q.geser.p).filter((v) => nilaiJawab(q, 0, { ...dasar, [q.geser.kunci]: v }).benar);
-          assert.ok(lolos.length >= 3, `${q.id}: ${lolos.length} langkah`);
+          assert.ok(lolos.length >= (q.langkahMin ?? 3), `${q.id}: ${lolos.length} langkah`);
           assert.equal(nilaiJawab(q, 0, dasar).benar, false, `${q.id}: awal sudah memenuhi`);
         }
     });
@@ -531,6 +532,95 @@ describe(`OC-05 transisi lebar: kunci dari lib, ${BENIH} benih`, () => {
       assert.ok(p?.alasan);
       assert.match(p!.alasan!.id, /waduk/);
       assert.match(p!.alasan!.en, /reservoir/);
+    }
+  });
+});
+
+/* ---------------------------------------------------------------- *
+ * FF-01: kunci = ductEnergy
+ * ---------------------------------------------------------------- */
+
+describe(`FF-01 Bernoulli: kunci dari lib, ${BENIH} benih`, () => {
+  const bank = BANK_KUIS["FF-01"];
+  const P = {
+    Q: { min: 5, max: 600, step: 5 },
+    H: { min: 2, max: 40, step: 0.5 },
+    D1: { min: 100, max: 800, step: 10 },
+    D2: { min: 40, max: 800, step: 10 },
+    dz: { min: -8, max: 25, step: 0.5 },
+  };
+  const soal = (b: number, id: string) => bank.buat(b).find((q) => q.id === id)!;
+  const de = (m: Record<string, number>) =>
+    ductEnergy(m.Q / 1000, stasiunBernoulli(m.D1 / 1000, m.D2 / 1000, m.dz), m.H, 0);
+
+  it("masukan tiap soal ada di kisi penggeser lembar", () => {
+    for (let b = 1; b <= BENIH; b++)
+      for (const q of bank.buat(b)) {
+        const m = q.jenis === "atur" ? { ...q.siapkan, ...q.tetap } : q.masukan;
+        assert.ok(m, q.id);
+        for (const k of Object.keys(P) as (keyof typeof P)[]) assert.ok(diKisiP(m[k], P[k]), `${q.id} ${k} ${m[k]}`);
+      }
+  });
+
+  it("B1 hitung: kunci = points[2].pressureHead, Δz ∈ [1; 10], hv₂ ≥ 0,2 m, D₂ < 0,8 D₁, tanpa kavitasi", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "ff01-1");
+      if (q.jenis !== "hitung") assert.fail("jenis");
+      const m = q.masukan!;
+      const r = de(m);
+      assert.equal(q.kunci, r.points[2].pressureHead);
+      assert.ok(m.dz >= 1 && m.dz <= 10, String(m.dz));
+      assert.ok(r.points[2].velocityHead >= 0.2, String(r.points[2].velocityHead));
+      assert.ok(m.D2 < 0.8 * m.D1);
+      assert.equal(r.cavitates, false);
+      assert.ok(q.toleransi >= Math.max(0.02, 0.01 * Math.abs(q.kunci)) - 1e-12);
+    }
+  });
+
+  it("B2 pilih: kunci = penurunan p/γ dari dua panggilan ductEnergy, keduanya tanpa kavitasi", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const k = ff01Kasus2(b);
+      const q = soal(b, "ff01-2");
+      if (q.jenis !== "pilih") assert.fail("jenis");
+      const ra = de({ ...k.m, D2: k.D2a }), rb = de(k.m);
+      assert.equal(ra.cavitates || rb.cavitates, false);
+      assert.ok(k.D2a > k.m.D2);
+      assert.deepEqual(q.masukan, k.m);
+      const turun = ra.points[2].pressureHead - rb.points[2].pressureHead;
+      assert.ok(Math.abs(turun - k.turun) < 1e-12);
+      const kunci = q.pilihan.find((p) => p.id === q.kunci)!;
+      for (const l of LANGS) assert.ok(kunci.teks[l].includes(fmtL(turun, 2, l)), `${kunci.teks[l]} ${turun}`);
+    }
+  });
+
+  it("B3 pilih: leher naik 1 m menurunkan p/γ tepat 1 m menurut ductEnergy", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "ff01-3");
+      if (q.jenis !== "pilih") assert.fail("jenis");
+      const m = q.masukan!;
+      const r0 = de(m), r1 = de({ ...m, dz: m.dz + 1 });
+      assert.equal(r0.cavitates || r1.cavitates, false);
+      assert.ok(Math.abs(r0.points[2].pressureHead - r1.points[2].pressureHead - 1) < 1e-9);
+      assert.equal(q.kunci, "tepat");
+    }
+  });
+
+  it("B4 atur: kunci = Δz terbesar di kisi tanpa kavitasi; diterima kunci dan satu langkah di bawahnya", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "ff01-4");
+      if (q.jenis !== "atur") assert.fail("jenis");
+      const m = { ...q.siapkan!, ...q.tetap! };
+      assert.ok(m.D2 <= 0.8 * m.D1);
+      const aman = kisiUji(P.dz).filter((dz) => !de({ ...m, dz }).cavitates);
+      const kunci = aman[aman.length - 1];
+      assert.ok(kunci >= 0.5 && kunci <= 24.5, String(kunci));
+      assert.equal(de({ ...m, dz: kunci + 0.5 }).cavitates, true);
+      assert.equal(q.target.max, kunci);
+      assert.equal(q.target.min, kunci - 0.5);
+      const lolos = kisiUji(P.dz).filter((dz) => nilaiJawab(q, 0, { ...m, dz }).benar);
+      assert.deepEqual(lolos, [kunci - 0.5, kunci]);
+      assert.equal(q.langkahMin, 2);
+      for (const k of ["Q", "H", "D1", "D2"]) assert.ok(k in q.tetap!, k);
     }
   });
 });
