@@ -54,8 +54,11 @@ const TXT = {
     tampakAtas: "Tampak atas",
     isoHeading: "tampak isometrik",
     aksoHeading: "tampak 3D (aksonometri)",
-    isoCatatan: (t: string) =>
-      `Isometrik skematik. Tebal dinding tidak ada di model; digambar ${t}. Tirai luapan dan air di dalam siklus belum digambar, muka air hulu datar setinggi P + h.`,
+    isoBertemu: "tirai bertemu (h/P > 0,9)",
+    isoCatatan: (t: string, sempit: boolean) =>
+      `Gambar 3D skematik. Tebal dinding tidak ada di model; digambar ${t}. Tirai dari profil 2D ambang tajam (WES), tegak lurus dinding. Aliran miring di dinding sisi dan mercu bulat tidak dimodelkan. Hilir bebas, muka air hilir tidak dimodelkan. Arsir tirai bertemu mengikuti tanda model h/P > 0,9, bukan panjang terukur.${
+        sempit ? " Siklus di luar rentang percobaan: tirai dan air siklus tidak digambar." : ""
+      }`,
     isoTebal: (pct: string, min: string) => `${pct} % lebar siklus, paling tipis ${min} m`,
     dH: "Tinggi muka air di atas mercu",
     dP: "Tinggi mercu",
@@ -112,8 +115,11 @@ const TXT = {
     tampakAtas: "Plan view",
     isoHeading: "isometric view",
     aksoHeading: "3D view (axonometric)",
-    isoCatatan: (t: string) =>
-      `Schematic isometric. Wall thickness is not in the model; it is drawn as ${t}. The nappes and the water inside the cycles are not drawn yet, and the upstream water level is flat at P + h.`,
+    isoBertemu: "nappes meet (h/P > 0.9)",
+    isoCatatan: (t: string, sempit: boolean) =>
+      `Schematic 3D drawing. Wall thickness is not in the model; it is drawn as ${t}. Nappes follow the 2D sharp-crested (WES) profile, normal to the wall. Oblique flow along the sidewalls and rounded crests are not modelled. Free outfall; the tailwater level is not modelled. The nappes-meet hatch follows the model flag h/P > 0.9, not a measured length.${
+        sempit ? " The cycle is outside the tested range: nappes and cycle water are not drawn." : ""
+      }`,
     isoTebal: (pct: string, min: string) => `${pct} % of the cycle width, at least ${min} m`,
     dH: "Water level above the crest",
     dP: "Crest height",
@@ -325,6 +331,7 @@ export function BendungLabirinClient() {
               : isometrikBaku(pandang.yaw, pandang.pitch)
                 ? x.isoHeading
                 : x.aksoHeading,
+          labelBertemu: x.isoBertemu,
         }
       );
     },
@@ -414,7 +421,7 @@ export function BendungLabirinClient() {
             onChange: setTampak,
             label2D: x.tampakAtas,
             alat: <TombolPandang p={pandang} />,
-            catatan: x.isoCatatan(x.isoTebal(fmt(TEBAL_PECAHAN * 100, 0), fmt(TEBAL_MIN, 2))),
+            catatan: x.isoCatatan(x.isoTebal(fmt(TEBAL_PECAHAN * 100, 0), fmt(TEBAL_MIN, 2)), sempit),
           }}
         >
           <canvas
