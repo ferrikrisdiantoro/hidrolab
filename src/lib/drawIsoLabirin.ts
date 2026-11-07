@@ -60,9 +60,14 @@ export type IsoLabirinOptions = {
 /** Ruas garis tengah dinding mercu dalam denah (x searah aliran, y melintang). */
 export type RuasDinding = { a: { x: number; y: number }; b: { x: number; y: number } };
 
+/** Tebal dinding skematik sebagai pecahan lebar satu siklus (lihat catatan berkas). */
+export const TEBAL_PECAHAN = 0.05;
+/** Tebal dinding skematik paling tipis, m. */
+export const TEBAL_MIN = 0.12;
+
 /** Tebal dinding skematik, m (lihat catatan berkas). */
 export function tebalDinding(W: number, cycles: number): number {
-  return Math.max((W / Math.max(cycles, 1)) * 0.05, 0.12);
+  return Math.max((W / Math.max(cycles, 1)) * TEBAL_PECAHAN, TEBAL_MIN);
 }
 
 /** Garis tengah dinding mercu: 3 ruas per siklus, dari denah model. */

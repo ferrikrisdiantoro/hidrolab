@@ -17,7 +17,7 @@ import {
 } from "@/components/ui";
 import { TombolPandang } from "@/components/Pandangan";
 import { usePandangan } from "@/lib/usePandangan";
-import { drawIsoLabirin } from "@/lib/drawIsoLabirin";
+import { drawIsoLabirin, TEBAL_MIN, TEBAL_PECAHAN } from "@/lib/drawIsoLabirin";
 import { ISO } from "@/lib/proyeksi";
 import { useCanvas } from "@/lib/useCanvas";
 import {
@@ -385,7 +385,7 @@ export function BendungLabirinClient() {
             onChange: setTampak,
             label2D: x.tampakAtas,
             alat: <TombolPandang p={pandang} />,
-            catatan: x.isoCatatan(x.isoTebal(fmt(5, 0), fmt(0.12, 2))),
+            catatan: x.isoCatatan(x.isoTebal(fmt(TEBAL_PECAHAN * 100, 0), fmt(TEBAL_MIN, 2))),
           }}
         >
           <canvas
