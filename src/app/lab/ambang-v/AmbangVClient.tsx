@@ -173,9 +173,9 @@ const TXT = {
     pCampur:
       "Rows in the table use more than one notch angle. The calibrated Cd uses each row's theoretical Q, but the exponent m is not fitted because points from two plates do not lie on one rating curve; clear the table for a new series.",
     pRendah: (k: number, s: string) =>
-      `${k} readings with H below ${s} mm, outside the limit of this sheet's formula. There surface tension helps hold the nappe, so the Cd of those readings does not represent the weir. The numbers are not clipped and stay in the summary; delete those rows to calibrate only over the valid range.`,
+      `${k} ${k === 1 ? "reading" : "readings"} with H below ${s} mm, outside the limit of this sheet's formula. There surface tension helps hold the nappe, so the Cd of those readings does not represent the weir. The numbers are not clipped and stay in the summary; delete those rows to calibrate only over the valid range.`,
     pLuarSkala: (k: number, s: string) =>
-      `${k} readings with H above ${s} mm, past the range of the bench point gauge (Armfield F1-13). The numbers are not clipped; in the laboratory these readings need a longer gauge.`,
+      `${k} ${k === 1 ? "reading" : "readings"} with H above ${s} mm, past the range of the bench point gauge (Armfield F1-13). The numbers are not clipped; in the laboratory these readings need a longer gauge.`,
     hHeP: "Effective head from the read H",
     hQt: "Theoretical discharge (Cd = 1)",
     hCdP: "Discharge coefficient of this reading",
