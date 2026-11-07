@@ -11,6 +11,7 @@ import { OC03 } from "./oc03.ts";
 import { OC05 } from "./oc05.ts";
 import { FF01 } from "./ff01.ts";
 import { HY04 } from "./hy04.ts";
+import { HY05 } from "./hy05.ts";
 
 export const BANK_KUIS: Record<string, BankKuis> = {
   "FF-05": FF05,
@@ -21,4 +22,5 @@ export const BANK_KUIS: Record<string, BankKuis> = {
   "OC-05": OC05,
   "FF-01": FF01,
   "HY-04": HY04,
+  "HY-05": HY05,
 };

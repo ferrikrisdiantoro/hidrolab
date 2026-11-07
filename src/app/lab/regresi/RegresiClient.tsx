@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -32,6 +32,11 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksRegression } from "@/lib/checksRegression";
+import { Kuis } from "@/components/Kuis";
+import { MuatDataSoal, useMuatTabel } from "@/components/MuatDataSoal";
+import { BENTUK_REG, HY05 } from "@/data/kuis/hy05";
+import { dataSoal, sidikData } from "@/data/kuis/dataSoal";
+import type { Keadaan, Soal } from "@/lib/kuis";
 
 const TXT = {
   id: {
@@ -219,6 +224,42 @@ export function RegresiClient() {
 
   const { pts } = ptsFromRows(rows);
   const kunci = JSON.stringify(pts);
+
+  /*
+   * Kuis. Data soal masuk ke tabel hanya lewat aksi pengguna (Muat data
+   * soal, atau menjawab), lewat setter tabel yang sama. "deg" kuis: 1 =
+   * bentuk linear, 2–6 = polinomial; "bentuk" = nomor tombol bentuk.
+   */
+  const [aktif, setAktif] = useState<Soal | null>(null);
+  const muatTabel = useMuatTabel(rows, setRows, rowsFromPts(SAMPLE_REGRESSION));
+  const dataAktif = dataSoal(aktif);
+  const sidikTabel = sidikData(pts);
+  const tabelCocok = dataAktif !== null && sidikData(dataAktif) === sidikTabel;
+  const muatSoal = () => (dataAktif ? muatTabel(rowsFromPts(dataAktif)) : true);
+  const pasang = (m: Keadaan, data: { x: number; y: number }[]) => {
+    if (!muatTabel(rowsFromPts(data))) return;
+    if (m.deg !== undefined) {
+      if (m.deg === 1) setKind("linear");
+      else {
+        setKind("polinomial");
+        setDeg(m.deg);
+      }
+    } else if (m.bentuk !== undefined && BENTUK_REG[m.bentuk]) setKind(BENTUK_REG[m.bentuk]);
+  };
+  /* Keadaan awal soal atur datang sebelum onAktif melaporkan soal baru;
+     ditunda sampai soal aktif membawa data yang sidiknya sama. */
+  const [tunda, setTunda] = useState<Keadaan | null>(null);
+  const terapkanKuis = (m: Keadaan) => {
+    if (dataAktif && sidikData(dataAktif) === m.data) pasang(m, dataAktif);
+    else setTunda(m);
+  };
+  useEffect(() => {
+    if (tunda && dataAktif && sidikData(dataAktif) === tunda.data) {
+      setTunda(null);
+      pasang(tunda, dataAktif);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tunda, aktif]);
   const f = useMemo(() => fitRegression(pts, kind, deg, win), [kunci, kind, deg, win]); // eslint-disable-line react-hooks/exhaustive-deps
   const cek = useMemo(() => checksRegression(pts, kind, deg, win), [kunci, kind, deg, win]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -579,6 +620,23 @@ export function RegresiClient() {
           ) : (
             <StateCard tone="invalid" badge={x.kurang} state={x.kurangNote} />
           )}
+
+          <Kuis
+            bank={HY05}
+            keadaan={{
+              deg: kind === "linear" ? 1 : kind === "polinomial" ? deg : Number.NaN,
+              bentuk: KINDS.indexOf(kind),
+              data: sidikTabel,
+            }}
+            onTerapkan={terapkanKuis}
+            onAktif={setAktif}
+          />
+          <MuatDataSoal
+            n={dataAktif?.length ?? 0}
+            cocok={tabelCocok}
+            satuan={{ id: "pasangan", en: "pairs" }}
+            onMuat={muatSoal}
+          />
         </>
       }
       verification={<Verification checks={cek} />}
