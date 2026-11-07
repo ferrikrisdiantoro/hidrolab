@@ -234,6 +234,42 @@ export function balikDiGaris(px: number, py: number, k: Kamera, a: V3, b: V3): n
 }
 
 /**
+ * Sumbu layar yang paling sejajar dengan garis a→b terproyeksi: "x" bila
+ * garis itu lebih mendatar di layar, "y" bila lebih tegak. Dipakai sebagai
+ * `axis` pegangan DragLayer, yang mengunci jari ke satu sumbu layar.
+ * (Tambahan FM-04.)
+ */
+export function sumbuGaris(k: Kamera, a: V3, b: V3): "x" | "y" {
+  const A = proyeksi(a, k);
+  const B = proyeksi(b, k);
+  return Math.abs(B.x - A.x) >= Math.abs(B.y - A.y) ? "x" : "y";
+}
+
+/**
+ * Parameter t di garis a→b dari SATU koordinat layar: px bila sumbu "x",
+ * py bila "y". Pasangan sumbuGaris untuk pegangan DragLayer: lapis itu
+ * menahan koordinat lain di nilai awal seret, jadi balikDiGaris (proyeksi
+ * tegak lurus) memberi t yang tertinggal dari jari sebesar cos² sudut
+ * garis terhadap sumbu itu. Di sini koordinat pegangan pada sumbu seret
+ * sama dengan koordinat jari. Seperti balikDiGaris, tidak dijepit; garis
+ * yang tegak lurus sumbu itu (< 1e-9 px) memberi 0. (Tambahan FM-04.)
+ */
+export function balikDiGarisSumbu(
+  px: number,
+  py: number,
+  k: Kamera,
+  a: V3,
+  b: V3,
+  sumbu: "x" | "y"
+): number {
+  const A = proyeksi(a, k);
+  const B = proyeksi(b, k);
+  const d = sumbu === "x" ? B.x - A.x : B.y - A.y;
+  if (Math.abs(d) < 1e-9) return 0;
+  return sumbu === "x" ? (px - A.x) / d : (py - A.y) / d;
+}
+
+/**
  * PlateOut untuk gambar 3D. Peta bidangnya piksel identitas (gambar 3D
  * tidak punya satu sumbu fisik mendatar dan tegak); pegangan dipasang
  * lewat anchors terproyeksi, dan toValue di Client memakai balikDiBidangZ
