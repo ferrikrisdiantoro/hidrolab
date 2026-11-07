@@ -87,6 +87,27 @@ describe(`DM-03 drainase urugan batu: kunci dari lib, ${BENIH} benih`, () => {
     }
   });
 
+  it("B3: vD/v ≤ 100 di semua benih, jawaban < 1000, cadangan < 20 % benih", () => {
+    let cadangan = 0;
+    for (let i = 0; i < BENIH; i++) {
+      const q = soal(i, "dm03-3");
+      if (q.jenis !== "hitung") assert.fail("jenis");
+      const m = q.masukan!;
+      const r = alir(m);
+      assert.ok(r.overprediction <= 100, `benih ${i + 1}: vD/v ${r.overprediction}`);
+      assert.ok(q.kunci < 1000, `benih ${i + 1}: kunci ${q.kunci}`);
+      for (const k of q.kesalahan ?? []) assert.ok(k.nilai < 1000, `benih ${i + 1}: pengecoh ${k.nilai}`);
+      if (m.dh === 2 && m.L === 20 && m.d === 0.05 && m.n === 0.4 && m.t === 2) cadangan++;
+    }
+    assert.ok(cadangan < 0.2 * BENIH, `cadangan ${cadangan}`);
+  });
+
+  it("B3 cadangan (Δh 2, L 20, d 0,05, n 0,4, t 2) → vD/v ≈ 52,8, inersia menguasai", () => {
+    const r = alir({ dh: 2, L: 20, d: 0.05, n: 0.4, t: 2 });
+    assert.ok(Math.abs(r.overprediction - 52.8) < 0.05, String(r.overprediction));
+    assert.ok(r.turbulentShare > 0.5 && r.q >= 0.01 && r.q <= 20, `${r.turbulentShare} ${r.q}`);
+  });
+
   it("B4: Δh ×2; kerikil halus exponent > 0,97 atau batu < 0,53; kunci = pilihan terdekat ke rasio lib", () => {
     const nilai: Record<string, number> = { dua: 2, akar: Math.SQRT2, empat: 4, tetap: 1 };
     let halus = 0;

@@ -346,7 +346,7 @@ function soal4(benih: number): Soal {
       // Di kedua sisi 150, bermargin supaya perbandingannya jelas.
       return e >= 30 && e <= 600 && Math.abs(e / FISHWAY_POWER_GENERAL - 1) > 0.1 ? k : null;
     },
-    () => ({ H: 3, N: 10, L: 2, B: 1.6, y: 0.6, Q: 0.1, Ub: 2.5 })
+    () => ({ H: 3, N: 10, L: 2, B: 1, y: 0.6, Q: 0.1, Ub: 2.5 })
   );
   const r = lintasanLembar(m);
   const tol = 0.02 * r.powerDensity;

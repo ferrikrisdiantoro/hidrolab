@@ -7,6 +7,7 @@ import {
   Hitungan,
   InputRow,
   InputTable,
+  Note,
   PresetRow,
   RegimeScale,
   ResultTable,
@@ -79,6 +80,8 @@ const TXT = {
     hV: "Kecepatan semu dan debit",
     hVD: "Kecepatan Darcy dan perbandingannya",
     hRe: "Reynolds pori, bagian inersia, dan pangkat",
+    kBatasNote:
+      "k Darcy di lembar ini adalah batas kental Ergun, k = 1/A, bukan k hasil uji lapangan atau laboratorium. Karena itu pada batu kasar rasio vD/v bisa mencapai ribuan. Galat Darcy yang dilaporkan pustaka, dengan k yang diukur pada gradien kecil, berorde sepuluh kali.",
     bukanDarcyNote:
       "Bilangan Reynolds porinya melampaui sepuluh, jadi kehilangan tinggi tekan di sini tidak lagi berasal dari kekentalan melainkan dari inersia air yang berbelok terus-menerus di antara batunya. Menghitung kapasitas urugan ini dengan permeabilitas Darcy yang diukur pada gradien kecil akan melebih-lebihkan alirannya, dan pada urugan batu yang sebenarnya selisihnya sering sepuluh kali lipat atau lebih. Kesalahan itu berbahaya justru karena arahnya: ia membuat perancang mengira drainasenya berlebih padahal kurang.",
     note:
@@ -116,6 +119,8 @@ const TXT = {
     hV: "Bulk velocity and discharge",
     hVD: "Darcy velocity and the ratio",
     hRe: "Pore Reynolds number, inertial share, and exponent",
+    kBatasNote:
+      "The Darcy k on this sheet is Ergun's viscous limit, k = 1/A, not a k from a field or laboratory test. That is why on coarse rock the ratio vD/v can reach thousands. The Darcy error reported in the literature, with k measured at a small gradient, is of the order of ten times.",
     bukanDarcyNote:
       "The pore Reynolds number exceeds ten, so the head loss here no longer comes from viscosity but from the inertia of water turning continually between the stones. Computing this fill capacity with a Darcy permeability measured at a small gradient will overpredict the flow, and on real rockfill the discrepancy is often tenfold or more. The error is dangerous precisely because of its direction: it leads the designer to believe the drainage is generous when it is short.",
     note:
@@ -306,7 +311,8 @@ export function DrainaseUruganBatuClient() {
             {lebih ? (
               <>
                 {" "}Menghitungnya dengan hukum Darcy melebih-lebihkan alirannya{" "}
-                <Term tint={C.critical}>{fmt(r.overprediction, 1)} kali</Term>.
+                <Term tint={C.critical}>{fmt(r.overprediction, 1)} kali</Term>{" "}
+                bila k Darcy-nya diambil dari batas kental Ergun 1/A, bukan dari k hasil uji.
               </>
             ) : (
               " Pada butiran sehalus ini hukum Darcy masih memberi jawaban yang hampir sama."
@@ -320,7 +326,8 @@ export function DrainaseUruganBatuClient() {
             {lebih ? (
               <>
                 {" "}Computing it with Darcy law overpredicts the flow{" "}
-                <Term tint={C.critical}>{fmt(r.overprediction, 1)} times over</Term>.
+                <Term tint={C.critical}>{fmt(r.overprediction, 1)} times over</Term>{" "}
+                when its Darcy k is taken as Ergun&apos;s viscous limit 1/A, not a tested k.
               </>
             ) : (
               " At grains this fine Darcy law still gives almost the same answer."
@@ -385,6 +392,9 @@ export function DrainaseUruganBatuClient() {
                 { symbol: "m", label: x.rExp, value: fmt(r.exponent, 3) },
               ]}
             />
+            <div className="mt-3">
+              <Note>{x.kBatasNote}</Note>
+            </div>
             <div className="mt-3">
               <Hitungan
                 langkah={[

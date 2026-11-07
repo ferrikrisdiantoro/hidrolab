@@ -340,14 +340,14 @@ function soal4(benih: number): Soal {
   const r1 = rembesanLembar(m), r2 = rembesanLembar(m2);
   const rasio = r2.q / r1.q;
   const pilihan: Pilihan[] = [
-    { id: "naik", teks: { id: "q naik, tetapi jauh kurang dari kh/kv kali", en: "q rises, but far less than kh/kv times" } },
+    { id: "naik", teks: { id: "q naik, tetapi kurang dari kh/kv kali (paling banyak √(kh/kv) kali)", en: "q rises, but by less than kh/kv times (at most √(kh/kv) times)" } },
     {
       id: "tetap",
       teks: { id: "q tetap, karena k = √(kh·kv) tidak berubah", en: "q stays, because k = √(kh·kv) does not change" },
       alasan: bi((f, l) =>
         l === "id"
-          ? `k memang tetap, tetapi penampang terubah dipendekkan √(kv/kh) = ${f(r2.squeeze, 3)} kali: d mengecil, y₀ membesar, q ×${f(rasio, 2)}.`
-          : `k does stay, but the transformed section is shortened by √(kv/kh) = ${f(r2.squeeze, 3)}: d shrinks, y₀ grows, q ×${f(rasio, 2)}.`
+          ? `k memang tetap, tetapi absis penampang terubah dikalikan √(kv/kh) = ${f(r2.squeeze, 3)}: d mengecil, y₀ membesar, q ×${f(rasio, 2)}.`
+          : `k does stay, but the abscissae of the transformed section are multiplied by √(kv/kh) = ${f(r2.squeeze, 3)}: d shrinks, y₀ grows, q ×${f(rasio, 2)}.`
       ),
     },
     {

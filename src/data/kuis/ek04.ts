@@ -175,6 +175,9 @@ function soal2(benih: number): Soal {
     (r) => {
       const k = acakKeadaan(r);
       if (!k) return null;
+      // Ambang tepat bilangan bulat: r·p = d di lib bergantung pada pembulatan
+      // titik mengambang, kuncinya bisa melenceng satu poin. Tolak.
+      if (Math.abs((100 * k.d) / k.r - Math.round((100 * k.d) / k.r)) < 1e-9) return null;
       const tetap = { N0: k.N0, K: k.K, r: k.r, d: k.d };
       // Telusur kisi p lewat lib (revisi insinyur), bukan ⌈100 d/r⌉.
       const pmin = kisi(P_P).find((p) => !populasi({ ...tetap, p }).extinct);
@@ -203,8 +206,8 @@ function soal2(benih: number): Soal {
     tetap,
     bahas: bi((f, l) =>
       l === "id"
-        ? `Ambangnya d/r = ${f(krit, 2)} %. Pada p = ${f(pmin - 1, 0)} % r·p belum melebihi d dan populasinya punah; ${f(pmin, 0)} % adalah bilangan bulat pertama yang lestari. Lihat garis lintasan di grafik berubah dari turun ke nol menjadi menetap.`
-        : `The threshold is d/r = ${f(krit, 2)} %. At p = ${f(pmin - 1, 0)} % r·p does not yet exceed d and the population dies out; ${f(pmin, 0)} % is the first whole number that persists. Watch the path in the graph change from falling to zero to levelling off.`
+        ? `Ambangnya d/r = ${f(krit, 2)} %. Pada p = ${f(pmin - 1, 0)} % r·p belum melebihi d, jadi populasinya menuju punah; ${f(pmin, 0)} % adalah bilangan bulat pertama dengan r·p > d. Di dekat ambang laju bersih r·p − d paling besar r/100 = ${f(tetap.r / 100, 4)} per tahun, jadi dalam 60 tahun kedua lintasan di grafik masih tampak mirip; yang memutuskan adalah tanda r·p − d. Lihat baris p* di tabel hasil dan kartu kondisi.`
+        : `The threshold is d/r = ${f(krit, 2)} %. At p = ${f(pmin - 1, 0)} % r·p does not yet exceed d, so the population heads to extinction; ${f(pmin, 0)} % is the first whole number with r·p > d. Near the threshold the net rate r·p − d is at most r/100 = ${f(tetap.r / 100, 4)} per year, so over 60 years both paths in the graph still look alike; the sign of r·p − d decides. See the p* row in the results and the state card.`
     ),
     langkah: langkahBi((f, l) => [
       {
@@ -409,8 +412,8 @@ function soal5(benih: number): Soal {
       id: "turun",
       teks: { id: "N* turun karena persaingan makin ketat", en: "N* falls because competition is tighter" },
       alasan: {
-        id: "Persaingan memang menurunkan populasi yang besar, tetapi ke N* yang sama: lintasannya turun dari atas.",
-        en: "Competition does pull a large population down, but to the same N*: the path just comes from above.",
+        id: "Persaingan (suku 1 − N/K) memang menahan populasi yang lebih besar, tetapi tujuannya tetap N* yang sama. N₀ hanya mengubah jalannya, tidak titik akhirnya.",
+        en: "Competition (the 1 − N/K term) does hold a larger population back, but it still heads to the same N*. N₀ changes only the path, not the end point.",
       },
     },
   ];
@@ -426,8 +429,8 @@ function soal5(benih: number): Soal {
     kunci: "tetap",
     bahas: bi((f, l) =>
       l === "id"
-        ? `N* = ${f(h.equilibrium, 0)} ekor untuk kedua N₀: rumusnya hanya memuat K, d, r, p. Lintasan di grafik berbeda di tahun-tahun awal lalu bertemu di garis N* yang sama. Lembar sekarang memakai N₀ = ${f(m2.N0, 0)}.`
-        : `N* = ${f(h.equilibrium, 0)} for both N₀: the formula contains only K, d, r, p. The paths in the graph differ in the early years, then meet on the same N* line. The sheet now uses N₀ = ${f(m2.N0, 0)}.`
+        ? `N* = ${f(h.equilibrium, 0)} ekor untuk kedua N₀: rumusnya hanya memuat K, d, r, p. Lintasan di grafik berbeda di tahun-tahun awal lalu mendekati garis N* yang sama. Lembar sekarang memakai N₀ = ${f(m2.N0, 0)}.`
+        : `N* = ${f(h.equilibrium, 0)} for both N₀: the formula contains only K, d, r, p. The paths in the graph differ in the early years, then close in on the same N* line. The sheet now uses N₀ = ${f(m2.N0, 0)}.`
     ),
     langkah: langkahBi((f, l) => [lEq(m, h, f, l)]),
     masukan: m2,

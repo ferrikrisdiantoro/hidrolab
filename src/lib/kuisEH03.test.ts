@@ -118,7 +118,15 @@ describe(`EH-03 lintasan bertingkat: kunci dari lib, ${BENIH} benih`, () => {
         assert.ok([pakaiH, tanpaY, tanpaG].some((v) => Math.abs(v - k.nilai) < 1e-9), String(k.nilai));
       assert.ok((q.kesalahan ?? []).length >= 2);
       assert.ok(q.bahas.id.includes(String(FISHWAY_POWER_GENERAL)) && q.bahas.en.includes(String(FISHWAY_POWER_GENERAL)));
+      // Margin 10 % dari 150 di semua benih, termasuk cadangan.
+      assert.ok(Math.abs(r.powerDensity / FISHWAY_POWER_GENERAL - 1) > 0.1, `ε ${r.powerDensity} benih ${i + 1}`);
     }
+  });
+
+  it("B4 cadangan (H 3, N 10, L 2, B 1, y 0,6, Q 0,1) → ε 245,3, di luar margin 150", () => {
+    const r = cascadePassage(3, 10, 2, 1, 0.6, 0.1, 2.5);
+    assert.ok(Math.abs(r.powerDensity - 245.3) < 0.05, String(r.powerDensity));
+    assert.ok(Math.abs(r.powerDensity / FISHWAY_POWER_GENERAL - 1) > 0.1);
   });
 
   it("B5: N naik → Δz dan u turun, lintasan N·L memanjang", () => {

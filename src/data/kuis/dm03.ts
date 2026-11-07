@@ -222,8 +222,8 @@ function soal2(benih: number): Soal {
       {
         nilai: (r.v * m.d) / NU,
         alasan: {
-          id: "(1 − n) di penyebut tertinggal. Rep memakai kecepatan di pori: v dibagi (1 − n) menurut definisi Ergun.",
-          en: "The (1 − n) in the denominator is missing. Rep uses the pore scale: v divided by (1 − n) in Ergun's definition.",
+          id: "(1 − n) di penyebut tertinggal. Rep menurut Ergun = v·d/(ν(1 − n)): kecepatan pori v/n dikali ukuran pori yang sebanding n·d/(1 − n), sehingga n saling hapus dan tersisa (1 − n).",
+          en: "The (1 − n) in the denominator is missing. Ergun's Rep = v·d/(ν(1 − n)): the pore velocity v/n times a pore size proportional to n·d/(1 − n), so n cancels and (1 − n) remains.",
         },
       },
       {
@@ -275,12 +275,14 @@ function soal3(benih: number): Soal {
     benih,
     3,
     (r) => {
-      const k = acakUrugan(r, 0.03, 0.8);
+      // Butir 3..8 cm (revisi insinyur 8 November): batu kasar membuat vD/v
+      // ribuan karena k Darcy lembar = batas kental Ergun 1/A.
+      const k = acakUrugan(r, 0.03, 0.08);
       k.dh = acakKisi(r, P_HEAD, 0.2, 20);
       const h = aliranLembar(k);
-      return h.turbulentShare > 0.5 && h.q >= 0.01 && h.q <= 20 && h.overprediction > 1.2 ? k : null;
+      return h.turbulentShare > 0.5 && h.q >= 0.01 && h.q <= 20 && h.overprediction > 1.2 && h.overprediction <= 100 ? k : null;
     },
-    () => ({ dh: 6, L: 20, d: 0.4, n: 0.42, t: 6 })
+    () => ({ dh: 2, L: 20, d: 0.05, n: 0.4, t: 2 })
   );
   const r = aliranLembar(m);
   const tol = 0.02 * r.q;

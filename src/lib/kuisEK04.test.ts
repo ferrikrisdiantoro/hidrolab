@@ -89,6 +89,28 @@ describe(`EK-04 lintasan ikan dan populasi: kunci dari lib, ${BENIH} benih`, () 
     }
   });
 
+  it("B2: ambang 100·d/r tidak pernah bilangan bulat; pmin = ⌊100·d/r⌋ + 1 secara eksak", () => {
+    for (let i = 0; i < BENIH; i++) {
+      const q = soal(i, "ek04-2");
+      if (q.jenis !== "atur") assert.fail("jenis");
+      const t = q.tetap!;
+      const a = (100 * t.d) / t.r;
+      assert.ok(Math.abs(a - Math.round(a)) >= 1e-9, `benih ${i + 1}: ambang bulat ${a}`);
+      assert.equal(q.target!.min, Math.floor(a) + 1, `benih ${i + 1}`);
+    }
+  });
+
+  it("B2: benih pemicu 29, 140, 150 tidak lagi memakai ambang bulat (r 1,55 d 0,62; r 1,25 d 0,7; r 1,6 d 0,32)", () => {
+    for (const b of [29, 140, 150]) {
+      const q = bank.buat(b).find((s) => s.id === "ek04-2")!;
+      if (q.jenis !== "atur") assert.fail("jenis");
+      const t = q.tetap!;
+      const a = (100 * t.d) / t.r;
+      assert.ok(Math.abs(a - Math.round(a)) >= 1e-9, `benih ${b}: r ${t.r} d ${t.d}`);
+      assert.equal(q.target!.min, Math.floor(a) + 1);
+    }
+  });
+
   it("B3: kunci = extinct, margin |r·p − d| > 0,05 d; kedua jawaban muncul", () => {
     let punah = 0;
     for (let i = 0; i < BENIH; i++) {

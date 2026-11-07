@@ -131,6 +131,9 @@ describe(`GW-01 rembesan: kunci dari lib, ${BENIH} benih`, () => {
       const r1 = rembes({ ...m2, a: 1 }), r2 = rembes(m2);
       assert.ok(r2.q > r1.q * 1.05, `${r1.q} → ${r2.q}`);
       assert.ok(Math.abs(r1.kEq / r2.kEq - 1) < 1e-12);
+      // Teks pilihan kunci: paling banyak √(kh/kv) kali.
+      assert.ok(r2.q / r1.q <= Math.sqrt(m2.a) + 1e-9, `q ×${r2.q / r1.q} > √${m2.a}`);
+      assert.ok(q.pilihan.find((p) => p.id === "naik")!.teks.id.includes("√(kh/kv)"));
     }
   });
 });
