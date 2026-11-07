@@ -3855,8 +3855,16 @@ export function fishPassage(
   }
 
   const kritis = r > 0 ? d / r : 1;
-  const equilibrium =
-    r * passage > d ? K * (1 - d / (r * passage)) : 0;
+  /*
+   * Syarat punah r·p ≤ d diberi toleransi relatif 1e-12 untuk galat
+   * pembulatan, bukan untuk fisika: tepat di ambang (p = d/r, mis.
+   * 1,55 · 0,40) hasil kali floating point bisa keluar 0,6200000000000001
+   * dan lembar menulis "lestari" dengan N* ≈ 2·10⁻¹² ekor. Satu syarat yang
+   * sama dipakai untuk extinct dan equilibrium agar keduanya tidak pernah
+   * bertentangan.
+   */
+  const punah = r * passage <= d * (1 + 1e-12);
+  const equilibrium = punah ? 0 : K * (1 - d / (r * passage));
 
   const sepersepuluh = path.find((p) => p.population <= N0 / 10);
 
@@ -3864,7 +3872,7 @@ export function fishPassage(
     path,
     equilibrium,
     criticalPassage: kritis,
-    extinct: r * passage <= d,
+    extinct: punah,
     hopeless: kritis >= 1,
     yearsToTenth: sepersepuluh ? sepersepuluh.year : Number.POSITIVE_INFINITY,
   };

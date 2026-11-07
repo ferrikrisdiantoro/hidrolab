@@ -177,6 +177,18 @@ describe("EK-04 populasi di atas daya dukung", () => {
       assert.deepEqual(gagal(checksPassage(N0, K, 0.6, 0.1, 0.7)), []);
     });
   }
+  /* Temuan insinyur 8 Nov: tepat di ambang r·p = d (galat pembulatan
+     floating point), blok verifikasi tetap hijau setelah fishPassage
+     menyatakan punah dengan N* = 0. */
+  for (const [r0, d, p] of [
+    [1.55, 0.62, 0.4],
+    [1.25, 0.7, 0.56],
+    [1.6, 0.32, 0.2],
+  ] as const) {
+    it(`blok verifikasi lolos tepat di ambang r ${r0}, d ${d}, p ${p}`, () => {
+      assert.deepEqual(gagal(checksPassage(5000, 10000, r0, d, p)), []);
+    });
+  }
   it("N0 > K turun monoton", () => {
     const r = fishPassage(20000, 500, 0.6, 0.1, 0.7);
     for (let i = 1; i < r.path.length; i++)

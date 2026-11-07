@@ -3651,6 +3651,10 @@ export function checksPassage(
       expected: r0 * passage > d ? K * (1 - d / (r0 * passage)) : 0,
       actual: r.equilibrium,
       tol: 1e-9,
+      /* Tepat di ambang, rumus tangan dengan > mentah memberi ~2·10⁻¹² ekor
+         (galat pembulatan r·p), fishPassage memberi 0. Sama dengan absTol
+         pemeriksaan ambang di bawah. */
+      absTol: 1e-9,
       digits: 4,
     },
     {

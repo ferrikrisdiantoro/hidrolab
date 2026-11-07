@@ -802,4 +802,52 @@ describe("Populasi ikan ruaya di hulu bendung", () => {
     assert.equal(fishPassage(5000, 10000, 0.6, 0.3, 0.9).extinct, false);
     assert.ok(fishPassage(5000, 10000, 0.05, 1, 0.9).path[60].population < 1);
   });
+
+  /*
+   * Temuan insinyur-hidraulika 8 November: tepat di ambang (p = d/r, yang di
+   * lembar terjadi bila d/r·100 bilangan bulat) syarat model sendiri
+   * r·p ≤ d menyatakan punah, tetapi r·p dalam floating point bisa keluar
+   * sedikit di atas d (1,55 · 0,40 = 0,6200000000000001) sehingga lembar
+   * menulis "lestari" dengan N* ≈ 2·10⁻¹² ekor. Ini soal pembulatan, bukan
+   * angka acuan fisika; tidak ada koefisien baru.
+   */
+  it("tepat di ambang r·p = d dinyatakan punah dengan N* = 0, p* tetap d/r", () => {
+    for (const [r, d, pPersen] of [
+      [1.55, 0.62, 40],
+      [1.25, 0.7, 56],
+      [1.6, 0.32, 20],
+    ]) {
+      const h = fishPassage(5000, 10000, r, d, pPersen / 100);
+      assert.equal(h.extinct, true, `r ${r} d ${d} p ${pPersen} %`);
+      assert.equal(h.equilibrium, 0, `r ${r} d ${d} p ${pPersen} %: N* ${h.equilibrium}`);
+      assert.equal(h.criticalPassage, d / r);
+      assert.equal(fishPassage(5000, 10000, r, d, pPersen / 100, 0).extinct, true);
+    }
+  });
+
+  it("di seluruh kisi penggeser lembar, p = d/r bulat selalu punah dan p + 1 % selalu lestari", () => {
+    let kasus = 0;
+    for (let ri = 1; ri <= 40; ri++)
+      for (let di = 1; di <= 50; di++) {
+        /* Nilai desimal seperti dari penggeser (1,55, bukan 31 · 0,05). */
+        const r = Number((ri * 0.05).toFixed(2));
+        const d = Number((di * 0.02).toFixed(2));
+        const pPersen = Math.round((d / r) * 100);
+        if (pPersen > 99 || Math.abs((d / r) * 100 - pPersen) > 1e-9) continue;
+        kasus++;
+        const di_ = fishPassage(5000, 10000, r, d, pPersen / 100, 0);
+        assert.equal(di_.extinct, true, `r ${r} d ${d} p ${pPersen} %`);
+        assert.equal(di_.equilibrium, 0, `r ${r} d ${d} p ${pPersen} %`);
+        const atas = fishPassage(5000, 10000, r, d, (pPersen + 1) / 100, 0);
+        assert.equal(atas.extinct, false, `r ${r} d ${d} p ${pPersen + 1} %`);
+        assert.ok(atas.equilibrium > 0);
+      }
+    assert.ok(kasus > 50, `hanya ${kasus} kasus ambang`);
+  });
+
+  it("toleransi pembulatan tidak menelan populasi yang jelas di atas ambang", () => {
+    const h = fishPassage(5000, 10000, 1.55, 0.62, 0.4 * (1 + 1e-9), 0);
+    assert.equal(h.extinct, false);
+    assert.ok(h.equilibrium > 0);
+  });
 });
