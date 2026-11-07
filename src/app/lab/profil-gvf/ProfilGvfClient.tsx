@@ -250,10 +250,13 @@ export function ProfilGvfClient() {
    * Mode tebak (OC-03-1, OC-03-2). Selama soal tebak yang belum dijawab
    * tampil, gambar, nama profil, arah, dan kartu keadaan ditutup, dan lembar
    * memasang masukan soal itu. Mode ini baru menyala sesudah pengguna
-   * menyentuh kuis (klik atau tombol keyboard di dalamnya), supaya lembar
-   * yang baru dibuka tetap menampilkan contohnya. Soal yang sudah dijawab
-   * dicatat per objek soal: set soal baru atau Reset membuat objek baru,
-   * jadi tebakannya tertutup lagi.
+   * MENGGUNAKAN kartu kuis: tekan tetikus/jari di dalamnya, atau Enter/spasi
+   * pada kontrol di dalamnya. Tab yang sekadar lewat TIDAK dihitung: dulu
+   * keydown apa pun dihitung, jadi menelusuri lembar dengan Tab menutup gambar
+   * dan mencabut pegangan seret (regresi seret-b7 "Tab sampai pegangan").
+   * Pegangan kembali begitu soal tebak dijawab atau ditinggalkan. Soal yang
+   * sudah dijawab dicatat per objek soal: set soal baru atau Reset membuat
+   * objek baru, jadi tebakannya tertutup lagi.
    */
   const [aktif, setAktif] = useState<Soal | null>(null);
   const [disentuh, setDisentuh] = useState(false);
@@ -263,6 +266,13 @@ export function ProfilGvfClient() {
     disentuh && aktif !== null && aktif.jenis === "tebak" && !terungkap.current.has(aktif);
   const sentuhKuis = () => {
     if (!disentuh) setDisentuh(true);
+  };
+  const tekanKuis = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    sentuhKuis();
+  };
+  const tombolKuis = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") sentuhKuis();
   };
   const ungkap = (id: string) => {
     if (aktif && aktif.id === id) {
@@ -529,7 +539,7 @@ export function ProfilGvfClient() {
           )}
 
           {/* Penangkap sentuhan kuis: menyalakan mode tebak (lihat sembunyi). */}
-          <div onPointerDownCapture={sentuhKuis} onKeyDownCapture={sentuhKuis}>
+          <div onPointerDownCapture={tekanKuis} onKeyDownCapture={tombolKuis}>
             <Kuis
               bank={OC03}
               keadaan={{ Q, b, n, S0: S0 * 1000, y: yCtl, L }}
