@@ -146,8 +146,8 @@ function soal1(benih: number): Soal {
     pilihan,
     kunci,
     bahas: {
-      id: `Ketiganya berimpit hanya bila medannya tidak berubah terhadap waktu, yaitu V = 0 atau ω = 0. Pada set yang tepat ${sebab} = 0. Lihat judul gambar dan Δ = 0 di kop sesudah set itu dipasang.`,
-      en: `The three coincide only when the field does not change with time, that is V = 0 or ω = 0. In the right set ${sebab} = 0. See the drawing heading and Δ = 0 in the title block once that set is applied.`,
+      id: `Untuk medan ini ketiganya berimpit hanya bila medannya tidak berubah terhadap waktu, yaitu V = 0 atau ω = 0. Pada set yang tepat ${sebab} = 0. Lihat judul gambar dan Δ = 0 di kop sesudah set itu dipasang.`,
+      en: `For this field the three coincide only when the field does not change with time, that is V = 0 or ω = 0. In the right set ${sebab} = 0. See the drawing heading and Δ = 0 in the title block once that set is applied.`,
     },
     masukan: s.kunci,
   };
@@ -399,8 +399,8 @@ function soal4(benih: number): Soal {
     tetap: { U: s.U, V: s.V, t: s.t },
     bahas: bi((f, l) =>
       l === "id"
-        ? `Δ tidak naik terus bersama ω: pada ω kecil lintasannya hampir mengikuti garis arus, pada ω besar simpangannya V/ω mengecil lagi. Karena itu ${run.length > 1 ? "lebih dari satu rentang ω memenuhi" : "rentang ω yang memenuhi bisa terletak di tengah kisi"}, dan semuanya diterima. Lihat baris Δ di tabel hasil dan kop.`
-        : `Δ does not keep growing with ω: at small ω the pathline nearly follows the streamline, at large ω its excursion V/ω shrinks again. So ${run.length > 1 ? "more than one range of ω works" : "the working range of ω may sit inside the grid"}, and all of them are accepted. See the Δ row in the results and the title block.`
+        ? `Δ tidak naik terus bersama ω. Pada ω kecil lintasan hampir mengikuti garis arus, jadi Δ kecil. Pada ω besar simpangan lintasan V/ω memang mengecil, tetapi kemiringan garis arus V cos ωt / U ikut berayun bersama ωt, sehingga Δ naik turun antara hampir nol dan sekitar V·t. Karena itu ${run.length > 1 ? "lebih dari satu rentang ω memenuhi" : "rentang ω yang memenuhi bisa terletak di tengah kisi"}, dan semuanya diterima. Lihat baris Δ di tabel hasil dan kop.`
+        : `Δ does not keep growing with ω. At small ω the pathline nearly follows the streamline, so Δ is small. At large ω the pathline excursion V/ω does shrink, but the streamline slope V cos ωt / U swings with ωt, so Δ rises and falls between almost zero and about V·t. So ${run.length > 1 ? "more than one range of ω works" : "the working range of ω may sit inside the grid"}, and all of them are accepted. See the Δ row in the results and the title block.`
     ),
     langkah: langkahBi((f, l) => [
       {
@@ -468,8 +468,8 @@ function soal5(benih: number): Soal {
       teks: { id: "Ketiganya, karena semuanya berangkat dari titik lepas", en: "All three, since they all start at the release point" },
       alasan: bi((f, l) =>
         l === "id"
-          ? `Ketiganya berimpit hanya pada aliran tunak. Di sini V dan ω bukan nol, dan garis arus terpisah ${f(d, 2)} m dari lintasan.`
-          : `The three coincide only in steady flow. Here V and ω are non-zero, and the streamline stands ${f(d, 2)} m from the pathline.`
+          ? `Pada medan ini ketiganya berimpit hanya bila tunak (V = 0 atau ω = 0). Di sini V dan ω bukan nol, dan garis arus terpisah ${f(d, 2)} m dari lintasan.`
+          : `For this field the three coincide only when it is steady (V = 0 or ω = 0). Here V and ω are non-zero, and the streamline stands ${f(d, 2)} m from the pathline.`
       ),
     },
   ]);
@@ -484,8 +484,8 @@ function soal5(benih: number): Soal {
     pilihan,
     kunci: "jejak",
     bahas: {
-      id: "Zat warna yang diteteskan terus dari satu titik membentuk garis jejak: tempat kedudukan semua butir yang pernah lewat titik itu. Pada aliran tak tunak garis jejak bukan garis arus, jadi foto zat warna dibaca sebagai garis jejak. Nama ketiga garis kini tampil lagi di gambar.",
-      en: "Dye released continuously from one point forms the streakline: where all the grains that once passed that point are now. In unsteady flow the streakline is not a streamline, so a dye photograph reads as a streakline. The names of the three lines are shown on the drawing again.",
+      id: "Zat warna yang diteteskan terus dari satu titik membentuk garis jejak: tempat kedudukan semua butir yang pernah lewat titik itu. Pada medan tak tunak ini garis jejak bukan garis arus, jadi foto zat warna dibaca sebagai garis jejak. Nama ketiga garis kini tampil lagi di gambar.",
+      en: "Dye released continuously from one point forms the streakline: where all the grains that once passed that point are now. In this unsteady field the streakline is not a streamline, so a dye photograph reads as a streakline. The names of the three lines are shown on the drawing again.",
     },
     masukan: m,
   };

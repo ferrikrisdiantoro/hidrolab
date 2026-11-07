@@ -315,8 +315,8 @@ function soal3(benih: number): Soal {
       },
       alasan: bi((f, l) =>
         l === "id"
-          ? `${P} menjauhi y₀ dan menuju yc: ${P === "M3" ? "kedalaman naik ke arah hilir" : "kedalaman turun ke arah hulu"} sampai kondisi kritis, dicapai setelah ${f(Lp, 1)} m, jauh sebelum ujung bentang ${f(k.L, 0)} m.`
-          : `${P} moves away from y₀ toward yc: ${P === "M3" ? "the depth rises going downstream" : "the depth falls going upstream"} until critical, reached after ${f(Lp, 1)} m, well before the end of the ${f(k.L, 0)} m reach.`
+          ? `${P}: yc terletak di antara kedalaman kendali dan y₀, jadi profil tidak dapat menuju y₀ tanpa melintasi yc. Ke arah penelusuran ${P === "M3" ? "kedalaman naik ke arah hilir" : "kedalaman turun ke arah hulu"} sampai kondisi kritis, dicapai setelah ${f(Lp, 1)} m, sebelum ujung bentang ${f(k.L, 0)} m.`
+          : `${P}: yc lies between the control depth and y₀, so the profile cannot head toward y₀ without crossing yc. Along the computation ${P === "M3" ? "the depth rises going downstream" : "the depth falls going upstream"} until critical, reached after ${f(Lp, 1)} m, before the end of the ${f(k.L, 0)} m reach.`
       ),
     },
     {
@@ -326,8 +326,8 @@ function soal3(benih: number): Soal {
         en: "Reaches critical depth yc and stops before the end of the reach",
       },
       alasan: {
-        id: `${P} mendekati y₀ secara asimtotik dan menjauhi yc, jadi tidak pernah sampai ke kondisi kritis di bentang ini.`,
-        en: `${P} approaches y₀ asymptotically and moves away from yc, so it never reaches critical conditions in this reach.`,
+        id: `${P} mendekati y₀ secara asimtotik ke arah penelusuran dan tidak pernah melewatinya, jadi kondisi kritis tidak tercapai di bentang ini.`,
+        en: `${P} approaches y₀ asymptotically along the computation and never passes it, so critical conditions are not reached in this reach.`,
       },
     },
     {
@@ -337,8 +337,8 @@ function soal3(benih: number): Soal {
         en: "Crosses yc and carries on along the other side to the end of the reach",
       },
       alasan: {
-        id: "Melintasi kondisi kritis menuntut loncatan air, dan loncatan bukan aliran berubah lambat. Penelusuran berhenti di yc, tidak menyeberang.",
-        en: "Crossing critical conditions requires a hydraulic jump, and a jump is not gradually varied flow. The computation stops at yc rather than crossing it.",
+        id: "Melintasi kondisi kritis berarti aliran berubah cepat: loncatan air (superkritis ke subkritis) atau penurunan tajam di penampang kendali (subkritis ke superkritis). Persamaan aliran berubah lambat tidak berlaku di yc karena penyebut 1 − Fr² menjadi nol, jadi penelusuran berhenti di yc, tidak menyeberang.",
+        en: "Crossing critical conditions means rapidly varied flow: a hydraulic jump (supercritical to subcritical) or a sharp drawdown at a control (subcritical to supercritical). The gradually varied flow equation fails at yc because its denominator 1 − Fr² becomes zero, so the computation stops at yc rather than crossing it.",
       },
     },
   ];

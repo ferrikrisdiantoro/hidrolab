@@ -450,8 +450,8 @@ function soal5(benih: number): Soal {
     tetap: { T: s.T, H: s.H },
     bahas: bi((f, l) =>
       l === "id"
-        ? `Air dalam mulai pada h/L = 1/2, kira-kira h ≈ L₀/2 = ${f(L0 / 2, 1)} m untuk T ini. Di bawahnya dasar masih dirasakan gelombang; di atasnya menambah kedalaman tidak mengubah c lagi. Lihat pita h/L dan baris Setengah panjang gerak mendatar partikel di dasar.`
-        : `Deep water starts at h/L = 1/2, about h ≈ L₀/2 = ${f(L0 / 2, 1)} m for this T. Below it the wave still feels the bed; above it more depth no longer changes c. See the h/L scale and the bed excursion row.`
+        ? `Air dalam mulai pada h/L = 1/2, kira-kira h ≈ L₀/2 = ${f(L0 / 2, 1)} m untuk T ini. Di bawahnya dasar masih dirasakan gelombang; di atasnya menambah kedalaman hampir tidak mengubah c lagi (kurang dari 0,4 %). Lihat pita h/L dan baris Setengah panjang gerak mendatar partikel di dasar.`
+        : `Deep water starts at h/L = 1/2, about h ≈ L₀/2 = ${f(L0 / 2, 1)} m for this T. Below it the wave still feels the bed; above it more depth barely changes c any more (less than 0.4 %). See the h/L scale and the bed excursion row.`
     ),
     langkah: langkahBi((f, l) => [
       {

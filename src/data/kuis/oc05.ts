@@ -390,6 +390,7 @@ function soal5(benih: number): Soal {
   const y1Baru = depthFromEnergy(r0.Emin2, r0.q1, "subkritis");
   // Debit yang lolos bila hulunya waduk bermuka air tetap (E₁ tetap).
   const Qwaduk = s.b2 * Math.sqrt(G * Math.pow(r0.E1 / 1.5, 3));
+  const y1Waduk = depthFromEnergy(r0.E1, Qwaduk / s.b1, "subkritis");
   const pilihan: Pilihan[] = kocok(prng(turunan(benih, 5, 99)), [
     {
       id: "hulu-naik",
@@ -401,13 +402,13 @@ function soal5(benih: number): Soal {
     {
       id: "debit-berkurang",
       teks: {
-        id: "Debit yang lewat berkurang, kedalaman hulu tetap",
-        en: "Less discharge gets through, and the upstream depth stays the same",
+        id: "Debit yang lewat berkurang, muka air hulu tetap",
+        en: "Less discharge gets through, upstream water level unchanged",
       },
       alasan: bi((f, l) =>
         l === "id"
-          ? `Itu yang terjadi bila hulunya waduk dengan muka air tetap: energi hulu tidak dapat naik, jadi debit yang lolos turun sampai sekitar ${f(Qwaduk, 1)} m³/s. Di soal ini debit dipasok tetap dari hulu, jadi yang menyesuaikan adalah kedalaman hulu.`
-          : `That is what happens when upstream is a reservoir with a fixed water level: the upstream energy cannot rise, so the discharge that gets through drops to about ${f(Qwaduk, 1)} m³/s. Here the discharge is supplied at a constant rate from upstream, so it is the upstream depth that adjusts.`
+          ? `Debit berkurang hanya bila hulunya waduk bermuka air tetap: tinggi energi hulu terkunci di E₁ = ${f(r0.E1, 3)} m, jadi debit yang lolos turun sampai sekitar ${f(Qwaduk, 1)} m³/s dengan aliran tepat kritis di penyempitan. Itu pun kedalaman di saluran hulu tidak tetap: ia naik ke sekitar ${f(y1Waduk, 2)} m karena kecepatannya turun. Di soal ini debit dipasok tetap dari hulu, jadi yang menyesuaikan adalah kedalaman hulu.`
+          : `Less discharge gets through only when upstream is a reservoir with a fixed water level: the upstream energy is locked at E₁ = ${f(r0.E1, 3)} m, so the discharge drops to about ${f(Qwaduk, 1)} m³/s with exactly critical flow in the contraction. Even then the depth in the approach channel is not unchanged: it rises to about ${f(y1Waduk, 2)} m as the velocity falls. Here the discharge is supplied at a constant rate, so it is the upstream depth that adjusts.`
       ),
     },
     {
