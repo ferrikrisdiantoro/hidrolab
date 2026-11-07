@@ -72,6 +72,7 @@ const TXT = {
     rNT: "Populasi akhir",
     rNmsy: "Populasi pada MSY",
     hSkor: "Skor",
+    hBatas: "Batas atas skor",
     hKurasan: "Kurasan: stok yang diambil dari modal, bukan dari pertumbuhan",
     hPenalti: "Penalti: satu MSY untuk tiap tahun yang berakhir di bawah 0,05 K",
     rumusNote:
@@ -120,6 +121,7 @@ const TXT = {
     rNT: "Closing population",
     rNmsy: "Population at MSY",
     hSkor: "Score",
+    hBatas: "Score ceiling",
     hKurasan: "Drawdown: stock taken from the capital, not from growth",
     hPenalti: "Penalty: one MSY for every year that ends below 0.05 K",
     rumusNote:
@@ -191,6 +193,7 @@ export function PermainanPanen({
   const N = n ? tahun[n - 1].N1 : awalPermainan(p);
   const beda = kunci !== null && (kunci.r !== r || kunci.K !== K || kunci.q !== q);
   const batasPenuh = v.msy * TAHUN;
+  const runtuhKini = n > 0 && tahun[n - 1].runtuh;
 
   useEffect(() => {
     if (fokus.current === "ringkasan") ringkasanRef.current?.focus();
@@ -239,11 +242,10 @@ export function PermainanPanen({
         { x: t.t, y: t.tangkap },
       ]);
       const deret: ChartSeries[] = [
-        { pts: popPts, color: C.water, weight: W.bold, label: x.lPop, labelAt: 0.12, labelDy: -10 },
+        { pts: popPts, color: C.water, weight: W.bold },
       ];
-      if (cPts.length) deret.push({ pts: cPts, color: C.ink, weight: W.thin, label: x.lTangkap, labelAt: 0.5, labelDy: 12 });
-      const yMax = Math.max(p.K, ...tahun.map((t) => Math.max(t.N1, t.tangkap))) * 1.08;
-      const runtuhKini = n > 0 && tahun[n - 1].runtuh;
+      if (cPts.length) deret.push({ pts: cPts, color: C.ink, weight: W.thin });
+      const yMax = Math.max(p.K, ...tahun.map((t) => Math.max(t.N1, t.tangkap))) * 1.35; // ruang legenda di atas
       return drawChart(
         ctx,
         w,
@@ -262,8 +264,10 @@ export function PermainanPanen({
             { axis: "y", at: p.K / 2, color: C.water, weight: W.hair, dash: DASH.hidden, label: "K/2", labelAlign: "right" },
           ],
           point: { x: n, y: N, label: `${fmt(N, 0)} t`, invalid: runtuhKini },
-          heading: runtuhKini ? x.hRuntuh : undefined,
-          headingColor: C.signal,
+          legend: [
+            { text: x.lPop, color: C.water, line: { weight: W.bold } },
+            { text: x.lTangkap, color: C.ink, line: { weight: W.thin } },
+          ],
         },
         lang
       );
@@ -312,7 +316,7 @@ export function PermainanPanen({
         <dl className="label grid grid-cols-3 gap-px border-y border-rule bg-rule text-[0.74rem]">
           {[
             { k: x.tahun, v: `${n} ${x.dari} ${TAHUN}` },
-            { k: x.populasi, v: `${fmt(N, 0)} t`, tint: n && tahun[n - 1].runtuh ? C.signal : C.water },
+            { k: x.populasi, v: `${fmt(N, 0)} t`, tint: runtuhKini ? C.signal : C.water, flag: runtuhKini ? x.hRuntuh : undefined },
             { k: x.tangkapanLalu, v: n ? `${fmt(tahun[n - 1].tangkap, 1)} t` : "—" },
           ].map((s) => (
             <div key={s.k} className="bg-sheet px-2.5 py-1.5">
@@ -320,6 +324,11 @@ export function PermainanPanen({
               <dd className="value text-[0.9rem] font-semibold" style={{ color: s.tint ?? "var(--color-ink)" }}>
                 {s.v}
               </dd>
+              {s.flag && (
+                <dd className="text-[0.72rem] font-semibold" style={{ color: C.signal }}>
+                  {s.flag}
+                </dd>
+              )}
             </div>
           ))}
         </dl>
@@ -390,11 +399,19 @@ export function PermainanPanen({
                   },
                   {
                     judul: x.hSkor,
-                    rumus: <span>S = ΣC − D − P ≤ MSY · T</span>,
-                    isi: `${fmt(v.tangkapTotal, 1)} − ${fmt(v.kurasan, 1)} − ${fmt(v.penalti, 1)}  ≤  ${fmt(v.msy, 1)} · ${TAHUN} = ${fmt(batasPenuh, 1)}`,
+                    rumus: <span>S = ΣC − D − P</span>,
+                    isi: `${fmt(v.tangkapTotal, 1)} − ${fmt(v.kurasan, 1)} − ${fmt(v.penalti, 1)}`,
                     hasil: fmt(v.skor, 1),
                     satuan: "t",
                     tint: C.water,
+                  },
+                  {
+                    judul: x.hBatas,
+                    rumus: <span>B = MSY · T ≥ S</span>,
+                    isi: `${fmt(v.msy, 1)} · ${TAHUN}`,
+                    hasil: fmt(batasPenuh, 1),
+                    satuan: "t",
+                    tint: C.critical,
                   },
                 ]}
               />
