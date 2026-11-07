@@ -170,12 +170,16 @@ export function LembarPraktikum<R>({
 
   const [benih, setBenih] = useState<number | null>(null);
   const [rows, setRows] = useState<Baris<R>[]>([]);
-  const [umum, setUmum] = useState("");
+  // k menaikkan kunci isi wilayah status, jadi pengumuman yang sama dua kali
+  // berturut-turut (Kosongkan tabel) tetap dibacakan ulang.
+  const [umum, setUmumState] = useState({ teks: "", k: 0 });
+  const setUmum = (teks: string) => setUmumState((u) => ({ teks, k: u.k + 1 }));
   const [teksBenih, setTeksBenih] = useState("");
   const [pesanBenih, setPesanBenih] = useState("");
   const rng = useRef<Rng | null>(null);
   const nomor = useRef(1);
   const tombolCatat = useRef<HTMLButtonElement>(null);
+  const judul = useRef<HTMLHeadingElement>(null);
   const tombolHapus = useRef(new Map<number, HTMLButtonElement>());
   const fokusKe = useRef<number | "catat" | null>(null);
 
@@ -189,7 +193,13 @@ export function LembarPraktikum<R>({
   useEffect(() => {
     const f = fokusKe.current;
     fokusKe.current = null;
-    if (f === "catat") tombolCatat.current?.focus();
+    if (f === "catat") {
+      // Tombol Catat bisa nonaktif (leher tidak menyempit, tabel penuh);
+      // fokus ke tombol nonaktif hilang ke body, jadi pindah ke judul bagian.
+      const t = tombolCatat.current;
+      if (t && !t.disabled) t.focus();
+      else judul.current?.focus();
+    }
     else if (typeof f === "number") tombolHapus.current.get(f)?.focus();
   });
 
@@ -231,6 +241,7 @@ export function LembarPraktikum<R>({
     setRows([]);
     if (benih !== null) pasangBenih(benih);
     setUmum(x.dikosongkan);
+    setPesanBenih("");
     fokusKe.current = "catat";
   };
 
@@ -282,7 +293,7 @@ export function LembarPraktikum<R>({
       {/* Kepala: judul dan benih. Benih ditulis seperti sel kop: angka yang
           membuat lembar ini bisa diulang. */}
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5">
-        <h2 id={idJudul} className="stencil">
+        <h2 id={idJudul} ref={judul} tabIndex={-1} className="stencil">
           {x.heading}
         </h2>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -339,14 +350,20 @@ export function LembarPraktikum<R>({
           </div>
 
           <p className="sr-only" role="status" aria-live="polite">
-            {umum}
+            <span key={umum.k}>{umum.teks}</span>
+          </p>
+
+          {/* Petunjuk geser hanya di layar sempit, tempat tabel melewati lebar
+              layar. Pembaca layar sudah mendapatnya dari label wilayah. */}
+          <p aria-hidden="true" className="label mt-4 text-[0.74rem] text-ink-3 sm:hidden">
+            {x.gulir} →
           </p>
 
           {/* Tabel pengamatan */}
           <div
             // relative: teks sr-only (absolute) di dalam tabel ikut terpotong
             // wadah gulir, tidak melebarkan halaman di 390.
-            className="relative mt-4 overflow-x-auto"
+            className="relative mt-1 overflow-x-auto sm:mt-4"
             role="region"
             aria-label={`${x.tabel}. ${x.gulir}`}
             tabIndex={0}
@@ -504,8 +521,11 @@ export function LembarPraktikum<R>({
                 {x.pakai}
               </button>
             </div>
-            <p id={idPesanBenih} role="status" className="label mt-1 text-[0.74rem] leading-snug text-ink-3">
-              {n > 0 ? x.benihKunci : pesanBenih}
+            {/* Hanya pesan benih yang diumumkan; teks kunci muncul saat bacaan
+                pertama dicatat dan tidak perlu dibacakan sebagai status. */}
+            <p id={idPesanBenih} className="label mt-1 text-[0.74rem] leading-snug text-ink-3">
+              {n > 0 && x.benihKunci}
+              <span role="status">{n > 0 ? "" : pesanBenih}</span>
             </p>
           </form>
         </div>

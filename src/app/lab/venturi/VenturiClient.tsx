@@ -104,6 +104,8 @@ const TXT = {
     pTolak: "Leher tidak lebih sempit dari pipa, jadi tidak ada bacaan venturi yang bisa dicatat. Kecilkan diameter leher dulu.",
     pCdKal: "Cd kalibrasi, kuadrat terkecil lewat titik asal (± galat baku)",
     pCdRerata: "Cd rerata dari tiap bacaan",
+    pCdBeda:
+      "Cd kalibrasi = ΣQₜ·Q / ΣQₜ²: bacaan debit besar lebih berbobot; Cd rerata memberi bobot sama pada tiap bacaan, sehingga bacaan Δh kecil (galat relatif besar) ikut menarik.",
     pSd: "Simpangan baku Cd tiap bacaan",
     pN: "Jumlah bacaan",
     pSatu: "Simpangan dan galat baku butuh paling sedikit dua bacaan.",
@@ -123,11 +125,13 @@ const TXT = {
       "Unduh tabel sebelum menutup halaman.",
     ],
     aManometer:
-      "Manometer: dua tabung dibaca terpisah pada skala bergaris 1 mm (Armfield H12). Galat baca σ = 0,5 mm per tabung (usulan, belum ditelaah). Δh = h₁ − h₂, jadi galat Δh sekitar 0,8 mm. Muka air tabung leher diletakkan 100 mm di atas nol skala.",
+      "Manometer: dua tabung dibaca terpisah pada skala bergaris 1 mm, rentang 0–400 mm (Armfield F1-15). Galat baca σ = 0,5 mm per tabung (usulan, belum ditelaah). Δh = h₁ − h₂, jadi galat Δh sekitar 0,8 mm. Muka air tabung leher diletakkan 100 mm di atas nol skala.",
     aVolumetrik: (q: string, v: string) =>
       `Debit cara volumetrik (tangki ukur dan stopwatch): galat σ = 1 % dari debit (usulan, belum ditelaah). Angka ini berlaku bila volume tampung paling sedikit ${VOLUME_MIN_L} L dan waktu tampung paling sedikit ${WAKTU_MIN_S} s. Pada keadaan sekarang Q = ${q} L/dtk, jadi tampung paling sedikit ${v} L.`,
     aPotong:
       "Bacaan tidak dipotong ke rentang alat. Skala manometer bangku 400 mm; h₁ yang melewatinya tetap dicatat dan ditandai di ringkasan.",
+    aBangku:
+      "Angka skala dan galat di atas mengacu bangku praktikum (venturi F1-15, D₁ 26 mm, D₂ 14 mm). Pada ukuran prototipe lembar ini bacaan bisa melewati skala bangku; bacaan itu ditandai, tidak dipotong.",
     note:
       "Satu suku pada rumus ini yang paling sering hilang, dan hilangnya selalu ke arah yang sama. Beda tekanan yang terbaca bukan mengukur tinggi kecepatan di leher melainkan SELISIH tinggi kecepatan antara leher dan pipa, karena air di pipa sudah bergerak sebelum masuk. Mengabaikan hal itu membuat debit yang dihitung selalu lebih kecil daripada yang sebenarnya, dan besarnya kesalahan naik cepat terhadap perbandingan diameter: pada 0,5 sekitar tiga persen, pada 0,75 sekitar tujuh belas persen. Faktor kecepatan datang pada tabel di samping adalah suku itu, dan lembar ini menghitung debit dengan dan tanpa suku itu supaya selisihnya terbaca sebagai angka. Hal kedua yang membedakan venturi dari pelat lubang terbaca pada panel atas: garis tinggi tekan menukik di leher lalu naik kembali hampir setinggi semula. Bagian yang tidak pulih itulah kehilangan tetap, dan kecilnya bagian itu berutang pada bagian membesar yang sengaja dibuat panjang dan landai, sehingga aliran tidak sempat terlepas dari dinding.",
   },
@@ -177,6 +181,8 @@ const TXT = {
     pTolak: "The throat is no narrower than the pipe, so there is no venturi reading to record. Reduce the throat diameter first.",
     pCdKal: "Calibrated Cd, least squares through the origin (± standard error)",
     pCdRerata: "Mean Cd of the individual readings",
+    pCdBeda:
+      "Calibrated Cd = ΣQₜ·Q / ΣQₜ²: readings at large discharge carry more weight; the mean Cd weights every reading equally, so readings at small Δh (large relative error) pull on it as much as the rest.",
     pSd: "Standard deviation of the individual Cd",
     pN: "Number of readings",
     pSatu: "The spread and standard error need at least two readings.",
@@ -196,11 +202,13 @@ const TXT = {
       "Download the table before closing the page.",
     ],
     aManometer:
-      "Manometer: the two tubes are read separately on a scale graduated in 1 mm (Armfield H12). Reading error σ = 0.5 mm per tube (proposed, not yet reviewed). Δh = h₁ − h₂, so the error in Δh is about 0.8 mm. The throat tube level sits 100 mm above scale zero.",
+      "Manometer: the two tubes are read separately on a scale graduated in 1 mm, range 0–400 mm (Armfield F1-15). Reading error σ = 0.5 mm per tube (proposed, not yet reviewed). Δh = h₁ − h₂, so the error in Δh is about 0.8 mm. The throat tube level sits 100 mm above scale zero.",
     aVolumetrik: (q: string, v: string) =>
       `Volumetric discharge (measuring tank and stopwatch): error σ = 1 % of the discharge (proposed, not yet reviewed). The figure holds when at least ${VOLUME_MIN_L} L is collected over at least ${WAKTU_MIN_S} s. At the current state Q = ${q} L/s, so collect at least ${v} L.`,
     aPotong:
       "Readings are not clipped to the instrument range. The bench manometer scale is 400 mm; an h₁ beyond it is still recorded and flagged in the summary.",
+    aBangku:
+      "The scale and error figures above refer to the teaching bench (F1-15 venturi, D₁ 26 mm, D₂ 14 mm). At the prototype size of this sheet a reading can pass the bench scale; such readings are flagged, not clipped.",
     note:
       "One term in this formula goes missing more often than any other, and it always goes missing in the same direction. The measured pressure difference does not measure the velocity head in the throat but the DIFFERENCE in velocity head between throat and pipe, because the water in the pipe is already moving before it enters. Ignoring that makes the computed discharge always smaller than the real one, and the size of the error climbs quickly with the diameter ratio: about three per cent at 0.5, about seventeen per cent at 0.75. The velocity of approach factor in the table beside the drawing is that term, and this sheet computes the discharge both with and without it so the difference can be read as a number. The second thing that separates a Venturi from an orifice plate can be read on the upper panel: the pressure head line dips at the throat and then climbs back almost to where it started. What does not come back is the permanent loss, and how little that is owes everything to the long, gentle diverging section, which gives the flow no chance to separate from the wall.",
   },
@@ -511,6 +519,7 @@ export function VenturiClient() {
                 <p>{x.aManometer}</p>
                 <p>{x.aVolumetrik(bukan ? takAda : fmt(r.Q * 1000, 2), bukan ? takAda : fmt(volumeTampungMin(r.Q), 0))}</p>
                 <p>{x.aPotong}</p>
+                <p>{x.aBangku}</p>
               </>
             }
             namaBerkas="fm02-venturi-pengamatan"
@@ -560,7 +569,7 @@ function penandaFm02(rows: BacaanFm02[], lang: Lang): string[] {
   const x = TXT[lang];
   const s = ringkasFm02(rows);
   return [
-    ...(s.kal.n === 1 ? [x.pSatu] : []),
+    ...(s.kal.n === 1 ? [x.pSatu] : [x.pCdBeda]),
     ...(s.campur ? [x.pCampur] : []),
     ...(s.luarSkala > 0 ? [x.pLuarSkala(s.luarSkala, fmt(SKALA_MANOMETER * 1000, 0))] : []),
   ];
@@ -583,7 +592,9 @@ function hitunganFm02(b: BacaanFm02, lang: Lang): LangkahHitung[] {
     {
       judul: x.hQt,
       rumus: (<><span>Qₜ =</span><Frac num="A₂ √( 2 g Δh )" den="√( 1 − β⁴ )" /></>),
-      isi: `${fmt(A2, 6)} · √( 2 · ${fmt(G, 2)} · ${fmt(b.dh, 3)} ) / √( 1 − ${fmt(beta, 4)}⁴ )`,
+      // A₂ ditulis dalam 10⁻⁴ m² (= cm²): fmt(A2, 6) membulatkan D₂ 14 mm ke
+      // 0,000154 dan kehilangan angka penting. × 1000 karena hasil dalam L/dtk.
+      isi: `${fmt(A2 * 1e4, 3)}·10⁻⁴ · √( 2 · ${fmt(G, 2)} · ${fmt(b.dh, 3)} ) / √( 1 − ${fmt(beta, 4)}⁴ ) × 1000`,
       hasil: fmt(qt * 1000, 3),
       satuan: lang === "en" ? "L/s" : "L/dtk",
       tint: C.water,
