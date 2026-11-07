@@ -4,6 +4,7 @@ import { TransitionSheet } from "@/components/TransitionSheet";
 import { Term } from "@/components/ui";
 import { C } from "@/lib/theme";
 import type { Lang } from "@/lib/i18n";
+import { OC05 } from "@/data/kuis/oc05";
 
 const TXT = {
   id: {
@@ -51,6 +52,7 @@ export function TransisiLebarClient() {
       txt={TXT}
       refs={REFS}
       awal={{ Q: 12, b1: 5, y1: 1.5, b2: 4.2, dz: 0 }}
+      kuis={OC05}
       intro={(lang: Lang) =>
         lang === "id" ? (
           <p>

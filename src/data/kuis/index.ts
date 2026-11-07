@@ -7,10 +7,16 @@ import { FF05 } from "./ff05.ts";
 import { FF07 } from "./ff07.ts";
 import { FP03 } from "./fp03.ts";
 import { OC01 } from "./oc01.ts";
+import { OC03 } from "./oc03.ts";
+import { OC05 } from "./oc05.ts";
+import { FF01 } from "./ff01.ts";
 
 export const BANK_KUIS: Record<string, BankKuis> = {
   "FF-05": FF05,
   "FF-07": FF07,
   "FP-03": FP03,
   "OC-01": OC01,
+  "OC-03": OC03,
+  "OC-05": OC05,
+  "FF-01": FF01,
 };

@@ -82,6 +82,12 @@ export type SoalAtur = Dasar & {
   siapkan?: Keadaan;
   /** Masukan yang harus tetap; diubah berarti belum dijawab sesuai soal. */
   tetap?: Keadaan;
+  /**
+   * Banyak langkah penggeser minimum yang memenuhi (uji kuis.test.ts).
+   * Bawaan 3. FF-01 B4 memakai 2: revisi insinyur menerima Δz terbesar
+   * tanpa kavitasi dan satu langkah di bawahnya, tidak lebih.
+   */
+  langkahMin?: number;
 };
 
 /*

@@ -17,7 +17,11 @@ import {
 } from "@/components/ui";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
+import { Kuis } from "@/components/Kuis";
+import type { Keadaan } from "@/lib/kuis";
+// Rentang penggeser dan stasiun saluran satu sumber dengan bank kuis (Q l/s, D mm).
+import { FF01, L_BERNOULLI, P_D1, P_D2, P_DZ, P_H, P_Q, stasiunBernoulli } from "@/data/kuis/ff01";
 import {
   drawStructure,
   type StructureDim,
@@ -31,7 +35,7 @@ import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksDuct } from "@/lib/checks";
 
-const L = 60;
+const L = L_BERNOULLI;
 
 /** Tinggi tekan uap pada suhu yang dipakai ductEnergy (15 °C), sekitar 0,173 m. */
 const UAP = vapourHead(15);
@@ -169,11 +173,10 @@ const REFS = {
 } as const;
 
 /*
- * Rentang H dan Δz: satu definisi untuk penggeser, kotak angka, dan pegangan
- * seret di gambar (aturan 4, satu sumber nilai).
+ * Rentang Q, H, D₁, D₂, Δz (data/kuis/ff01.ts): satu definisi untuk
+ * penggeser, kotak angka, pegangan seret di gambar (aturan 4, satu sumber
+ * nilai), dan bank kuis FF-01.
  */
-const P_H: ParamDef = { min: 2, max: 40, step: 0.5, digits: 1 };
-const P_DZ: ParamDef = { min: -8, max: 25, step: 0.5, digits: 1 };
 
 export function BernoulliClient() {
   const { lang } = useLang();
@@ -188,13 +191,7 @@ export function BernoulliClient() {
   const [dz, setDz] = useState(0);
 
   /* Saluran yang mengerucut ke leher di tengah lalu melebar kembali. */
-  const stations = [
-    { x: 0, z: 0, D: D1 },
-    { x: L * 0.3, z: dz * 0.6, D: (D1 + D2) / 2 },
-    { x: L * 0.5, z: dz, D: D2 },
-    { x: L * 0.7, z: dz * 0.6, D: (D1 + D2) / 2 },
-    { x: L, z: 0, D: D1 },
-  ];
+  const stations = stasiunBernoulli(D1, D2, dz);
   const r = ductEnergy(Q, stations, H, 0);
   const leher = r.points[2];
   /* Tempat tekanan terendah, dari model. Kavitasi tidak selalu di leher:
@@ -212,6 +209,17 @@ export function BernoulliClient() {
   const huluMustahil = hulu.velocityHead > H;
 
   const sentuh = useRef<() => void>(() => {});
+
+  // Kuis memasang masukan soal lewat setter penggeser yang sama (Q l/s,
+  // D mm di kuis) dan memadamkan tanda contoh seperti geseran biasa.
+  const terapkanKuis = (m: Keadaan) => {
+    sentuh.current();
+    if (m.Q !== undefined) setQ(keLangkah(m.Q, P_Q) / 1000);
+    if (m.H !== undefined) setH(keLangkah(m.H, P_H));
+    if (m.D1 !== undefined) setD1(keLangkah(m.D1, P_D1) / 1000);
+    if (m.D2 !== undefined) setD2(keLangkah(m.D2, P_D2) / 1000);
+    if (m.dz !== undefined) setDz(keLangkah(m.dz, P_DZ));
+  };
   /*
    * Ujung sumbu tegak dikunci selama pegangan diseret. Tanpa kunci, ujung
    * atasnya mengikuti H dan Δz, dan ujung bawahnya mengikuti tinggi tekan
@@ -500,10 +508,10 @@ export function BernoulliClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="Q" label={x.dQ} value={Q * 1000} min={5} max={600} step={5} digits={0} unit="l/s" onChange={(v) => setQ(v / 1000)} tint={C.water} />
+              <InputRow symbol="Q" label={x.dQ} value={Q * 1000} {...P_Q} unit="l/s" onChange={(v) => setQ(v / 1000)} tint={C.water} />
               <InputRow symbol="H" label={x.dH} value={H} {...P_H} unit="m" onChange={setH} tint={C.energy} />
-              <InputRow symbol="D₁" label={x.dD1} value={D1 * 1000} min={100} max={800} step={10} digits={0} unit="mm" onChange={(v) => setD1(v / 1000)} />
-              <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} min={40} max={800} step={10} digits={0} unit="mm" onChange={(v) => setD2(v / 1000)} tint={C.critical} />
+              <InputRow symbol="D₁" label={x.dD1} value={D1 * 1000} {...P_D1} unit="mm" onChange={(v) => setD1(v / 1000)} />
+              <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} {...P_D2} unit="mm" onChange={(v) => setD2(v / 1000)} tint={C.critical} />
               <InputRow symbol="Δz" label={x.dZ} value={dz} {...P_DZ} unit="m" onChange={setDz} />
             </InputTable>
 
@@ -607,6 +615,25 @@ export function BernoulliClient() {
                 : notice(Q, H, D1, D2, dz, lang)),
               D2 > D1 ? x.melebar : null,
             ]}
+          />
+
+          <Kuis
+            bank={FF01}
+            keadaan={{
+              Q: keLangkah(Q * 1000, P_Q),
+              H,
+              D1: keLangkah(D1 * 1000, P_D1),
+              D2: keLangkah(D2 * 1000, P_D2),
+              dz,
+            }}
+            onTerapkan={terapkanKuis}
+            label={{
+              Q: { simbol: "Q", satuan: "l/s", digits: 0 },
+              H: { simbol: "H", satuan: "m", digits: 1 },
+              D1: { simbol: "D₁", satuan: "mm", digits: 0 },
+              D2: { simbol: "D₂", satuan: "mm", digits: 0 },
+              dz: { simbol: "Δz", satuan: "m", digits: 1 },
+            }}
           />
         </>
       }
