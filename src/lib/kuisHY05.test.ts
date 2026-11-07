@@ -94,7 +94,7 @@ describe(`HY-05 regresi: kunci dari lib, ${BENIH} benih`, () => {
     }
   });
 
-  it("B4: R²(degMin) ≥ target + 0,005 dan R²(degMin − 1) ≤ target − 0,005; degMin ∈ 2..4; dinilai di seluruh kisi derajat", () => {
+  it("B4: R²(degMin) ≥ target + 0,005 dan R²(degMin − 1) ≤ target − 0,005; degMin ∈ 2..4; hanya degMin benar di seluruh kisi derajat", () => {
     const kena = new Map<number, number>();
     for (let i = 0; i < BENIH; i++) {
       const q = soal(i, "hy05-4");
@@ -108,13 +108,16 @@ describe(`HY-05 regresi: kunci dari lib, ${BENIH} benih`, () => {
       for (const deg of kisi(q.geser.p)) {
         const r2 = r2Derajat(d, deg);
         if (!degMin && r2 >= T) degMin = deg;
-        assert.equal(nilaiJawab(q, 0, { ...q.siapkan, deg }).benar, r2 >= T, `deg ${deg}`);
       }
+      // Hanya derajat terkecil yang dinilai benar (keputusan koordinator).
+      for (const deg of kisi(q.geser.p))
+        assert.equal(nilaiJawab(q, 0, { ...q.siapkan, deg }).benar, deg === degMin, `deg ${deg} degMin ${degMin}`);
+      assert.equal(q.langkahMin, 1);
       assert.ok(degMin >= 2 && degMin <= 4, `degMin ${degMin}`);
       assert.ok(r2Derajat(d, degMin) >= T + 0.005 && r2Derajat(d, degMin - 1) <= T - 0.005);
       assert.equal(q.siapkan!.deg, 1);
       // Tabel berisi data lain: belum dijawab.
-      assert.equal(nilaiJawab(q, 0, { ...q.siapkan, deg: 6, data: q.siapkan!.data + 1 }).benar, false);
+      assert.equal(nilaiJawab(q, 0, { ...q.siapkan, deg: degMin, data: q.siapkan!.data + 1 }).benar, false);
       kena.set(degMin, (kena.get(degMin) ?? 0) + 1);
     }
     for (const d of [2, 3, 4]) assert.ok((kena.get(d) ?? 0) > 150, `degMin ${d}: ${kena.get(d)}`);

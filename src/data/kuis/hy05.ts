@@ -439,15 +439,19 @@ function soal4(benih: number): Soal {
       id: "hy05-4",
       tanya: bi((f, l) =>
         l === "id"
-          ? `${pembuka(d, l)} Mulai dari garis lurus, naikkan derajat polinomial satu per satu dan berhenti pada derajat TERKECIL yang memberi R² paling sedikit ${f(T, 3)}, lalu periksa.`
-          : `${pembuka(d, l)} Starting from a straight line, raise the polynomial degree one step at a time and stop at the SMALLEST degree giving R² of at least ${f(T, 3)}, then check.`
+          ? `${pembuka(d, l)} Mulai dari garis lurus, naikkan derajat polinomial satu per satu dan berhenti pada derajat TERKECIL yang memberi R² paling sedikit ${f(T, 3)}, lalu periksa. Derajat yang lebih tinggi daripada itu tidak dinilai benar.`
+          : `${pembuka(d, l)} Starting from a straight line, raise the polynomial degree one step at a time and stop at the SMALLEST degree giving R² of at least ${f(T, 3)}, then check. A degree above that one is not marked correct.`
       ),
       ukur: (k) => {
         if (!dataCocok(k, sidik)) return Number.NaN;
         const deg = k.deg;
         if (!Number.isInteger(deg) || deg < 1 || deg > 6) return Number.NaN;
+        // Hanya derajat TERKECIL yang dinilai: bila derajat di bawahnya
+        // sudah mencapai target, derajat ini bukan jawabannya (ditulis "—").
+        if (deg > 1 && (cocokDerajat(d, deg - 1)?.r2 ?? 0) >= T) return Number.NaN;
         return cocokDerajat(d, deg)?.r2 ?? Number.NaN;
       },
+      langkahMin: 1,
       simbol: "R²",
       digits: 4,
       target: { min: T, max: 1 },
@@ -457,8 +461,8 @@ function soal4(benih: number): Soal {
         const degMin = r2.findIndex((v, i) => i > 0 && v >= T);
         const baris = [1, 2, 3, 4, 5, 6].map((k) => `${k}: ${f(r2[k], 4)}`).join("; ");
         return l === "id"
-          ? `R² menurut derajat (1 = garis lurus): ${baris}. Derajat terkecil yang mencapai ${f(T, 3)} adalah ${degMin}. Derajat di atasnya juga lolos ukuran R², tetapi suku tambahannya hanya mengikuti derau dan dapat berbelok tajam di luar data. Lihat baris R² di tabel metrik tiap kali derajat dinaikkan.`
-          : `R² by degree (1 = straight line): ${baris}. The smallest degree reaching ${f(T, 3)} is ${degMin}. Higher degrees pass the R² test too, but their extra terms only chase noise and can swing sharply outside the data. Watch the R² row in the metrics table each time the degree goes up.`;
+          ? `R² menurut derajat (1 = garis lurus): ${baris}. Derajat terkecil yang mencapai ${f(T, 3)} adalah ${degMin}. Derajat di atasnya juga memenuhi R² itu, tetapi bukan yang terkecil, jadi tidak dinilai benar: suku tambahannya hanya mengikuti derau dan dapat berbelok tajam di luar data. Lihat baris R² di tabel metrik tiap kali derajat dinaikkan.`
+          : `R² by degree (1 = straight line): ${baris}. The smallest degree reaching ${f(T, 3)} is ${degMin}. Higher degrees meet that R² too, but they are not the smallest, so they are not marked correct: their extra terms only chase noise and can swing sharply outside the data. Watch the R² row in the metrics table each time the degree goes up.`;
       }),
       langkah: langkahBi((f, l) =>
         [1, 2, 3, 4, 5, 6].map((k) => ({
