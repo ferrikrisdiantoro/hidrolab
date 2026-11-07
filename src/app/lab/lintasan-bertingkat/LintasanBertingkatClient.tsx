@@ -10,10 +10,15 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
+import { Kuis } from "@/components/Kuis";
+import { keLangkah } from "@/lib/rentang";
+// Rentang penggeser satu sumber dengan bank kuis (eh03.ts).
+import { EH03, P_B, P_H, P_L, P_N, P_Q, P_U, P_Y } from "@/data/kuis/eh03";
 import { usePlate, usePutar } from "@/lib/usePlate";
 import {
   createLompatGerak,
@@ -157,6 +162,19 @@ export function LintasanBertingkatClient() {
   const [D, setD] = useState(1);
   const [Q, setQ] = useState(0.5);
   const [burst, setBurst] = useState(2.5);
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa. */
+  const sentuh = useRef<() => void>(() => {});
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.H !== undefined) setRise(keLangkah(m.H, P_H));
+    if (m.N !== undefined) setSteps(keLangkah(m.N, P_N));
+    if (m.L !== undefined) setL(keLangkah(m.L, P_L));
+    if (m.B !== undefined) setB(keLangkah(m.B, P_B));
+    if (m.y !== undefined) setD(keLangkah(m.y, P_Y));
+    if (m.Q !== undefined) setQ(keLangkah(m.Q, P_Q));
+    if (m.Ub !== undefined) setBurst(keLangkah(m.Ub, P_U));
+  };
 
   const r = cascadePassage(rise, steps, L, B, D, Q, burst);
   const teraduk = r.powerDensity > FISHWAY_POWER_GENERAL;
@@ -361,14 +379,15 @@ export function LintasanBertingkatClient() {
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="H" label={x.dRise} value={rise} min={0.3} max={12} step={0.1} digits={1} unit="m" onChange={setRise} />
-              <InputRow symbol="N" label={x.dSteps} value={steps} min={2} max={60} step={1} digits={0} onChange={setSteps} tint={C.energy} />
-              <InputRow symbol="L" label={x.dL} value={L} min={1} max={8} step={0.2} digits={1} unit="m" onChange={setL} />
-              <InputRow symbol="B" label={x.dB} value={B} min={0.8} max={8} step={0.2} digits={1} unit="m" onChange={setB} />
-              <InputRow symbol="y" label={x.dD} value={D} min={0.1} max={3} step={0.05} digits={2} unit="m" onChange={setD} tint={C.critical} />
-              <InputRow symbol="Q" label={x.dQ} value={Q} min={0.02} max={5} step={0.02} digits={2} unit="m³/s" onChange={setQ} tint={C.water} />
-              <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.critical} />
+              <InputRow symbol="H" label={x.dRise} value={rise} {...P_H} unit="m" onChange={setRise} />
+              <InputRow symbol="N" label={x.dSteps} value={steps} {...P_N} onChange={setSteps} tint={C.energy} />
+              <InputRow symbol="L" label={x.dL} value={L} {...P_L} unit="m" onChange={setL} />
+              <InputRow symbol="B" label={x.dB} value={B} {...P_B} unit="m" onChange={setB} />
+              <InputRow symbol="y" label={x.dD} value={D} {...P_Y} unit="m" onChange={setD} tint={C.critical} />
+              <InputRow symbol="Q" label={x.dQ} value={Q} {...P_Q} unit="m³/s" onChange={setQ} tint={C.water} />
+              <InputRow symbol="Ub" label={x.dU} value={burst} {...P_U} unit="m/s" onChange={setBurst} tint={C.critical} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -445,6 +464,21 @@ export function LintasanBertingkatClient() {
             tone={nada}
             badge={badge}
             {...notice(rise, L, burst, r, teraduk, lang)}
+          />
+
+          <Kuis
+            bank={EH03}
+            keadaan={{ H: rise, N: steps, L, B, y: D, Q, Ub: burst }}
+            onTerapkan={terapkanKuis}
+            label={{
+              H: { simbol: "H", satuan: "m", digits: 1 },
+              N: { simbol: "N", digits: 0 },
+              L: { simbol: "L", satuan: "m", digits: 1 },
+              B: { simbol: "B", satuan: "m", digits: 1 },
+              y: { simbol: "y", satuan: "m", digits: 2 },
+              Q: { simbol: "Q", satuan: "m³/s", digits: 2 },
+              Ub: { simbol: "Ub", satuan: "m/s", digits: 1 },
+            }}
           />
         </>
       }

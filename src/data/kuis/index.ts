@@ -10,6 +10,10 @@ import { OC01 } from "./oc01.ts";
 import { OC03 } from "./oc03.ts";
 import { OC05 } from "./oc05.ts";
 import { FF01 } from "./ff01.ts";
+import { EH03 } from "./eh03.ts";
+import { EK04 } from "./ek04.ts";
+import { GW01 } from "./gw01.ts";
+import { DM03 } from "./dm03.ts";
 
 export const BANK_KUIS: Record<string, BankKuis> = {
   "FF-05": FF05,
@@ -19,4 +23,8 @@ export const BANK_KUIS: Record<string, BankKuis> = {
   "OC-03": OC03,
   "OC-05": OC05,
   "FF-01": FF01,
+  "EH-03": EH03,
+  "EK-04": EK04,
+  "GW-01": GW01,
+  "DM-03": DM03,
 };
