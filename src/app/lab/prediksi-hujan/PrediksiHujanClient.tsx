@@ -19,6 +19,12 @@ import {
 import { type Tone } from "@/lib/theme";
 import { SeriesEntry, readSeries, type SeriesRow } from "@/components/SeriesEntry";
 import { useResetGuard } from "@/components/ResetScope";
+import { Kuis } from "@/components/Kuis";
+import { useMuatTabel } from "@/components/MuatDataSoal";
+import { HY06 } from "@/data/kuis/hy06";
+import { PRESET_HY06 } from "@/data/kuis/hy06Bentuk";
+import { deretSoal } from "@/data/kuis/dataSoal";
+import type { Keadaan, Soal } from "@/lib/kuis";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { fmt } from "@/lib/hydraulics";
@@ -344,6 +350,27 @@ export function PrediksiHujanClient() {
   /* Cocokan ARIMA disimpan per data dan orde: mencocokkan ulang butuh
      beberapa detik, dan lama ramalan tidak mengubah cocokannya. */
   const simpanArima = useRef(new Map<string, { latih: ArimaFit | null; penuh: ArimaFit | null }>());
+
+  /*
+   * Kuis. Butir 1–4 berupa hitungan dengan deret pendek di teks soal.
+   * Butir 5 membawa deret harian sendiri; sesudah dijawab deret itu masuk
+   * ke tabel univariat lewat setter tabel yang sama (data milik pengguna
+   * ditanyakan dulu), lalu model ARIMA, ordenya, dan h = 30 dipasang lewat
+   * setter tombol dan penggeser yang sama. Kunci kuis tidak memakai ONNX.
+   */
+  const [aktif, setAktif] = useState<Soal | null>(null);
+  const muatUv = useMuatTabel(rowsUv, setRowsUv, awalUv);
+  const terapkanKuis = (m: Keadaan) => {
+    const y = deretSoal(aktif);
+    if (!y) return;
+    const t0 = parseDate("2024-01-01");
+    const baris: SeriesRow[] = y.map((v, i) => ({ d: isoDate(t0 + i * HARI), v: String(v), on: true }));
+    if (!muatUv(baris)) return;
+    setMode("uv");
+    setUvModel("arima");
+    if (m.preset !== undefined && PRESET_HY06[m.preset]) setPreset(PRESET_HY06[m.preset]);
+    if (m.h !== undefined) setH(Math.min(30, Math.max(1, Math.round(m.h))));
+  };
 
   const rows = mode === "uv" ? rowsUv : rowsMv;
   const setRows = mode === "uv" ? setRowsUv : setRowsMv;
@@ -924,6 +951,12 @@ export function PrediksiHujanClient() {
             </table>
           </Block>
 
+          <Kuis
+            bank={HY06}
+            keadaan={{ h }}
+            onTerapkan={terapkanKuis}
+            onAktif={setAktif}
+          />
         </>
       }
       verification={<Verification checks={cek} />}
