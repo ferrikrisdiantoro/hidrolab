@@ -28,7 +28,10 @@ import {
 } from "@/lib/drawAccel";
 import { shiftMap } from "@/lib/drawFieldMotion";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
+import { Kuis } from "@/components/Kuis";
+// Geometri saluran dan rentang penggeser satu sumber dengan bank kuis.
+import { D1, FF07, L, P_D2, P_Q, P_S, P_T, P_W, P_X } from "@/data/kuis/ff07";
 import type { PlateMap, PlateOut } from "@/lib/plateOut";
 import { G, acceleration, fmt, fmtPlain } from "@/lib/hydraulics";
 import { C, DASH, W } from "@/lib/theme";
@@ -38,12 +41,9 @@ import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksAcceleration } from "@/lib/checks";
 
-/** Diameter pangkal dan panjang saluran mengerucutnya, tetap. */
-const D1 = 0.2;
-const L = 0.5;
-/* Rentang penggeser x dan t; pegangan seret di gambar memakai yang sama. */
-const P_X: ParamDef = { min: 0, max: L, step: 0.01, digits: 2 };
-const P_T: ParamDef = { min: 0, max: ACCEL_SWEEP, step: 0.05, digits: 2 };
+/* D₁ 0,2 m dan L 0,5 m tetap; rentang penggeser (juga pegangan seret x dan
+   t) dari bank kuis ff07.ts. Sapuan kursor waktu harus sama dengan ujung
+   penggeser t. */
 
 const TXT = {
   id: {
@@ -189,6 +189,17 @@ export function PercepatanAliranClient() {
   const { playing, toggle: togglePutar } = usePutar();
   /* Pemadam tanda contoh untuk pegangan di gambar (di luar Block masukan). */
   const sentuh = useRef<() => void>(() => {});
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama (keadaan
+     kuis bersatuan penggeser: l/s dan mm) dan memadamkan tanda contoh. */
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.Q !== undefined) setQ0(keLangkah(m.Q, P_Q) / 1000);
+    if (m.s !== undefined) setSwing(keLangkah(m.s, P_S));
+    if (m.w !== undefined) setOmega(keLangkah(m.w, P_W));
+    if (m.D2 !== undefined) setD2(keLangkah(m.D2, P_D2) / 1000);
+    if (m.x !== undefined) setPos(keLangkah(m.x, P_X));
+    if (m.t !== undefined) setWaktu(keLangkah(m.t, P_T));
+  };
   const gerak = useRef<AccelMotion | null>(null);
   if (gerak.current === null) gerak.current = createAccelMotion();
   const bergerak = playing;
@@ -427,12 +438,12 @@ export function PercepatanAliranClient() {
           <Block heading={t.blkInput}>
             <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="Q₀" label={x.dQ} value={Q0 * 1000} min={5} max={500} step={5} digits={0} unit="l/s" onChange={(v) => setQ0(v / 1000)} tint={C.water} />
-              <InputRow symbol="s" label={x.dS} value={swing} min={0} max={0.9} step={0.05} digits={2} onChange={setSwing} />
-              <InputRow symbol="ω" label={x.dW} value={omega} min={0} max={10} step={0.25} digits={2} unit="rad/s" onChange={setOmega} />
-              <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} min={30} max={200} step={5} digits={0} unit="mm" onChange={(v) => setD2(v / 1000)} tint={C.critical} />
-              <InputRow symbol="x" label={x.dX} value={pos} min={0} max={L} step={0.01} digits={2} unit="m" onChange={setPos} />
-              <InputRow symbol="t" label={x.dT} value={waktu} min={0} max={6} step={0.05} digits={2} unit="s" onChange={setWaktu} />
+              <InputRow symbol="Q₀" label={x.dQ} value={Q0 * 1000} min={P_Q.min} max={P_Q.max} step={P_Q.step} digits={0} unit="l/s" onChange={(v) => setQ0(v / 1000)} tint={C.water} />
+              <InputRow symbol="s" label={x.dS} value={swing} min={P_S.min} max={P_S.max} step={P_S.step} digits={2} onChange={setSwing} />
+              <InputRow symbol="ω" label={x.dW} value={omega} min={P_W.min} max={P_W.max} step={P_W.step} digits={2} unit="rad/s" onChange={setOmega} />
+              <InputRow symbol="D₂" label={x.dD2} value={D2 * 1000} min={P_D2.min} max={P_D2.max} step={P_D2.step} digits={0} unit="mm" onChange={(v) => setD2(v / 1000)} tint={C.critical} />
+              <InputRow symbol="x" label={x.dX} value={pos} min={P_X.min} max={P_X.max} step={P_X.step} digits={2} unit="m" onChange={setPos} />
+              <InputRow symbol="t" label={x.dT} value={waktu} min={P_T.min} max={P_T.max} step={P_T.step} digits={2} unit="s" onChange={setWaktu} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -536,6 +547,20 @@ export function PercepatanAliranClient() {
               fmt(r.convectiveShare * 100, 0)
             )}
             notice={notice(Q0, swing, omega, D2, pos, waktu, lang)}
+          />
+
+          <Kuis
+            bank={FF07}
+            keadaan={{ Q: Math.round(Q0 * 1e6) / 1e3, s: swing, w: omega, D2: Math.round(D2 * 1e6) / 1e3, x: pos, t: waktu }}
+            onTerapkan={terapkanKuis}
+            label={{
+              Q: { simbol: "Q₀", satuan: "l/s", digits: 0 },
+              s: { simbol: "s", digits: 2 },
+              w: { simbol: "ω", satuan: "rad/s", digits: 2 },
+              D2: { simbol: "D₂", satuan: "mm", digits: 0 },
+              x: { simbol: "x", satuan: "m", digits: 2 },
+              t: { simbol: "t", satuan: "s", digits: 2 },
+            }}
           />
         </>
       }
