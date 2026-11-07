@@ -35,6 +35,12 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksRating } from "@/lib/checksDischarge";
+import { Kuis } from "@/components/Kuis";
+import { MuatDataSoal, useMuatTabel } from "@/components/MuatDataSoal";
+import { BATAS_TERBATAS, BENTUK, HY04, pH, zonaBaca } from "@/data/kuis/hy04";
+import { dataSoal, sidikData } from "@/data/kuis/dataSoal";
+import { keLangkah } from "@/lib/rentang";
+import type { Keadaan, Soal } from "@/lib/kuis";
 
 const TXT = {
   id: {
@@ -66,7 +72,7 @@ const TXT = {
       "Pada sebagian rentang data ukur, lengkung ini memberi debit yang lebih KECIL ketika muka air NAIK. Itu tidak mungkin terjadi pada satu penampang kendali. Pada polinomial, sebabnya hampir selalu derajat yang terlalu tinggi untuk banyaknya data, sehingga kurvanya berkelok di antara titik-titik. Pada bentuk pangkat, sebabnya data itu sendiri: periksa apakah ada pasangan yang tertukar kolomnya. Turunkan derajatnya atau pakai bentuk pangkat.",
     luar: "Dibaca di luar rentang data ukur",
     luarNote:
-      "Tinggi muka air yang dibaca berada di luar rentang pengukuran yang menyusun lengkung ini, jadi debitnya ekstrapolasi, bukan hasil ukur. Lengkung debit paling sering dipakai justru untuk banjir, yang jarang sempat diukur, dan di situ kesalahannya paling besar: penampang kendalinya bisa berubah, misalnya air mulai melimpas ke bantaran. ISO 18320 membatasi ekstrapolasi ke atas sampai sekitar dua puluh persen di atas pengukuran tertinggi, dan hanya bila bentuk penampangnya tidak berubah di rentang itu.",
+      "Tinggi muka air yang dibaca berada di luar rentang pengukuran yang menyusun lengkung ini, jadi debitnya ekstrapolasi, bukan hasil ukur. Lengkung debit paling sering dipakai justru untuk banjir, yang jarang sempat diukur, dan di situ kesalahannya paling besar: penampang kendalinya bisa berubah, misalnya air mulai melimpas ke bantaran. Lembar ini menandai ekstrapolasi ke atas sampai 1,2 kali pengukuran tertinggi sebagai zona terbatas. Itu batas pilihan lembar untuk latihan, bukan angka dari standar: batas yang dipakai di lapangan ditetapkan pengelola pos duga, dan ekstrapolasi apa pun hanya masuk akal bila bentuk penampangnya tidak berubah di rentang itu.",
     simpan: "pakai di HY-03",
     tersimpan: "tersimpan, HY-03 akan membandingkan debitnya",
     tersimpanLain: "lengkung tersimpan sebelumnya (bukan lengkung di layar) masih dipakai HY-03",
@@ -77,7 +83,7 @@ const TXT = {
     bBawah: "Di bawah data ukur",
     bDalam: "Di dalam data ukur",
     bTerbatas: "Ekstrapolasi terbatas",
-    bJauh: "Di luar ekstrapolasi yang diizinkan",
+    bJauh: "Di luar zona terbatas",
     negatif: "Debit negatif, lengkung tidak berlaku",
     negatifNote:
       "Polinomial ini memberi debit di bawah nol pada H yang dibaca. Debit negatif tidak mungkin; di luar data ukur polinomial tidak terikat bentuk fisis apa pun. Baca di dalam rentang data, turunkan derajatnya, atau pakai bentuk pangkat.",
@@ -121,7 +127,7 @@ const TXT = {
       "Over part of the measured range this curve gives a SMALLER discharge as the water level RISES. That cannot happen at a single control section. With a polynomial the cause is almost always a degree too high for the amount of data, so the curve wiggles between the points. With the power form the cause is the data itself: check whether any pair has its columns swapped. Lower the degree or use the power form.",
     luar: "Read outside the measured range",
     luarNote:
-      "The water level being read lies outside the range of measurements that built this curve, so its discharge is an extrapolation, not a measurement. Rating curves are used most for floods, which are rarely measured, and that is exactly where they are most wrong: the control can change, for instance when water starts spilling onto the floodplain. ISO 18320 limits upward extrapolation to about twenty per cent above the highest measurement, and only if the section shape does not change over that range.",
+      "The water level being read lies outside the range of measurements that built this curve, so its discharge is an extrapolation, not a measurement. Rating curves are used most for floods, which are rarely measured, and that is exactly where they are most wrong: the control can change, for instance when water starts spilling onto the floodplain. This sheet marks upward extrapolation up to 1.2 times the highest measurement as the limited zone. That limit is this sheet's choice for practice, not a figure from a standard: the limit used in the field is set by the gauging authority, and any extrapolation only makes sense if the section shape does not change over that range.",
     simpan: "use in HY-03",
     tersimpan: "saved, HY-03 will compare its discharge",
     tersimpanLain: "an earlier saved curve (not the one on screen) is still used by HY-03",
@@ -132,7 +138,7 @@ const TXT = {
     bBawah: "Below measured range",
     bDalam: "Within measured range",
     bTerbatas: "Limited extrapolation",
-    bJauh: "Beyond permitted extrapolation",
+    bJauh: "Beyond the limited zone",
     negatif: "Negative discharge, curve invalid",
     negatifNote:
       "This polynomial gives a discharge below zero at the stage read. A negative discharge is impossible; outside the measured data a polynomial is bound by no physical shape. Read within the data range, lower the degree, or use the power form.",
@@ -193,6 +199,41 @@ export function LengkungDebitClient() {
 
   const { pts } = ptsFromRows(rows);
   const kunciData = JSON.stringify(pts);
+
+  /*
+   * Kuis. Data soal masuk ke tabel hanya lewat aksi pengguna (tombol Muat
+   * data soal, atau menjawab), lewat setter tabel yang sama dengan tabel
+   * isian. Bentuk, derajat, dan H dipasang lewat setter tombol dan
+   * penggeser yang sama.
+   */
+  const [aktif, setAktif] = useState<Soal | null>(null);
+  const muatTabel = useMuatTabel(rows, setRows, rowsFromPts(SAMPLE_RATING));
+  const dataAktif = dataSoal(aktif);
+  const sidikTabel = sidikData(pts);
+  const tabelCocok = dataAktif !== null && sidikData(dataAktif) === sidikTabel;
+  const muatSoal = () => (dataAktif ? muatTabel(rowsFromPts(dataAktif)) : true);
+  const pasang = (m: Keadaan, data: { x: number; y: number }[]) => {
+    if (!muatTabel(rowsFromPts(data))) return;
+    if (m.bentuk !== undefined && BENTUK[m.bentuk]) setKind(BENTUK[m.bentuk]);
+    if (m.deg !== undefined) setDeg(m.deg);
+    if (m.H !== undefined) setHBaca(keLangkah(m.H, pH(Math.max(...data.map((p) => p.x)))));
+  };
+  /* Kuis memasang keadaan awal soal atur saat kotaknya diklik, sebelum
+     onAktif melaporkan soal baru; masukan itu ditunda sampai soal aktif
+     membawa data yang sidiknya sama. */
+  const [tunda, setTunda] = useState<Keadaan | null>(null);
+  const terapkanKuis = (m: Keadaan) => {
+    if (dataAktif && sidikData(dataAktif) === m.data) pasang(m, dataAktif);
+    else setTunda(m);
+  };
+  useEffect(() => {
+    if (tunda && dataAktif && sidikData(dataAktif) === tunda.data) {
+      setTunda(null);
+      pasang(tunda, dataAktif);
+    }
+    // pasang berganti identitas tiap render; yang ditunggu hanya soal aktif.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tunda, aktif]);
   const r = useMemo(() => fitRating(pts, kind, deg), [kunciData, kind, deg]); // eslint-disable-line react-hooks/exhaustive-deps
   const cek = useMemo(() => checksRating(pts, kind, deg), [kunciData, kind, deg]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -208,18 +249,11 @@ export function LengkungDebitClient() {
   const qNeg = r !== null && qBaca < 0;
   const qTampil = (d: number) => (r && !qNeg ? fmt(qBaca, d) : "—");
 
-  /* Zona H yang dibaca. Batas 1,2 hMax dari ISO 18320 seperti tertulis di
-     luarNote (ekstrapolasi ke atas sampai sekitar dua puluh persen). */
-  const hBatas = r ? 1.2 * r.hMax : 0;
-  const zona: "bawah" | "dalam" | "terbatas" | "jauh" = !r
-    ? "jauh"
-    : hBaca < r.hMin
-      ? "bawah"
-      : hBaca <= r.hMax
-        ? "dalam"
-        : hBaca <= hBatas
-          ? "terbatas"
-          : "jauh";
+  /* Zona H yang dibaca. Batas 1,2 hMax adalah batas pilihan lembar ini
+     (luarNote), bukan angka dari standar. zonaBaca dipakai bersama dengan
+     kuis butir 4, jadi kunci kuis selalu mengikuti pita di layar. */
+  const hBatas = r ? BATAS_TERBATAS * r.hMax : 0;
+  const zona = zonaBaca(hBaca, r);
   const nadaZona: Tone = qNeg
     ? "invalid"
     : zona === "dalam"
@@ -597,6 +631,20 @@ export function LengkungDebitClient() {
               ]}
             />
           )}
+
+          <Kuis
+            bank={HY04}
+            keadaan={{ H: hBaca, bentuk: BENTUK.indexOf(kind), deg, data: sidikTabel }}
+            onTerapkan={terapkanKuis}
+            onAktif={setAktif}
+            label={{ H: { simbol: "H", satuan: "m", digits: 2 } }}
+          />
+          <MuatDataSoal
+            n={dataAktif?.length ?? 0}
+            cocok={tabelCocok}
+            satuan={{ id: "pasangan", en: "pairs" }}
+            onMuat={muatSoal}
+          />
         </>
       }
       verification={<Verification checks={cek} />}

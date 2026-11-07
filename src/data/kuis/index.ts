@@ -14,6 +14,9 @@ import { EH03 } from "./eh03.ts";
 import { EK04 } from "./ek04.ts";
 import { GW01 } from "./gw01.ts";
 import { DM03 } from "./dm03.ts";
+import { HY04 } from "./hy04.ts";
+import { HY05 } from "./hy05.ts";
+import { HY06 } from "./hy06.ts";
 
 export const BANK_KUIS: Record<string, BankKuis> = {
   "FF-05": FF05,
@@ -27,4 +30,7 @@ export const BANK_KUIS: Record<string, BankKuis> = {
   "EK-04": EK04,
   "GW-01": GW01,
   "DM-03": DM03,
+  "HY-04": HY04,
+  "HY-05": HY05,
+  "HY-06": HY06,
 };
