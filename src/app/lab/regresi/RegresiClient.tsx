@@ -236,8 +236,9 @@ export function RegresiClient() {
   const sidikTabel = sidikData(pts);
   const tabelCocok = dataAktif !== null && sidikData(dataAktif) === sidikTabel;
   const muatSoal = () => (dataAktif ? muatTabel(rowsFromPts(dataAktif)) : true);
-  const pasang = (m: Keadaan, data: { x: number; y: number }[]) => {
-    if (!muatTabel(rowsFromPts(data))) return;
+  /** false bila pengguna membatalkan konfirmasi muat data. */
+  const pasang = (m: Keadaan, data: { x: number; y: number }[]): boolean => {
+    if (!muatTabel(rowsFromPts(data))) return false;
     if (m.deg !== undefined) {
       if (m.deg === 1) setKind("linear");
       else {
@@ -245,13 +246,16 @@ export function RegresiClient() {
         setDeg(m.deg);
       }
     } else if (m.bentuk !== undefined && BENTUK_REG[m.bentuk]) setKind(BENTUK_REG[m.bentuk]);
+    return true;
   };
   /* Keadaan awal soal atur datang sebelum onAktif melaporkan soal baru;
      ditunda sampai soal aktif membawa data yang sidiknya sama. */
   const [tunda, setTunda] = useState<Keadaan | null>(null);
-  const terapkanKuis = (m: Keadaan) => {
-    if (dataAktif && sidikData(dataAktif) === m.data) pasang(m, dataAktif);
-    else setTunda(m);
+  /* Jalur tunda tidak bisa menjawab sekarang; bila nanti ditolak, tabel
+     tidak berganti dan Kuis membaca status dari sidik tabel di keadaan. */
+  const terapkanKuis = (m: Keadaan): boolean | void => {
+    if (dataAktif && sidikData(dataAktif) === m.data) return pasang(m, dataAktif);
+    setTunda(m);
   };
   useEffect(() => {
     if (tunda && dataAktif && sidikData(dataAktif) === tunda.data) {

@@ -169,10 +169,19 @@ export function perluSiapkan(s: Soal, dijawab: boolean, dipasang: ReadonlySet<st
  * memasang apa pun: "belum" berarti kartu menawarkan tombol pasang, dan
  * teks "sudah dipasang" hanya untuk "sudah". Lembar tidak diubah saat
  * halaman dimuat.
+ *
+ * Soal yang membawa sidik tabel di `siapkan.data` (HY-04, HY-05) baru
+ * "sudah" bila sidik tabel lembar di `keadaan.data` sama dengannya: lembar
+ * bisa menunda pemasangan lalu pengguna membatalkan konfirmasi muat data,
+ * dan kartu tidak boleh menulis "sudah dipasang" untuk tabel yang tidak
+ * berganti. Soal tanpa `siapkan.data` tidak terpengaruh.
  */
-export function statusSiap(s: Soal, dipasang: ReadonlySet<string>): "tanpa" | "belum" | "sudah" {
+export function statusSiap(s: Soal, dipasang: ReadonlySet<string>, keadaan?: Keadaan): "tanpa" | "belum" | "sudah" {
   if (s.jenis !== "atur" || !s.siapkan) return "tanpa";
-  return dipasang.has(s.id) ? "sudah" : "belum";
+  if (!dipasang.has(s.id)) return "belum";
+  const sidik = s.siapkan.data;
+  if (sidik !== undefined && keadaan?.data !== sidik) return "belum";
+  return "sudah";
 }
 
 /* ------------------------------------------------------------------ *

@@ -212,19 +212,23 @@ export function LengkungDebitClient() {
   const sidikTabel = sidikData(pts);
   const tabelCocok = dataAktif !== null && sidikData(dataAktif) === sidikTabel;
   const muatSoal = () => (dataAktif ? muatTabel(rowsFromPts(dataAktif)) : true);
-  const pasang = (m: Keadaan, data: { x: number; y: number }[]) => {
-    if (!muatTabel(rowsFromPts(data))) return;
+  /** false bila pengguna membatalkan konfirmasi muat data. */
+  const pasang = (m: Keadaan, data: { x: number; y: number }[]): boolean => {
+    if (!muatTabel(rowsFromPts(data))) return false;
     if (m.bentuk !== undefined && BENTUK[m.bentuk]) setKind(BENTUK[m.bentuk]);
     if (m.deg !== undefined) setDeg(m.deg);
     if (m.H !== undefined) setHBaca(keLangkah(m.H, pH(Math.max(...data.map((p) => p.x)))));
+    return true;
   };
   /* Kuis memasang keadaan awal soal atur saat kotaknya diklik, sebelum
      onAktif melaporkan soal baru; masukan itu ditunda sampai soal aktif
      membawa data yang sidiknya sama. */
   const [tunda, setTunda] = useState<Keadaan | null>(null);
-  const terapkanKuis = (m: Keadaan) => {
-    if (dataAktif && sidikData(dataAktif) === m.data) pasang(m, dataAktif);
-    else setTunda(m);
+  /* Jalur tunda tidak bisa menjawab sekarang; bila nanti ditolak, tabel
+     tidak berganti dan Kuis membaca status dari sidik tabel di keadaan. */
+  const terapkanKuis = (m: Keadaan): boolean | void => {
+    if (dataAktif && sidikData(dataAktif) === m.data) return pasang(m, dataAktif);
+    setTunda(m);
   };
   useEffect(() => {
     if (tunda && dataAktif && sidikData(dataAktif) === tunda.data) {

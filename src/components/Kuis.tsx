@@ -142,8 +142,12 @@ export function Kuis({
   bank: BankKuis;
   /** Masukan lembar saat ini, untuk soal "atur". */
   keadaan?: Keadaan;
-  /** Memasang masukan soal ke lembar (penggeser yang sama). */
-  onTerapkan?: (masukan: Keadaan) => void;
+  /**
+   * Memasang masukan soal ke lembar (penggeser yang sama). Mengembalikan
+   * false bila lembar menolak (pengguna membatalkan konfirmasi muat data);
+   * soal atur lalu tidak ditandai sudah dipasang.
+   */
+  onTerapkan?: (masukan: Keadaan) => boolean | void;
   /** Soal "tebak": lembar membuka yang tadinya disembunyikan. */
   onUngkap?: (soalId: string) => void;
   /** Soal yang sedang tampil, supaya lembar bisa menyembunyikan sesuatu untuk soal tebak. */
@@ -209,8 +213,10 @@ export function Kuis({
      baru) tidak memasang apa pun sendiri. */
   const pasang = (q: Soal) => {
     if (q.jenis !== "atur" || !q.siapkan) return;
+    // Pemasangan yang ditunda lembar (data tabel) dinilai lewat sidik tabel
+    // di statusSiap; yang langsung ditolak tidak ditandai di sini.
+    if (onTerapkan?.(q.siapkan) === false) return;
     setDisiapkan((d) => new Set(d).add(q.id));
-    onTerapkan?.(q.siapkan);
   };
 
   const soalBaru = () => {
@@ -363,7 +369,7 @@ export function Kuis({
               j={jawab[s.id]}
               pesan={pesan[s.id] ?? ""}
               keadaan={keadaan}
-              siap={statusSiap(s, disiapkan)}
+              siap={statusSiap(s, disiapkan, keadaan)}
               onPasang={() => pasang(s)}
               onPilih={(id) => jawabPilih(s, id)}
               onHitung={(t) => jawabHitung(s, t)}
@@ -604,7 +610,8 @@ function UmpanBalik({ s, j, lang }: { s: Soal; j: Jawab; lang: Lang }) {
     if (j.nilai.kesalahan) baris.push(j.nilai.kesalahan.alasan[lang]);
     baris.push(x.kunciHitung(fmtL(s.kunci, s.digits, lang), fmtL(s.toleransi, s.digits, lang), sat));
   } else {
-    // Angka besaran soal ini (N = 10, bukan 10,00); bawaan 2 seperti sebelumnya.
+    // Soal atur memakai digits miliknya sendiri (N = 10, bukan 10,00); dua
+    // desimal hanya bila soal tidak menyebut digits.
     const u = fmtL(j.nilai.ukuran ?? Number.NaN, s.jenis === "atur" ? (s.digits ?? 2) : 2, lang);
     baris.push(j.nilai.benar ? x.diSasaran(u) : x.luarSasaran(u));
   }

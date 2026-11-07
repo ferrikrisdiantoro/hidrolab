@@ -48,6 +48,32 @@ describe("statusSiap dan perluSiapkan (Kuis.tsx)", () => {
     assert.equal(perluSiapkan(atur(), false, new Set()), false);
   });
 
+  it("soal bersidik data: sudah hanya bila sidik tabel lembar sama (konfirmasi muat dibatalkan → belum)", () => {
+    const q = atur({ a: 1, data: 123 });
+    const dip = new Set(["t"]);
+    assert.equal(statusSiap(q, dip, { a: 1, data: 123 }), "sudah");
+    assert.equal(statusSiap(q, dip, { a: 1, data: 999 }), "belum");
+    assert.equal(statusSiap(q, dip), "belum");
+    assert.equal(statusSiap(q, new Set(), { a: 1, data: 123 }), "belum");
+  });
+
+  for (const bank of Object.values(BANK_KUIS)) {
+    it(`bank ${bank.kode}: tanpa siapkan.data, keadaan lembar tidak mengubah status (200 benih)`, () => {
+      for (let b = 1; b <= 200; b++)
+        for (const q of bank.buat(b)) {
+          if (q.jenis === "atur" && q.siapkan?.data !== undefined) {
+            // Bank bertabel (HY-04, HY-05): sudah hanya dengan sidik yang sama.
+            assert.equal(statusSiap(q, new Set([q.id]), { ...q.siapkan }), "sudah", q.id);
+            assert.equal(statusSiap(q, new Set([q.id]), { ...q.siapkan, data: q.siapkan.data + 1 }), "belum", q.id);
+            continue;
+          }
+          for (const dip of [new Set<string>(), new Set([q.id])])
+            for (const k of [undefined, {}, { data: 1 }, { ...(q.jenis === "atur" ? q.siapkan : {}) }])
+              assert.equal(statusSiap(q, dip, k), statusSiap(q, dip), q.id);
+        }
+    });
+  }
+
   for (const bank of Object.values(BANK_KUIS)) {
     it(`bank ${bank.kode}: syarat buka sama dengan kode lama, status per jenis, 200 benih`, () => {
       for (let b = 1; b <= 200; b++)
