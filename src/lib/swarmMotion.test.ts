@@ -18,6 +18,8 @@ import {
   trackPositionAt,
   vortexTimeScale,
   vortexTrack,
+  hamiltonianDrift,
+  TRACER_ALIAS_ANGLE,
 } from "./swarmMotion.ts";
 import {
   SHOAL_STEPS,
@@ -325,4 +327,84 @@ describe("EH-05 lapis gerak membaca simulasi yang sama", () => {
       assert.deepEqual(Array.from(mo.st.x), Array.from(awal.st.x));
     });
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * Perbaikan sesudah tinjauan insinyur-hidraulika (3 Nov 2026)
+ * ------------------------------------------------------------------ */
+
+describe("FP-02 ΔH dibagi skala positif S, bukan |H(0)|", () => {
+  it("pemicu: tiga pusaran Γ 10, 10, −10 di (−1;0), (1;0), (0;1): H(0) = 0, ΔH tetap kecil", () => {
+    const tr = vortexTrack(
+      [
+        { x: -1, y: 0, gamma: 10 },
+        { x: 1, y: 0, gamma: 10 },
+        { x: 0, y: 1, gamma: -10 },
+      ],
+      20,
+      VORTEX_CORE
+    );
+    /* H(0) = −(1/2π)[100 ln 2 − 100 ln √2 − 100 ln √2] = 0 */
+    assert.ok(Math.abs(tr.start.hamiltonian) < 1e-9, `H(0) ${tr.start.hamiltonian}`);
+    const d = hamiltonianDrift(tr);
+    dekat(d.scale, 300 / (2 * Math.PI), 1e-12, "S = (1/2π) Σ|ΓiΓj|");
+    dekat(d.delta, tr.end.hamiltonian - tr.start.hamiltonian, 0, "ΔH mutlak");
+    assert.ok(Math.abs(d.percent) < 1e-4, `ΔH ${d.percent} %`);
+  });
+
+  it("S nol (tanpa pasangan bersirkulasi): persen nol, bukan NaN", () => {
+    const tr = vortexTrack(
+      [
+        { x: -1, y: 0, gamma: 0 },
+        { x: 1, y: 0, gamma: 0 },
+        { x: 0, y: 1, gamma: 0 },
+      ],
+      20,
+      VORTEX_CORE
+    );
+    const d = hamiltonianDrift(tr);
+    assert.equal(d.scale, 0);
+    assert.equal(d.percent, 0);
+  });
+});
+
+describe("FP-02 pelacak dekat inti tidak terlempar (sudut per sublangkah dibatasi)", () => {
+  it("pelacak di r 0,05 m, Γ 40: sesudah 1 s layar (60 frame) jari-jari tetap ±5 %", () => {
+    const tr = vortexTrack([{ x: 0, y: 0, gamma: 40 }], 20, VORTEX_CORE);
+    assert.equal(vortexTimeScale(tr.maxPairRate), 1, "satu pusaran: waktu nyata");
+    const mo = createVortexMotion(1, 2);
+    loadVortices(mo, tr, 0);
+    mo.px[0] = 0.05;
+    mo.py[0] = 0;
+    for (let k = 0; k < 60; k++) advectTracers(mo, 1 / 60, 40 / (2 * Math.PI * VORTEX_CORE));
+    const r = Math.hypot(mo.px[0], mo.py[0]);
+    assert.ok(Math.abs(r / 0.05 - 1) <= 0.05, `r ${r}`);
+  });
+
+  it("pelacak di tepi inti (r 0,1 m) dan di luar (0,3 m) juga tetap ±5 %", () => {
+    for (const r0 of [0.1, 0.3]) {
+      const tr = vortexTrack([{ x: 0, y: 0, gamma: 40 }], 20, VORTEX_CORE);
+      const mo = createVortexMotion(1, 2);
+      loadVortices(mo, tr, 0);
+      mo.px[0] = r0;
+      mo.py[0] = 0;
+      for (let k = 0; k < 60; k++) advectTracers(mo, 1 / 60, 40 / (2 * Math.PI * VORTEX_CORE));
+      const r = Math.hypot(mo.px[0], mo.py[0]);
+      assert.ok(Math.abs(r / r0 - 1) <= 0.05, `r0 ${r0}: r ${r}`);
+    }
+  });
+
+  it("pelacak yang berputar lebih dari 1 rad per frame ditandai cepat (dipudarkan), yang jauh tidak", () => {
+    const tr = vortexTrack([{ x: 0, y: 0, gamma: 40 }], 20, VORTEX_CORE);
+    const mo = createVortexMotion(2, 2);
+    loadVortices(mo, tr, 0);
+    mo.px[0] = 0.05;
+    mo.py[0] = 0;
+    mo.px[1] = 3;
+    mo.py[1] = 0;
+    advectTracers(mo, 1 / 60, 40 / (2 * Math.PI * VORTEX_CORE));
+    assert.equal(mo.fast[0], 1, "dekat inti: ω·dt ≈ 10,6 rad");
+    assert.equal(mo.fast[1], 0, "r 3 m: ω·dt ≈ 0,01 rad");
+    assert.equal(TRACER_ALIAS_ANGLE, 1);
+  });
 });

@@ -143,8 +143,9 @@ const SUDUT_RK4 = 0.01;
 const SUDUT_RK4_N = 0.05;
 /**
  * Anggaran langkah RK4 tiga pusaran atau lebih selama satu pengamatan.
- * Enam pusaran Γ 40 dalam 0,5 m butuh 474 ms tanpa anggaran (diukur);
- * dengan 40 000 langkah paling lama sekitar 0,3 s per perubahan.
+ * Tanpa anggaran, susunan terburuk (enam pusaran Γ 40 berdesakan) butuh
+ * sekitar 0,7 s per perubahan; dengan 40 000 langkah paling lama 171 ms
+ * (diukur insinyur-hidraulika, 3 Nov 2026).
  */
 const LANGKAH_MAKS_N = 40000;
 
@@ -228,6 +229,31 @@ export function vortexTrack(
   };
 }
 
+export type HamiltonianDrift = {
+  /** H(span) − H(0), m⁴/s² */
+  delta: number;
+  /** Skala energi S = (1/2π) Σ_{i<j} |Γi Γj|, m⁴/s², selalu ≥ 0 */
+  scale: number;
+  /** ΔH / S · 100, %; nol bila S = 0 (tidak ada pasangan bersirkulasi) */
+  percent: number;
+};
+
+/**
+ * Perubahan energi Kirchhoff H selama jejak, relatif terhadap skala
+ * positif S = (1/2π) Σ_{i<j} |Γi Γj|. Dulu dibagi |H(0)|, yang bisa nol
+ * atau berganti tanda (Γ 10, 10, −10 di (−1;0), (1;0), (0;1): H(0) = 0,
+ * |ΔH| 9·10⁻⁹ tertulis −906 463 %). S tidak bergantung jarak, jadi
+ * persennya membaca galat pemaduan, bukan kebetulan susunan.
+ */
+export function hamiltonianDrift(tr: VortexTrack): HamiltonianDrift {
+  let s = 0;
+  for (let i = 0; i < tr.n; i++)
+    for (let j = i + 1; j < tr.n; j++) s += Math.abs(tr.gamma[i] * tr.gamma[j]);
+  const scale = s / (2 * Math.PI);
+  const delta = tr.end.hamiltonian - tr.start.hamiltonian;
+  return { delta, scale, percent: scale > 0 ? (delta / scale) * 100 : 0 };
+}
+
 /** Lintasan pusaran ke-i sebagai deret titik, untuk lapis statis (mengalokasi). */
 export function trackPath(tr: VortexTrack, i: number): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
@@ -301,6 +327,15 @@ export function vortexTimeScale(maxPairRate: number): number {
 export const VORTEX_CORE = 0.1;
 /** Banyaknya pusaran paling banyak di FP-02 (tiap pasangan dihitung tiap tahap RK4). */
 export const VORTEX_MAX = 6;
+/**
+ * Sudut putar pelacak per frame, rad, yang di atasnya putarannya tidak
+ * terbaca lagi (alias): pelacak ditandai cepat, digambar pudar tanpa jejak.
+ */
+export const TRACER_ALIAS_ANGLE = 1;
+/** Sudut putar pelacak paling besar per sublangkah RK4, rad. */
+const SUDUT_PELACAK = 0.2;
+/** Sublangkah pelacak paling banyak per frame (pusaran bertumpuk). */
+const SUB_PELACAK_MAKS = 256;
 /** Jarak kisi panah medan, piksel. */
 const KISI = 44;
 
@@ -320,6 +355,8 @@ export type VortexMotion = {
   hCount: number;
   /** Banyaknya lahir ulang per pelacak (benih hash) */
   born: Uint32Array;
+  /** 1 bila pelacak berputar lebih dari TRACER_ALIAS_ANGLE pada frame terakhir */
+  fast: Uint8Array;
   m: number;
   siap: boolean;
   /** Jam putar ulang frame sebelumnya, untuk mengenali awal putaran */
@@ -345,6 +382,7 @@ export function createVortexMotion(m = 140, H = 10): VortexMotion {
     hHead: 0,
     hCount: 0,
     born: new Uint32Array(m),
+    fast: new Uint8Array(m),
     m,
     siap: false,
     tauLalu: 0,
@@ -493,6 +531,7 @@ function sebarPelacak(mo: VortexMotion, i: number, map: PlateMap) {
   mo.px[i] = map.invX(f.x0 + hash01(i, 2 * b) * (f.x1 - f.x0));
   mo.py[i] = map.invY(f.y0 + hash01(i, 2 * b + 1) * (f.y1 - f.y0));
   mo.age[i] = 0;
+  mo.fast[i] = 0;
   for (let k = 0; k < mo.H; k++) {
     mo.hx[i * mo.H + k] = mo.px[i];
     mo.hy[i * mo.H + k] = mo.py[i];
@@ -500,26 +539,59 @@ function sebarPelacak(mo: VortexMotion, i: number, map: PlateMap) {
 }
 
 /**
- * Memajukan pelacak sepanjang dt detik fisik di medan pusaran yang sedang
- * terpasang di mo.sys (midpoint RK2, dipecah supaya tiap sublangkah
- * berpindah paling jauh seperempat inti). Tanpa alokasi.
+ * Kecepatan sudut lokal pelacak di (x, y), rad/s: batas atas
+ * Σ |Γj| / (2π max(rj², a²)) dari semua pusaran (di dalam inti Rankine
+ * putaran benda pejal Γ/(2πa²), Lamb Art. 27).
  */
-export function advectTracers(mo: VortexMotion, dt: number, uCap: number): void {
+function lajuSudutLokal(sys: VortexSystem, x: number, y: number): number {
+  const a2 = Math.max(sys.core * sys.core, 1e-12);
+  let w = 0;
+  for (let j = 0; j < sys.n; j++) {
+    const g = sys.gamma[j];
+    if (g === 0) continue;
+    const dx = x - sys.x[j];
+    const dy = y - sys.y[j];
+    w += Math.abs(g) / (2 * Math.PI * Math.max(dx * dx + dy * dy, a2));
+  }
+  return w;
+}
+
+/**
+ * Memajukan pelacak sepanjang dt detik fisik di medan pusaran yang sedang
+ * terpasang di mo.sys. RK4 klasik; banyaknya sublangkah dipilih per
+ * pelacak supaya tiap sublangkah berputar paling banyak 0,2 rad terhadap
+ * pusaran di sekitarnya (paling banyak 256 per frame). Dulu RK2 dengan
+ * paling banyak 8 sublangkah untuk semua pelacak: di dalam inti Γ 40
+ * (637 rad/s) satu sublangkah 1,3 rad dan pelacak di r 0,05 m terlempar
+ * ke 0,106 m dalam 1 s. Pelacak yang berputar lebih dari
+ * TRACER_ALIAS_ANGLE per frame ditandai mo.fast (gambarnya dipudarkan;
+ * geraknya tetap dihitung). Tanpa alokasi. `_uCap` tidak dipakai lagi
+ * (dulu batas laju bersama semua pelacak).
+ */
+export function advectTracers(mo: VortexMotion, dt: number, _uCap?: number): void {
   if (!(dt > 0)) return;
-  const a = mo.sys.core;
-  const nSub = Math.min(8, Math.max(1, Math.ceil((uCap * dt) / (0.25 * Math.max(a, 1e-6)))));
-  const h = dt / nSub;
+  const sys = mo.sys;
   const o = mo._u;
   for (let i = 0; i < mo.m; i++) {
     let x = mo.px[i];
     let y = mo.py[i];
+    const sudut = lajuSudutLokal(sys, x, y) * dt;
+    mo.fast[i] = sudut > TRACER_ALIAS_ANGLE ? 1 : 0;
+    const nSub = Math.min(SUB_PELACAK_MAKS, Math.max(1, Math.ceil(sudut / SUDUT_PELACAK)));
+    const h = dt / nSub;
     for (let s = 0; s < nSub; s++) {
-      vortexVelocityAt(mo.sys, x, y, o);
-      const xm = x + 0.5 * h * o.u;
-      const ym = y + 0.5 * h * o.v;
-      vortexVelocityAt(mo.sys, xm, ym, o);
-      x += h * o.u;
-      y += h * o.v;
+      vortexVelocityAt(sys, x, y, o);
+      const k1u = o.u;
+      const k1v = o.v;
+      vortexVelocityAt(sys, x + 0.5 * h * k1u, y + 0.5 * h * k1v, o);
+      const k2u = o.u;
+      const k2v = o.v;
+      vortexVelocityAt(sys, x + 0.5 * h * k2u, y + 0.5 * h * k2v, o);
+      const k3u = o.u;
+      const k3v = o.v;
+      vortexVelocityAt(sys, x + h * k3u, y + h * k3v, o);
+      x += (h / 6) * (k1u + 2 * k2u + 2 * k3u + o.u);
+      y += (h / 6) * (k1v + 2 * k2v + 2 * k3v + o.v);
     }
     mo.px[i] = x;
     mo.py[i] = y;
@@ -607,6 +679,8 @@ export function drawVortexMotion(
   const H = mo.H;
   const n = mo.hCount;
   for (let i = 0; i < mo.m; i++) {
+    /* pelacak cepat: jejaknya tali busur acak, tidak digambar */
+    if (mo.fast[i]) continue;
     let mulai = true;
     let lx = 0;
     let ly = 0;
@@ -622,16 +696,20 @@ export function drawVortexMotion(
     }
   }
   ctx.stroke();
-  ctx.globalAlpha = 0.85;
   ctx.fillStyle = C.water;
-  ctx.beginPath();
-  for (let i = 0; i < mo.m; i++) {
-    const X = map.X(mo.px[i]);
-    const Y = map.Y(mo.py[i]);
-    ctx.moveTo(X + 1.3, Y);
-    ctx.arc(X, Y, 1.3, 0, Math.PI * 2);
+  for (let lapis = 0; lapis < 2; lapis++) {
+    /* lapis 0: pelacak terbaca; lapis 1: pelacak cepat (alias), pudar */
+    ctx.globalAlpha = lapis === 0 ? 0.85 : 0.2;
+    ctx.beginPath();
+    for (let i = 0; i < mo.m; i++) {
+      if (mo.fast[i] !== lapis) continue;
+      const X = map.X(mo.px[i]);
+      const Y = map.Y(mo.py[i]);
+      ctx.moveTo(X + 1.3, Y);
+      ctx.arc(X, Y, 1.3, 0, Math.PI * 2);
+    }
+    ctx.fill();
   }
-  ctx.fill();
   ctx.globalAlpha = 1;
 
   /* Jejak pusaran 0 → τ, dijarangkan sampai paling banyak ~1500 ruas. */

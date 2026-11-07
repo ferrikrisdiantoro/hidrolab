@@ -26,6 +26,7 @@ import {
   drawVortexArrows,
   drawVortexMotion,
   fieldReferenceSpeed,
+  hamiltonianDrift,
   loadVortices,
   trackPath,
   vortexTimeScale,
@@ -82,8 +83,10 @@ const TXT = {
     dK: "Sirkulasi pusaran yang ditaruh",
     pusaranKe: (k: number) => `pusaran ${k}`,
     keluar: "lintasan keluar bidang",
+    diLuar: (n: number) => `${n} pusaran yang ditaruh di luar bingkai`,
+    gKBelum: "Berlaku sesudah pusaran ketiga ditaruh di gambar.",
     nKasar: (dH: string) =>
-      `Pusarannya berdesakan sangat rapat sehingga langkah hitungnya dikasarkan supaya halaman tidak macet (paling banyak 40 000 langkah per pengamatan). Akibatnya energi H berubah ${dH} % selama pengamatan, padahal mestinya tetap: lintasannya hanya perkiraan. Renggangkan pusarannya atau kecilkan sirkulasinya.`,
+      `Pusarannya berdesakan sangat rapat sehingga langkah hitungnya dikasarkan supaya halaman tidak macet (paling banyak 40 000 langkah per pengamatan). Akibatnya energi H berubah ${dH} % dari skala S selama pengamatan, padahal mestinya tetap: lintasannya hanya perkiraan. Renggangkan pusarannya atau kecilkan sirkulasinya.`,
     tambah: "Tambah pusaran",
     gPos: (k: number) => `Posisi pusaran ${k}`,
     gD1: "Jarak awal, seret pusaran pertama",
@@ -93,16 +96,18 @@ const TXT = {
     hapusSemua: "Hapus pusaran yang ditaruh",
     banyak: (n: number) => `${n} pusaran, tanpa bentuk tertutup`,
     sBanyak: (n: number, G: string, dH: string) =>
-      `${n} pusaran: tidak ada rumus tertutup, jadi lintasannya dihitung langkah demi langkah. Yang tetap selama pengamatan: jumlah sirkulasi ${G} m²/s, titik berat sirkulasi, dan energi Kirchhoff H (berubah ${dH} %).`,
+      `${n} pusaran: tidak ada rumus tertutup, jadi lintasannya dihitung langkah demi langkah. Yang tetap selama pengamatan: jumlah sirkulasi ${G} m²/s, titik berat sirkulasi, dan energi Kirchhoff H (berubah ${dH} % dari skala S).`,
     rN: "Banyaknya pusaran",
     rSum: "Jumlah sirkulasi",
     rXc: "Titik berat sirkulasi, x",
     rYc: "Titik berat sirkulasi, y",
     rH: "Energi Kirchhoff H di awal",
-    rdH: "Perubahan H selama pengamatan",
+    rdH: "Perubahan H selama pengamatan, terhadap skala S",
     rdI: "Pergeseran titik berat selama pengamatan",
     jIx: "Titik berat sirkulasi",
     jH: "Energi Kirchhoff (fungsi Hamilton)",
+    jHinti: "bila rᵢⱼ < a: bentuk inti Rankine, Lamb Art. 27",
+    jS: "Skala energi, selalu positif (H sendiri bisa nol)",
     jdH: "Pemeriksaan: H di akhir dibanding di awal",
     nBanyak:
       "Tiga pusaran masih teratur; empat atau lebih umumnya kacau: susunan awal yang berbeda sedikit saja berakhir sangat berbeda (Aref 1983). Besaran kekalnya tetap terjaga, dan itulah yang diperiksa di tabel hasil.",
@@ -158,8 +163,10 @@ const TXT = {
     dK: "Circulation of the placed vortices",
     pusaranKe: (k: number) => `vortex ${k}`,
     keluar: "path leaves the plot",
+    diLuar: (n: number) => `${n} placed ${n === 1 ? "vortex" : "vortices"} outside the frame`,
+    gKBelum: "Takes effect once a third vortex is placed on the drawing.",
     nKasar: (dH: string) =>
-      `The vortices are packed so closely that the time step was coarsened so the page does not freeze (at most 40 000 steps per observation). As a result the energy H changes by ${dH} % over the observation although it should stay fixed: the paths are only approximate. Spread the vortices or reduce their circulation.`,
+      `The vortices are packed so closely that the time step was coarsened so the page does not freeze (at most 40 000 steps per observation). As a result the energy H changes by ${dH} % of the scale S over the observation although it should stay fixed: the paths are only approximate. Spread the vortices or reduce their circulation.`,
     tambah: "Add vortex",
     gPos: (k: number) => `Position of vortex ${k}`,
     gD1: "Initial separation, drag the first vortex",
@@ -169,16 +176,18 @@ const TXT = {
     hapusSemua: "Remove the placed vortices",
     banyak: (n: number) => `${n} vortices, no closed form`,
     sBanyak: (n: number, G: string, dH: string) =>
-      `${n} vortices: there is no closed-form solution, so the paths are computed step by step. What stays fixed over the observation: total circulation ${G} m²/s, the centre of circulation, and the Kirchhoff energy H (changing by ${dH} %).`,
+      `${n} vortices: there is no closed-form solution, so the paths are computed step by step. What stays fixed over the observation: total circulation ${G} m²/s, the centre of circulation, and the Kirchhoff energy H (changing by ${dH} % of the scale S).`,
     rN: "Number of vortices",
     rSum: "Total circulation",
     rXc: "Centre of circulation, x",
     rYc: "Centre of circulation, y",
     rH: "Kirchhoff energy H at the start",
-    rdH: "Change in H over the observation",
+    rdH: "Change in H over the observation, against the scale S",
     rdI: "Drift of the centre over the observation",
     jIx: "Centre of circulation",
     jH: "Kirchhoff energy (the Hamiltonian)",
+    jHinti: "if rᵢⱼ < a: the Rankine-core form, Lamb Art. 27",
+    jS: "Energy scale, always positive (H itself can be zero)",
     jdH: "Check: H at the end against the start",
     nBanyak:
       "Three vortices are still regular; four or more are generally chaotic: starting arrangements that differ only slightly end very differently (Aref 1983). The conserved quantities still hold, and that is what the result table checks.",
@@ -279,8 +288,10 @@ export function KinematikaVorteksClient() {
   /* Besaran kekal N pusaran (Lamb Art. 154, 167), awal dan akhir. */
   const inv0 = track.start;
   const inv1 = track.end;
-  const skalaH = Math.max(Math.abs(inv0.hamiltonian), 1e-12);
-  const dHpct = ((inv1.hamiltonian - inv0.hamiltonian) / skalaH) * 100;
+  /* ΔH dibagi skala positif S = (1/2π) Σ|ΓiΓj|, bukan |H(0)|: H(0) bisa
+     nol (Γ 10, 10, −10 di (−1;0), (1;0), (0;1)) dan persennya meledak. */
+  const drift = hamiltonianDrift(track);
+  const dHpct = drift.percent;
   const adaPusat = Number.isFinite(inv0.centreX);
   const geserPusat = adaPusat
     ? Math.hypot(inv1.centreX - inv0.centreX, inv1.centreY - inv0.centreY)
@@ -345,6 +356,13 @@ export function KinematikaVorteksClient() {
     return null;
   })();
 
+  /* Pusaran yang ditaruh lalu tertinggal di luar bingkai saat penggeser
+     mengecilkan bidang: tidak tergambar dan tidak bisa diseret, jadi
+     jumlahnya ditulis di gambar. */
+  const nLuar = tambahan.filter(
+    (p) => p.x < bidang.xMin || p.x > bidang.xMax || p.y < bidang.yMin || p.y > bidang.yMax
+  ).length;
+
   const gMaks = Math.max(Math.abs(gA), Math.abs(gB), banyak ? Math.abs(gK) : 0);
 
   const plate = usePlate(
@@ -391,7 +409,19 @@ export function KinematikaVorteksClient() {
           ...bidang,
           lines: garis,
           markers: titik,
-          regions: keluar ? [{ x: keluar.x, y: keluar.y, text: x.keluar, color: C.ink3 }] : undefined,
+          regions: [
+            ...(keluar ? [{ x: keluar.x, y: keluar.y, text: x.keluar, color: C.ink3 }] : []),
+            ...(nLuar > 0
+              ? [
+                  {
+                    x: bidang.xMin + 0.22 * (bidang.xMax - bidang.xMin),
+                    y: bidang.yMax - 0.22 * (bidang.yMax - bidang.yMin),
+                    text: x.diLuar(nLuar),
+                    color: C.ink3,
+                  },
+                ]
+              : []),
+          ],
           heading: keadaan,
           headingColor: C.ink2,
           axisX: T.axXMetre,
@@ -564,7 +594,7 @@ export function KinematikaVorteksClient() {
               <InputRow symbol="Γ₁" label={x.dA} value={gA} min={-40} max={40} step={1} digits={0} unit="m²/s" onChange={setGA} tint={C.water} />
               <InputRow symbol="Γ₂" label={x.dB} value={gB} min={-40} max={40} step={1} digits={0} unit="m²/s" onChange={setGB} tint={C.critical} />
               <InputRow symbol="d" label={x.dS} value={jarak} {...P_D} unit="m" onChange={setJarak} />
-              <InputRow symbol="Γₖ" label={x.dK} value={gK} min={-40} max={40} step={1} digits={0} unit="m²/s" onChange={setGK} />
+              <InputRow symbol="Γₖ" label={x.dK} value={gK} min={-40} max={40} step={1} digits={0} unit="m²/s" onChange={setGK} penanda={banyak ? null : x.gKBelum} />
             </InputTable>
 
             <p className="mt-2.5 text-[0.78rem] leading-snug text-ink-2">{x.taruhPetunjuk(VORTEX_MAX)}</p>
@@ -651,15 +681,22 @@ export function KinematikaVorteksClient() {
                         },
                         {
                           judul: x.jH,
-                          rumus: (<><span>H = −</span><Frac num="1" den="2π" /><span>Σᵢ&lt;ⱼ Γᵢ Γⱼ ln rᵢⱼ</span></>),
+                          rumus: (<><span>H = −</span><Frac num="1" den="2π" /><span>Σᵢ&lt;ⱼ Γᵢ Γⱼ ln rᵢⱼ</span><span className="ml-2 text-ink-3">({x.jHinti})</span></>),
                           isi: `${fmt(N * (N - 1) / 2, 0)} ${lang === "id" ? "pasangan" : "pairs"}`,
                           hasil: fmt(inv0.hamiltonian, 3),
                           satuan: "m⁴/s²",
                         },
                         {
+                          judul: x.jS,
+                          rumus: (<><span>S =</span><Frac num="1" den="2π" /><span>Σᵢ&lt;ⱼ | Γᵢ Γⱼ |</span></>),
+                          isi: `Σ | Γᵢ Γⱼ | / 2π = ${fmt(drift.scale * 2 * Math.PI, 0)} / 2π`,
+                          hasil: fmt(drift.scale, 3),
+                          satuan: "m⁴/s²",
+                        },
+                        {
                           judul: x.jdH,
-                          rumus: (<><span>ΔH =</span><Frac num="H(20 s) − H(0)" den="| H(0) |" /><span>· 100</span></>),
-                          isi: `( ${fmt(inv1.hamiltonian, 5)} − ${kurung(inv0.hamiltonian, 5)} ) / ${fmt(Math.abs(inv0.hamiltonian), 5)} · 100`,
+                          rumus: (<><span>ΔH =</span><Frac num="H(20 s) − H(0)" den="S" /><span>· 100</span></>),
+                          isi: `( ${fmt(inv1.hamiltonian, 5)} − ${kurung(inv0.hamiltonian, 5)} ) / ${fmt(drift.scale, 3)} · 100`,
                           hasil: fmt(dHpct, 5),
                           satuan: "%",
                         },
