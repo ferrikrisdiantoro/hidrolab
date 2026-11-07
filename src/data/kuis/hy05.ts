@@ -332,8 +332,8 @@ function soal3(benih: number): Soal {
         {
           nilai: Math.sqrt(f.r2),
           alasan: {
-            id: "Ini r, koefisien korelasi. Koefisien determinasi adalah kuadratnya, R² = r².",
-            en: "This is r, the correlation coefficient. The coefficient of determination is its square, R² = r².",
+            id: "Ini |r|, besar koefisien korelasi. Koefisien determinasi adalah kuadratnya, R² = r².",
+            en: "This is |r|, the size of the correlation coefficient. The coefficient of determination is its square, R² = r².",
           },
         },
         {

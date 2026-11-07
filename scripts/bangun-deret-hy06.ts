@@ -39,7 +39,11 @@ function deret(pola: Pola, r: () => number): number[] {
   });
 }
 
-/** Margin: ukuran kelas yang terpenuhi jauh dari batasnya. */
+/**
+ * Margin: ukuran kelas yang terpenuhi jauh dari batasnya. u.rentang = R,
+ * rentang sisa sesudah garis lurus f₂₃→f₃₀ dibuang (koreksi insinyur
+ * 8 November), jadi ramalan lurus tidak bisa bermargin sebagai mingguan.
+ */
 function bermargin(y: number[], f: number[], k: Bentuk): boolean {
   const u = ukuranBentuk(y, f);
   if (k === "mendatar") return u.datar < 0.7 * 0.02 * u.m;

@@ -43,6 +43,7 @@ import {
 } from "@/lib/discharge";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
+import { BATAS_TERBATAS } from "@/data/kuis/hy04";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
@@ -98,7 +99,7 @@ const TXT = {
     hGeoPersegi: "Luas dan keliling basah persegi",
     hGeoAlam: "Luas dan keliling basah dijumlahkan per ruas basah",
     hFrTak: "T = 0 pada pipa penuh, Fr tidak terdefinisi",
-    rcLuarJauh: "Lengkung HY-04 dibaca di luar zona terbatasnya",
+    rcLuarJauh: "Lengkung HY-04 dibaca di bawah data ukur atau di luar zona terbatasnya",
     penuh: "Pipa penuh, air di atas puncaknya",
     penuhNote:
       "Muka air yang diminta lebih tinggi daripada puncak pipa, jadi pipanya penuh dan tidak lagi mengalir sebagai saluran terbuka. Debit yang ditulis adalah debit pipa penuh dengan garis energi sejajar dasar, yaitu kapasitas gravitasinya. Air yang lebih tinggi lagi di hulu tidak menambah debit lewat rumus ini: ia menambah tekanan, dan debitnya harus dihitung sebagai aliran bertekanan (lembar PI-07). Perhatikan juga bahwa pipa penuh mengalirkan LEBIH SEDIKIT daripada pipa yang terisi sekitar 94 persen.",
@@ -165,7 +166,7 @@ const TXT = {
     hGeoPersegi: "Wetted area and perimeter of the rectangle",
     hGeoAlam: "Wetted area and perimeter summed over the wet segments",
     hFrTak: "T = 0 in a full pipe, Fr is undefined",
-    rcLuarJauh: "The HY-04 rating is read beyond its limited zone",
+    rcLuarJauh: "The HY-04 rating is read below its measured range or beyond its limited zone",
     penuh: "Pipe full, water above its crown",
     penuhNote:
       "The requested water level is above the pipe crown, so the pipe runs full and no longer flows as an open channel. The discharge written is the full-pipe discharge with the energy line parallel to the bed, which is its gravity capacity. Water standing higher upstream does not add discharge through this formula: it adds pressure, and the discharge must be computed as pressurised flow (sheet PI-07). Notice too that a full pipe carries LESS than a pipe filled to about 94 per cent.",
@@ -289,7 +290,7 @@ export function DebitPenampangClient() {
   /* Ekstrapolasi sampai 20 % di atas data ukur masih "terbatas" (sama
      dengan pita HY-04); di bawah data atau lebih jauh lagi di luar rentang
      berlaku. */
-  const rcJauh = rc !== null && sah && (f.depth < rc.hMin || f.depth > 1.2 * rc.hMax);
+  const rcJauh = rc !== null && sah && (f.depth < rc.hMin || f.depth > BATAS_TERBATAS * rc.hMax);
   const nadaRc = rcJauh ? C.signal : C.caution;
 
   // Fr tidak terdefinisi pada pipa penuh (T = 0): lib memberi NaN.

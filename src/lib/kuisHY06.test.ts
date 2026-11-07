@@ -7,7 +7,7 @@ import { deretSoal } from "../data/kuis/dataSoal.ts";
 import { score } from "./forecast.ts";
 import { fitArima, forecastArima } from "./arima.ts";
 import { DERET_HY06 } from "../data/kuis/hy06Deret.ts";
-import { ORDE_HY06, PRESET_HY06, kelasBentuk } from "../data/kuis/hy06Bentuk.ts";
+import { ORDE_HY06, PRESET_HY06, kelasBentuk, ukuranBentuk } from "../data/kuis/hy06Bentuk.ts";
 
 /**
  * Bank HY-06 Prediksi curah hujan (KUIS.md putaran 2 + revisi insinyur
@@ -36,7 +36,21 @@ describe("HY-06 kumpulan deret butir 5: diperiksa ulang dengan lib", () => {
       const f = forecastArima(fit, 30);
       assert.ok(Math.min(...f) > 0, `${d.preset} min ${Math.min(...f)}`);
       assert.deepEqual(kelasBentuk(d.y, f), [d.bentuk], `${d.pola} ${d.preset}`);
+      // Koreksi insinyur 8 November: margin kelas tetap terhadap R sisa.
+      const u = ukuranBentuk(d.y, f);
+      if (d.bentuk === "mingguan") assert.ok(u.sebaran7 < 0.7 * 0.1 * u.rentang && u.rentang > 1.3 * 0.05 * u.m, `${d.preset} R/m ${u.rentang / u.m}`);
+      if (d.bentuk === "tren") assert.ok(u.rentang < 0.7 * 0.05 * u.m, `${d.preset} R/m ${u.rentang / u.m}`);
     }
+  });
+  it("garis lurus murni hanya kelas tren (R sisa = 0); pola tujuh hari di atas garis tetap mingguan", () => {
+    const y = Array.from({ length: 35 }, () => 8);
+    for (const [a, b] of [[10, 0.5], [30, -0.4], [5, 2]]) {
+      const lurus = Array.from({ length: 30 }, (_, i) => a + b * (i + 1));
+      assert.ok(ukuranBentuk(y, lurus).rentang < 1e-9);
+      assert.deepEqual(kelasBentuk(y, lurus), ["tren"], `${a} ${b}`);
+    }
+    const mingguan = Array.from({ length: 30 }, (_, i) => 8 + 0.1 * (i + 1) + 3 * Math.sin((2 * Math.PI * (i + 1)) / 7));
+    assert.deepEqual(kelasBentuk(y, mingguan), ["mingguan"]);
   });
 });
 

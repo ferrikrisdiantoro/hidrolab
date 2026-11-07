@@ -138,8 +138,8 @@ function soal1(benih: number): Soal {
     kesalahan,
     bahas: bi((f, l) =>
       l === "id"
-        ? `ȳ = ${f(rata, 2)} mm, Σ(y − p)² = ${f(ssRes, 2)}, Σ(y − ȳ)² = ${f(ssTot, 2)}, jadi NSE = 1 − ${f(ssRes, 2)}/${f(ssTot, 2)} = ${f(sk.nse, 3)}. NSE nol berarti sama baiknya dengan selalu menebak rata-rata; negatif berarti lebih buruk. Lihat baris NSE di tabel uji lembar.`
-        : `ȳ = ${f(rata, 2)} mm, Σ(y − p)² = ${f(ssRes, 2)}, Σ(y − ȳ)² = ${f(ssTot, 2)}, so NSE = 1 − ${f(ssRes, 2)}/${f(ssTot, 2)} = ${f(sk.nse, 3)}. An NSE of zero is as good as always guessing the mean; negative is worse. See the NSE row in the sheet's test table.`
+        ? `ȳ = ${f(rata, 2)} mm, Σ(y − p)² = ${f(ssRes, 2)}, Σ(y − ȳ)² = ${f(ssTot, 2)}, jadi NSE = 1 − ${f(ssRes, 2)}/${f(ssTot, 2)} = ${f(sk.nse, 3)}. NSE nol berarti sama baiknya dengan selalu menebak rata-rata; negatif berarti lebih buruk. Lihat baris NSE di tabel uji lembar. Baris itu memakai rumus yang sama pada data lembar, bukan data soal ini.`
+        : `ȳ = ${f(rata, 2)} mm, Σ(y − p)² = ${f(ssRes, 2)}, Σ(y − ȳ)² = ${f(ssTot, 2)}, so NSE = 1 − ${f(ssRes, 2)}/${f(ssTot, 2)} = ${f(sk.nse, 3)}. An NSE of zero is as good as always guessing the mean; negative is worse. See the NSE row in the sheet's test table. That row uses the same formula on the sheet's data, not this question's data.`
     ),
     langkah: langkahBi((f, l) => [
       { judul: l === "id" ? "Rata-rata terukur" : "Measured mean", rumus: "ȳ = Σy / n", isi: `${f(jumlah(y), 0)} / ${y.length}`, hasil: f(rata, 3), satuan: "mm" },
@@ -200,8 +200,8 @@ function soal2(benih: number): Soal {
     kesalahan,
     bahas: bi((f, l) =>
       l === "id"
-        ? `Selisih mutlak hari berurutan ${deretTeks(beda, f, 0)} mm, jumlahnya ${f(jumlah(beda), 0)} mm pada ${beda.length} hari, jadi MAE = ${f(k, 3)} mm. Persistensi adalah pembanding paling sederhana; model yang tidak mengalahkannya belum berguna. Lihat baris persistensi di tabel uji lembar.`
-        : `The absolute day-to-day differences are ${deretTeks(beda, f, 0)} mm, summing to ${f(jumlah(beda), 0)} mm over ${beda.length} days, so MAE = ${f(k, 3)} mm. Persistence is the simplest benchmark; a model that does not beat it is not yet useful. See the persistence row in the sheet's test table.`
+        ? `Selisih mutlak hari berurutan ${deretTeks(beda, f, 0)} mm, jumlahnya ${f(jumlah(beda), 0)} mm pada ${beda.length} hari, jadi MAE = ${f(k, 3)} mm. Persistensi adalah pembanding paling sederhana; model yang tidak mengalahkannya belum berguna. Lihat baris persistensi di tabel uji lembar. Baris itu memakai rumus yang sama pada data lembar, bukan data soal ini.`
+        : `The absolute day-to-day differences are ${deretTeks(beda, f, 0)} mm, summing to ${f(jumlah(beda), 0)} mm over ${beda.length} days, so MAE = ${f(k, 3)} mm. Persistence is the simplest benchmark; a model that does not beat it is not yet useful. See the persistence row in the sheet's test table. That row uses the same formula on the sheet's data, not this question's data.`
     ),
     langkah: langkahBi((f, l) => [
       {
@@ -277,8 +277,8 @@ function soal3(benih: number): Soal {
     kunci: ingin,
     bahas: bi((f, l) =>
       l === "id"
-        ? `${angka(f, l)} MAE menilai selisih mutlak, jadi model yang dekat hampir setiap hari menang atas persistensi. NSE memakai kuadrat selisih, jadi satu hari yang meleset jauh bisa membuatnya negatif walaupun MAE-nya kecil. Dua ukuran itu menjawab dua pertanyaan berbeda. Lihat tabel uji lembar: baris model dan persistensi dihitung pada hari yang sama.`
-        : `${angka(f, l)} MAE scores absolute differences, so a model that is close on most days beats persistence. NSE uses squared differences, so one badly missed day can make it negative even with a small MAE. The two measures answer two different questions. See the sheet's test table: the model and persistence rows are computed on the same days.`
+        ? `${angka(f, l)} MAE merata-ratakan selisih mutlak: satu hari yang meleset 20 mm menambah MAE sama besar dengan dua hari yang meleset 10 mm. NSE memakai kuadrat selisih, jadi satu hari yang meleset jauh bisa membuatnya negatif walaupun MAE-nya kecil. Dua ukuran itu menjawab dua pertanyaan berbeda. Lihat tabel uji lembar: baris model dan persistensi dihitung pada hari yang sama. Baris-baris itu memakai rumus yang sama pada data lembar, bukan data soal ini.`
+        : `${angka(f, l)} MAE averages absolute differences: one day missed by 20 mm adds as much to MAE as two days missed by 10 mm. NSE uses squared differences, so one badly missed day can make it negative even with a small MAE. The two measures answer two different questions. See the sheet's test table: the model and persistence rows are computed on the same days. Those rows use the same formula on the sheet's data, not this question's data.`
     ),
     langkah: langkahBi((f, l) => [
       { judul: l === "id" ? "Model, hari 2 … n" : "Model, days 2 … n", rumus: "MAE = Σ| y − p | / ( n − 1 )", isi: `n − 1 = ${y.length - 1}`, hasil: f(m.mae, 3), satuan: "mm", tint: C.water },
@@ -342,13 +342,13 @@ function soal4(benih: number): Soal {
     kesalahan,
     bahas: bi((f, l) =>
       l === "id"
-        ? `${pos.length} hari hujan dan ${neg.length} hari kering memberi ${pos.length * neg.length} pasangan; pada ${f(menang, 1)} pasangan ramalan hari hujan lebih besar (seri dihitung setengah). AUC = ${f(menang, 1)}/${pos.length * neg.length} = ${f(auc, 3)}. AUC 0,5 berarti tidak lebih baik daripada mengundi. Lihat baris AUC di tabel uji lembar.`
-        : `${pos.length} wet and ${neg.length} dry days make ${pos.length * neg.length} pairs; in ${f(menang, 1)} of them the wet day's forecast is larger (ties count half). AUC = ${f(menang, 1)}/${pos.length * neg.length} = ${f(auc, 3)}. An AUC of 0.5 is no better than a coin toss. See the AUC row in the sheet's test table.`
+        ? `${pos.length} hari hujan dan ${neg.length} hari kering memberi ${pos.length * neg.length} pasangan; pada ${f(menang, 1)} pasangan ramalan hari hujan lebih besar (seri dihitung setengah). AUC = ${f(menang, 1)}/${pos.length * neg.length} = ${f(auc, 3)}. AUC 0,5 berarti tidak lebih baik daripada mengundi. Lihat baris AUC di tabel uji lembar. Baris itu memakai rumus yang sama pada data lembar, bukan data soal ini.`
+        : `${pos.length} wet and ${neg.length} dry days make ${pos.length * neg.length} pairs; in ${f(menang, 1)} of them the wet day's forecast is larger (ties count half). AUC = ${f(menang, 1)}/${pos.length * neg.length} = ${f(auc, 3)}. An AUC of 0.5 is no better than a coin toss. See the AUC row in the sheet's test table. That row uses the same formula on the sheet's data, not this question's data.`
     ),
     langkah: langkahBi((f, l) => [
       { judul: l === "id" ? "Ramalan pada hari hujan" : "Forecasts on wet days", rumus: "p | y ≥ 1 mm", isi: deretTeks(pos, f, 1), hasil: String(pos.length), satuan: l === "id" ? "hari" : "days" },
       { judul: l === "id" ? "Ramalan pada hari kering" : "Forecasts on dry days", rumus: "p | y < 1 mm", isi: deretTeks(neg, f, 1), hasil: String(neg.length), satuan: l === "id" ? "hari" : "days" },
-      { judul: "AUC", rumus: "AUC = #( p_hujan > p_kering ) / ( n_hujan · n_kering )", isi: `${f(menang, 1)} / ${pos.length * neg.length}`, hasil: f(auc, 3), tint: C.water },
+      { judul: "AUC", rumus: "AUC = [ #( p_hujan > p_kering ) + ½ · #( p_hujan = p_kering ) ] / ( n_hujan · n_kering )", isi: `${f(menang, 1)} / ${pos.length * neg.length}`, hasil: f(auc, 3), tint: C.water },
     ]),
   };
   return denganYP(q, y, p);
@@ -380,12 +380,12 @@ const SEBAB: Record<Bentuk, Bi<string>> = {
     en: "An ARIMA model with one difference and no seasonal term forgets short-term patterns: its forecast quickly levels off near a smoothed last value. Even a weekly pattern is not carried unless the order has a seasonal term of 7.",
   },
   tren: {
-    id: "Deretnya naik makin cepat, jadi kenaikan hariannya sendiri bertahan lama. Suku AR pada deret yang sudah didiferensiasi mendekati satu, dan ramalannya meneruskan kenaikan itu hampir lurus.",
-    en: "The series rises faster and faster, so its daily rise itself persists. The AR term on the differenced series is close to one, and the forecast carries that rise on almost in a straight line.",
+    id: "Deretnya naik makin cepat, jadi kenaikan hariannya sendiri bertahan lama. Pada deret yang sudah didiferensiasi (d = 1), koefisien AR (pada AR(2): jumlah kedua koefisiennya) sekitar 0,99, jadi kenaikan harian ramalan hanya menyusut sekitar 1 % per hari dan ramalannya tampak hampir lurus sampai hari ke-30. Tanpa suku konstanta (drift), ramalan ini tetap akan mendatar jauh sesudahnya.",
+    en: "The series rises faster and faster, so its daily rise itself persists. On the differenced series (d = 1) the AR coefficient (for AR(2), the sum of both) is about 0.99, so the forecast's daily rise shrinks by only about 1 % a day and the forecast looks almost straight up to day 30. Without a constant (drift) term it would still level off far beyond that.",
   },
   mingguan: {
-    id: "Suku musiman 7 (diferensiasi musiman D = 1) membawa pola tujuh hari terakhir ke depan, jadi ramalannya berulang tiap minggu.",
-    en: "The seasonal term of 7 (seasonal difference D = 1) carries the last seven-day pattern forward, so the forecast repeats every week.",
+    id: "Diferensiasi musiman D = 1 dengan s = 7 membuat ramalan hari t bertumpu pada hari t − 7, dan suku musiman AR dan MA menimbang pola minggu-minggu sebelumnya. Pola mingguan yang dipelajari dari deret itu terbawa ke depan, jadi ramalannya berulang tiap tujuh hari.",
+    en: "Seasonal differencing D = 1 with s = 7 makes the forecast for day t build on day t − 7, and the seasonal AR and MA terms weigh the pattern of earlier weeks. The weekly pattern learned from the series is carried forward, so the forecast repeats every seven days.",
   },
 };
 
@@ -404,8 +404,8 @@ function soal5(benih: number): Soal {
     id: "hy06-5",
     tanya: bi((f, l) =>
       l === "id"
-        ? `Deret hujan harian ${d.y.length} hari (rata-rata ${f(rata, 1)} mm) ${POLA[d.pola].id}. Model ${NAMA_ORDE[d.preset]} dicocokkan ke seluruh deret, lalu meramal 30 hari. Tebak dulu: seperti apa bentuk ramalan hari ke-23 sampai ke-30? Sesudah menjawab, deret dan model ini dipasang di lembar.`
-        : `A daily rainfall series of ${d.y.length} days (mean ${f(rata, 1)} mm) ${POLA[d.pola].en}. A ${NAMA_ORDE[d.preset]} model is fitted to the whole series and forecasts 30 days. Guess first: what shape does the forecast take on days 23 to 30? After you answer, this series and model are set on the sheet.`
+        ? `${d.pola === "tren" ? "Deret latihan" : "Deret hujan harian"} ${d.y.length} hari (rata-rata ${f(rata, 1)} mm) ${POLA[d.pola].id}. Model ${NAMA_ORDE[d.preset]} dicocokkan ke seluruh deret, lalu meramal 30 hari. Tebak dulu: seperti apa bentuk ramalan hari ke-23 sampai ke-30? Sesudah menjawab, deret dan model ini dipasang di lembar.`
+        : `${d.pola === "tren" ? "A training series" : "A daily rainfall series"} of ${d.y.length} days (mean ${f(rata, 1)} mm) ${POLA[d.pola].en}. A ${NAMA_ORDE[d.preset]} model is fitted to the whole series and forecasts 30 days. Guess first: what shape does the forecast take on days 23 to 30? After you answer, this series and model are set on the sheet.`
     ),
     pilihan,
     kunci: d.bentuk,
