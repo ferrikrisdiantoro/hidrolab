@@ -331,7 +331,7 @@ export function VenturiClient() {
           {
             judul: `${x.hLuas}${tandaQ}`,
             rumus: <span>A₂ = π D₂² / 4 ;  Q = C · E · A₂ · √( 2 g Δh )</span>,
-            isi: `A₂ = ${fmt(A2, 6)} m² ;  ${fmt(Cc, 3)} · ${fmt(r.approachFactor, 4)} · ${fmt(A2, 6)} · √( 2 · ${fmt(G, 2)} · ${fmt(dh, 2)} )`,
+            isi: `A₂ = ${fmt(A2 * 1e4, 3)}·10⁻⁴ m² ;  ${fmt(Cc, 3)} · ${fmt(r.approachFactor, 4)} · ${fmt(A2 * 1e4, 3)}·10⁻⁴ · √( 2 · ${fmt(G, 2)} · ${fmt(dh, 2)} ) × 1000`,
             hasil: fmt(r.Q * 1000, 2),
             satuan: "l/s",
             tint: tintQ,
@@ -339,7 +339,7 @@ export function VenturiClient() {
           {
             judul: x.hV,
             rumus: <span>V₁ = Q / A₁ ;  V₂ = Q / A₂</span>,
-            isi: `${fmt(r.Q, 5)} / ${fmt(A1, 6)} = ${fmt(r.V1, 3)} m/s ;  ${fmt(r.Q, 5)} / ${fmt(A2, 6)}`,
+            isi: `${fmt(r.Q, 5)} / ${fmt(A1 * 1e4, 3)}·10⁻⁴ = ${fmt(r.V1, 3)} m/s ;  ${fmt(r.Q, 5)} / ${fmt(A2 * 1e4, 3)}·10⁻⁴`,
             hasil: fmt(r.V2, 3),
             satuan: "m/s",
             tint: C.water,
