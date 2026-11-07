@@ -59,6 +59,13 @@ const TXT = {
       `Dengan n = ${n} dan R = ${R} m, koefisien Chezy C = ${C} m^½/s dan faktor gesekan Darcy f = ${f}.`,
     hKs: "Kekasaran butir setara, Strickler dibalik",
     hRasio: "Kenaikan C bila R dilipatempatkan, selalu 4^(1/6) apa pun n dan R",
+    legenda: "Kurva pada grafik",
+    legendaBantu: "Klik nama kurva untuk menyembunyikan atau menampilkannya.",
+    kurvaDipakai: (n: string) => `n ${n} (dipakai)`,
+    kurvaKeluarga: (n: string) => `n ${n}`,
+    samaDipakai: "Sama dengan kurva yang sedang dipakai",
+    tampilSemua: "Tampilkan semua",
+    tersembunyi: (k: number) => `${k} kurva disembunyikan`,
     note:
       "Ketiga hukum ini sering diperkenalkan sebagai pilihan, seolah seorang perancang boleh memilih salah satunya. Sebenarnya ketiganya menggambarkan gesekan yang sama dan dapat ditukar satu sama lain tanpa kehilangan apa pun; yang berbeda hanya besaran yang dianggap tetap. Darcy menganggap faktor gesekan tetap, dan itu benar untuk aliran kasar penuh di dalam pipa. Manning menganggap angka kekasaran tetap, dan itu pilihan yang hanya masuk akal untuk saluran terbuka pada rentang kedalaman yang tidak terlalu lebar. Chezy berada di antaranya, dan koefisiennya terang-terangan bergantung pada ukuran saluran. Kurva pada gambar ini menunjukkan akibat pilihan itu: angka Manning yang tetap berarti koefisien Chezy yang naik menurut akar pangkat enam jari-jari hidrolik, dan faktor gesekan Darcy yang justru turun. Yang mana yang benar bukan pertanyaan yang bisa dijawab; yang bisa dijawab adalah yang mana yang paling tidak berubah pada rentang keadaan yang sedang dirancang.",
   },
@@ -88,6 +95,13 @@ const TXT = {
       `With n = ${n} and R = ${R} m, the Chezy coefficient is C = ${C} m^½/s and the Darcy friction factor f = ${f}.`,
     hKs: "Equivalent grain roughness, Strickler inverted",
     hRasio: "Rise in C when R is quadrupled, always 4^(1/6) whatever n and R",
+    legenda: "Curves on the chart",
+    legendaBantu: "Click a curve name to hide or show it.",
+    kurvaDipakai: (n: string) => `n ${n} (in use)`,
+    kurvaKeluarga: (n: string) => `n ${n}`,
+    samaDipakai: "Same as the curve in use",
+    tampilSemua: "Show all",
+    tersembunyi: (k: number) => `${k} curves hidden`,
     note:
       "These three laws are often introduced as a choice, as if a designer were free to pick one. In fact all three describe the same friction and convert into one another without loss; what differs is only which quantity is held constant. Darcy holds the friction factor constant, and that is right for fully rough flow in pipes. Manning holds the roughness coefficient constant, a choice that only makes sense for open channels over a limited range of depths. Chezy sits between them, and its coefficient depends openly on the size of the channel. The curves here show the consequence of that choice: a constant Manning value means a Chezy coefficient rising as the sixth root of hydraulic radius, and a Darcy friction factor falling. Which one is correct is not an answerable question; what is answerable is which one changes least over the range of conditions being designed for.",
   },
@@ -125,6 +139,21 @@ export function HukumGesekanClient() {
   const [n, setN] = useState(0.025);
   const [R, setR] = useState(1);
   const [S, setS] = useState(0.001);
+  /* Legenda yang bisa diklik: kurva keluarga disimpan menurut angka
+     Manning-nya (bukan teks label, yang ikut berganti koma/titik saat
+     bahasa diganti), kurva yang dipakai dengan saklar sendiri. */
+  const [sembunyiN, setSembunyiN] = useState<ReadonlySet<number>>(() => new Set());
+  const [sembunyiDipakai, setSembunyiDipakai] = useState(false);
+  const balikKeluarga = (nk: number) =>
+    setSembunyiN((lama) => {
+      const baru = new Set(lama);
+      if (baru.has(nk)) baru.delete(nk);
+      else baru.add(nk);
+      return baru;
+    });
+  const jumlahSembunyi =
+    KELUARGA_N.filter((nk) => sembunyiN.has(nk) && Math.abs(nk - n) >= 1e-9).length +
+    (sembunyiDipakai ? 1 : 0);
 
   const C_ = chezyFromManning(n, R);
   const f = darcyFromChezy(C_);
@@ -178,6 +207,13 @@ export function HukumGesekanClient() {
         labelDy: -11,
       });
 
+      /* Kunci `hidden` = label deret seperti yang digambar. Kurva keluarga
+         yang sama dengan n terpilih tidak berlabel dan memang tertutup kurva
+         terpilih, jadi tidak ikut disembunyikan dari legenda. */
+      const hidden = new Set<string>();
+      for (const nk of KELUARGA_N) if (sembunyiN.has(nk)) hidden.add(fmtPlain(nk, 3));
+      if (sembunyiDipakai) hidden.add(`n ${fmtPlain(n, 3)}`);
+
       drawChart(
         ctx,
         w,
@@ -201,11 +237,12 @@ export function HukumGesekanClient() {
             { x: 0.09, y: 100, text: T.manningCurve, color: C.ink3 },
           ],
           padRight: 46,
+          hidden,
         },
         lang
       );
     },
-    [n, R, S, lang]
+    [n, R, S, lang, sembunyiN, sembunyiDipakai]
   );
 
   return (
@@ -245,6 +282,7 @@ export function HukumGesekanClient() {
         )
       }
       drawing={
+        <>
         <Sheet
           number="OC-10"
           title={x.sheetTitle}
@@ -259,6 +297,41 @@ export function HukumGesekanClient() {
         >
           <canvas ref={ref} className="block h-full w-full" />
         </Sheet>
+        <Legenda
+          judul={x.legenda}
+          bantu={x.legendaBantu}
+          tampilSemua={x.tampilSemua}
+          ringkas={jumlahSembunyi > 0 ? x.tersembunyi(jumlahSembunyi) : null}
+          onTampilSemua={() => {
+            setSembunyiN(new Set());
+            setSembunyiDipakai(false);
+          }}
+          item={[
+            {
+              kunci: "dipakai",
+              teks: x.kurvaDipakai(fmt(n, 3)),
+              warna: jauh ? C.signal : C.water,
+              tebal: W.bold,
+              dash: jauh ? DASH.invalid : DASH.solid,
+              tampil: !sembunyiDipakai,
+              onToggle: () => setSembunyiDipakai((v) => !v),
+            },
+            ...KELUARGA_N.map((nk) => {
+              const sama = Math.abs(nk - n) < 1e-9;
+              return {
+                kunci: String(nk),
+                teks: x.kurvaKeluarga(fmt(nk, 3)),
+                warna: C.ink3,
+                tebal: W.hair,
+                dash: DASH.solid,
+                tampil: sama || !sembunyiN.has(nk),
+                nonaktif: sama ? x.samaDipakai : undefined,
+                onToggle: () => balikKeluarga(nk),
+              };
+            }),
+          ]}
+        />
+        </>
       }
       side={
         <>
@@ -413,4 +486,96 @@ function notice(n: number, R: number, C_: number, f: number, lang: Lang): string
     `Tahan angka Manning-nya lalu perkecil jari-jari hidroliknya menjadi seperempat: koefisien Chezy turun dari ${fmt(C_, 1)} ke ${fmt(cDangkal, 1)}, dan faktor gesekan Darcy naik ${fmt(naikF, 0)} persen.`,
     "Tidak ada satu pun yang berubah pada lapisan salurannya. Kenaikan itu sepenuhnya akibat menahan n tetap: besaran mana pun yang dinyatakan tetap, dua yang lain harus bergerak.",
   ];
+}
+
+type ItemLegenda = {
+  kunci: string;
+  teks: string;
+  warna: string;
+  tebal: number;
+  dash: readonly number[];
+  tampil: boolean;
+  /** Bila terisi, tombolnya tidak bisa dipakai dan teks ini jadi keterangannya */
+  nonaktif?: string;
+  onToggle: () => void;
+};
+
+/**
+ * Legenda yang bisa diklik di bawah gambar. Tiap nama kurva adalah tombol
+ * aria-pressed (ditekan = kurvanya tampil), jadi bisa dipakai dengan Tab
+ * dan Enter/Spasi. Contoh garisnya memakai warna, bobot, dan jenis garis
+ * yang sama dengan kurva di grafik; yang disembunyikan dicoret dan pudar.
+ */
+function Legenda({
+  judul,
+  bantu,
+  tampilSemua,
+  ringkas,
+  onTampilSemua,
+  item,
+}: {
+  judul: string;
+  bantu: string;
+  tampilSemua: string;
+  ringkas: string | null;
+  onTampilSemua: () => void;
+  item: ItemLegenda[];
+}) {
+  return (
+    <div className="mt-2.5" role="group" aria-label={judul}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="stencil">{judul}</span>
+        <span className="text-[0.78rem] text-ink-3">{bantu}</span>
+      </div>
+      <ul className="mt-1 flex flex-wrap gap-x-4">
+        {item.map((it) => (
+          <li key={it.kunci}>
+            <button
+              type="button"
+              aria-pressed={it.tampil}
+              disabled={!!it.nonaktif}
+              title={it.nonaktif}
+              onClick={it.onToggle}
+              className="group flex h-11 items-center gap-1.5 outline-none disabled:cursor-default"
+            >
+              <svg width="22" height="8" viewBox="0 0 22 8" aria-hidden="true" className={it.tampil ? "" : "opacity-30"}>
+                <line
+                  x1="1"
+                  y1="4"
+                  x2="21"
+                  y2="4"
+                  stroke={it.warna}
+                  strokeWidth={Math.max(it.tebal, 0.75)}
+                  strokeDasharray={it.dash.length ? it.dash.join(" ") : undefined}
+                />
+              </svg>
+              <span
+                className={`label pb-px text-[0.8rem] transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-water ${
+                  it.nonaktif
+                    ? "text-ink-3"
+                    : it.tampil
+                      ? "border-b border-rule-strong text-ink group-hover:border-ink"
+                      : "border-b border-rule text-ink-3 line-through group-hover:text-ink-2"
+                }`}
+              >
+                {it.teks}
+              </span>
+            </button>
+          </li>
+        ))}
+        {ringkas && (
+          <li className="flex h-11 items-center gap-2">
+            <span className="text-[0.78rem] text-ink-3">{ringkas}</span>
+            <button
+              type="button"
+              onClick={onTampilSemua}
+              className="label border-b border-rule-strong pb-px text-[0.8rem] text-ink-2 outline-none transition-colors hover:border-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water"
+            >
+              {tampilSemua}
+            </button>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
 }
