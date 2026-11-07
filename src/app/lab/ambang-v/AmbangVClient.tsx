@@ -98,11 +98,11 @@ const TXT = {
     pCdBeda:
       "Cd kalibrasi = ΣQₜ·Q / ΣQₜ²: bacaan debit besar lebih berbobot; Cd rerata memberi bobot sama pada tiap bacaan, sehingga bacaan H kecil (galat relatif besar) ikut menarik.",
     pMKh: (kh: string) =>
-      `m dihitung dari Q terhadap H bacaan, bukan terhadap he = H + kh. Karena kh = ${kh} mm, kemiringan log-log yang benar sedikit di bawah 2,5, yaitu 2,5·H/(H + kh); selisih yang lebih besar dari itu berasal dari galat baca dan nol datum.`,
+      `m dihitung dari Q terhadap H bacaan, bukan terhadap he = H + kh. Karena kh = ${kh} mm, kemiringan log-log yang benar sedikit di bawah 2,5, yaitu 2,5·H/(H + kh) (makin dekat ke 2,5 bila H besar). Penyimpangan lain dari nilai itu, ke atas maupun ke bawah, berasal dari galat baca dan nol datum.`,
     pCampur:
       "Baris di tabel memakai lebih dari satu sudut takik. Cd kalibrasi dihitung dengan Q teori tiap baris, tetapi pangkat m tidak dihitung karena titik dari dua pelat tidak berada pada satu lengkung debit; kosongkan tabel untuk seri baru.",
     pRendah: (k: number, s: string) =>
-      `${k} bacaan dengan H di bawah ${s} mm, di luar batas rumus lembar ini. Di sana tegangan permukaan ikut menahan tirai air, jadi Cd bacaan itu tidak mewakili alat. Angkanya tidak dipotong dan tetap masuk ringkasan; hapus barisnya bila ingin kalibrasi hanya dari rentang yang berlaku.`,
+      `${k} bacaan dengan H di bawah ${s} mm, di luar batas rumus lembar ini (ISO 1438). Di laboratorium, pada tinggi sekecil itu tegangan permukaan ikut menahan tirai air sehingga Cd bacaan tidak mewakili alat; model lembar ini tetap memakai rumus yang sama, jadi Cd di tabel tampak wajar. Angkanya tidak dipotong dan tetap masuk ringkasan; hapus barisnya bila ingin kalibrasi hanya dari rentang yang berlaku.`,
     pLuarSkala: (k: number, s: string) =>
       `${k} bacaan dengan H di atas ${s} mm, melewati rentang pengukur titik bangku praktikum (Armfield F1-13). Angkanya tidak dipotong; di laboratorium bacaan ini butuh pengukur yang lebih panjang.`,
     hHeP: "Tinggi efektif dari bacaan H",
@@ -169,13 +169,13 @@ const TXT = {
     pCdBeda:
       "Calibrated Cd = ΣQₜ·Q / ΣQₜ²: readings at large discharge carry more weight; the mean Cd weights every reading equally, so readings at small H (large relative error) pull on it as much as the rest.",
     pMKh: (kh: string) =>
-      `m is fitted to Q against the read H, not against he = H + kh. Because kh = ${kh} mm, the true log-log slope is slightly below 2.5, namely 2.5·H/(H + kh); any larger gap comes from reading error and the datum zero.`,
+      `m is fitted to Q against the read H, not against he = H + kh. Because kh = ${kh} mm, the true log-log slope is slightly below 2.5, namely 2.5·H/(H + kh) (closer to 2.5 at large H). Any other departure from that value, up or down, comes from reading error and the datum zero.`,
     pCampur:
       "Rows in the table use more than one notch angle. The calibrated Cd uses each row's theoretical Q, but the exponent m is not fitted because points from two plates do not lie on one rating curve; clear the table for a new series.",
     pRendah: (k: number, s: string) =>
-      `${k} ${k === 1 ? "reading" : "readings"} with H below ${s} mm, outside the limit of this sheet's formula. There surface tension helps hold the nappe, so the Cd of those readings does not represent the weir. The numbers are not clipped and stay in the summary; delete those rows to calibrate only over the valid range.`,
+      `${k} ${k === 1 ? "reading" : "readings"} with H below ${s} mm, outside the limit of this sheet's formula (ISO 1438). In the laboratory, surface tension helps hold the nappe at such small heads, so the Cd of those readings does not represent the weir; this sheet's model keeps the same formula there, so the Cd in the table looks normal. The numbers are not clipped and stay in the summary; delete those rows to calibrate only over the valid range.`,
     pLuarSkala: (k: number, s: string) =>
-      `${k} ${k === 1 ? "reading" : "readings"} with H above ${s} mm, past the range of the bench point gauge (Armfield F1-13). The numbers are not clipped; in the laboratory these readings need a longer gauge.`,
+      `${k} ${k === 1 ? "reading" : "readings"} with H above ${s} mm, past the range of the bench point gauge (Armfield F1-13). The numbers are not clipped; in the laboratory ${k === 1 ? "this reading needs" : "these readings need"} a longer gauge.`,
     hHeP: "Effective head from the read H",
     hQt: "Theoretical discharge (Cd = 1)",
     hCdP: "Discharge coefficient of this reading",
@@ -516,7 +516,7 @@ function hitunganFm01(b: BacaanFm01, lang: Lang): LangkahHitung[] {
     {
       judul: x.hQt,
       rumus: (<><span>Qₜ =</span><Frac num="8" den="15" /><span>· √(2g) · tan( θ/2 ) · he^{fmt(2.5, 1)}</span></>),
-      isi: `8/15 · √( 2 · ${fmt(G, 2)} ) · ${fmt(tan2, 4)} · ${fmt(he, 5)}^${fmt(2.5, 1)} × 1000`,
+      isi: `8/15 · √( 2 · ${fmt(G, 2)} ) · ${fmt(tan2, 4)} · ${fmt(he, 5)}^${fmt(2.5, 1)} × 1000 ${lang === "en" ? "(he in m)" : "(he dalam m)"}`,
       hasil: fmt(qt * 1000, 3),
       satuan: lang === "en" ? "L/s" : "L/dtk",
       tint: C.water,

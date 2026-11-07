@@ -189,7 +189,7 @@ const TXT = {
     pCampur:
       "Rows in the table use more than one pair of diameters. The calibrated Cd uses each row's theoretical Q, but one Cd for two different meters has no meaning; clear the table for a new series.",
     pLuarSkala: (k: number, s: string) =>
-      `${k} readings with h₁ above ${s} mm, past the scale of the bench manometer (Armfield F1-15). The numbers are not clipped; in the laboratory these readings need a longer manometer or a mercury manometer.`,
+      `${k} ${k === 1 ? "reading" : "readings"} with h₁ above ${s} mm, past the scale of the bench manometer (Armfield F1-15). The numbers are not clipped; in the laboratory ${k === 1 ? "this reading needs" : "these readings need"} a longer manometer or a mercury manometer.`,
     hDh: "Head difference from the two tubes",
     hQt: "Theoretical discharge (C = 1)",
     hCd: "Discharge coefficient of this reading",
