@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,6 +10,7 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
@@ -24,6 +25,7 @@ import {
   NOTCH_THETA_MIN,
   fmt,
   notchDischarge,
+  notchKh,
   type NotchOutOfRange,
 } from "@/lib/hydraulics";
 import { C } from "@/lib/theme";
@@ -32,6 +34,25 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksNotch } from "@/lib/checks";
+import type { ParamDef } from "@/lib/rentang";
+import { LembarPraktikum } from "@/components/Praktikum";
+import {
+  KOLOM_EKSPOR_FM01,
+  KOLOM_FM01,
+  SIGMA_NOL,
+  SKALA_PENGUKUR,
+  VOLUME_MIN_L,
+  WAKTU_MIN_S,
+  catatFm01,
+  ringkasFm01,
+  volumeTampungMin,
+  type BacaanFm01,
+} from "@/data/praktikum/fm01";
+import { qTeoriAmbangV } from "@/lib/praktikum";
+import type { LangkahHitung, ResultRow } from "@/components/ui";
+
+/** Penggeser H dipakai di blok masukan dan di lembar pengamatan. */
+const P_H: ParamDef = { min: 0.005, max: 0.45, step: 0.001, digits: 3 };
 
 const TXT = {
   id: {
@@ -64,6 +85,45 @@ const TXT = {
     hQ: "Debit",
     hS: "Kepekaan terhadap salah baca 1 mm",
     hRendah: "H di bawah 5 cm: rumus pangkat 5/2 tidak berlaku",
+    pHAtur: "Tinggi muka air di atas takik (atur lewat katup)",
+    pCdKal: "Cd kalibrasi, kuadrat terkecil lewat titik asal (± galat baku)",
+    pCdRerata: "Cd rerata dari tiap bacaan",
+    pSd: "Simpangan baku Cd tiap bacaan",
+    pCe: "Ce model lembar pada sudut ini",
+    pM: "Pangkat kalibrasi Q = K·Hᵐ (teori 2,5)",
+    pK: "Tetapan kalibrasi K (Q dalam m³/s, H dalam m)",
+    pR2: "Koefisien determinasi regresi log-log",
+    pN: "Jumlah bacaan",
+    pSatu: "Simpangan, galat baku, dan pangkat m butuh paling sedikit dua bacaan.",
+    pCdBeda:
+      "Cd kalibrasi = ΣQₜ·Q / ΣQₜ²: bacaan debit besar lebih berbobot; Cd rerata memberi bobot sama pada tiap bacaan, sehingga bacaan H kecil (galat relatif besar) ikut menarik.",
+    pMKh: (kh: string) =>
+      `m dihitung dari Q terhadap H bacaan, bukan terhadap he = H + kh. Karena kh = ${kh} mm, kemiringan log-log yang benar sedikit di bawah 2,5, yaitu 2,5·H/(H + kh); selisih yang lebih besar dari itu berasal dari galat baca dan nol datum.`,
+    pCampur:
+      "Baris di tabel memakai lebih dari satu sudut takik. Cd kalibrasi dihitung dengan Q teori tiap baris, tetapi pangkat m tidak dihitung karena titik dari dua pelat tidak berada pada satu lengkung debit; kosongkan tabel untuk seri baru.",
+    pRendah: (k: number, s: string) =>
+      `${k} bacaan dengan H di bawah ${s} mm, di luar batas rumus lembar ini. Di sana tegangan permukaan ikut menahan tirai air, jadi Cd bacaan itu tidak mewakili alat. Angkanya tidak dipotong dan tetap masuk ringkasan; hapus barisnya bila ingin kalibrasi hanya dari rentang yang berlaku.`,
+    pLuarSkala: (k: number, s: string) =>
+      `${k} bacaan dengan H di atas ${s} mm, melewati rentang pengukur titik bangku praktikum (Armfield F1-13). Angkanya tidak dipotong; di laboratorium bacaan ini butuh pengukur yang lebih panjang.`,
+    hHeP: "Tinggi efektif dari bacaan H",
+    hQt: "Debit teori (Cd = 1)",
+    hCdP: "Koefisien debit bacaan ini",
+    langkahP: [
+      "Pasang pelat takik dan catat sudutnya θ. Jangan ganti pelat selama satu seri, supaya Cd kalibrasi berlaku untuk satu takik.",
+      "Alirkan air sampai melimpah, tutup katup, lalu tunggu muka air tenang tepat setinggi puncak takik. Turunkan ujung pengukur titik sampai menyentuh muka air: itulah nol datum H.",
+      "Buka katup dan tunggu aliran tunak: muka air hulu tidak lagi berubah dan tirai air lepas bebas dari pelat.",
+      "Mulai dari H kecil. Tekan Catat bacaan: H dibaca dengan pengukur titik, lalu debit ditampung di tangki ukur.",
+      "Naikkan debit bertahap dan tunggu tunak tiap kali. Catat paling sedikit lima keadaan dari H kecil ke H besar.",
+      "Bandingkan Cd tiap baris dengan Cd kalibrasi dan m dengan 2,5. Periksa baris yang menyimpang jauh, hapus bila salah catat, lalu unduh tabel sebelum menutup halaman.",
+    ],
+    aPengukur:
+      "Pengukur titik (Armfield F1-13): rentang 0–150 mm, akurasi 0,1 mm; bacaan dibulatkan ke 0,1 mm. Galat baca σ = 0,1 mm (usulan, belum ditelaah). H diukur dari nol datum di puncak takik.",
+    aNol: (s: string) =>
+      `Nol datum disetel sekali tiap benih dengan galat tetap σ = ${s} mm, jadi semua bacaan satu seri bergeser sama. Ini galat sistematik: tidak mengecil dengan menambah bacaan. Angkanya usulan tanpa sumber, belum ditelaah.`,
+    aVolumetrik: (q: string, v: string) =>
+      `Debit cara volumetrik (tangki ukur dan stopwatch): galat σ = 1 % dari debit (usulan, belum ditelaah). Angka ini berlaku bila volume tampung paling sedikit ${VOLUME_MIN_L} L dan waktu tampung paling sedikit ${WAKTU_MIN_S} s. Pada keadaan sekarang Q = ${q} L/dtk, jadi tampung paling sedikit ${v} L.`,
+    aPotong:
+      "Bacaan tidak dipotong. H di bawah 50 mm (batas rumus lembar) dan H di atas 150 mm (rentang pengukur titik) tetap dicatat dan ditandai di ringkasan.",
     note: "Rumus ambang V berdinding tipis berlaku untuk kontraksi penuh, yaitu bila jarak takik ke dasar dan ke dinding saluran cukup besar sehingga aliran mendekat tidak terganggu. Tinggi efektif memakai tambahan kh yang memperhitungkan tegangan permukaan dan kekentalan, dibaca dari kurva kh terhadap sudut takik (USBR Water Measurement Manual Gb. 7-6a: 0,85 mm pada 90°, 2,1 mm pada 30°); koreksi kecil ini nyaris tidak berpengaruh pada tinggi muka air besar, tetapi menjadi penting pada tinggi kecil. Di bawah sekitar 5 cm, tegangan permukaan mulai menguasai dan rumus pangkat lima per dua berhenti berlaku — daerah itu digambar dengan garis titik rapat, bukan disembunyikan.",
   },
   en: {
@@ -96,6 +156,45 @@ const TXT = {
     hQ: "Discharge",
     hS: "Sensitivity to a 1 mm misreading",
     hRendah: "H below 5 cm: the five-halves power law does not hold",
+    pHAtur: "Head over the notch (set with the valve)",
+    pCdKal: "Calibrated Cd, least squares through the origin (± standard error)",
+    pCdRerata: "Mean Cd of the individual readings",
+    pSd: "Standard deviation of the individual Cd",
+    pCe: "Sheet model Ce at this angle",
+    pM: "Calibration exponent Q = K·Hᵐ (theory 2.5)",
+    pK: "Calibration constant K (Q in m³/s, H in m)",
+    pR2: "Coefficient of determination of the log-log fit",
+    pN: "Number of readings",
+    pSatu: "The spread, standard error and exponent m need at least two readings.",
+    pCdBeda:
+      "Calibrated Cd = ΣQₜ·Q / ΣQₜ²: readings at large discharge carry more weight; the mean Cd weights every reading equally, so readings at small H (large relative error) pull on it as much as the rest.",
+    pMKh: (kh: string) =>
+      `m is fitted to Q against the read H, not against he = H + kh. Because kh = ${kh} mm, the true log-log slope is slightly below 2.5, namely 2.5·H/(H + kh); any larger gap comes from reading error and the datum zero.`,
+    pCampur:
+      "Rows in the table use more than one notch angle. The calibrated Cd uses each row's theoretical Q, but the exponent m is not fitted because points from two plates do not lie on one rating curve; clear the table for a new series.",
+    pRendah: (k: number, s: string) =>
+      `${k} ${k === 1 ? "reading" : "readings"} with H below ${s} mm, outside the limit of this sheet's formula. There surface tension helps hold the nappe, so the Cd of those readings does not represent the weir. The numbers are not clipped and stay in the summary; delete those rows to calibrate only over the valid range.`,
+    pLuarSkala: (k: number, s: string) =>
+      `${k} ${k === 1 ? "reading" : "readings"} with H above ${s} mm, past the range of the bench point gauge (Armfield F1-13). The numbers are not clipped; in the laboratory these readings need a longer gauge.`,
+    hHeP: "Effective head from the read H",
+    hQt: "Theoretical discharge (Cd = 1)",
+    hCdP: "Discharge coefficient of this reading",
+    langkahP: [
+      "Fit the notch plate and note its angle θ. Keep the plate for one series, so the calibrated Cd belongs to one notch.",
+      "Run water until it spills, close the valve, and wait until the water settles exactly level with the notch vertex. Lower the point gauge tip until it touches the surface: that is the datum zero for H.",
+      "Open the valve and wait for steady flow: the upstream level no longer changes and the nappe springs clear of the plate.",
+      "Start at a small H. Press Record reading: H is read with the point gauge, then the flow is collected in the measuring tank.",
+      "Raise the flow in steps and wait for steady flow each time. Record at least five states from small H to large H.",
+      "Compare each row's Cd with the calibrated Cd and m with 2.5. Check any row far off, delete it if it was misrecorded, then download the table before closing the page.",
+    ],
+    aPengukur:
+      "Point gauge (Armfield F1-13): range 0–150 mm, accuracy 0.1 mm; readings are rounded to 0.1 mm. Reading error σ = 0.1 mm (proposed, not yet reviewed). H is measured from the datum zero at the notch vertex.",
+    aNol: (s: string) =>
+      `The datum zero is set once per seed with a fixed error σ = ${s} mm, so every reading in one series is shifted by the same amount. This is a systematic error: it does not shrink with more readings. The figure is proposed without a source, not yet reviewed.`,
+    aVolumetrik: (q: string, v: string) =>
+      `Volumetric discharge (measuring tank and stopwatch): error σ = 1 % of the discharge (proposed, not yet reviewed). The figure holds when at least ${VOLUME_MIN_L} L is collected over at least ${WAKTU_MIN_S} s. At the current state Q = ${q} L/s, so collect at least ${v} L.`,
+    aPotong:
+      "Readings are not clipped. H below 50 mm (the formula limit of this sheet) and H above 150 mm (the point gauge range) are still recorded and flagged in the summary.",
     note: "The thin-plate V-notch formula applies to fully contracted conditions, that is when the notch sits far enough from the channel bed and walls for the approach flow to be undisturbed. The effective head includes a correction kh for surface tension and viscosity, read from the kh versus notch angle curve (USBR Water Measurement Manual Fig. 7-6a: 0.85 mm at 90°, 2.1 mm at 30°); this small correction barely matters at large heads but becomes significant at small ones. Below about 5 cm, surface tension begins to dominate and the five-halves power law stops holding — that region is drawn with fine dots rather than hidden.",
   },
 } as const;
@@ -122,6 +221,8 @@ export function AmbangVClient() {
 
   const [H, setH] = useState(0.2);
   const [theta, setTheta] = useState(90);
+  // Penggeser H di lembar pengamatan memadamkan tanda contoh di blok masukan.
+  const sentuh = useRef<() => void>(() => {});
 
   const { Q, Ce, he, kh, outOfRange, reason } = notchDischarge(H, theta);
   /* Model memberi satu sebab saja, berurutan tinggi lalu sudut. Sudut
@@ -259,8 +360,9 @@ export function AmbangVClient() {
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="H" label={x.dH} value={H} min={0.005} max={0.45} step={0.001} digits={3} unit="m" onChange={setH} tint={hRendah || hTinggi ? C.signal : C.water} />
+              <InputRow symbol="H" label={x.dH} value={H} {...P_H} unit="m" onChange={setH} tint={hRendah || hTinggi ? C.signal : C.water} />
               <InputRow symbol="θ" label={x.dT} value={theta} min={20} max={120} step={1} digits={0} unit="°" onChange={setTheta} tint={C.critical} />
             </InputTable>
 
@@ -298,6 +400,46 @@ export function AmbangVClient() {
       }
       verification={<Verification checks={checksNotch(H, theta)} />}
       below={
+        <>
+        <div className="mb-9">
+          <LembarPraktikum<BacaanFm01>
+            kode="FM-01"
+            kolom={KOLOM_FM01}
+            kolomEkspor={KOLOM_EKSPOR_FM01}
+            catat={(rng) => catatFm01({ H, theta }, rng)}
+            masukan={
+              <table className="data">
+                <tbody>
+                  <InputRow
+                    symbol="H"
+                    label={x.pHAtur}
+                    value={H}
+                    {...P_H}
+                    unit="m"
+                    onChange={(v) => {
+                      sentuh.current();
+                      setH(v);
+                    }}
+                    tint={hRendah || hTinggi ? C.signal : C.water}
+                  />
+                </tbody>
+              </table>
+            }
+            ringkasan={(rows) => ringkasanFm01(rows, lang)}
+            penanda={(rows) => penandaFm01(rows, lang)}
+            hitungan={(b) => hitunganFm01(b, lang)}
+            langkah={TXT.id.langkahP.map((id, i) => ({ id, en: TXT.en.langkahP[i] }))}
+            alat={
+              <>
+                <p>{x.aPengukur}</p>
+                <p>{x.aNol(fmt(SIGMA_NOL * 1000, 1))}</p>
+                <p>{x.aVolumetrik(fmt(Q * 1000, 3), fmt(volumeTampungMin(Q), 0))}</p>
+                <p>{x.aPotong}</p>
+              </>
+            }
+            namaBerkas="fm01-ambang-v-pengamatan"
+          />
+        </div>
         <Basis
           equations={
             <>
@@ -317,9 +459,75 @@ export function AmbangVClient() {
           note={x.note}
           refs={[...REFS[lang]]}
         />
+        </>
       }
     />
   );
+}
+
+/* Lembar pengamatan FM-01: ringkasan, penanda, dan langkah hitung dari
+   fungsi praktikum.ts lewat src/data/praktikum/fm01.ts. */
+
+function ringkasanFm01(rows: BacaanFm01[], lang: Lang): ResultRow[] {
+  const x = TXT[lang];
+  const { kal, pangkat, ce, campur } = ringkasFm01(rows);
+  return [
+    { symbol: "Cd", label: x.pCdKal, value: `${fmt(kal.cd, 4)} ± ${fmt(kal.seCd, 4)}`, strong: true },
+    { symbol: "C̄d", label: x.pCdRerata, value: fmt(kal.cdRerata, 4), strong: true },
+    { symbol: "s", label: x.pSd, value: fmt(kal.cdSd, 4) },
+    ...(campur ? [] : [{ symbol: "Ce", label: x.pCe, value: fmt(ce, 4) }]),
+    ...(campur
+      ? []
+      : [
+          { symbol: "m", label: x.pM, value: fmt(pangkat.m, 3), strong: true, tint: C.water },
+          { symbol: "K", label: x.pK, value: fmt(pangkat.K, 3) },
+          { symbol: "r²", label: x.pR2, value: fmt(pangkat.r2, 5) },
+        ]),
+    { symbol: "n", label: x.pN, value: String(kal.n) },
+  ];
+}
+
+function penandaFm01(rows: BacaanFm01[], lang: Lang): string[] {
+  const x = TXT[lang];
+  const s = ringkasFm01(rows);
+  return [
+    ...(s.kal.n === 1 ? [x.pSatu] : [x.pCdBeda]),
+    ...(s.kal.n > 1 && !s.campur ? [x.pMKh(fmt(notchKh(rows[0].theta) * 1000, 2))] : []),
+    ...(s.campur ? [x.pCampur] : []),
+    ...(s.rendah > 0 ? [x.pRendah(s.rendah, fmt(NOTCH_H_MIN * 1000, 0))] : []),
+    ...(s.luarSkala > 0 ? [x.pLuarSkala(s.luarSkala, fmt(SKALA_PENGUKUR * 1000, 0))] : []),
+  ];
+}
+
+function hitunganFm01(b: BacaanFm01, lang: Lang): LangkahHitung[] {
+  const x = TXT[lang];
+  const kh = notchKh(b.theta);
+  const he = b.H + kh;
+  const tan2 = Math.tan((b.theta * Math.PI) / 360);
+  const qt = qTeoriAmbangV(b.H, b.theta);
+  return [
+    {
+      judul: x.hHeP,
+      rumus: <span>he = H + kh(θ)</span>,
+      isi: `${fmt(b.H * 1000, 1)} + ${fmt(kh * 1000, 2)}`,
+      hasil: fmt(he * 1000, 2),
+      satuan: "mm",
+    },
+    {
+      judul: x.hQt,
+      rumus: (<><span>Qₜ =</span><Frac num="8" den="15" /><span>· √(2g) · tan( θ/2 ) · he^{fmt(2.5, 1)}</span></>),
+      isi: `8/15 · √( 2 · ${fmt(G, 2)} ) · ${fmt(tan2, 4)} · ${fmt(he, 5)}^${fmt(2.5, 1)} × 1000`,
+      hasil: fmt(qt * 1000, 3),
+      satuan: lang === "en" ? "L/s" : "L/dtk",
+      tint: C.water,
+    },
+    {
+      judul: x.hCdP,
+      rumus: (<><span>Cd =</span><Frac num={lang === "en" ? "Q measured" : "Q ukur"} den="Qₜ" /></>),
+      isi: `${fmt(b.Q * 1000, 3)} / ${fmt(qt * 1000, 3)}`,
+      hasil: fmt(b.Q / qt, 4),
+    },
+  ];
 }
 
 /*
