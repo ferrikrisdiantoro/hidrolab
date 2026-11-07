@@ -604,7 +604,8 @@ function UmpanBalik({ s, j, lang }: { s: Soal; j: Jawab; lang: Lang }) {
     if (j.nilai.kesalahan) baris.push(j.nilai.kesalahan.alasan[lang]);
     baris.push(x.kunciHitung(fmtL(s.kunci, s.digits, lang), fmtL(s.toleransi, s.digits, lang), sat));
   } else {
-    const u = fmtL(j.nilai.ukuran ?? Number.NaN, 2, lang);
+    // Angka besaran soal ini (N = 10, bukan 10,00); bawaan 2 seperti sebelumnya.
+    const u = fmtL(j.nilai.ukuran ?? Number.NaN, s.jenis === "atur" ? (s.digits ?? 2) : 2, lang);
     baris.push(j.nilai.benar ? x.diSasaran(u) : x.luarSasaran(u));
   }
   baris.push(s.bahas[lang]);
