@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -17,8 +17,15 @@ import {
 } from "@/components/ui";
 import { TombolPandang } from "@/components/Pandangan";
 import { usePandangan } from "@/lib/usePandangan";
-import { drawIsoLabirin, TEBAL_MIN, TEBAL_PECAHAN } from "@/lib/drawIsoLabirin";
-import { ISO } from "@/lib/proyeksi";
+import {
+  drawIsoLabirin,
+  MARGIN_ISO,
+  RUANG_JUDUL_ISO,
+  rasioIsoLabirin,
+  TEBAL_MIN,
+  TEBAL_PECAHAN,
+} from "@/lib/drawIsoLabirin";
+import { ISO, isometrikBaku } from "@/lib/proyeksi";
 import { useCanvas } from "@/lib/useCanvas";
 import {
   drawStructure,
@@ -46,8 +53,12 @@ const TXT = {
     sheetTitle: "Bendung labirin trapesium — tampak atas dan perlipatan panjang mercu",
     tampakAtas: "Tampak atas",
     isoHeading: "tampak isometrik",
-    isoCatatan: (t: string) =>
-      `Isometrik skematik. Tebal dinding tidak ada di model; digambar ${t}. Tirai luapan dan air di dalam siklus belum digambar, muka air hulu datar setinggi P + h.`,
+    aksoHeading: "tampak 3D (aksonometri)",
+    isoBertemu: "tirai bertemu (h/P > 0,9)",
+    isoCatatan: (t: string, sempit: boolean) =>
+      `Gambar 3D skematik. Tebal dinding tidak ada di model; digambar ${t}. Tirai dari profil 2D ambang tajam (WES), tegak lurus dinding. Aliran miring di dinding sisi dan mercu bulat tidak dimodelkan. Hilir bebas, muka air hilir tidak dimodelkan. Arsir tirai bertemu mengikuti tanda model h/P > 0,9, bukan panjang terukur.${
+        sempit ? " Siklus di luar rentang percobaan: tirai dan air siklus tidak digambar." : ""
+      }`,
     isoTebal: (pct: string, min: string) => `${pct} % lebar siklus, paling tipis ${min} m`,
     dH: "Tinggi muka air di atas mercu",
     dP: "Tinggi mercu",
@@ -103,8 +114,12 @@ const TXT = {
     sheetTitle: "Trapezoidal labyrinth weir — plan view and crest length magnification",
     tampakAtas: "Plan view",
     isoHeading: "isometric view",
-    isoCatatan: (t: string) =>
-      `Schematic isometric. Wall thickness is not in the model; it is drawn as ${t}. The nappes and the water inside the cycles are not drawn yet, and the upstream water level is flat at P + h.`,
+    aksoHeading: "3D view (axonometric)",
+    isoBertemu: "nappes meet (h/P > 0.9)",
+    isoCatatan: (t: string, sempit: boolean) =>
+      `Schematic 3D drawing. Wall thickness is not in the model; it is drawn as ${t}. Nappes follow the 2D sharp-crested (WES) profile, normal to the wall. Oblique flow along the sidewalls and rounded crests are not modelled. Free outfall; the tailwater level is not modelled. The nappes-meet hatch follows the model flag h/P > 0.9, not a measured length.${
+        sempit ? " The cycle is outside the tested range: nappes and cycle water are not drawn." : ""
+      }`,
     isoTebal: (pct: string, min: string) => `${pct} % of the cycle width, at least ${min} m`,
     dH: "Water level above the crest",
     dP: "Crest height",
@@ -309,12 +324,32 @@ export function BendungLabirinClient() {
         {
           yaw: pandang.yaw,
           pitch: pandang.pitch,
-          heading: sempit ? x.tajam : r.interference ? T.nappeMeet : x.isoHeading,
+          heading: sempit
+            ? x.tajam
+            : r.interference
+              ? T.nappeMeet
+              : isometrikBaku(pandang.yaw, pandang.pitch)
+                ? x.isoHeading
+                : x.aksoHeading,
+          labelBertemu: x.isoBertemu,
         }
       );
     },
     [tampak, pandang.yaw, pandang.pitch, h, P, Wch, cycles, B, lang]
   );
+
+  /* Tinggi bidang isometrik mengikuti kotak batas gambar pada pandangan
+     awal: di HP bidang selebar layar (±100vw − 48 px) tidak lagi
+     setinggi 360 px dengan gambar kecil di tengahnya. Di layar lebar
+     batas atas tetap tinggi bawaan Sheet. Rasio dari pandangan awal, bukan
+     sudut kini, supaya bidang tidak berubah tinggi saat diputar. */
+  const rasioIso = useMemo(
+    () => rasioIsoLabirin({ h, P, W: Wch, cycles, B, outOfRange: false }),
+    [h, P, Wch, cycles, B]
+  );
+  const tinggiIso = `min(clamp(360px, 56vh, 620px), max(240px, calc(${rasioIso.toFixed(4)} * (100vw - ${
+    48 + 2 * MARGIN_ISO
+  }px) + ${2 * MARGIN_ISO + RUANG_JUDUL_ISO}px)))`;
 
   return (
     <LabShell
@@ -369,6 +404,7 @@ export function BendungLabirinClient() {
           number="HS-02"
           title={x.sheetTitle}
           rev="A"
+          height={tampak === "isometrik" ? tinggiIso : undefined}
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "L", value: `${fmt(r.crestLength, 1)} m`, tint: C.critical },
@@ -385,7 +421,7 @@ export function BendungLabirinClient() {
             onChange: setTampak,
             label2D: x.tampakAtas,
             alat: <TombolPandang p={pandang} />,
-            catatan: x.isoCatatan(x.isoTebal(fmt(TEBAL_PECAHAN * 100, 0), fmt(TEBAL_MIN, 2))),
+            catatan: x.isoCatatan(x.isoTebal(fmt(TEBAL_PECAHAN * 100, 0), fmt(TEBAL_MIN, 2)), sempit),
           }}
         >
           <canvas

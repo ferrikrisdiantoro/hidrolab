@@ -1,5 +1,5 @@
 import { C, DASH, W } from "./theme.ts";
-import { hatchConcrete, hatchSoil, hatchWater } from "./plate.ts";
+import { hatchConcrete, hatchSoil, hatchWater, pen } from "./plate.ts";
 import type { PlateAnchor, PlateFrame, PlateOut } from "./plateOut.ts";
 
 /**
@@ -48,6 +48,18 @@ export type Kamera = {
 /** Isometrik baku: yaw 45°, pitch atan(1/√2) ≈ 35,26°. */
 export const ISO = { yaw: Math.PI / 4, pitch: Math.atan(Math.SQRT1_2) } as const;
 
+/**
+ * Benar bila pandangan ini isometrik baku: angkat 35,26° dan arah 45° +
+ * k·90° (ketiga sumbu sama pendek di layar). Sudut lain aksonometri umum;
+ * judul gambar tidak boleh lagi menyebutnya isometrik.
+ */
+export function isometrikBaku(yaw: number, pitch: number, tol = 1e-6): boolean {
+  if (Math.abs(pitch - ISO.pitch) > tol) return false;
+  const q = Math.PI / 2;
+  const r = (((yaw - ISO.yaw) % q) + q) % q; // 0..q
+  return r < tol || q - r < tol;
+}
+
 /** Bahan muka, menentukan pasangan token terang/bayang. */
 export type Bahan = "beton" | "air";
 
@@ -62,8 +74,12 @@ export type Muka = {
   bobot?: number;
   /** Jenis garis (DASH.*), bawaan solid */
   dash?: readonly number[];
-  /** Arsir di dalam muka, memakai pola plate.ts dalam ruang layar */
-  arsir?: "beton" | "tanah" | "air";
+  /**
+   * Arsir di dalam muka, memakai pola plate.ts dalam ruang layar.
+   * "sinyal" = garis miring rambut merah sinyal, HANYA untuk zona di luar
+   * rentang berlaku model (aturan bahasa visual 3).
+   */
+  arsir?: "beton" | "tanah" | "air" | "sinyal";
   /** Muka yang hanya terlihat dari sisi luarnya; sisi belakang dibuang */
   satuSisi?: boolean;
   /** Bawaan "air" bila arsir air, selain itu "beton" */
@@ -618,7 +634,24 @@ function arsirMuka(
     if (bufY[j] > y1) y1 = bufY[j];
   }
   ctx.save();
-  if (jenis === "air") {
+  if (jenis === "sinyal") {
+    /* Garis x − y = k·jarak dalam ruang layar: polanya menyambung lurus
+       melewati muka bertetangga, tidak mulai ulang di tiap muka. */
+    const jarak = 6;
+    ctx.beginPath();
+    jalur(ctx, a, b);
+    ctx.clip();
+    pen(ctx, W.hair, C.signal);
+    ctx.beginPath();
+    const k0 = Math.floor((x0 - y1) / jarak);
+    const k1 = Math.ceil((x1 - y0) / jarak);
+    for (let k = k0; k <= k1; k++) {
+      const c = k * jarak;
+      ctx.moveTo(y0 + c, y0);
+      ctx.lineTo(y1 + c, y1);
+    }
+    ctx.stroke();
+  } else if (jenis === "air") {
     hatchWater(ctx, () => {
       ctx.beginPath();
       jalur(ctx, a, b);
