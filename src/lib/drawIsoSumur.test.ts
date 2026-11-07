@@ -260,13 +260,13 @@ describe("drawIsoSumur: gambar", () => {
   it("skala tegak dari deret dan selalu ditulis di gambar", () => {
     const st = keadaanTertekan(SATU);
     const ve = skalaTegak(st);
-    assert.equal(ve, 5);
+    assert.equal(ve, 10);
     const { ctx, teks } = kanvas();
     const out = drawIsoSumur(ctx, 960, 520, st, TEKS);
-    assert.equal(out.VE, 5);
-    assert.ok(teks.includes("skala tegak ×5"), teks.join(" | "));
+    assert.equal(out.VE, 10);
+    assert.ok(teks.includes("skala tegak ×10"), teks.join(" | "));
     // R lebar, akuifer tipis: dilebihkan lebih banyak, tetap tertulis.
-    assert.equal(skalaTegak({ zAwal: 4, L: 2000 }), 200);
+    assert.equal(skalaTegak({ zAwal: 4, L: 2000 }), 500);
     assert.equal(skalaTegak({ zAwal: 1000, L: 50 }), 1);
   });
 

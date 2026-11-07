@@ -86,8 +86,14 @@ export const KISI_MAKS = 41;
 export const PIPA_PECAHAN = 0.012;
 /** Tinggi pipa di atas muka air awal, pecahan zAwal (sama dengan Potongan). */
 const PIPA_ATAS = 1.18;
-/** Bentang tegak gambar sasaran sebagai pecahan lebar denah 2L. */
-const TEGAK_SASARAN = 0.28;
+/**
+ * Bentang tegak gambar sasaran sebagai pecahan lebar denah 2L. Kerucut
+ * Thiem sempit (separuh penurunan selesai dalam √(R·rw)), jadi skala tegak
+ * kecil membuatnya tak terbaca; blok boleh setinggi 0,6 lebar denahnya.
+ * Hanya dari geometri (b, R), bukan dari Q: menggeser debit tidak
+ * melompatkan skala.
+ */
+const TEGAK_SASARAN = 0.6;
 /** Deret skala tegak. */
 const DERET_VE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000] as const;
 
