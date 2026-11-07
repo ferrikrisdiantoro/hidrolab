@@ -132,6 +132,7 @@ export function LembarPraktikum<R>({
   ringkasan,
   penanda,
   hitungan,
+  grafik,
   alat,
   langkah,
   namaBerkas,
@@ -152,8 +153,10 @@ export function LembarPraktikum<R>({
   ringkasan?: (rows: R[]) => ResultRow[];
   /** Kalimat penanda di bawah ringkasan (geometri campur, di luar skala alat) */
   penanda?: (rows: R[]) => string[];
-  /** Langkah hitung dengan angka bacaan terakhir */
-  hitungan?: (r: R) => LangkahHitung[];
+  /** Langkah hitung dengan angka bacaan terakhir; `rows` = semua baris (mis. integral seri) */
+  hitungan?: (r: R, rows: R[]) => LangkahHitung[];
+  /** Grafik yang terbangun dari baris (profil traverse, kurva konduktivitas), di bawah tombol catat */
+  grafik?: (rows: R[]) => ReactNode;
   /** Keterangan alat dan besaran galat baca */
   alat?: ReactNode;
   /** Langkah prosedur, berurutan */
@@ -349,6 +352,8 @@ export function LembarPraktikum<R>({
             )}
           </div>
 
+          {grafik && <div className="mt-4" data-praktikum-grafik>{grafik(data)}</div>}
+
           <p className="sr-only" role="status" aria-live="polite">
             <span key={umum.k}>{umum.teks}</span>
           </p>
@@ -463,7 +468,7 @@ export function LembarPraktikum<R>({
               {hitungan && terakhir && (
                 <div className="mt-3">
                   <p className="label mb-1.5 text-[0.74rem] text-ink-3">{x.hitungTerakhir(terakhir.no)}</p>
-                  <Hitungan langkah={hitungan(terakhir.r)} />
+                  <Hitungan langkah={hitungan(terakhir.r, data)} />
                 </div>
               )}
             </div>
