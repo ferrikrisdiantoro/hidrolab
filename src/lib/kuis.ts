@@ -152,6 +152,30 @@ export function nilaiJawab(s: Soal, jawab: string | number, keadaan?: Keadaan): 
 }
 
 /* ------------------------------------------------------------------ *
+ * Masukan awal soal atur (dipakai Kuis.tsx)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Pasang `siapkan` otomatis saat soal DIBUKA (klik kotak, Soal berikutnya):
+ * sekali per set, dan tidak lagi sesudah dijawab.
+ */
+export function perluSiapkan(s: Soal, dijawab: boolean, dipasang: ReadonlySet<string>): boolean {
+  return s.jenis === "atur" && !!s.siapkan && !dijawab && !dipasang.has(s.id);
+}
+
+/**
+ * Keadaan masukan awal soal atur yang sedang tampil. Soal yang tampil tanpa
+ * dibuka (soal pertama saat halaman dimuat, sesudah Soal baru) belum
+ * memasang apa pun: "belum" berarti kartu menawarkan tombol pasang, dan
+ * teks "sudah dipasang" hanya untuk "sudah". Lembar tidak diubah saat
+ * halaman dimuat.
+ */
+export function statusSiap(s: Soal, dipasang: ReadonlySet<string>): "tanpa" | "belum" | "sudah" {
+  if (s.jenis !== "atur" || !s.siapkan) return "tanpa";
+  return dipasang.has(s.id) ? "sudah" : "belum";
+}
+
+/* ------------------------------------------------------------------ *
  * PRNG berbenih
  * ------------------------------------------------------------------ */
 

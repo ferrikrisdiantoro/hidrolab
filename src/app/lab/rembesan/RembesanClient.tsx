@@ -17,7 +17,10 @@ import {
 } from "@/components/ui";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
+import { Kuis } from "@/components/Kuis";
+// Rentang penggeser dan lebar mercu satu sumber dengan bank kuis (gw01.ts).
+import { CREST, GW01, P_A, P_H, P_HD, P_K, P_LD, P_MD, P_MU } from "@/data/kuis/gw01";
 import {
   drawStructure,
   type StructureBody,
@@ -41,13 +44,11 @@ import { cl, str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksSeepage } from "@/lib/checks";
 
-const CREST = 6;
-
 /*
- * Rentang panjang drainase kaki: satu definisi untuk penggeser, kotak angka,
- * dan pegangan seret di ujung hulu drainase (aturan 4, satu sumber nilai).
+ * Rentang panjang drainase kaki P_LD (gw01.ts): satu definisi untuk
+ * penggeser, kotak angka, pegangan seret di ujung hulu drainase, dan kuis
+ * (aturan 4, satu sumber nilai).
  */
-const P_LD: ParamDef = { min: 0, max: 30, step: 0.5, digits: 1 };
 
 const TXT = {
   id: {
@@ -210,6 +211,18 @@ export function RembesanClient() {
   const akarKvKh = Math.sqrt(kv / kh);
 
   const sentuh = useRef<() => void>(() => {});
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa. */
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.H !== undefined) setH(keLangkah(m.H, P_H));
+    if (m.Hd !== undefined) setHd(keLangkah(m.Hd, P_HD));
+    if (m.mu !== undefined) setMUp(keLangkah(m.mu, P_MU));
+    if (m.md !== undefined) setMDown(keLangkah(m.md, P_MD));
+    if (m.Ld !== undefined) setLd(keLangkah(m.Ld, P_LD));
+    if (m.k !== undefined) setKMikro(keLangkah(m.k, P_K));
+    if (m.a !== undefined) setAniso(keLangkah(m.a, P_A));
+  };
 
   const plate = usePlate(
     (ctx, w, ch) => {
@@ -475,13 +488,13 @@ export function RembesanClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="H" label={x.dH} value={H} min={1} max={20} step={0.5} digits={1} unit="m" onChange={setH} tint={C.water} />
-              <InputRow symbol="Hd" label={x.dHd} value={Hd} min={4} max={24} step={0.5} digits={1} unit="m" onChange={setHd} />
-              <InputRow symbol="mu" label={x.dMu} value={mUp} min={1.5} max={5} step={0.25} digits={2} onChange={setMUp} />
-              <InputRow symbol="md" label={x.dMd} value={mDown} min={1.5} max={4} step={0.25} digits={2} onChange={setMDown} />
+              <InputRow symbol="H" label={x.dH} value={H} {...P_H} unit="m" onChange={setH} tint={C.water} />
+              <InputRow symbol="Hd" label={x.dHd} value={Hd} {...P_HD} unit="m" onChange={setHd} />
+              <InputRow symbol="mu" label={x.dMu} value={mUp} {...P_MU} onChange={setMUp} />
+              <InputRow symbol="md" label={x.dMd} value={mDown} {...P_MD} onChange={setMDown} />
               <InputRow symbol="Ld" label={x.dLd} value={Ld} {...P_LD} unit="m" onChange={setLd} tint={C.critical} />
-              <InputRow symbol="k" label={x.dK} value={kMikro} min={0.05} max={20} step={0.05} digits={2} unit="µm/s" onChange={setKMikro} />
-              <InputRow symbol="kh/kv" label={x.dAniso} value={aniso} min={1} max={25} step={0.5} digits={1} onChange={setAniso} tint={C.critical} />
+              <InputRow symbol="k" label={x.dK} value={kMikro} {...P_K} unit="µm/s" onChange={setKMikro} />
+              <InputRow symbol="kh/kv" label={x.dAniso} value={aniso} {...P_A} onChange={setAniso} tint={C.critical} />
             </InputTable>
 
             <SentuhContoh sentuh={sentuh} />
@@ -567,6 +580,21 @@ export function RembesanClient() {
               {...notice(H, Hd, mUp, mDown, Ld, kEq, aniso, limpas, x.limpasNote, x.keluarNote, lang)}
             />
           )}
+
+          <Kuis
+            bank={GW01}
+            keadaan={{ H, Hd, mu: mUp, md: mDown, Ld, k: kMikro, a: aniso }}
+            onTerapkan={terapkanKuis}
+            label={{
+              H: { simbol: "H", satuan: "m", digits: 1 },
+              Hd: { simbol: "Hd", satuan: "m", digits: 1 },
+              mu: { simbol: "mu", digits: 2 },
+              md: { simbol: "md", digits: 2 },
+              Ld: { simbol: "Ld", satuan: "m", digits: 1 },
+              k: { simbol: "k", satuan: "µm/s", digits: 2 },
+              a: { simbol: "kh/kv", digits: 1 },
+            }}
+          />
         </>
       }
       verification={

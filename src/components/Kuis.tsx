@@ -7,6 +7,8 @@ import {
   benihAcak,
   fmtL,
   nilaiJawab,
+  perluSiapkan,
+  statusSiap,
   type BankKuis,
   type Keadaan,
   type Nilai,
@@ -32,6 +34,9 @@ import { Hitungan, parseAngka } from "./ui";
  * soal yang sama karena kuncinya benih:id.
  */
 
+/** Satuan didahului spasi; besaran tak bersatuan (Rep) tanpa spasi buntut. */
+const sp = (s: string) => (s ? ` ${s}` : "");
+
 const TXT = {
   id: {
     heading: "Uji pemahaman",
@@ -48,8 +53,8 @@ const TXT = {
     benar: "Benar",
     salah: "Belum tepat",
     kunciPilih: "Jawaban yang tepat",
-    kunciHitung: (k: string, t: string, s: string) => `Kunci ${k} ${s}, toleransi ± ${t} ${s}.`,
-    dijawab: (j: string, s: string) => `Jawaban ${j} ${s}.`,
+    kunciHitung: (k: string, t: string, s: string) => `Kunci ${k}${sp(s)}, toleransi ± ${t}${sp(s)}.`,
+    dijawab: (j: string, s: string) => `Jawaban ${j}${sp(s)}.`,
     bukanAngka: "Tulis sebuah angka, misalnya 2,35. Koma dan titik sama-sama dibaca desimal.",
     ukurSekarang: "Nilai sekarang",
     sasaran: "Sasaran",
@@ -58,6 +63,9 @@ const TXT = {
     diSasaran: (u: string) => `Nilai sekarang ${u}, di dalam sasaran.`,
     terpasang: "Masukan soal ini sudah dipasang di lembar; lihat gambar dan tabel hasilnya.",
     siap: "Masukan awal soal ini sudah dipasang di lembar.",
+    belumSiap: "Soal ini mulai dari masukan tertentu. Pasang dulu, lalu atur penggesernya.",
+    pasang: "Pasang masukan soal",
+    pasangTitle: "Ubah masukan lembar ke keadaan awal soal ini",
     skor: (b: number, n: number) => (n === 0 ? "Belum ada soal yang dijawab di sesi ini." : `Sesi ini: ${b} benar dari ${n} soal dijawab.`),
     cek: "Soal contoh, belum ditelaah dosen pengampu.",
     statusKotak: { kosong: "belum dijawab", benar: "benar", salah: "belum tepat" },
@@ -78,8 +86,8 @@ const TXT = {
     benar: "Correct",
     salah: "Not quite",
     kunciPilih: "The right answer",
-    kunciHitung: (k: string, t: string, s: string) => `Key ${k} ${s}, tolerance ± ${t} ${s}.`,
-    dijawab: (j: string, s: string) => `Answered ${j} ${s}.`,
+    kunciHitung: (k: string, t: string, s: string) => `Key ${k}${sp(s)}, tolerance ± ${t}${sp(s)}.`,
+    dijawab: (j: string, s: string) => `Answered ${j}${sp(s)}.`,
     bukanAngka: "Type a number, for example 2.35. Comma and point are both read as decimals.",
     ukurSekarang: "Current value",
     sasaran: "Target",
@@ -88,6 +96,9 @@ const TXT = {
     diSasaran: (u: string) => `Current value ${u}, inside the target.`,
     terpasang: "This question's inputs are now set on the sheet; see the drawing and results.",
     siap: "This question's starting inputs are now set on the sheet.",
+    belumSiap: "This question starts from given inputs. Set them first, then move the slider.",
+    pasang: "Set the question's inputs",
+    pasangTitle: "Change the sheet inputs to this question's starting state",
     skor: (b: number, n: number) => (n === 0 ? "No questions answered yet this session." : `This session: ${b} correct out of ${n} answered.`),
     cek: "Sample questions, not yet reviewed by a course lecturer.",
     statusKotak: { kosong: "not answered", benar: "correct", salah: "not quite" },
@@ -148,7 +159,8 @@ export function Kuis({
   const [indeks, setIndeks] = useState(0);
   const [jawab, setJawab] = useState<Record<string, Jawab>>({});
   const [pesan, setPesan] = useState<Record<string, string>>({});
-  const disiapkan = useRef(new Set<string>());
+  // State, bukan ref: teks "sudah dipasang" dan tombol pasang ikut berganti.
+  const [disiapkan, setDisiapkan] = useState<ReadonlySet<string>>(() => new Set());
   const judulSoal = useRef<HTMLParagraphElement>(null);
   const umpan = useRef<HTMLDivElement>(null);
   const pindahFokus = useRef<"soal" | "umpan" | null>(null);
@@ -189,10 +201,16 @@ export function Kuis({
     // yang tertinggal akan mencuri fokus dari penggeser pada render berikutnya.
     if (i !== indeks) pindahFokus.current = "soal";
     // Soal atur memasang keadaan awalnya sekali per set, saat pertama dibuka.
-    if (q?.jenis === "atur" && q.siapkan && !jawab[q.id] && !disiapkan.current.has(q.id)) {
-      disiapkan.current.add(q.id);
-      onTerapkan?.(q.siapkan);
-    }
+    if (q && perluSiapkan(q, !!jawab[q.id], disiapkan)) pasang(q);
+  };
+
+  /* Memasang `siapkan` ke lembar. Juga dari tombol "Pasang masukan soal":
+     soal yang tampil tanpa dibuka (soal pertama saat dimuat, sesudah Soal
+     baru) tidak memasang apa pun sendiri. */
+  const pasang = (q: Soal) => {
+    if (q.jenis !== "atur" || !q.siapkan) return;
+    setDisiapkan((d) => new Set(d).add(q.id));
+    onTerapkan?.(q.siapkan);
   };
 
   const soalBaru = () => {
@@ -201,7 +219,7 @@ export function Kuis({
     setCatatan(c);
     setJawab({});
     setPesan({});
-    disiapkan.current.clear();
+    setDisiapkan(new Set());
     setIndeks(0);
     pindahFokus.current = "soal";
   };
@@ -345,6 +363,8 @@ export function Kuis({
               j={jawab[s.id]}
               pesan={pesan[s.id] ?? ""}
               keadaan={keadaan}
+              siap={statusSiap(s, disiapkan)}
+              onPasang={() => pasang(s)}
               onPilih={(id) => jawabPilih(s, id)}
               onHitung={(t) => jawabHitung(s, t)}
               onAtur={() => jawabAtur(s)}
@@ -402,6 +422,8 @@ function BadanSoal({
   j,
   pesan,
   keadaan,
+  siap,
+  onPasang,
   onPilih,
   onHitung,
   onAtur,
@@ -411,6 +433,8 @@ function BadanSoal({
   j?: Jawab;
   pesan: string;
   keadaan?: Keadaan;
+  siap: "tanpa" | "belum" | "sudah";
+  onPasang: () => void;
   onPilih: (id: string) => void;
   onHitung: (teks: string) => void;
   onAtur: () => void;
@@ -522,13 +546,29 @@ function BadanSoal({
           {sim}= {fmtL(u, s.digits ?? 2, lang)}
         </dd>
       </dl>
-      {s.siapkan && <p className="mt-1.5 text-[0.84rem] leading-[1.5] text-ink-2">{x.siap}</p>}
+      {siap === "sudah" && <p className="mt-1.5 text-[0.84rem] leading-[1.5] text-ink-2">{x.siap}</p>}
+      {siap === "belum" && <p className="mt-1.5 text-[0.84rem] leading-[1.5] text-ink-2">{x.belumSiap}</p>}
       <div className="mt-2 flex flex-wrap items-baseline gap-3">
+        {siap === "belum" && (
+          <button
+            type="button"
+            onClick={onPasang}
+            title={x.pasangTitle}
+            data-kuis-pasang
+            className="label border-b-2 border-ink pb-px text-[0.84rem] font-semibold text-ink"
+          >
+            {x.pasang}
+          </button>
+        )}
         <button
           type="button"
           onClick={onAtur}
           aria-describedby={pesan ? idPesan : undefined}
-          className="label border-b-2 border-ink pb-px text-[0.84rem] font-semibold text-ink"
+          className={
+            siap === "belum"
+              ? "label border-b border-rule-strong pb-px text-[0.84rem] text-ink-2 transition-colors hover:border-ink hover:text-ink"
+              : "label border-b-2 border-ink pb-px text-[0.84rem] font-semibold text-ink"
+          }
         >
           {j ? x.periksaLagi : x.periksa}
         </button>
@@ -564,7 +604,8 @@ function UmpanBalik({ s, j, lang }: { s: Soal; j: Jawab; lang: Lang }) {
     if (j.nilai.kesalahan) baris.push(j.nilai.kesalahan.alasan[lang]);
     baris.push(x.kunciHitung(fmtL(s.kunci, s.digits, lang), fmtL(s.toleransi, s.digits, lang), sat));
   } else {
-    const u = fmtL(j.nilai.ukuran ?? Number.NaN, 2, lang);
+    // Angka besaran soal ini (N = 10, bukan 10,00); bawaan 2 seperti sebelumnya.
+    const u = fmtL(j.nilai.ukuran ?? Number.NaN, s.jenis === "atur" ? (s.digits ?? 2) : 2, lang);
     baris.push(j.nilai.benar ? x.diSasaran(u) : x.luarSasaran(u));
   }
   baris.push(s.bahas[lang]);

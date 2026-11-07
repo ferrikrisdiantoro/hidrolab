@@ -17,7 +17,10 @@ import {
 } from "@/components/ui";
 import { usePlate } from "@/lib/usePlate";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
+import { Kuis } from "@/components/Kuis";
+// Rentang penggeser satu sumber dengan bank kuis (dm03.ts).
+import { DM03, P_D, P_HEAD, P_L, P_N, P_T } from "@/data/kuis/dm03";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import {
   ERGUN_INERTIAL,
@@ -40,9 +43,8 @@ import { checksRockfill } from "@/lib/checks";
 const I_MIN = 1e-5;
 const I_MAX = 10;
 
-/* Rentang Δh, dipakai bersama penggeser, kotak angka, dan pegangan titik
-   kerja (aturan 4: satu sumber nilai). */
-const P_HEAD: ParamDef = { min: 0.02, max: 20, step: 0.02, digits: 2 };
+/* Rentang Δh P_HEAD (dm03.ts), dipakai bersama penggeser, kotak angka,
+   pegangan titik kerja, dan kuis (aturan 4: satu sumber nilai). */
 
 const TXT = {
   id: {
@@ -149,6 +151,16 @@ export function DrainaseUruganBatuClient() {
   const [tebal, setTebal] = useState(2);
   // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
   const sentuh = useRef<() => void>(() => {});
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa. */
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.dh !== undefined) setHead(keLangkah(m.dh, P_HEAD));
+    if (m.L !== undefined) setLength(keLangkah(m.L, P_L));
+    if (m.d !== undefined) setD(keLangkah(m.d, P_D));
+    if (m.n !== undefined) setN(keLangkah(m.n, P_N));
+    if (m.t !== undefined) setTebal(keLangkah(m.t, P_T));
+  };
 
   const i = head / Math.max(length, 1e-6);
   const r = rockfillFlow(i, d, n, tebal);
@@ -339,10 +351,10 @@ export function DrainaseUruganBatuClient() {
             <SentuhContoh sentuh={sentuh} />
             <InputTable>
               <InputRow symbol="Δh" label={x.dHead} value={head} {...P_HEAD} unit="m" onChange={setHead} tint={C.water} />
-              <InputRow symbol="L" label={x.dLength} value={length} min={1} max={120} step={1} digits={0} unit="m" onChange={setLength} />
-              <InputRow symbol="d" label={x.dD} value={d} min={0.005} max={1.2} step={0.005} digits={3} unit="m" onChange={setD} tint={C.critical} />
-              <InputRow symbol="n" label={x.dN} value={n} min={0.2} max={0.5} step={0.01} digits={2} onChange={setN} />
-              <InputRow symbol="t" label={x.dT} value={tebal} min={0.2} max={30} step={0.2} digits={1} unit="m" onChange={setTebal} />
+              <InputRow symbol="L" label={x.dLength} value={length} {...P_L} unit="m" onChange={setLength} />
+              <InputRow symbol="d" label={x.dD} value={d} {...P_D} unit="m" onChange={setD} tint={C.critical} />
+              <InputRow symbol="n" label={x.dN} value={n} {...P_N} onChange={setN} />
+              <InputRow symbol="t" label={x.dT} value={tebal} {...P_T} unit="m" onChange={setTebal} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -419,6 +431,19 @@ export function DrainaseUruganBatuClient() {
             tone={r.darcyValid ? "water" : "caution"}
             badge={r.darcyValid ? x.darcy : x.bukanDarcy}
             {...notice(head, length, d, n, tebal, x.bukanDarcyNote, lang)}
+          />
+
+          <Kuis
+            bank={DM03}
+            keadaan={{ dh: head, L: length, d, n, t: tebal }}
+            onTerapkan={terapkanKuis}
+            label={{
+              dh: { simbol: "Δh", satuan: "m", digits: 2 },
+              L: { simbol: "L", satuan: "m", digits: 0 },
+              d: { simbol: "d", satuan: "m", digits: 3 },
+              n: { simbol: "n", digits: 2 },
+              t: { simbol: "t", satuan: "m", digits: 1 },
+            }}
           />
         </>
       }

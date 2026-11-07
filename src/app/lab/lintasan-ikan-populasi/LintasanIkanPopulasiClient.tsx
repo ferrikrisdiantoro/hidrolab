@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -10,10 +10,15 @@ import {
   PresetRow,
   RegimeScale,
   ResultTable,
+  SentuhContoh,
   Sheet,
   StateCard,
   Term,
 } from "@/components/ui";
+import { Kuis } from "@/components/Kuis";
+import { keLangkah } from "@/lib/rentang";
+// Rentang penggeser satu sumber dengan bank kuis (ek04.ts); p dalam persen.
+import { EK04, P_D, P_K, P_N0, P_P, P_R } from "@/data/kuis/ek04";
 import { useCanvas } from "@/lib/useCanvas";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { fishPassage, fmt, fmtPlain } from "@/lib/hydraulics";
@@ -131,6 +136,17 @@ export function LintasanIkanPopulasiClient() {
   const [r0, setR0] = useState(0.6);
   const [d, setD] = useState(0.3);
   const [p, setP] = useState(0.9);
+  /* Kuis memasang masukan soal lewat setter penggeser yang sama, dan
+     memadamkan tanda contoh seperti geseran biasa. */
+  const sentuh = useRef<() => void>(() => {});
+  const terapkanKuis = (m: Record<string, number>) => {
+    sentuh.current();
+    if (m.N0 !== undefined) setN0(keLangkah(m.N0, P_N0));
+    if (m.K !== undefined) setK(keLangkah(m.K, P_K));
+    if (m.r !== undefined) setR0(keLangkah(m.r, P_R));
+    if (m.d !== undefined) setD(keLangkah(m.d, P_D));
+    if (m.p !== undefined) setP(keLangkah(m.p, P_P) / 100);
+  };
 
   const r = fishPassage(N0, K, r0, d, p);
   const tahunAkhir = r.path[r.path.length - 1];
@@ -266,12 +282,13 @@ export function LintasanIkanPopulasiClient() {
       side={
         <>
           <Block heading={t.blkInput}>
+            <SentuhContoh sentuh={sentuh} />
             <InputTable>
-              <InputRow symbol="N₀" label={x.dN0} value={N0} min={100} max={20000} step={100} digits={0} onChange={setN0} />
-              <InputRow symbol="K" label={x.dK} value={K} min={500} max={50000} step={500} digits={0} onChange={setK} />
-              <InputRow symbol="r" label={x.dR} value={r0} min={0.05} max={2} step={0.05} digits={2} unit={x.satR} onChange={setR0} />
-              <InputRow symbol="d" label={x.dD} value={d} min={0.02} max={1} step={0.02} digits={2} unit={x.satR} onChange={setD} tint={C.energy} />
-              <InputRow symbol="p" label={x.dP} value={p * 100} min={0} max={100} step={1} digits={0} unit="%" onChange={(v) => setP(v / 100)} tint={C.water} />
+              <InputRow symbol="N₀" label={x.dN0} value={N0} {...P_N0} onChange={setN0} />
+              <InputRow symbol="K" label={x.dK} value={K} {...P_K} onChange={setK} />
+              <InputRow symbol="r" label={x.dR} value={r0} {...P_R} unit={x.satR} onChange={setR0} />
+              <InputRow symbol="d" label={x.dD} value={d} {...P_D} unit={x.satR} onChange={setD} tint={C.energy} />
+              <InputRow symbol="p" label={x.dP} value={p * 100} {...P_P} unit="%" onChange={(v) => setP(v / 100)} tint={C.water} />
             </InputTable>
 
             <div className="mt-3.5">
@@ -348,6 +365,20 @@ export function LintasanIkanPopulasiClient() {
             tone={nada}
             badge={badge}
             {...notice(N0, K, r0, d, p, r, lang)}
+          />
+
+          <Kuis
+            bank={EK04}
+            /* p kembali ke persen bulat penggeser: 0,57·100 tidak tepat 57. */
+            keadaan={{ N0, K, r: r0, d, p: keLangkah(p * 100, P_P) }}
+            onTerapkan={terapkanKuis}
+            label={{
+              N0: { simbol: "N₀", digits: 0 },
+              K: { simbol: "K", digits: 0 },
+              r: { simbol: "r", digits: 2 },
+              d: { simbol: "d", digits: 2 },
+              p: { simbol: "p", satuan: "%", digits: 0 },
+            }}
           />
         </>
       }
