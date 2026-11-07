@@ -34,6 +34,9 @@ import { Hitungan, parseAngka } from "./ui";
  * soal yang sama karena kuncinya benih:id.
  */
 
+/** Satuan didahului spasi; besaran tak bersatuan (Rep) tanpa spasi buntut. */
+const sp = (s: string) => (s ? ` ${s}` : "");
+
 const TXT = {
   id: {
     heading: "Uji pemahaman",
@@ -50,8 +53,8 @@ const TXT = {
     benar: "Benar",
     salah: "Belum tepat",
     kunciPilih: "Jawaban yang tepat",
-    kunciHitung: (k: string, t: string, s: string) => `Kunci ${k} ${s}, toleransi ± ${t} ${s}.`,
-    dijawab: (j: string, s: string) => `Jawaban ${j} ${s}.`,
+    kunciHitung: (k: string, t: string, s: string) => `Kunci ${k}${sp(s)}, toleransi ± ${t}${sp(s)}.`,
+    dijawab: (j: string, s: string) => `Jawaban ${j}${sp(s)}.`,
     bukanAngka: "Tulis sebuah angka, misalnya 2,35. Koma dan titik sama-sama dibaca desimal.",
     ukurSekarang: "Nilai sekarang",
     sasaran: "Sasaran",
@@ -83,8 +86,8 @@ const TXT = {
     benar: "Correct",
     salah: "Not quite",
     kunciPilih: "The right answer",
-    kunciHitung: (k: string, t: string, s: string) => `Key ${k} ${s}, tolerance ± ${t} ${s}.`,
-    dijawab: (j: string, s: string) => `Answered ${j} ${s}.`,
+    kunciHitung: (k: string, t: string, s: string) => `Key ${k}${sp(s)}, tolerance ± ${t}${sp(s)}.`,
+    dijawab: (j: string, s: string) => `Answered ${j}${sp(s)}.`,
     bukanAngka: "Type a number, for example 2.35. Comma and point are both read as decimals.",
     ukurSekarang: "Current value",
     sasaran: "Target",
