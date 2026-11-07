@@ -20,6 +20,7 @@ import { niceStep } from "@/lib/plate";
 import { meanderFrameAt, meanderFramePath, meanderOxbow, meanderTimeline } from "@/lib/meanderWaktu";
 import {
   createMeanderMotion,
+  flushMeanderTime,
   drawMeanderMotion,
   drawMeanderState,
   oxbowSet,
@@ -90,7 +91,7 @@ const TXT = {
     nLipatJalan:
       "Sebelum lehernya terpotong, jari-jari terkecilnya turun di bawah setengah lebar sungai dan tebing dalamnya melipat (tergambar merah putus-putus di lini masa). Bentuk itu tidak dapat ada; sungai sebenarnya sudah berubah lebih dulu.",
     nJujur:
-      "Yang perlu diingat dari lini masa ini: laju pindah ṁ diambil dari lengkung Hickin dan Nanson (1984) yang besar dan bentuknya belum dapat dicek ke makalah aslinya (baru abstraknya); perpindahan kelokan ke hilir tidak dimodelkan, kelokan hanya tumbuh melintang lembah; dan sesudah leher terpotong alur dikembalikan ke sudut awal hanya sebagai konvensi tampilan, bukan hasil hitungan.",
+      "Yang perlu diingat dari lini masa ini: laju pindah ṁ diambil dari lengkung Hickin dan Nanson (1984) yang besar dan bentuknya belum dapat dicek ke makalah aslinya (baru abstraknya); perpindahan kelokan ke hilir tidak dimodelkan, kelokan hanya tumbuh melintang lembah; dan sesudah leher terpotong alur dikembalikan ke sudut awal hanya sebagai konvensi tampilan, bukan hasil hitungan. Karena semua kelokan kurva sinus sama persis, semua leher terpotong pada saat yang sama; di sungai sungguhan kelokan tidak seragam dan lehernya terpotong satu per satu.",
     lurusTak: "∞ (lurus)",
     bLipat: "Tebing melipat, mustahil",
     bTajam: "Terlalu tajam, melambat",
@@ -159,7 +160,7 @@ const TXT = {
     nLipatJalan:
       "Before the neck is cut off, the smallest radius falls below half the river width and the inner bank folds (drawn red dashed on the timeline). That shape cannot exist; a real river would have changed earlier.",
     nJujur:
-      "Worth remembering about this timeline: the migration rate ṁ comes from the Hickin and Nanson (1984) curve, whose size and shape could not yet be checked against the original paper (only its abstract); downstream translation of the bends is not modelled, the bends only grow across the valley; and after the neck is cut off the channel returns to the initial angle only as a display convention, not as a computed result.",
+      "Worth remembering about this timeline: the migration rate ṁ comes from the Hickin and Nanson (1984) curve, whose size and shape could not yet be checked against the original paper (only its abstract); downstream translation of the bends is not modelled, the bends only grow across the valley; and after the neck is cut off the channel returns to the initial angle only as a display convention, not as a computed result. Because every bend of the sine curve is exactly alike, all the necks are cut off at the same moment; in a real river the bends are not uniform and the necks are cut off one at a time.",
     lurusTak: "∞ (straight)",
     bLipat: "Bank folds, impossible",
     bTajam: "Too sharp, slowing",
@@ -259,6 +260,12 @@ export function PerkembanganMeanderClient() {
   const yps = adaLini ? (Tc / 12) * laju : 1;
   const gerak = useRef<MeanderMotion | null>(null);
   if (gerak.current === null) gerak.current = createMeanderMotion(400, 2);
+  /* Saat dijeda, t terakhir lapis gerak dikirim ke penggeser dan kartu;
+     kiriman berkala (tiap 0,25 s layar) bisa tertinggal. */
+  const putarJeda = () => {
+    if (playing && adaLini && gerak.current) flushMeanderTime(gerak.current, setTahun);
+    togglePutar();
+  };
   const diam = useRef<MeanderMotion | null>(null);
   if (diam.current === null) diam.current = createMeanderMotion(400, 2);
 
@@ -551,7 +558,7 @@ export function PerkembanganMeanderClient() {
           ]}
           motion={{
             playing: playing && adaLini,
-            onToggle: togglePutar,
+            onToggle: putarJeda,
             allowed: plate.motionAllowed,
             note: x.motionNote(teksYps, fmt(Tc, 0)),
           }}
@@ -588,7 +595,7 @@ export function PerkembanganMeanderClient() {
                   <InputRow symbol="t" label={x.dT} value={tNow} min={0} max={Tc} step={langkahT} digits={digT} unit={x.uTahun} onChange={setTahun} tint={C.water} />
                 </InputTable>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={togglePutar} aria-pressed={playing} className={TOMBOL}>
+                  <button type="button" onClick={putarJeda} aria-pressed={playing} className={TOMBOL}>
                     {playing ? x.jeda : x.putar}
                   </button>
                   <button type="button" onClick={() => setTahun(Tc)} className={TOMBOL}>

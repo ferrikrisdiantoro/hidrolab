@@ -11,6 +11,7 @@ import {
   createMeanderMotion,
   createMeanderShape,
   drawMeanderMotion,
+  flushMeanderTime,
   meanderCentreline,
   meanderShapeAt,
   oxbowSet,
@@ -144,5 +145,38 @@ describe("OC-11 jam lapis gerak", () => {
     /* diam 120 frame (2 s), lalu mulai lagi dari 0 dan maju sisa framenya */
     assert.ok(mo.t <= (15 * yps) / 60 && mo.t < 0.05 * Tc, `ulang dari 0, t ${mo.t}`);
     assert.equal(mo.c, c0, "larik tidak dibuat ulang");
+  });
+});
+
+describe("OC-11 jeda mengirim t terakhir ke lembar", () => {
+  it("t lapis gerak yang belum terkirim (< 0,25 s) dikirim saat dijeda, dan kiriman itu tidak dianggap geseran", () => {
+    const mo = createMeanderMotion(200, 2);
+    const ctx = ctxTiruan();
+    const Tc = tl.timeToCutoff;
+    const yps = Tc / 10;
+    const kiriman: number[] = [];
+    const op = {
+      width: 30,
+      oxbows: oxbowSet(meanderOxbow(tl.frames[tl.frames.length - 1]), tl.valleyWavelength, 30, 2),
+      oxbowLabel: "oxbow",
+      ghostStep: Tc / 8,
+      tProp: 0,
+      onTime: (t: number) => kiriman.push(t),
+      yearsPerSecond: yps,
+      holdSeconds: 2,
+    };
+    /* 20 frame = 0,33 s: satu kiriman di 0,25 s, lalu 5 frame tertinggal */
+    for (let f = 0; f < 20; f++) drawMeanderMotion(ctx, peta, yps / 60, tl, mo, op);
+    assert.ok(kiriman[kiriman.length - 1] < mo.t, "kiriman terakhir tertinggal");
+    flushMeanderTime(mo, op.onTime);
+    assert.equal(kiriman[kiriman.length - 1], mo.t, "jeda: t terakhir terkirim");
+    const n = kiriman.length;
+    flushMeanderTime(mo, op.onTime);
+    assert.equal(kiriman.length, n, "tidak dikirim dua kali");
+    /* lembar menulis kiriman itu ke tProp; diputar lagi: jam tidak mundur */
+    const t0 = mo.t;
+    op.tProp = mo.t;
+    drawMeanderMotion(ctx, peta, yps / 60, tl, mo, op);
+    dekat(mo.t, t0 + yps / 60, 1e-9 * Tc, "jalan terus dari t terakhir");
   });
 });

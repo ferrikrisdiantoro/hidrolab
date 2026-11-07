@@ -367,6 +367,20 @@ export type MeanderMotionOptions = MeanderStateStyle & {
   holdSeconds: number;
 };
 
+/**
+ * Mengirim t lapis gerak ke lembar sekarang juga, bila belum terkirim.
+ * Dipanggil lembar saat animasi dijeda: kiriman berkala tiap 0,25 s layar
+ * bisa tertinggal sampai 0,25 s, dan penggeser serta kartu yang diam harus
+ * menunjukkan keadaan yang terakhir digambar. Kiriman dicatat di mo.pushed,
+ * jadi saat diputar lagi nilai itu tidak dianggap geseran pengguna.
+ */
+export function flushMeanderTime(mo: MeanderMotion, onTime: (t: number) => void): void {
+  mo.sincePush = 0;
+  if (mo.t === mo.pushed) return;
+  mo.pushed = mo.t;
+  onTime(mo.t);
+}
+
 /** Selang kirim t ke lembar, detik layar. */
 const SELANG_KIRIM = 0.25;
 
