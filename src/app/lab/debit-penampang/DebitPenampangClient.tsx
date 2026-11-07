@@ -362,17 +362,21 @@ export function DebitPenampangClient() {
      dibatasi dengan penanda "dibatasi ke" dari DragLayer. */
   const alam = shape === "alam" && cukup;
   const sumbu = alam ? (kunciSumbu ?? sumbuAlam(pts, H)) : null;
-  const pX: ParamDef | null = sumbu
-    ? (() => {
-        const step = langkahRapi(sumbu.xMax - sumbu.xMin);
-        return { min: sumbu.xMin, max: sumbu.xMax, step, digits: desimal(step) };
-      })()
-    : null;
+  /* Ujung rentang dibulatkan ke dalam, ke kelipatan langkah: titik yang
+     dibatasi di tepi bidang tetap menulis angka rapi ke tabel. */
+  const rentangTitik = (lo: number, hi: number): ParamDef => {
+    const step = langkahRapi(hi - lo);
+    const d = desimal(step);
+    return {
+      min: Number((Math.ceil(lo / step - 1e-9) * step).toFixed(d)),
+      max: Number((Math.floor(hi / step + 1e-9) * step).toFixed(d)),
+      step,
+      digits: d,
+    };
+  };
+  const pX: ParamDef | null = sumbu ? rentangTitik(sumbu.xMin, sumbu.xMax) : null;
   const pY: ParamDef | null = sumbu
-    ? (() => {
-        const step = langkahRapi(sumbu.zMax - sumbu.zMin);
-        return { min: sumbu.zMin + sumbu.geser, max: sumbu.zMax + sumbu.geser, step, digits: desimal(step) };
-      })()
+    ? rentangTitik(sumbu.zMin + sumbu.geser, sumbu.zMax + sumbu.geser)
     : null;
 
   const plate = usePlate(
