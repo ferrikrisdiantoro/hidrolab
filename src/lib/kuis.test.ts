@@ -442,3 +442,95 @@ describe(`OC-03 profil GVF: kunci dari lib, ${BENIH} benih`, () => {
     }
   });
 });
+
+/* ---------------------------------------------------------------- *
+ * OC-05: kunci = transition (Δz = 0)
+ * ---------------------------------------------------------------- */
+
+describe(`OC-05 transisi lebar: kunci dari lib, ${BENIH} benih`, () => {
+  const bank = BANK_KUIS["OC-05"];
+  const P = {
+    Q: { min: 0.5, max: 80, step: 0.5 },
+    b1: { min: 1, max: 20, step: 0.1 },
+    y1: { min: 0.1, max: 5, step: 0.01 },
+    b2: { min: 0.5, max: 20, step: 0.1 },
+  };
+  const soal = (b: number, id: string) => bank.buat(b).find((q) => q.id === id)!;
+  const tr = (m: Record<string, number>, b2 = m.b2) => transition({ Q: m.Q, b1: m.b1, y1: m.y1, b2, dz: 0 });
+
+  it("masukan tiap soal ada di kisi penggeser lembar", () => {
+    for (let b = 1; b <= BENIH; b++)
+      for (const q of bank.buat(b)) {
+        const m = q.jenis === "atur" ? { ...q.siapkan, ...q.tetap } : q.masukan;
+        assert.ok(m, q.id);
+        for (const k of Object.keys(P) as (keyof typeof P)[]) assert.ok(diKisiP(m[k], P[k]), `${q.id} ${k} ${m[k]}`);
+      }
+  });
+
+  it("B1 atur: sasaran [b₂min kisi; +0,2], b₂min kisi = langkah tersempit yang tidak tersendat, Fr₁ < 0,6", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc05-1");
+      if (q.jenis !== "atur") assert.fail("jenis");
+      const m = { ...q.siapkan!, ...q.tetap! };
+      assert.ok(tr(m).Fr1 < 0.6);
+      const lolos = kisiUji(P.b2).filter((v) => !tr(m, v).choked);
+      assert.equal(q.target.min, lolos[0]);
+      assert.ok(Math.abs(q.target.max - (lolos[0] + 0.2)) < 1e-9);
+      assert.equal(tr(m, Number((lolos[0] - 0.1).toFixed(1))).choked, true);
+      for (const k of ["Q", "b1", "y1"]) assert.ok(k in q.tetap!, k);
+    }
+  });
+
+  it("B2 hitung: kunci = transition().b2Min, toleransi 2 %", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc05-2");
+      if (q.jenis !== "hitung") assert.fail("jenis");
+      assert.equal(q.kunci, tr(q.masukan!).b2Min);
+      assert.ok(q.toleransi >= 0.02 * q.kunci - 1e-12);
+    }
+  });
+
+  it("B3 pilih: kunci = tanda y₂ − y₁, tidak tersendat, chokeRatio < 0,9, pita Fr₁ per cabang", () => {
+    const cabang = new Set<string>();
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc05-3");
+      if (q.jenis !== "pilih") assert.fail("jenis");
+      const r = tr(q.masukan!);
+      assert.equal(r.choked, false);
+      assert.ok(r.chokeRatio < 0.9);
+      if (r.branch === "subkritis") assert.ok(r.Fr1 >= 0.2 && r.Fr1 <= 0.7, String(r.Fr1));
+      else assert.ok(r.Fr1 >= 1.5 && r.Fr1 <= 3, String(r.Fr1));
+      cabang.add(r.branch);
+      assert.equal(q.kunci, r.y2 > q.masukan!.y1 ? "naik" : "turun");
+    }
+    assert.equal(cabang.size, 2);
+  });
+
+  it("B4 hitung: kunci = transition().y2, toleransi 1 %", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc05-4");
+      if (q.jenis !== "hitung") assert.fail("jenis");
+      const r = tr(q.masukan!);
+      assert.equal(r.choked, false);
+      assert.equal(q.kunci, r.y2);
+      assert.ok(q.toleransi >= 0.01 * q.kunci - 1e-12);
+    }
+  });
+
+  it("B5 pilih: debit dipasok tetap, cabang subkritis, tersendat; debit berkurang = pengecoh dengan syarat waduk", () => {
+    for (let b = 1; b <= BENIH; b++) {
+      const q = soal(b, "oc05-5");
+      if (q.jenis !== "pilih") assert.fail("jenis");
+      const r = tr(q.masukan!);
+      assert.equal(r.choked, true);
+      assert.equal(r.branch, "subkritis");
+      assert.match(q.tanya.id, /[Dd]ebit dipasok tetap dari hulu/);
+      assert.match(q.tanya.en, /supplied at a constant rate from upstream/);
+      assert.equal(q.kunci, "hulu-naik");
+      const p = q.pilihan.find((x) => x.id === "debit-berkurang");
+      assert.ok(p?.alasan);
+      assert.match(p!.alasan!.id, /waduk/);
+      assert.match(p!.alasan!.en, /reservoir/);
+    }
+  });
+});

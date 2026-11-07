@@ -19,8 +19,12 @@ import { Verification } from "@/components/Verification";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate, usePutar } from "@/lib/usePlate";
 import { useHalus } from "@/lib/useHalus";
-import type { ParamDef } from "@/lib/rentang";
+import { keLangkah } from "@/lib/rentang";
 import { drawTransition } from "@/lib/drawTransition";
+import { Kuis } from "@/components/Kuis";
+import type { BankKuis, Keadaan } from "@/lib/kuis";
+// Rentang penggeser satu sumber dengan bank kuis OC-05.
+import { P_B1, P_B2, P_Q, P_Y1 } from "@/data/kuis/oc05";
 import {
   createTransitionMotion,
   drawTransitionMotion,
@@ -71,11 +75,10 @@ export type TransitionTxt = {
 const BATAS_HAMPIR = 12;
 
 /*
- * Rentang lebar: satu definisi untuk penggeser, kotak angka, dan pegangan
- * dinding di tampak atas OC-05 (aturan 4, satu sumber nilai).
+ * Rentang Q, b₁, y₁, b₂ (data/kuis/oc05.ts): satu definisi untuk penggeser,
+ * kotak angka, pegangan dinding di tampak atas OC-05 (aturan 4, satu sumber
+ * nilai), dan bank kuis OC-05.
  */
-const P_B1: ParamDef = { min: 1, max: 20, step: 0.1, digits: 1 };
-const P_B2: ParamDef = { min: 0.5, max: 20, step: 0.1, digits: 1 };
 
 export function TransitionSheet({
   sheet,
@@ -84,6 +87,7 @@ export function TransitionSheet({
   refs,
   intro,
   awal,
+  kuis,
 }: {
   sheet: string;
   mode: TransitionMode;
@@ -91,6 +95,8 @@ export function TransitionSheet({
   refs: { id: readonly string[]; en: readonly string[] };
   intro: (lang: Lang) => ReactNode;
   awal: { Q: number; b1: number; y1: number; b2: number; dz: number };
+  /** Bank kuis lembar; masukannya Q, b1, y1, b2 (Δz kuis selalu 0). */
+  kuis?: BankKuis;
 }) {
   const { lang } = useLang();
   const t = str(lang);
@@ -157,6 +163,16 @@ export function TransitionSheet({
    */
   const [kunci, setKunci] = useState<number | null>(null);
   const sentuh = useRef<() => void>(() => {});
+
+  // Kuis memasang masukan soal lewat setter penggeser yang sama dan
+  // memadamkan tanda contoh seperti geseran biasa.
+  const terapkanKuis = (m: Keadaan) => {
+    sentuh.current();
+    if (m.Q !== undefined) setQ(keLangkah(m.Q, P_Q));
+    if (m.b1 !== undefined) setB1(keLangkah(m.b1, P_B1));
+    if (m.y1 !== undefined) setY1(keLangkah(m.y1, P_Y1));
+    if (m.b2 !== undefined) setB2(keLangkah(m.b2, P_B2));
+  };
 
   const plate = usePlate(
     (ctx, w, h) =>
@@ -397,9 +413,9 @@ export function TransitionSheet({
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="Q" label={x.dQ} value={Q} min={0.5} max={80} step={0.5} digits={1} unit="m³/s" onChange={setQ} tint={C.water} />
+              <InputRow symbol="Q" label={x.dQ} value={Q} {...P_Q} unit="m³/s" onChange={setQ} tint={C.water} />
               <InputRow symbol="b₁" label={x.db1} value={b1} {...P_B1} unit="m" onChange={setB1} />
-              <InputRow symbol="y₁" label={x.dy1} value={y1} min={0.1} max={5} step={0.01} unit="m" onChange={setY1} tint={C.water} />
+              <InputRow symbol="y₁" label={x.dy1} value={y1} {...P_Y1} unit="m" onChange={setY1} tint={C.water} />
               {mode !== "step" && (
                 <InputRow symbol="b₂" label={x.db2} value={b2} {...P_B2} unit="m" onChange={setB2} tint={C.critical} />
               )}
@@ -499,6 +515,20 @@ export function TransitionSheet({
           </Block>
 
           <StateCard tone={keadaan.tone} badge={keadaan.badge} state={keadaan.state} notice={keadaan.notice} />
+
+          {kuis && (
+            <Kuis
+              bank={kuis}
+              keadaan={{ Q, b1, y1, b2 }}
+              onTerapkan={terapkanKuis}
+              label={{
+                Q: { simbol: "Q", satuan: "m³/s", digits: 1 },
+                b1: { simbol: "b₁", satuan: "m", digits: 1 },
+                y1: { simbol: "y₁", satuan: "m", digits: 2 },
+                b2: { simbol: "b₂", satuan: "m", digits: 1 },
+              }}
+            />
+          )}
         </>
       }
       verification={
