@@ -18,6 +18,7 @@ import {
   tombolPanah,
   type Pandangan,
 } from "./pandangan.ts";
+import { KETUK_GESER } from "./taruh.ts";
 
 /**
  * Pengendali arah pandang gambar 3D (D1 Phase 3).
@@ -38,6 +39,16 @@ import {
  *
  * Reset lembar memasang ulang isi lembar, jadi pandangan ikut kembali ke
  * awal tanpa kode tambahan.
+ *
+ * Opsi `seretDiTaruh` (GW-02, tambahan sesudah pilot): lapis klik-taruh
+ * DragLayer menutup seluruh gambar, jadi tanpa opsi ini gambar yang bisa
+ * ditaruhi titik tidak bisa diputar dengan seret sama sekali. Dengan opsi
+ * ini, tetikus/pena yang ditekan di lapis taruh baru memutar sesudah
+ * bergeser lebih dari KETUK_GESER (6 px), ambang yang sama yang membuat
+ * lapis taruh membuang calon ketuknya: klik tetap menaruh, seret memutar,
+ * tidak pernah keduanya. Sentuhan di lapis taruh tetap milik peramban
+ * (gulir); di HP pandangan diputar dengan tombol. Tanpa opsi perilaku sama
+ * persis dengan sebelumnya.
  */
 export type PandanganKendali = {
   yaw: number;
@@ -65,8 +76,14 @@ export type PandanganKendali = {
 
 /** Asal pointerdown yang BUKAN area kosong gambar. */
 const BUKAN_KOSONG = "[data-handle],[data-place],button,a,input,select,textarea,label";
+/** Sama, tanpa lapis taruh (opsi seretDiTaruh). */
+const BUKAN_KOSONG_TARUH = "[data-handle],button,a,input,select,textarea,label";
 
-export function usePandangan(mula: Pandangan): PandanganKendali {
+export function usePandangan(
+  mula: Pandangan,
+  opsi: { seretDiTaruh?: boolean } = {}
+): PandanganKendali {
+  const seretDiTaruh = opsi.seretDiTaruh === true;
   // Pandangan awal dibekukan saat pasang: objek literal baru tiap render
   // dari pemanggil tidak boleh menggeser titik "pandangan awal".
   const mulaRef = useRef(mula);
@@ -74,6 +91,8 @@ export function usePandangan(mula: Pandangan): PandanganKendali {
   const pRef = useRef(p);
   pRef.current = p;
   const seret = useRef<{ id: number; x: number; y: number; p0: Pandangan } | null>(null);
+  /** Tekan di lapis taruh yang belum bergeser cukup jauh untuk menjadi seret. */
+  const tunda = useRef<{ id: number; x: number; y: number } | null>(null);
   const [memutar, setMemutar] = useState(false);
 
   const putar = useCallback((dyaw: number, dpitch: number) => {
@@ -82,6 +101,7 @@ export function usePandangan(mula: Pandangan): PandanganKendali {
   const awal = useCallback(() => setP(mulaRef.current), []);
 
   const selesai = useCallback((e: PointerEvent<HTMLElement>) => {
+    if (tunda.current?.id === e.pointerId) tunda.current = null;
     const s = seret.current;
     if (!s || s.id !== e.pointerId) return;
     seret.current = null;
@@ -95,12 +115,26 @@ export function usePandangan(mula: Pandangan): PandanganKendali {
       tabIndex: 0,
       onPointerDown: (e) => {
         if (e.button !== 0 || seret.current) return;
-        if ((e.target as Element | null)?.closest?.(BUKAN_KOSONG)) return;
+        const asal = e.target as Element | null;
+        if (seretDiTaruh && e.pointerType !== "touch" && asal?.closest?.("[data-place]")) {
+          if (asal.closest(BUKAN_KOSONG_TARUH)) return;
+          tunda.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+          return;
+        }
+        if (asal?.closest?.(BUKAN_KOSONG)) return;
         seret.current = { id: e.pointerId, x: e.clientX, y: e.clientY, p0: pRef.current };
         setMemutar(true);
         e.currentTarget.setPointerCapture?.(e.pointerId);
       },
       onPointerMove: (e) => {
+        const d = tunda.current;
+        if (d && d.id === e.pointerId && !seret.current) {
+          if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= KETUK_GESER) return;
+          tunda.current = null;
+          seret.current = { id: d.id, x: d.x, y: d.y, p0: pRef.current };
+          setMemutar(true);
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
         const s = seret.current;
         if (!s || s.id !== e.pointerId) return;
         // Dari pandangan saat tekan + geser total: tidak menumpuk galat.
@@ -123,7 +157,7 @@ export function usePandangan(mula: Pandangan): PandanganKendali {
       style: { touchAction: "pan-y", cursor: memutar ? "grabbing" : "grab" },
       "data-memutar": memutar,
     }),
-    [selesai, awal, putar, memutar]
+    [selesai, awal, putar, memutar, seretDiTaruh]
   );
 
   return {

@@ -70,6 +70,13 @@ export const C = {
   faceShade: "#a2a8a6",
   waterFaceLit: "rgba(31, 95, 130, 0.10)",
   waterFaceShade: "rgba(31, 95, 130, 0.24)",
+  /* Muka air tanah / muka piezometrik 3D (GW-02): water dicampur ke sheet,
+     14 % (menghadap cahaya) dan 36 % (membelakangi). OPAK, tidak seperti
+     waterFaceLit: permukaan kisi beribu muka yang tembus pandang menumpuk
+     garis kampuh di tiap tepi muka dan memperlihatkan sisi belakang
+     kerucut menembus sisi depannya. Artinya tetap air. */
+  groundwaterLit: "#d9e3e7",
+  groundwaterShade: "#a9c1cd",
 
   /* Butir dan tanah: warna BENDA, untuk menggambar butir sedimen, batu, dan
      lapisan tanah (sketsa butir SD-01, SD-03, HS-08, DM-02). Sengaja kusam

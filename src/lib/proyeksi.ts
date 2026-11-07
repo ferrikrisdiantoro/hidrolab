@@ -60,8 +60,28 @@ export function isometrikBaku(yaw: number, pitch: number, tol = 1e-6): boolean {
   return r < tol || q - r < tol;
 }
 
-/** Bahan muka, menentukan pasangan token terang/bayang. */
-export type Bahan = "beton" | "air";
+/**
+ * Bahan muka, menentukan pasangan token terang/bayang. "airTanah" = muka air
+ * tanah/piezometrik opak (GW-02), tambahan sesudah pilot HS-02.
+ */
+export type Bahan = "beton" | "air" | "airTanah";
+
+/**
+ * Garis yang digambar DI ATAS satu muka, sesudah isinya dan sebelum garis
+ * tepinya (tambahan GW-02): garis kontur dan lingkaran jari-jari pengaruh
+ * di permukaan kisi, tepi blok yang dipecah menjadi banyak muka. Karena ikut
+ * urutan muka pemiliknya, garis itu tertutup tepat oleh muka yang menutupi
+ * pemiliknya; garis terpisah (muka dua titik) yang berimpit dengan
+ * permukaan tidak punya urutan kedalaman yang pasti terhadap muka itu.
+ * Titiknya sebaiknya di dalam atau di tepi muka pemilik.
+ */
+export type GarisDalam = {
+  pts: readonly V3[];
+  garis: string;
+  /** Dibulatkan ke W.hair, W.thin, atau W.bold. Bawaan W.thin */
+  bobot?: number;
+  dash?: readonly number[];
+};
 
 export type Muka = {
   /** Titik sudut, BERLAWANAN jarum jam bila dilihat dari sisi luar */
@@ -94,6 +114,8 @@ export type Muka = {
    * dipakai lembar (lantai dilihat dari atas, pitch > 0).
    */
   lapis?: number;
+  /** Garis di atas muka ini (lihat GarisDalam). Tidak diisi = tidak ada */
+  garisDalam?: readonly GarisDalam[];
 };
 
 /* ------------------------------------------------------------------ *
@@ -392,6 +414,7 @@ function tangga(bayang: string, terang: string): string[] {
 const NADA: Record<Bahan, string[]> = {
   beton: tangga(C.faceShade, C.faceLit),
   air: tangga(C.waterFaceShade, C.waterFaceLit),
+  airTanah: tangga(C.groundwaterShade, C.groundwaterLit),
 };
 
 function anakTangga(t: number): number {
@@ -560,6 +583,10 @@ export function gambarMuka(
   }
   ctx.lineCap = "butt";
   ctx.lineJoin = "round"; // muka sempit pada sudut pandang miring tidak berduri miter
+  const cosYaw = Math.cos(k.yaw);
+  const sinYaw = Math.sin(k.yaw);
+  const cosPitch = Math.cos(k.pitch);
+  const sinPitch = Math.sin(k.pitch);
 
   let isiKini = "";
   let garisKini = "";
@@ -597,6 +624,51 @@ export function gambarMuka(
       dashKini = null;
       ctx.beginPath();
       jalur(ctx, a, b);
+    }
+
+    if (f.garisDalam) {
+      // Garis bergaya sama yang berurutan berbagi satu path dan satu stroke.
+      let terbuka = false;
+      for (const g of f.garisDalam) {
+        const bb = g.bobot ?? W.thin;
+        // Jalur cepat tanpa alokasi untuk bobot yang sudah salah satu dari tiga.
+        const bobot = bb === W.thin || bb === W.hair || bb === W.bold ? bb : bobotTerdekat(bb);
+        const dash = g.dash ?? DASH.solid;
+        if (terbuka && (g.garis !== garisKini || bobot !== bobotKini || dash !== dashKini)) {
+          ctx.stroke();
+          terbuka = false;
+        }
+        if (g.garis !== garisKini) {
+          ctx.strokeStyle = g.garis;
+          garisKini = g.garis;
+        }
+        if (bobot !== bobotKini) {
+          ctx.lineWidth = bobot;
+          bobotKini = bobot;
+        }
+        if (dash !== dashKini) {
+          ctx.setLineDash(dash as number[]);
+          dashKini = dash;
+        }
+        if (!terbuka) {
+          ctx.beginPath();
+          terbuka = true;
+        }
+        // Proyeksi sebaris, tanpa alokasi (sama dengan olah).
+        for (let j = 0; j < g.pts.length; j++) {
+          const p = g.pts[j];
+          const sx = k.cx + k.skala * (p[0] * cosYaw - p[1] * sinYaw);
+          const sy = k.cy - k.skala * (p[2] * cosPitch + (p[0] * sinYaw + p[1] * cosYaw) * sinPitch);
+          if (j === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        }
+      }
+      if (terbuka) ctx.stroke();
+      // Path tepi muka disusun ulang sesudah garis dalam (bila ada tepi).
+      if (garis) {
+        ctx.beginPath();
+        jalur(ctx, a, b);
+      }
     }
 
     if (garis) {
