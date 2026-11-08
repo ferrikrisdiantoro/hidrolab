@@ -406,6 +406,12 @@ export type MukaSumur = {
   labelKontur: { level: number; titik: Float64Array }[];
   /** Muka permukaan (indeks sel j·(nx−1) + i) */
   permukaan: Muka[];
+  /**
+   * Pipa tiap sumur (urutan st.wells). luar = muka air di dinding sumur kering
+   * (bebas) atau di bawah atap (tertekan): pipa diarsir sinyal, karena kerucut
+   * yang sempit bisa seluruhnya tertutup lebar pipa gambar.
+   */
+  pipa: { muka: Muka[]; luar: boolean }[];
 };
 
 let cache: { kunci: string; hasil: MukaSumur } | null = null;
@@ -549,17 +555,30 @@ function bangun(st: IsoSumurState): MukaSumur {
 
   // Pipa sumur: prisma segi empat dari muka air di sumur sampai di atas muka air awal.
   const rp = jariPipa(st);
+  const pipa: MukaSumur["pipa"] = [];
   for (const w of st.wells) {
-    const zw = st.zAwal - medanSumur(st.wells as Sumur[], w.x, w.y, st.aq).s;
+    const mw = medanSumur(st.wells as Sumur[], w.x, w.y, st.aq);
+    const zw = st.zAwal - mw.s;
+    const luar = mw.dry || (st.zAtap !== undefined && zw < st.zAtap);
     const denah = [
       { x: w.x - rp, y: w.y - rp },
       { x: w.x + rp, y: w.y - rp },
       { x: w.x + rp, y: w.y + rp },
       { x: w.x - rp, y: w.y + rp },
     ];
-    const pr = prisma(denah, Math.max(zw, 0) * VE, zPu * VE, { satuSisi: true, garis: C.ink, bobot: W.bold });
+    const pr = prisma(denah, Math.max(zw, 0) * VE, zPu * VE, {
+      satuSisi: true,
+      garis: luar ? C.signal : C.ink,
+      bobot: W.bold,
+    });
     pr.splice(1, 1); // alas pipa tidak pernah terlihat
+    if (luar)
+      for (const f of pr) {
+        f.arsir = "sinyal";
+        f.isi = C.signalFill;
+      }
     muka.push(...pr);
+    pipa.push({ muka: pr, luar });
   }
 
   // Muka air awal: segi empat putus-putus di aras zAwal (datum), di atas segalanya.
@@ -585,6 +604,7 @@ function bangun(st: IsoSumurState): MukaSumur {
     kontur,
     labelKontur,
     permukaan,
+    pipa,
   };
 }
 
@@ -677,7 +697,7 @@ export function drawIsoSumur(
   // Nama sumur di atas pipa.
   st.wells.forEach((wl, i) => {
     const A = anchor3([wl.x, wl.y, zPu], k);
-    placer.write(`${teks.sumur} ${i + 1}`, A.x, A.y - 12, C.ink);
+    placer.write(`${teks.sumur} ${i + 1}`, A.x, A.y - 12, ms.pipa[i]?.luar ? C.signal : C.ink);
   });
 
   /* Tulisan biasa (tanpa stensil: "s" dan "m" tetap huruf kecil) dengan

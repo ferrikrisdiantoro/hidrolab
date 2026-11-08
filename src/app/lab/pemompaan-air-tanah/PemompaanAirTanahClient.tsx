@@ -104,12 +104,13 @@ const TXT = {
     skalaTegak: (v: string) => (v === "1" ? "skala tegak = skala mendatar" : `skala tegak dilebihkan ×${v}`),
     tambahSumur: "Tambah sumur",
     posSumur: (i: number) => `Letak sumur ${i}`,
+    digeser: (k: number) => `${k} sumur digeser ke tepi karena R dikecilkan`,
     taruhPetunjuk: (n: number) =>
       `Klik di gambar untuk menaruh sumur, paling banyak ${n} termasuk sumur 1. Tiap sumur memompa Q yang sama. Seret sumur untuk memindahkannya, Delete untuk menghapusnya.`,
     isoCatatan: (ve: string, pipa: string) =>
       `Gambar 3D skematik. ${
         ve === "1" ? "Skala tegak sama dengan skala mendatar." : `Skala tegak dilebihkan ${ve} kali terhadap skala mendatar.`
-      } Permukaan dan garis kontur dihitung dari rumus Thiem yang sama dengan tampak Potongan, di titik kisi paling banyak 41 × 41 yang dirapatkan di sekitar tiap sumur. Sumur tambahan dijumlahkan dengan superposisi: penurunan s pada akuifer tertekan, H² − h² pada akuifer bebas; garis kontur menandai penurunan yang sama. Tampak Potongan dan tabel hasil tetap untuk sumur 1 saja, kecuali baris penurunan oleh semua sumur. Pipa sumur digambar selebar ${pipa}, bukan jari-jari sumur sebenarnya. Kehilangan di sumur (C · Q²) tidak masuk permukaan. Arsir merah menandai muka air yang kering atau jatuh di bawah atap akuifer.`,
+      } Permukaan dan garis kontur dihitung dari rumus Thiem yang sama dengan tampak Potongan, di titik kisi paling banyak 41 × 41 yang dirapatkan di sekitar tiap sumur. Sumur tambahan dijumlahkan dengan superposisi: penurunan s pada akuifer tertekan, H² − h² pada akuifer bebas; garis kontur menandai penurunan yang sama. Tampak Potongan dan tabel hasil tetap untuk sumur 1 saja, kecuali baris penurunan oleh semua sumur. Pipa sumur digambar selebar ${pipa}, bukan jari-jari sumur sebenarnya. Bagian kerucut di dalam lebar pipa gambar tidak tampak, jadi muka air di dinding sumur lebih rendah daripada yang terlihat di tepi pipa (s di kop). Kehilangan di sumur (C · Q²) tidak masuk permukaan. Arsir merah menandai muka air yang kering atau jatuh di bawah atap akuifer.`,
     isoPipa: (pct: string) => `${pct} % jari-jari pengaruh`,
     aman: "Sumur berjalan",
     dalam: "Penurunan dalam",
@@ -167,12 +168,13 @@ const TXT = {
     skalaTegak: (v: string) => (v === "1" ? "vertical scale = horizontal scale" : `vertical scale exaggerated ×${v}`),
     tambahSumur: "Add well",
     posSumur: (i: number) => `Position of well ${i}`,
+    digeser: (k: number) => `${k} ${k === 1 ? "well" : "wells"} moved to the edge because R was reduced`,
     taruhPetunjuk: (n: number) =>
       `Click the drawing to place a well, at most ${n} including well 1. Every well pumps the same Q. Drag a well to move it, Delete to remove it.`,
     isoCatatan: (ve: string, pipa: string) =>
       `Schematic 3D drawing. ${
         ve === "1" ? "The vertical scale equals the horizontal scale." : `The vertical scale is exaggerated ${ve} times relative to the horizontal scale.`
-      } The surface and contour lines come from the same Thiem formula as the Section view, at grid points (at most 41 × 41) packed closer around each well. Added wells are combined by superposition: drawdown s in a confined aquifer, H² − h² in an unconfined one; contour lines mark equal drawdown. The Section view and the results table still describe well 1 alone, apart from the row for drawdown from all wells. Well casings are drawn ${pipa} wide, not at the true well radius. Well loss (C · Q²) is not part of the surface. Red hatching marks a water level that has run dry or fallen below the aquifer roof.`,
+      } The surface and contour lines come from the same Thiem formula as the Section view, at grid points (at most 41 × 41) packed closer around each well. Added wells are combined by superposition: drawdown s in a confined aquifer, H² − h² in an unconfined one; contour lines mark equal drawdown. The Section view and the results table still describe well 1 alone, apart from the row for drawdown from all wells. Well casings are drawn ${pipa} wide, not at the true well radius. The part of the cone inside the drawn casing width is hidden, so the water level at the well face is lower than what shows at the casing edge (s in the title block). Well loss (C · Q²) is not part of the surface. Red hatching marks a water level that has run dry or fallen below the aquifer roof.`,
     isoPipa: (pct: string) => `${pct} % of the radius of influence`,
     aman: "The well runs",
     dalam: "Deep drawdown",
@@ -255,11 +257,32 @@ export function PemompaanAirTanahClient() {
 
   /* Rentang letak sumur = denah gambar (±R), sama untuk klik-taruh,
      pegangan seret, dan tombol Tambah. Sumur yang tertinggal di luar
-     sesudah R dikecilkan dijepit ke tepi, tidak dibuang. */
+     sesudah R dikecilkan dijepit ke tepi, tidak dibuang: hasil jepit
+     ditulis ke state tambahan (satu sumber nilai) dan diberi penanda di
+     baris R sampai sumurnya diubah lagi (aturan 4). */
   const batasLetak = Math.round(0.95 * R);
   const P_LETAK: ParamDef = { min: -batasLetak, max: batasLetak, step: 1, digits: 0 };
   const jepitLetak = (v: number) => Math.min(batasLetak, Math.max(-batasLetak, v));
-  const sumurIso = [{ x: 0, y: 0, Q }, ...tambahan.map((p) => ({ x: jepitLetak(p.x), y: jepitLetak(p.y), Q }))];
+  const [digeser, setDigeser] = useState(0);
+  const [batasLalu, setBatasLalu] = useState(batasLetak);
+  if (batasLalu !== batasLetak) {
+    setBatasLalu(batasLetak);
+    let kena = 0;
+    const baru = tambahan.map((p) => {
+      const q = { x: jepitLetak(p.x), y: jepitLetak(p.y) };
+      if (q.x !== p.x || q.y !== p.y) kena++;
+      return q;
+    });
+    if (kena > 0) {
+      setTambahan(baru);
+      setDigeser(kena);
+    }
+  }
+  const ubahTambahan = (f: (l: { x: number; y: number }[]) => { x: number; y: number }[]) => {
+    setDigeser(0);
+    setTambahan(f);
+  };
+  const sumurIso = [{ x: 0, y: 0, Q }, ...tambahan.map((p) => ({ x: p.x, y: p.y, Q }))];
   const keadaanIso: IsoSumurState = {
     wells: sumurIso,
     aq: { k: kSI, thickness: b, rw, R, confined },
@@ -492,10 +515,10 @@ export function PemompaanAirTanahClient() {
     label: x.posSumur(i + 2),
     tint: C.water,
     param: [P_LETAK, P_LETAK],
-    value: [jepitLetak(p.x), jepitLetak(p.y)],
+    value: [p.x, p.y],
     toValue: (px, py) => keLetak(px, py),
-    onChange: ([vx, vy]) => setTambahan((l) => l.map((q, k2) => (k2 === i ? { x: vx, y: vy } : q))),
-    onRemove: () => setTambahan((l) => l.filter((_, k2) => k2 !== i)),
+    onChange: ([vx, vy]) => ubahTambahan((l) => l.map((q, k2) => (k2 === i ? { x: vx, y: vy } : q))),
+    onRemove: () => ubahTambahan((l) => l.filter((_, k2) => k2 !== i)),
     format: formatLetak,
   }));
 
@@ -614,7 +637,7 @@ export function PemompaanAirTanahClient() {
                   label: x.tambahSumur,
                   param: [P_LETAK, P_LETAK],
                   toValue: (px, py) => keLetak(px, py),
-                  onPlace: ([vx, vy]) => setTambahan((l) => (l.length + 1 >= SUMUR_MAKS ? l : [...l, { x: vx, y: vy }])),
+                  onPlace: ([vx, vy]) => ubahTambahan((l) => (l.length + 1 >= SUMUR_MAKS ? l : [...l, { x: vx, y: vy }])),
                   count: 1 + tambahan.length,
                   max: SUMUR_MAKS,
                   fallback: [Math.round(R * 0.4), Math.round(-R * 0.3)],
@@ -643,7 +666,7 @@ export function PemompaanAirTanahClient() {
               <InputRow symbol="k" label={x.dK} value={k} min={0.05} max={40} step={0.05} digits={2} unit="10⁻⁴ m/s" onChange={setK} />
               <InputRow symbol="b" label={x.dB} value={b} min={4} max={80} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="rw" label={x.dRw} value={rw} min={0.05} max={0.6} step={0.01} digits={2} unit="m" onChange={setRw} />
-              <InputRow symbol="R" label={x.dR} value={R} min={50} max={2000} step={25} digits={0} unit="m" onChange={setR} />
+              <InputRow symbol="R" label={x.dR} value={R} min={50} max={2000} step={25} digits={0} unit="m" onChange={setR} penanda={digeser > 0 ? x.digeser(digeser) : null} />
               <InputRow symbol="C" label={x.dC} value={Cw} min={0} max={6000} step={100} digits={0} unit="s²/m⁵" onChange={setCw} tint={C.critical} />
             </InputTable>
 

@@ -20,7 +20,7 @@ import {
 import { wellDrawdownAt } from "./hydraulics.ts";
 import { medanSumur, type AkuiferSumur, type Sumur } from "./sumurBanyak.ts";
 import { ISO, gambarMuka, proyeksi, type Kamera, type Muka } from "./proyeksi.ts";
-import { W } from "./theme.ts";
+import { C, W } from "./theme.ts";
 
 /*
  * GW-02 3D: permukaan dan kontur dari model yang SAMA dengan lembar
@@ -253,6 +253,39 @@ describe("drawIsoSumur: superposisi", () => {
     const kering = mukaSumur(keadaanBebas([{ x: 0, y: 0, Q: 0.03 }, { x: 15, y: 10, Q: 0.03 }]));
     assert.equal(kering.medan.adaKering, true);
     assert.ok(kering.muka.some((f) => f.arsir === "sinyal"));
+  });
+
+  it("pipa ikut arsir sinyal bila muka air di sumur kering/di bawah atap (kerucut sempit tertutup pipa)", () => {
+    // Bebas Q 30 l/s satu sumur: jari-jari kering ~0,57 m < lebar pipa gambar,
+    // jadi permukaan tidak punya sel sinyal; pipalah yang harus menandai.
+    const st = keadaanBebas([{ x: 0, y: 0, Q: 0.03 }]);
+    assert.equal(medanSumur(st.wells as Sumur[], 0, 0, st.aq).dry, true);
+    const ms = mukaSumur(st);
+    assert.equal(ms.pipa.length, 1);
+    assert.equal(ms.pipa[0].luar, true);
+    assert.ok(ms.pipa[0].muka.length > 0);
+    for (const f of ms.pipa[0].muka) {
+      assert.equal(f.arsir, "sinyal");
+      assert.ok(ms.muka.includes(f));
+    }
+    const sinyal = (stt: IsoSumurState) => {
+      const { ctx } = kanvas();
+      let merah = "";
+      const asli = ctx.fillText;
+      (ctx as { fillText: unknown }).fillText = (t: string, x: number, y: number) => {
+        if (ctx.fillStyle === C.signal) merah += t;
+        asli.call(ctx, t, x, y);
+      };
+      drawIsoSumur(ctx, 960, 520, stt, TEKS);
+      return merah;
+    };
+    assert.ok(sinyal(st).includes("SUMUR 1"), sinyal(st));
+    assert.ok(!sinyal(keadaanTertekan(SATU)).includes("SUMUR 1"));
+
+    // Tertekan Q 20 l/s (bawaan): muka air di sumur di atas atap, pipa biasa.
+    const aman = mukaSumur(keadaanTertekan(SATU));
+    assert.equal(aman.pipa[0].luar, false);
+    for (const f of aman.pipa[0].muka) assert.notEqual(f.arsir, "sinyal");
   });
 });
 
