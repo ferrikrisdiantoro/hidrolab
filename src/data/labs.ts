@@ -51,7 +51,8 @@ const L = (
 
 /**
  * Katalog lengkap: 69 laboratorium Paket C dalam 13 pokok bahasan, ditambah
- * modul debit, regresi, dan prediksi yang dipindahkan dari proyek cl42.
+ * modul debit, regresi, dan prediksi yang dipindahkan dari proyek cl42,
+ * dan modul baru Phase 3 (FF-08 tekanan hidrostatis): 74 lembar.
  *
  * Penomoran mengikuti kebiasaan berkas gambar — dua huruf pokok bahasan
  * diikuti nomor urut. Setiap lembar berdiri sendiri dan bisa direvisi
@@ -129,7 +130,7 @@ export const LABS: Lab[] = [
     "Bagaimana muka air terbentuk pada pelimpah yang mengalir menyamping?",
     "How does the water surface form along a spillway that flows sideways?", "siap"),
 
-  /* ---------------- Dasar mekanika fluida (7) ---------------- */
+  /* ---------------- Dasar mekanika fluida (8) ---------------- */
   L("FF-01", "bernoulli", "FF", "Bernoulli", "Bernoulli",
     "Bagaimana tekanan, kecepatan, dan elevasi saling menukar peran?",
     "How do pressure, velocity, and elevation trade places?", "siap"),
@@ -151,6 +152,10 @@ export const LABS: Lab[] = [
   L("FF-07", "percepatan-aliran", "FF", "Percepatan aliran", "Flow acceleration",
     "Apa beda percepatan lokal dan percepatan konvektif?",
     "What separates local from convective acceleration?", "siap"),
+  /* Modul baru Phase 3 (laporan klien 22 Oktober 2026, prasyarat FF-04) */
+  L("FF-08", "tekanan-hidrostatis", "FF", "Tekanan hidrostatis", "Hydrostatic pressure",
+    "Seberapa besar dan di mana air diam mendorong sebuah pintu?",
+    "How hard, and where, does still water push on a gate?", "siap"),
 
   /* ---------------- Aliran dalam pipa (7) ---------------- */
   L("PI-01", "diagram-moody", "PI", "Diagram Moody", "Moody chart",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -368,13 +369,18 @@ export function AsumsiHidrostatisClient() {
             Satu bilangan menentukan seluruhnya:{" "}
             <Term tint={C.critical}>V² dibagi gR</Term>. Kedalamannya lenyap
             dari perbandingan, jadi yang menentukan hanya kecepatan dan
-            kelengkungannya.
+            kelengkungannya. Prasyarat lembar ini:{" "}
+            <Link href="/lab/tekanan-hidrostatis">FF-08 Tekanan hidrostatis</Link>,
+            tempat tekanan air diam bertambah lurus terhadap kedalaman.
           </p>
         ) : (
           <p>
             One number decides it all:{" "}
             <Term tint={C.critical}>V² over gR</Term>. The depth vanishes from
-            the ratio, so only the velocity and the curvature count.
+            the ratio, so only the velocity and the curvature count. This
+            sheet builds on{" "}
+            <Link href="/lab/tekanan-hidrostatis">FF-08 Hydrostatic pressure</Link>,
+            where pressure in still water grows linearly with depth.
           </p>
         )
       }
