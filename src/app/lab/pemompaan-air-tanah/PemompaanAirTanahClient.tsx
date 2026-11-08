@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -13,7 +13,28 @@ import {
   Sheet,
   StateCard,
   Term,
+  type SheetView,
 } from "@/components/ui";
+import { DragLayer, type HandleSpec } from "@/components/DragLayer";
+import { TombolPandang } from "@/components/Pandangan";
+import { usePandangan } from "@/lib/usePandangan";
+import { usePlate } from "@/lib/usePlate";
+import {
+  MARGIN_ISO,
+  PIPA_PECAHAN,
+  RUANG_JUDUL_ISO,
+  RUANG_KAKI_ISO,
+  anchorSumur,
+  balikSumur,
+  drawIsoSumur,
+  medanIso,
+  rasioIsoSumur,
+  skalaTegak,
+  type IsoSumurState,
+} from "@/lib/drawIsoSumur";
+import { ISO, isometrikBaku, type Kamera } from "@/lib/proyeksi";
+import { medanSumur } from "@/lib/sumurBanyak";
+import type { ParamDef } from "@/lib/rentang";
 import { useCanvas } from "@/lib/useCanvas";
 import {
   drawStructure,
@@ -46,6 +67,11 @@ const PIEZO_RISE = 0.5;
  */
 const Q_DALAM = 1 - 0.75 * 0.75;
 
+/** Sumur paling banyak di tampak isometrik, termasuk sumur 1. */
+const SUMUR_MAKS = 5;
+/** Tebal lapisan penutup akuifer tertekan, pecahan b (sama dengan Potongan). */
+const PENUTUP = 0.18;
+
 const TXT = {
   id: {
     title: "Pemompaan air tanah",
@@ -71,6 +97,20 @@ const TXT = {
     rQmax: "Debit terbesar sebelum sumurnya kering",
     rT: "Keterusan akuifer",
     rSich: "Taksiran Sichardt untuk jari-jari pengaruh",
+    rSemua: "Penurunan di sumur 1 oleh semua sumur",
+    isoHeading: "tampak isometrik",
+    aksoHeading: "tampak 3D (aksonometri)",
+    isoKering: "akuifer kering di sekitar sumur",
+    skalaTegak: (v: string) => (v === "1" ? "skala tegak = skala mendatar" : `skala tegak dilebihkan ×${v}`),
+    tambahSumur: "Tambah sumur",
+    posSumur: (i: number) => `Letak sumur ${i}`,
+    taruhPetunjuk: (n: number) =>
+      `Klik di gambar untuk menaruh sumur, paling banyak ${n} termasuk sumur 1. Tiap sumur memompa Q yang sama. Seret sumur untuk memindahkannya, Delete untuk menghapusnya.`,
+    isoCatatan: (ve: string, pipa: string) =>
+      `Gambar 3D skematik. ${
+        ve === "1" ? "Skala tegak sama dengan skala mendatar." : `Skala tegak dilebihkan ${ve} kali terhadap skala mendatar.`
+      } Permukaan dan garis kontur dihitung dari rumus Thiem yang sama dengan tampak Potongan, di titik kisi paling banyak 41 × 41 yang dirapatkan di sekitar tiap sumur. Sumur tambahan dijumlahkan dengan superposisi: penurunan s pada akuifer tertekan, H² − h² pada akuifer bebas; garis kontur menandai penurunan yang sama. Tampak Potongan dan tabel hasil tetap untuk sumur 1 saja, kecuali baris penurunan oleh semua sumur. Pipa sumur digambar selebar ${pipa}, bukan jari-jari sumur sebenarnya. Kehilangan di sumur (C · Q²) tidak masuk permukaan. Arsir merah menandai muka air yang kering atau jatuh di bawah atap akuifer.`,
+    isoPipa: (pct: string) => `${pct} % jari-jari pengaruh`,
     aman: "Sumur berjalan",
     dalam: "Penurunan dalam",
     dalamNote:
@@ -120,6 +160,20 @@ const TXT = {
     rQmax: "Largest discharge before the well runs dry",
     rT: "Aquifer transmissivity",
     rSich: "Sichardt estimate of the influence radius",
+    rSemua: "Drawdown at well 1 from all wells",
+    isoHeading: "isometric view",
+    aksoHeading: "3D view (axonometric)",
+    isoKering: "the aquifer runs dry around the well",
+    skalaTegak: (v: string) => (v === "1" ? "vertical scale = horizontal scale" : `vertical scale exaggerated ×${v}`),
+    tambahSumur: "Add well",
+    posSumur: (i: number) => `Position of well ${i}`,
+    taruhPetunjuk: (n: number) =>
+      `Click the drawing to place a well, at most ${n} including well 1. Every well pumps the same Q. Drag a well to move it, Delete to remove it.`,
+    isoCatatan: (ve: string, pipa: string) =>
+      `Schematic 3D drawing. ${
+        ve === "1" ? "The vertical scale equals the horizontal scale." : `The vertical scale is exaggerated ${ve} times relative to the horizontal scale.`
+      } The surface and contour lines come from the same Thiem formula as the Section view, at grid points (at most 41 × 41) packed closer around each well. Added wells are combined by superposition: drawdown s in a confined aquifer, H² − h² in an unconfined one; contour lines mark equal drawdown. The Section view and the results table still describe well 1 alone, apart from the row for drawdown from all wells. Well casings are drawn ${pipa} wide, not at the true well radius. Well loss (C · Q²) is not part of the surface. Red hatching marks a water level that has run dry or fallen below the aquifer roof.`,
+    isoPipa: (pct: string) => `${pct} % of the radius of influence`,
     aman: "The well runs",
     dalam: "Deep drawdown",
     dalamNote:
@@ -188,6 +242,37 @@ export function PemompaanAirTanahClient() {
   const satuan = (u: string) => (r.dry ? undefined : u);
   const lnR = Math.log(R / rw);
   const dalam = !confined && !r.dry && r.deepDrawdown;
+
+  /* Tampak gambar (Phase 3 3D). Bawaan = Potongan lama, jadi lembar yang
+     dibuka tanpa disentuh menggambar persis apa yang dulu. */
+  const [tampak, setTampak] = useState<SheetView>("potongan");
+  /* seretDiTaruh: lapis klik-taruh menutup gambar; seret > 6 px tetap
+     memutar, klik menaruh sumur. */
+  const pandang = usePandangan({ yaw: -ISO.yaw, pitch: ISO.pitch }, { seretDiTaruh: true });
+  /* Sumur tambahan (sumur 2 dst.), meter dari sumur 1. Hanya di tampak
+     isometrik; tampak Potongan tetap satu sumur. */
+  const [tambahan, setTambahan] = useState<{ x: number; y: number }[]>([]);
+
+  /* Rentang letak sumur = denah gambar (±R), sama untuk klik-taruh,
+     pegangan seret, dan tombol Tambah. Sumur yang tertinggal di luar
+     sesudah R dikecilkan dijepit ke tepi, tidak dibuang. */
+  const batasLetak = Math.round(0.95 * R);
+  const P_LETAK: ParamDef = { min: -batasLetak, max: batasLetak, step: 1, digits: 0 };
+  const jepitLetak = (v: number) => Math.min(batasLetak, Math.max(-batasLetak, v));
+  const sumurIso = [{ x: 0, y: 0, Q }, ...tambahan.map((p) => ({ x: jepitLetak(p.x), y: jepitLetak(p.y), Q }))];
+  const keadaanIso: IsoSumurState = {
+    wells: sumurIso,
+    aq: { k: kSI, thickness: b, rw, R, confined },
+    zAwal: arasAwal,
+    zAtap: confined ? b : undefined,
+    tebalPenutup: confined ? b * PENUTUP : undefined,
+    L: R,
+  };
+  const kunciIso = JSON.stringify(keadaanIso);
+  const VE = skalaTegak(keadaanIso);
+  const medan = useMemo(() => medanIso(JSON.parse(kunciIso) as IsoSumurState), [kunciIso]);
+  /* Penurunan di sumur 1 oleh semua sumur (superposisi, M10). */
+  const semua = medanSumur(sumurIso, 0, 0, keadaanIso.aq);
 
   const ref = useCanvas(
     (ctx, w, ch) => {
@@ -363,6 +448,64 @@ export function PemompaanAirTanahClient() {
     [Q, k, b, rw, R, Cw, confined, lang]
   );
 
+  /* Tampak isometrik: kanvas kedua di pembungkus yang menerima seret dan
+     panah (pola HS-02). Keduanya selalu terpasang, yang tidak aktif
+     disembunyikan, supaya pengamat ukuran kanvas tetap terpasang. */
+  const judulIso = medan.adaKering
+    ? x.isoKering
+    : medan.bawahAtap
+      ? x.bukanTertekan
+      : isometrikBaku(pandang.yaw, pandang.pitch)
+        ? x.isoHeading
+        : x.aksoHeading;
+  const plateIso = usePlate(
+    (ctx, cw, chh) => {
+      if (tampak !== "isometrik") return;
+      return drawIsoSumur(
+        ctx,
+        cw,
+        chh,
+        JSON.parse(kunciIso) as IsoSumurState,
+        {
+          heading: judulIso,
+          headingInvalid: medan.adaKering || medan.bawahAtap,
+          sumur: T.wellLabel,
+          skalaTegak: x.skalaTegak,
+          mukaAwal: T.staticLevel,
+        },
+        { yaw: pandang.yaw, pitch: pandang.pitch }
+      );
+    },
+    null,
+    [tampak, pandang.yaw, pandang.pitch, kunciIso, judulIso, lang]
+  );
+  const outIso = plateIso.outRef.current as (ReturnType<typeof drawIsoSumur> | null);
+  const kameraIso: Kamera | null = outIso?.kamera ?? null;
+  /* Piksel → letak di bidang muka air awal, dengan kamera gambar terakhir. */
+  const keLetak = (px: number, py: number): readonly [number, number] =>
+    (kameraIso && balikSumur(px, py, kameraIso, keadaanIso)) || [0, 0];
+  const formatLetak = (v: readonly [number, number]) => `x ${fmt(v[0], 0)} m, y ${fmt(v[1], 0)} m`;
+  const peganganIso: HandleSpec[] = tambahan.map((p, i) => ({
+    id: `sumur${i + 2}`,
+    anchor: anchorSumur(i + 1),
+    axis: "xy",
+    label: x.posSumur(i + 2),
+    tint: C.water,
+    param: [P_LETAK, P_LETAK],
+    value: [jepitLetak(p.x), jepitLetak(p.y)],
+    toValue: (px, py) => keLetak(px, py),
+    onChange: ([vx, vy]) => setTambahan((l) => l.map((q, k2) => (k2 === i ? { x: vx, y: vy } : q))),
+    onRemove: () => setTambahan((l) => l.filter((_, k2) => k2 !== i)),
+    format: formatLetak,
+  }));
+
+  /* Tinggi bidang isometrik mengikuti kotak batas pada pandangan awal
+     (pola HS-02): di HP tidak ada ruang kosong besar. */
+  const rasioIso = useMemo(() => rasioIsoSumur(JSON.parse(kunciIso) as IsoSumurState), [kunciIso]);
+  const tinggiIso = `min(clamp(360px, 56vh, 620px), max(260px, calc(${rasioIso.toFixed(4)} * (100vw - ${
+    48 + 2 * MARGIN_ISO
+  }px) + ${2 * MARGIN_ISO + RUANG_JUDUL_ISO + RUANG_KAKI_ISO}px)))`;
+
   return (
     <LabShell
       status={
@@ -441,8 +584,45 @@ export function PemompaanAirTanahClient() {
             { label: "k", value: `${fmtSci(kSI)} m/s` },
             { label: confined ? "T" : "kH", value: `${fmtSci(r.T)} m²/s` },
           ]}
+          height={tampak === "isometrik" ? tinggiIso : undefined}
+          views={{
+            aktif: tampak,
+            onChange: setTampak,
+            alat: <TombolPandang p={pandang} />,
+            catatan: x.isoCatatan(fmt(VE, 0), x.isoPipa(fmt(2 * PIPA_PECAHAN * 100, 1))),
+          }}
         >
-          <canvas ref={ref} className="block h-full w-full" />
+          <canvas
+            ref={ref}
+            className={`${tampak === "isometrik" ? "hidden" : "block"} h-full w-full`}
+          />
+          <div
+            {...pandang.permukaan}
+            role="application"
+            aria-label={t.viewSurface}
+            className={`absolute inset-0 select-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-water ${
+              tampak === "isometrik" ? "" : "hidden"
+            }`}
+          >
+            <canvas ref={plateIso.ref} className="block h-full w-full" />
+            {tampak === "isometrik" && (
+              <DragLayer
+                out={outIso}
+                handles={peganganIso}
+                place={{
+                  id: "sumur",
+                  label: x.tambahSumur,
+                  param: [P_LETAK, P_LETAK],
+                  toValue: (px, py) => keLetak(px, py),
+                  onPlace: ([vx, vy]) => setTambahan((l) => (l.length + 1 >= SUMUR_MAKS ? l : [...l, { x: vx, y: vy }])),
+                  count: 1 + tambahan.length,
+                  max: SUMUR_MAKS,
+                  fallback: [Math.round(R * 0.4), Math.round(-R * 0.3)],
+                  format: formatLetak,
+                }}
+              />
+            )}
+          </div>
         </Sheet>
       }
       side={
@@ -466,6 +646,10 @@ export function PemompaanAirTanahClient() {
               <InputRow symbol="R" label={x.dR} value={R} min={50} max={2000} step={25} digits={0} unit="m" onChange={setR} />
               <InputRow symbol="C" label={x.dC} value={Cw} min={0} max={6000} step={100} digits={0} unit="s²/m⁵" onChange={setCw} tint={C.critical} />
             </InputTable>
+
+            {tampak === "isometrik" && (
+              <p className="mt-2.5 text-[0.78rem] leading-snug text-ink-2">{x.taruhPetunjuk(SUMUR_MAKS)}</p>
+            )}
 
             <div className="mt-3.5">
               {/* Penurunan dalam: Q 15 l/s, bebas (s 9,24 m = 0,37 b, belum
@@ -495,6 +679,19 @@ export function PemompaanAirTanahClient() {
                 { symbol: "Qmax", label: x.rQmax, value: Number.isFinite(r.Qmax) ? fmt(r.Qmax * 1000, 1) : "—", unit: Number.isFinite(r.Qmax) ? "l/s" : undefined, tint: r.dry ? C.signal : undefined },
                 { symbol: "T", label: x.rT, value: fmtSci(r.T), unit: "m²/s" },
                 { symbol: "R", label: x.rSich, value: fmt(tampil(r.sichardt), 0), unit: satuan("m") },
+                /* Hanya bila ada sumur tambahan: tanpa itu tabel sama persis
+                   dengan sebelum tampak isometrik. */
+                ...(tambahan.length > 0
+                  ? [
+                      {
+                        symbol: "s₁",
+                        label: x.rSemua,
+                        value: semua.dry ? "—" : fmt(semua.s, 3),
+                        unit: semua.dry ? undefined : "m",
+                        tint: semua.dry || (confined && semua.s > b * PIEZO_RISE) ? C.signal : C.critical,
+                      },
+                    ]
+                  : []),
               ]}
             />
             <div className="mt-3">
