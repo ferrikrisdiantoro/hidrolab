@@ -17,7 +17,8 @@ import {
 } from "@/components/ui";
 import { usePlate } from "@/lib/usePlate";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
-import type { ParamDef } from "@/lib/rentang";
+import { P_E } from "@/lib/permainanPanen";
+import { PermainanPanen } from "@/components/PermainanPanen";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
 import { fmt, fmtPlain, schaeferHarvest } from "@/lib/hydraulics";
 import { C, DASH, W, type Tone } from "@/lib/theme";
@@ -125,9 +126,8 @@ const REFS = {
   ],
 } as const;
 
-/* Rentang upaya E, dipakai bersama penggeser, kotak angka, dan pegangan
-   titik kerja (aturan 4: satu sumber nilai). */
-const P_E: ParamDef = { min: 0, max: 150, step: 1, digits: 0 };
+/* Rentang upaya E (P_E, permainanPanen.ts) dipakai bersama penggeser, kotak
+   angka, pegangan titik kerja (aturan 4: satu sumber nilai), dan permainan. */
 
 export function AturanPanenClient() {
   const { lang } = useLang();
@@ -398,6 +398,8 @@ export function AturanPanenClient() {
             badge={badge}
             {...notice(r0, K, q, E, r, lang)}
           />
+
+          <PermainanPanen r={r0} K={K} q={q} E={E} />
         </>
       }
       verification={<Verification checks={checksHarvest(r0, K, q, E)} />}
