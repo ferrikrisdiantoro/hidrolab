@@ -437,7 +437,7 @@ export function drawHidrostatika(
   kiri.write(`ρ ${fmtPlain(s.rho, 0)} kg/m³`, X(0) + 4, Y(H) - 10, C.water, { align: "left" });
   if (gNyata > gTop && !sempit) {
     const mid = Wp(Math.max(gTop, -fb * 0.9) + 0.0);
-    kiri.write(`${T.gate} ${fmtPlain(s.b, 1)} × ${fmtPlain(s.L, 1)} m`, mid.x + nx * tebal + 8, mid.y - 4, C.ink2, { align: "left" });
+    kiri.write(`${T.gate} ${fmtPlain(s.b, 1)} × ${fmtPlain(s.L, 1)} m`, mid.x + nx * tebal + 26, mid.y - 4, C.ink2, { align: "left" });
   }
   if (s.gateInvalid) kiri.write(T.gateBelow, (x0 + x1) / 2, y0 + 16, C.signal, { big: true });
   if (s.probeInvalid) kiri.write(T.probeBelow, (x0 + x1) / 2, y0 + (s.gateInvalid ? 50 : 16), C.signal, { big: true });
