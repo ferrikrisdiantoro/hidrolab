@@ -76,7 +76,7 @@ const TXT = {
     hKurasan: "Kurasan: stok yang diambil dari modal, bukan dari pertumbuhan",
     hPenalti: "Penalti: satu MSY untuk tiap tahun yang berakhir di bawah 0,05 K",
     rumusNote:
-      "Batas MSY × T tidak dapat dilampaui strategi apa pun: tangkapan hanya bisa melebihi pertumbuhan populasi dengan menguras stoknya, dan kurasan itu dikurangkan. Pertumbuhan setahun paling besar rK/4, tepat saat populasinya K/2.",
+      "Batas MSY × T tidak dapat dilampaui strategi apa pun: tangkapan hanya bisa melebihi pertumbuhan populasi dengan menguras stoknya, dan kurasan itu dikurangkan. Pertumbuhan setahun paling besar rK/4, tepat saat populasinya K/2. Sebaliknya, stok yang dibiarkan naik di atas K/2 tidak menambah skor: pertumbuhannya justru melambat, dan ikan yang tidak ditangkap tidak dihitung.",
     sesi: (n: number, p: string) =>
       n === 0 ? "Belum ada permainan selesai di sesi ini." : `Sesi ini: ${n} permainan selesai, skor terbaik ${p} % dari batas.`,
     deterministik: "Tanpa acak: persamaan lembar tidak memuat variasi lingkungan.",
@@ -125,7 +125,7 @@ const TXT = {
     hKurasan: "Drawdown: stock taken from the capital, not from growth",
     hPenalti: "Penalty: one MSY for every year that ends below 0.05 K",
     rumusNote:
-      "No strategy can beat the MSY × T ceiling: the catch can only exceed the population's growth by drawing the stock down, and that drawdown is subtracted. A year's growth is at most rK/4, reached exactly when the population is K/2.",
+      "No strategy can beat the MSY × T ceiling: the catch can only exceed the population's growth by drawing the stock down, and that drawdown is subtracted. A year's growth is at most rK/4, reached exactly when the population is K/2. Conversely, letting the stock rise above K/2 adds nothing to the score: its growth slows, and fish left uncaught are not counted.",
     sesi: (n: number, p: string) =>
       n === 0 ? "No game finished yet this session." : `This session: ${n} games finished, best score ${p} % of the ceiling.`,
     deterministik: "No randomness: the sheet's equation has no environmental variation.",
