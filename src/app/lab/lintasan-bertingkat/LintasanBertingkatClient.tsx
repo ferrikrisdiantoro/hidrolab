@@ -295,7 +295,7 @@ export function LintasanBertingkatClient() {
             text: T.poolLabel,
           },
         ],
-        arrows: [{ x: L * 1.5, z: (tampil - 2) * r.stepDrop - D * 0.3, length: -26 }],
+        arrows: [{ x: L * 1.5, z: (tampil - 2) * r.stepDrop - D * 0.3, length: 26 }],
         heading: r.tooHigh
           ? x.tinggi
           : r.poolTooShallow

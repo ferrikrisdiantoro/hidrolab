@@ -238,3 +238,11 @@ describe("EH-02 isometrik: di dalam kanvas dan anggaran bingkai", () => {
     assert.equal(mukaDenil(s, -1).muka, muka);
   });
 });
+
+describe("siripDenil penjaga masukan", () => {
+  it("b nol/NaN atau panjang tak hingga tidak membuat loop tak berhenti", () => {
+    assert.deepEqual(siripDenil(0, 0.7, 0.2, 8).xs, []);
+    assert.deepEqual(siripDenil(Number.NaN, 0.7, 0.2, 8).xs, []);
+    assert.deepEqual(siripDenil(0.6, 0.7, 0.2, Infinity).xs, []);
+  });
+});

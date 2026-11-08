@@ -92,6 +92,8 @@ export function siripDenil(b: number, y: number, S: number, panjang: number) {
   const miring = (tinggi * (1 - S)) / k;
   const iPertama = Math.max(1, Math.ceil((miring - 1e-9) / jarakSirip));
   const xs: number[] = [];
+  // Penjaga: b nol/NaN atau panjang tak hingga membuat loop tak berhenti.
+  if (!(jarakSirip > 0) || !Number.isFinite(panjang)) return { jarakSirip, tebal, tinggi, ambang, miring, xs };
   for (let i = iPertama; ; i++) {
     const xx = i * jarakSirip;
     if (xx > panjang) break;

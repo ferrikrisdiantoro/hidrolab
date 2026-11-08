@@ -221,7 +221,7 @@ export function TanggaIkanKolamClient() {
           },
         ],
         arrows: [
-          { x: L * 1.3, z: (tampil - 2) * dh + D * 0.5, length: -26 },
+          { x: L * 1.3, z: (tampil - 2) * dh + D * 0.5, length: 26 },
         ],
         heading: r.tooTurbulent ? x.teraduk : undefined,
         headingColor: C.caution,

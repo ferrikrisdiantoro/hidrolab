@@ -105,7 +105,7 @@ const TXT = {
     hL: "Panjang palung",
     banding: "dibanding",
     curamNote:
-      "Kemiringan palung di luar rentang sepersepuluh sampai seperempat. Di bawahnya sirip penahan tidak lagi menimbulkan putaran balik yang cukup dan palungnya berperilaku seperti saluran biasa, sehingga tidak ada gunanya memasang sirip sama sekali. Di atasnya kecepatan di sumbu palung naik melampaui yang sanggup dilawan hampir semua jenis ikan sungai, dan tangga ikannya menjadi penghalang alih-alih lintasan. Kurva rancangan Denil yang dipakai di sini pun hanya diterbitkan pada rentang itu.",
+      "Kemiringan palung di luar rentang sepersepuluh sampai seperempat. Di bawahnya sirip penahan tidak lagi menimbulkan putaran balik yang cukup dan palungnya berperilaku seperti saluran biasa, sehingga tidak ada gunanya memasang sirip sama sekali. Di atasnya kecepatan di sumbu palung naik melampaui yang sanggup dilawan hampir semua jenis ikan sungai, dan tangga ikannya menjadi penghalang alih-alih lintasan. Rentang ini adalah praktik rancangan menurut Katopodis (1992) hlm. 5: 10–15 % untuk ikan air tawar dewasa dan 15–25 % untuk salmon dewasa.",
     lambat: "Ikan tidak sanggup melawan arus di sumbu palung",
     lambatNote:
       "Kecepatan acuan di sumbu palung (um') melampaui kecepatan sentak ikan rancangan, sehingga ikan tidak dapat maju. Perlu diingat bahwa kecepatan sentak hanya dapat dipertahankan kurang dari 15 detik, jadi memenuhi syarat ini tepat di ambangnya berarti merancang palung yang hanya dapat dilewati sekali oleh ikan yang benar-benar segar. Landaikan palungnya, atau pilih jenis ikan rancangan yang lebih lemah dan rancang untuknya.",
@@ -113,7 +113,7 @@ const TXT = {
     istirahatNote:
       "Palungnya lebih panjang daripada sepuluh meter tanpa kolam istirahat. Karena ikan melewati tangga Denil dengan berenang sentak dan bukan berenang jelajah, panjang palung tanpa jeda dibatasi oleh berapa lama sentakan itu dapat dipertahankan, bukan oleh kekuatan bangunannya. Sisipkan kolam istirahat setiap 5–10 m untuk ikan air tawar dan 10–15 m untuk salmon (Katopodis 1992 hlm. 5).",
     note:
-      "Yang membuat tangga Denil bekerja bukan penghalangan melainkan pembalikan. Sirip yang miring ke hulu memaksa sebagian air berputar balik di dekat dinding dan dasar palung, dan putaran balik itu melesap tenaga tanpa menutup lintasan di tengah. Ikan berenang di sepanjang sumbu, tempat airnya masih mengalir maju tetapi jauh lebih lambat daripada kemiringan palungnya seharusnya membuatnya. Harga yang dibayar untuk lintasan yang jauh lebih pendek daripada tangga berkolam adalah keteradukan: lesapan daya di dalam palung Denil belasan sampai puluhan kali batas yang diterima tangga berkolam. Itu bukan cacat rancangan melainkan ciri alatnya, dan akibatnya jelas: Denil hanya cocok untuk jenis ikan yang kuat berenang, selalu menuntut kolam istirahat pada jarak tertentu, dan sama sekali tidak cocok untuk ikan kecil atau ikan yang bergerak di dasar.",
+      "Yang membuat tangga Denil bekerja bukan penghalangan melainkan pembalikan. Sirip yang miring ke hulu memaksa sebagian air berputar balik di dekat dinding dan dasar palung, dan putaran balik itu melesap tenaga tanpa menutup lintasan di tengah. Ikan berenang di sepanjang sumbu, tempat airnya masih mengalir maju tetapi jauh lebih lambat daripada kemiringan palungnya seharusnya membuatnya. Harga yang dibayar untuk lintasan yang jauh lebih pendek daripada tangga berkolam adalah keteradukan: pada contoh baku lembar ini lesapan daya per isi palung sekitar sepuluh kali batas 150 W/m³ yang dipakai untuk tangga berkolam, dan angkanya naik bersama kedalaman dan kemiringan. Angka itu pembanding saja, karena Katopodis (1992) tidak memberi batas lesapan untuk Denil. Itu bukan cacat rancangan melainkan ciri alatnya, dan akibatnya jelas: Denil hanya cocok untuk jenis ikan yang kuat berenang, selalu menuntut kolam istirahat pada jarak tertentu, dan sama sekali tidak cocok untuk ikan kecil atau ikan yang bergerak di dasar.",
   },
   en: {
     title: "Denil fishway",
@@ -162,7 +162,7 @@ const TXT = {
     hL: "Trough length",
     banding: "against",
     curamNote:
-      "The trough slope lies outside one tenth to one quarter. Below it the baffles no longer set up enough reverse rotation and the trough behaves like an ordinary channel, so fitting baffles at all serves no purpose. Above it the axial velocity rises past what almost any river species can beat, and the fishway becomes a barrier rather than a passage. The Denil design curves used here are only published within that range in any case.",
+      "The trough slope lies outside one tenth to one quarter. Below it the baffles no longer set up enough reverse rotation and the trough behaves like an ordinary channel, so fitting baffles at all serves no purpose. Above it the axial velocity rises past what almost any river species can beat, and the fishway becomes a barrier rather than a passage. This range is design practice per Katopodis (1992) p. 5: 10–15 % for adult freshwater fish and 15–25 % for adult salmon.",
     lambat: "The fish cannot beat the axial velocity",
     lambatNote:
       "The centreline reference velocity (um') exceeds the design fish's burst speed, so the fish cannot advance. Remember that burst speed can be held for under 15 seconds, so meeting this condition exactly at its limit means designing a trough that can be passed once by a genuinely fresh fish. Flatten the trough, or choose a weaker design species and design for that.",
@@ -170,7 +170,7 @@ const TXT = {
     istirahatNote:
       "The trough is longer than ten metres without a resting pool. Because fish pass a Denil by burst swimming rather than cruising, the length of an uninterrupted run is limited by how long that burst can be held, not by the strength of the structure. Insert a resting pool every 5–10 m for freshwater fish and 10–15 m for salmon (Katopodis 1992 p. 5).",
     note:
-      "What makes a Denil work is not obstruction but reversal. Baffles angled upstream force part of the water to rotate backwards near the walls and the invert, and that reverse rotation dissipates energy without closing the path down the middle. The fish swims along the axis, where the water still moves forward but far more slowly than the slope of the trough should make it. The price paid for a passage far shorter than a pool fishway is turbulence: the dissipation inside a Denil trough is ten to twenty times the limit a pool fishway accepts. That is not a design fault but a feature of the device, and its consequences are clear: a Denil suits only strong-swimming species, always demands resting pools at intervals, and does not suit small fish or bottom-moving fish at all.",
+      "What makes a Denil work is not obstruction but reversal. Baffles angled upstream force part of the water to rotate backwards near the walls and the invert, and that reverse rotation dissipates energy without closing the path down the middle. The fish swims along the axis, where the water still moves forward but far more slowly than the slope of the trough should make it. The price paid for a passage far shorter than a pool fishway is turbulence: in this sheet's standard example the dissipation per trough volume is about ten times the 150 W/m³ limit used for pool fishways, and it rises with depth and slope. That figure is a comparison only, because Katopodis (1992) gives no dissipation limit for Denils. That is not a design fault but a feature of the device, and its consequences are clear: a Denil suits only strong-swimming species, always demands resting pools at intervals, and does not suit small fish or bottom-moving fish at all.",
   },
 } as const;
 
@@ -334,7 +334,7 @@ export function TanggaIkanDenilClient() {
             // Di sumbu pada 75 % kedalaman, tempat um' (Katopodis 1992 pers. 5.2).
             x: panjang * 0.25,
             z: dasarDi(panjang * 0.25) + yTegak * 0.75,
-            length: -28,
+            length: 28,
             color: tidakMampu ? C.caution : C.water,
           },
         ],
@@ -723,8 +723,8 @@ function notice(
   if (r.needsRestPool) butir.push(x.istirahatNote);
   butir.push(
     en
-      ? `The dissipation in this trough is ${fmt(r.powerRatioToPool, 1)} times what a pool fishway is allowed, and that is the trade this device makes: it climbs ${fmt(rise, 1)} m in ${fmt(r.runLength, 1)} m of length.`
-      : `Lesapan daya di palung ini ${fmt(r.powerRatioToPool, 1)} kali yang diizinkan pada tangga berkolam, dan itulah pertukaran yang dilakukan alat ini: ia menaiki ${fmt(rise, 1)} m dalam ${fmt(r.runLength, 1)} m panjang.`
+      ? `For comparison only: the dissipation in this trough is ${fmt(r.powerRatioToPool, 1)} times the ${fmt(FISHWAY_POWER_GENERAL, 0)} W/m³ pool fishway limit; Katopodis (1992) gives no dissipation limit for Denils. That is the trade this device makes: it climbs ${fmt(rise, 1)} m in ${fmt(r.runLength, 1)} m of length.`
+      : `Pembanding saja: lesapan daya di palung ini ${fmt(r.powerRatioToPool, 1)} kali batas ${fmt(FISHWAY_POWER_GENERAL, 0)} W/m³ tangga berkolam; Katopodis (1992) tidak memberi batas lesapan untuk Denil. Itulah pertukaran alat ini: ia menaiki ${fmt(rise, 1)} m dalam ${fmt(r.runLength, 1)} m panjang.`
   );
   butir.push(
     en
