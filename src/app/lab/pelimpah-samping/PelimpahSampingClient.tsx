@@ -13,8 +13,21 @@ import {
   Sheet,
   StateCard,
   Term,
+  type SheetView,
 } from "@/components/ui";
 import { usePlate, usePutar } from "@/lib/usePlate";
+import { TombolPandang } from "@/components/Pandangan";
+import { usePandangan } from "@/lib/usePandangan";
+import {
+  drawIsoPelimpah,
+  geometriPelimpah,
+  KEMIRINGAN_PELUNCUR,
+  MARGIN_ISO_PELIMPAH,
+  RUANG_JUDUL_ISO_PELIMPAH,
+  rasioIsoPelimpah,
+} from "@/lib/drawIsoPelimpah";
+import { ISO, isometrikBaku } from "@/lib/proyeksi";
+import { useCanvas } from "@/lib/useCanvas";
 import {
   createReachMotion,
   drawReachMotion,
@@ -91,6 +104,17 @@ const TXT = {
     curam:
       "Curamkan dasar: kedalaman di pangkal berkurang, tetapi dasar pangkal naik S₀L, jadi muka air di pangkal ikut naik dan jagaan menyusut.",
     exagg: "pelebihan tegak",
+    isoHeading: "tampak isometrik",
+    aksoHeading: "tampak 3D (aksonometri)",
+    isoSkala: "skala tegak",
+    isoMercu: "mercu",
+    isoPeluncur: "peluncur (skematik)",
+    isoMasuk: "aliran masuk lateral",
+    isoKendali: "penampang kendali",
+    isoCatatan: (t: string, pjg: string, miring: string, terpotong: boolean) =>
+      `Gambar 3D diam dari model tunak: muka air saluran pengumpul adalah profil Hinds di setiap stasiun hitung; dasar, lebar, kemiringan, panjang dan elevasi mercu dari masukan. Muka air yang naik seiring waktu tidak digambar karena model tidak menghitung keadaan tak tunak. Tirai luapan di atas mercu tidak digambar: model tidak menghitung tinggi air di atas mercu; panah hanya menandai arah aliran masuk lateral. Skematik, bukan dari model: mercu sebagai dinding tegak, tebal dinding dan lantai ${t} m, tinggi dinding seberang, dan peluncur (panjang ${pjg} m, kemiringan ${miring}); aliran di peluncur tidak dihitung, jadi airnya tidak digambar.${
+        terpotong ? " Bagian hulu superkritis: muka airnya tidak dihitung, dasarnya diarsir merah." : ""
+      }`,
     motion: (n: string) => `partikel bergerak dengan V = Q(x)/A, lahir merata di sepanjang mercu, fluks sebanding Q(x), waktu dipercepat ×${n}`,
     motionReal: "partikel bergerak dengan V = Q(x)/A, lahir merata di sepanjang mercu, fluks sebanding Q(x), waktu nyata",
     note:
@@ -140,6 +164,17 @@ const TXT = {
     curam:
       "Steepen the trough: the head depth falls, but the head bed rises by S₀L, so the head water level rises too and the freeboard shrinks.",
     exagg: "vertical exaggeration",
+    isoHeading: "isometric view",
+    aksoHeading: "3D view (axonometric)",
+    isoSkala: "vertical scale",
+    isoMercu: "crest",
+    isoPeluncur: "chute (schematic)",
+    isoMasuk: "lateral inflow",
+    isoKendali: "control section",
+    isoCatatan: (t: string, pjg: string, miring: string, terpotong: boolean) =>
+      `Still 3D drawing from a steady model: the trough water surface is the Hinds profile at every computed station; bed, width, slope, crest length and crest elevation come from the inputs. A water level rising over time is not drawn because the model does not compute unsteady flow. The nappe over the crest is not drawn: the model does not compute the head over the crest; the arrows only mark the direction of the lateral inflow. Schematic, not from the model: the crest as a vertical wall, wall and slab thickness ${t} m, the height of the far wall, and the chute (length ${pjg} m, slope ${miring}); flow in the chute is not computed, so its water is not drawn.${
+        terpotong ? " Supercritical upper part: its water surface is not computed and its bed is hatched red." : ""
+      }`,
     motion: (n: string) => `particles move at V = Q(x)/A, born uniformly along the crest, flux in proportion to Q(x), time sped up ×${n}`,
     motionReal: "particles move at V = Q(x)/A, born uniformly along the crest, flux in proportion to Q(x), real time",
     note:
@@ -198,6 +233,14 @@ export function PelimpahSampingClient() {
    * superkritis, geometri mustahil, atau mercu tenggelam tidak digerakkan.
    */
   const { playing, toggle: togglePutar } = usePutar();
+  /* Tampak gambar (Phase 3, 3D). Bawaan = potongan memanjang lama, jadi
+     lembar yang dibuka tanpa disentuh menggambar persis apa yang dulu.
+     Gambar isometrik diam (model tunak); lapis gerak hanya berjalan di
+     tampak potongan. */
+  const [tampak, setTampak] = useState<SheetView>("potongan");
+  const pandang = usePandangan({ yaw: -ISO.yaw, pitch: ISO.pitch });
+  const iso = tampak === "isometrik";
+  const jalan = playing && !iso;
   const gerak = useRef<ReachMotion | null>(null);
   if (gerak.current === null) gerak.current = createReachMotion(170);
   const berlaku = fSah && !tenggelam;
@@ -220,14 +263,64 @@ export function PelimpahSampingClient() {
     (ctx, w, h) =>
       drawReach(ctx, w, h, {
         ...susun(r, b, L, S0, zCrest, lang),
-        ...(playing || !aliran ? {} : { flowArrows: [L * 0.45, L * 0.85] }),
+        ...(jalan || !aliran ? {} : { flowArrows: [L * 0.45, L * 0.85] }),
       }),
     aliran
       ? (ctx, _w, _h, tt, dt, out) => drawReachMotion(ctx, tt, dt, out, aliran, skala, gerak.current!)
       : null,
-    [Q, b, n, S0, L, zCrest, lang, playing, berlaku],
-    { playing, timeScale: skala }
+    [Q, b, n, S0, L, zCrest, lang, jalan, berlaku],
+    { playing: jalan, timeScale: skala }
   );
+
+  /* Tampak isometrik: kanvas kedua di pembungkus yang menerima seret dan
+     panah (pola HS-02). Keduanya selalu terpasang, yang tidak aktif
+     disembunyikan, supaya pengamat ukuran tetap bekerja. */
+  const refIso = useCanvas(
+    (ctx, cw, chh) => {
+      if (!iso) return;
+      drawIsoPelimpah(
+        ctx,
+        cw,
+        chh,
+        { Q, b, n, S0, L, zCrest },
+        {
+          yaw: pandang.yaw,
+          pitch: pandang.pitch,
+          heading: terpotong
+            ? x.superkritis
+            : mustahil
+              ? x.mustahil
+              : tenggelam
+                ? x.tenggelam
+                : isometrikBaku(pandang.yaw, pandang.pitch)
+                  ? x.isoHeading
+                  : x.aksoHeading,
+          headingSignal: !fSah || tenggelam,
+          fmt: (v, d) => fmt(v, d),
+          label: {
+            crest: x.isoMercu,
+            trough: cl(lang).collector,
+            control: x.isoKendali,
+            chute: x.isoPeluncur,
+            inflow: x.isoMasuk,
+            profileEnds: cl(lang).profileEnds,
+            exagg: x.isoSkala,
+          },
+        }
+      );
+    },
+    [iso, pandang.yaw, pandang.pitch, Q, b, n, S0, L, zCrest, lang]
+  );
+  const gIso = useMemo(() => geometriPelimpah({ Q, b, n, S0, L, zCrest }), [Q, b, n, S0, L, zCrest]);
+  /* Tinggi bidang isometrik dari kotak batas pandangan awal (pola HS-02),
+     bukan dari sudut kini, supaya bidang tidak berubah tinggi saat diputar. */
+  const rasioIso = useMemo(
+    () => rasioIsoPelimpah({ Q, b, n, S0, L, zCrest }),
+    [Q, b, n, S0, L, zCrest]
+  );
+  const tinggiIso = `min(clamp(360px, 56vh, 620px), max(240px, calc(${rasioIso.toFixed(4)} * (100vw - ${
+    48 + 2 * MARGIN_ISO_PELIMPAH
+  }px) + ${2 * MARGIN_ISO_PELIMPAH + RUANG_JUDUL_ISO_PELIMPAH}px)))`;
 
   const zSpan = Math.max(zCrest, pangkal.ws, S0 * L, 1e-3);
   const exagg = L / zSpan / 1.9;
@@ -364,6 +457,7 @@ export function PelimpahSampingClient() {
           number="HS-10"
           title={x.sheetTitle}
           rev="A"
+          height={iso ? tinggiIso : undefined}
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "Q", value: `${fmt(Q, 1)} m³/s`, tint: C.water },
@@ -373,17 +467,45 @@ export function PelimpahSampingClient() {
               value: fSah ? `${fmt(jagaan, 2)} m` : takAda,
               tint: !fSah || tenggelam ? C.signal : undefined,
             },
-            { label: t.tbScale, value: `${x.exagg} ${fmt(exagg, 1)}×` },
+            {
+              label: t.tbScale,
+              value: iso ? `${x.isoSkala} ${fmt(gIso.ev, 0)}×` : `${x.exagg} ${fmt(exagg, 1)}×`,
+            },
           ]}
-          motion={{
-            playing,
-            onToggle: togglePutar,
-            allowed: plate.motionAllowed,
-            note: catatanGerak,
+          motion={
+            iso
+              ? undefined
+              : {
+                  playing,
+                  onToggle: togglePutar,
+                  allowed: plate.motionAllowed,
+                  note: catatanGerak,
+                }
+          }
+          views={{
+            aktif: tampak,
+            onChange: setTampak,
+            alat: <TombolPandang p={pandang} />,
+            catatan: x.isoCatatan(
+              fmt(gIso.t, 2),
+              fmt(gIso.chuteLength, 1),
+              `1 : ${fmt(1 / KEMIRINGAN_PELUNCUR, 0)}`,
+              terpotong
+            ),
           }}
         >
-          <canvas ref={plate.ref} className="block h-full w-full" />
-          <canvas ref={plate.motionRef} />
+          <canvas ref={plate.ref} className={`${iso ? "hidden" : "block"} h-full w-full`} />
+          <canvas ref={plate.motionRef} className={iso ? "hidden" : undefined} />
+          <div
+            {...pandang.permukaan}
+            role="application"
+            aria-label={t.viewSurface}
+            className={`absolute inset-0 select-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-water ${
+              iso ? "" : "hidden"
+            }`}
+          >
+            <canvas ref={refIso} className="block h-full w-full" />
+          </div>
         </Sheet>
       }
       side={
