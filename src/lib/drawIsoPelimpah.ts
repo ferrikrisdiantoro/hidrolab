@@ -543,7 +543,7 @@ export function drawIsoPelimpah(
     tunjuk(L.crest, pMercu, arah(pMercu, 26), 30, C.ink);
     if (ujungPanah.length > 0) {
       const pIn: V3 = [s.L * (0.5 / NP), -t - g.arrowTail, Z(s.zCrest + 0.04 * g.zSpan)];
-      tunjuk(`${L.inflow} q* = ${fmt(s.Q / s.L, 2)} m²/s`, pIn, arah(pIn, 24), -22, C.water);
+      tunjuk(`${L.inflow} q* = ${fmt((s.Q / s.L) * 1000, 0)} l/s·m`, pIn, arah(pIn, 24), -22, C.water);
     }
     if (adaAir) {
       const xm = pts[0].x + (s.L - pts[0].x) * 0.5;
