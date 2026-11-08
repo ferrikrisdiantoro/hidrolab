@@ -1,6 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useCanvas } from "@/lib/useCanvas";
+import {
+  ambilSampel,
+  histogram,
+  momenHipergeometrik,
+  type SampelUlang,
+} from "@/lib/sampelUlang";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -62,6 +69,32 @@ const TXT = {
     batasM: "Tangkapan ulang sudah sama dengan batasnya, min(M, n), jadi tidak dapat bertambah satu ekor lagi.",
     belajar:
       "Tangkapan ulang yang terlalu sedikit karena ikan belajar menghindari alat tangkap selalu membesarkan taksiran.",
+    blkUlang: "Ambil sampel lagi",
+    dNSim: "Populasi sebenarnya untuk simulasi",
+    ulangBantu:
+      "Tiap sampel mengulang penangkapan kedua: n ekor ditangkap acak dari N ekor yang M di antaranya bertanda. Banyaknya bertanda yang tertangkap mengisi m di lembar, dan kedua taksirannya masuk ke histogram.",
+    ambil1: "Ambil sampel lagi",
+    ambil100: "Ambil 100 sampel",
+    hapus: "Kosongkan histogram",
+    kosong: "Histogram masih kosong. Ambil sampel untuk mulai membangunnya.",
+    nKurang: (N: string, batas: string) =>
+      `Populasi sebenarnya ${N} ekor lebih kecil daripada ${batas} ekor yang ditandai atau ditangkap. Tidak ada penangkapan yang dapat ditarik; naikkan N.`,
+    penuh: (k: string) => `Histogram sudah memuat ${k} sampel, batas lembar ini. Kosongkan untuk mulai lagi.`,
+    benihTerakhir: (b: string, m: string) => `Sampel terakhir: benih ${b}, m = ${m}.`,
+    benihRentang: (a: string, b: string) => `Benih ${a} sampai ${b}; benih yang sama selalu memberi tangkapan yang sama.`,
+    dibuang: "Sampel lama dibuang karena N, M, atau n berubah.",
+    sJumlah: "Banyaknya sampel",
+    sMRerata: "Rerata m, teramati / teori nM/N",
+    sMRagam: "Ragam m, teramati / teori hipergeometrik",
+    sChap: "Rerata taksiran Chapman",
+    sPet: "Rerata taksiran Lincoln-Petersen (m > 0)",
+    sNol: "Sampel dengan m = 0 (Petersen tak terhingga)",
+    sLuar: (k: string, lo: string, hi: string) =>
+      `${k} taksiran di luar rentang histogram ${lo} sampai ${hi} tidak tergambar, tetapi tetap ikut dirata-rata.`,
+    axEst: "Taksiran populasi N̂ (ekor)",
+    axCount: "Banyaknya sampel",
+    garisN: "N sebenarnya",
+    histLabel: (k: string) => `Histogram taksiran dari ${k} sampel ulang`,
     sedikitNote:
       "Bertanda yang tertangkap ulang kurang dari tujuh ekor. Di bawah itu selang kepercayaannya melebar sampai taksirannya kehilangan arti praktis: batas atas dan batas bawah dapat terpaut berkali lipat. Angkanya tetap keluar, dan di situlah bahayanya, karena satu angka tunggal tampak lebih pasti daripada yang sebenarnya. Tambah usaha penangkapan kedua, atau tandai lebih banyak pada penangkapan pertama, sampai tangkapan ulangnya mencapai belasan.",
     note:
@@ -101,6 +134,32 @@ const TXT = {
     batasM: "The recaptures already equal their limit, min(M, n), so they cannot grow by one more.",
     belajar:
       "Too few recaptures because fish learn to avoid the gear always inflate the estimate.",
+    blkUlang: "Sample again",
+    dNSim: "True population for the simulation",
+    ulangBantu:
+      "Each sample repeats the second capture: n individuals are caught at random from N, of which M are marked. The marked count caught fills m on the sheet, and both estimates go into the histogram.",
+    ambil1: "Sample again",
+    ambil100: "Take 100 samples",
+    hapus: "Clear histogram",
+    kosong: "The histogram is empty. Take a sample to start building it.",
+    nKurang: (N: string, batas: string) =>
+      `The true population of ${N} is smaller than the ${batas} marked or caught. No capture can be drawn; raise N.`,
+    penuh: (k: string) => `The histogram already holds ${k} samples, the limit on this sheet. Clear it to start again.`,
+    benihTerakhir: (b: string, m: string) => `Last sample: seed ${b}, m = ${m}.`,
+    benihRentang: (a: string, b: string) => `Seeds ${a} to ${b}; the same seed always gives the same catch.`,
+    dibuang: "Earlier samples were discarded because N, M, or n changed.",
+    sJumlah: "Number of samples",
+    sMRerata: "Mean of m, observed / theory nM/N",
+    sMRagam: "Variance of m, observed / hypergeometric theory",
+    sChap: "Mean Chapman estimate",
+    sPet: "Mean Lincoln-Petersen estimate (m > 0)",
+    sNol: "Samples with m = 0 (Petersen infinite)",
+    sLuar: (k: string, lo: string, hi: string) =>
+      `${k} estimates outside the histogram range ${lo} to ${hi} are not drawn, but still count in the means.`,
+    axEst: "Population estimate N̂ (individuals)",
+    axCount: "Number of samples",
+    garisN: "True N",
+    histLabel: (k: string) => `Histogram of estimates from ${k} repeat samples`,
     sedikitNote:
       "Fewer than seven marked individuals were recaptured. Below that the confidence interval widens until the estimate loses practical meaning: upper and lower bounds can differ several times over. A number still appears, and that is the danger, because a single figure looks more certain than it is. Increase the second capture effort, or mark more in the first, until the recaptures reach the teens.",
     note:
@@ -127,6 +186,29 @@ const REFS = {
    taksiran (aturan 4: satu sumber nilai). */
 const P_M: ParamDef = { min: 0, max: 200, step: 1, digits: 0 };
 
+/** Populasi sebenarnya bawaan simulasi: dekat N̂ Chapman contoh bawaan (978). */
+const N_SIM_AWAL = 1000;
+/** Batas sampel di histogram, supaya lembar tetap ringan. */
+const SAMPEL_MAKS = 5000;
+const KELAS = 24;
+
+/**
+ * Rentang sumbu datar histogram, tetap selama N, M, n tetap (histogram
+ * yang sedang dibangun tidak melompat). Dari m di rerata ± 4 simpangan
+ * baku hipergeometrik: m besar memberi taksiran kecil, m kecil (tetapi
+ * > 0) memberi Petersen terbesar. Yang di luar dihitung dan ditulis.
+ */
+function rentangHistogram(N: number, M: number, n: number): { lo: number; hi: number } {
+  const { mean, variance } = momenHipergeometrik(N, M, n);
+  const sd = Math.sqrt(variance);
+  const mHi = Math.min(M, n, Math.ceil(mean + 4 * sd));
+  const mLo = Math.max(1, Math.floor(mean - 4 * sd));
+  const lo = Math.max(0, markRecapture(M, n, mHi).chapman);
+  const hi = Math.max(markRecapture(M, n, mLo).petersen, N * 1.05, lo + 1);
+  const langkah = Math.pow(10, Math.floor(Math.log10(Math.max(hi - lo, 1))) - 1);
+  return { lo: Math.floor(lo / langkah) * langkah, hi: Math.ceil(hi / langkah) * langkah };
+}
+
 export function TangkapTandaiUlangClient() {
   const { lang } = useLang();
   const t = str(lang);
@@ -146,6 +228,86 @@ export function TangkapTandaiUlangClient() {
    * kejar). Dilepas = sumbu kembali dihitung dari m.
    */
   const [kunci, setKunci] = useState<{ mMax: number; yMax: number } | null>(null);
+
+  /*
+   * Ambil sampel lagi. Histogram berlaku untuk satu kombinasi N, M, n;
+   * bila salah satunya berubah, sampel lama tidak dipakai lagi (ditulis)
+   * dan benih mulai dari 1 lagi. Lembar tidak berubah saat dimuat: m baru
+   * berganti ketika tombol ditekan.
+   */
+  const [NSim, setNSim] = useState(N_SIM_AWAL);
+  const [ulang, setUlang] = useState<{ kunci: string; sampel: SampelUlang[] }>({
+    kunci: "",
+    sampel: [],
+  });
+  const kunciUlang = `${NSim}|${M}|${n}`;
+  const basi = ulang.kunci !== kunciUlang && ulang.sampel.length > 0;
+  const sampel = ulang.kunci === kunciUlang ? ulang.sampel : [];
+  const NKurang = NSim < Math.max(M, n);
+  const penuh = sampel.length >= SAMPEL_MAKS;
+  const ambil = (k: number) => {
+    if (NKurang || penuh) return;
+    const mulai = sampel.length + 1;
+    const akhir = Math.min(SAMPEL_MAKS, sampel.length + k);
+    const baru: SampelUlang[] = [];
+    for (let b = mulai; b <= akhir; b++) baru.push(ambilSampel(NSim, M, n, b));
+    setUlang({ kunci: kunciUlang, sampel: [...sampel, ...baru] });
+    setM2(baru[baru.length - 1].m);
+    sentuh.current();
+  };
+  const terakhir = sampel.length ? sampel[sampel.length - 1] : null;
+  const teori = momenHipergeometrik(NSim, M, n);
+  const K = sampel.length;
+  const rerataM = K ? sampel.reduce((a, s) => a + s.m, 0) / K : NaN;
+  const ragamM =
+    K > 1 ? sampel.reduce((a, s) => a + (s.m - rerataM) ** 2, 0) / (K - 1) : NaN;
+  const rerataChap = K ? sampel.reduce((a, s) => a + s.chapman, 0) / K : NaN;
+  const petHingga = sampel.filter((s) => Number.isFinite(s.petersen));
+  const rerataPet = petHingga.length
+    ? petHingga.reduce((a, s) => a + s.petersen, 0) / petHingga.length
+    : NaN;
+  const nolM = K - petHingga.length;
+  const { lo: hLo, hi: hHi } = rentangHistogram(NSim, M, n);
+  const hChap = histogram(sampel.map((s) => s.chapman), hLo, hHi, KELAS);
+  const hPet = histogram(sampel.map((s) => s.petersen), hLo, hHi, KELAS);
+  const luar = hChap.diAtas + hChap.diBawah + hPet.diAtas + hPet.diBawah;
+
+  const histRef = useCanvas(
+    (ctx, w, h) => {
+      const tangga = (hg: typeof hChap) => {
+        const pts: { x: number; y: number }[] = [{ x: hg.bins[0].x0, y: 0 }];
+        for (const b of hg.bins) pts.push({ x: b.x0, y: b.count }, { x: b.x1, y: b.count });
+        pts.push({ x: hg.bins[hg.bins.length - 1].x1, y: 0 });
+        return pts;
+      };
+      const puncak = Math.max(1, ...hChap.bins.map((b) => b.count), ...hPet.bins.map((b) => b.count));
+      drawChart(
+        ctx,
+        w,
+        h,
+        {
+          xMin: hLo,
+          xMax: hHi,
+          yMin: 0,
+          yMax: Math.max(4, Math.ceil(puncak * 1.2)),
+          axisX: x.axEst,
+          axisY: x.axCount,
+          series: K
+            ? [
+                { pts: tangga(hChap), color: C.water, weight: W.thin, fill: C.waterFill },
+                { pts: tangga(hPet), color: C.critical, weight: W.thin, dash: DASH.phantom },
+              ]
+            : [],
+          rules: [
+            { axis: "x", at: NSim, color: C.ink, weight: W.thin, dash: DASH.axis, label: `${x.garisN} ${fmtPlain(NSim, 0)}` },
+          ],
+          padRight: 18,
+        },
+        lang
+      );
+    },
+    [sampel, NSim, hLo, hHi, lang]
+  );
 
   /*
    * Tangkapan bertanda tidak mungkin melebihi tangkapan keduanya sendiri.
@@ -372,6 +534,94 @@ export function TangkapTandaiUlangClient() {
                 ]}
               />
             </div>
+          </Block>
+
+          <Block heading={x.blkUlang}>
+            <p className="mb-2 text-[0.86rem] leading-[1.5] text-ink-2">{x.ulangBantu}</p>
+            <InputTable>
+              <InputRow symbol="N" label={x.dNSim} value={NSim} min={5} max={20000} step={5} digits={0} unit={x.ekor} onChange={setNSim} />
+            </InputTable>
+            {NKurang && (
+              <p role="alert" className="mt-2 text-[0.86rem] leading-[1.5] text-signal">
+                {x.nKurang(fmt(NSim, 0), fmt(Math.max(M, n), 0))}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <button
+                type="button"
+                onClick={() => ambil(1)}
+                disabled={NKurang || penuh}
+                className="h-11 border border-ink px-3 text-[0.86rem] font-semibold text-ink outline-none transition-colors hover:bg-paper-sunk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water disabled:border-rule-strong disabled:text-ink-3 disabled:hover:bg-transparent"
+              >
+                {x.ambil1}
+              </button>
+              <button
+                type="button"
+                onClick={() => ambil(100)}
+                disabled={NKurang || penuh}
+                className="label h-11 border-b border-rule-strong text-[0.8rem] text-ink-2 outline-none transition-colors hover:border-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water disabled:text-ink-3"
+              >
+                {x.ambil100}
+              </button>
+              {K > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setUlang({ kunci: "", sampel: [] })}
+                  className="label h-11 border-b border-rule-strong text-[0.8rem] text-ink-2 outline-none transition-colors hover:border-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-water"
+                >
+                  {x.hapus}
+                </button>
+              )}
+            </div>
+            <div aria-live="polite" className="mt-1 text-[0.82rem] leading-[1.5] text-ink-2">
+              {terakhir && <p>{x.benihTerakhir(fmtPlain(terakhir.benih, 0), fmtPlain(terakhir.m, 0))}</p>}
+              {K > 1 && <p className="text-ink-3">{x.benihRentang("1", fmtPlain(K, 0))}</p>}
+              {penuh && <p>{x.penuh(fmtPlain(SAMPEL_MAKS, 0))}</p>}
+              {basi && <p className="text-ink-3">{x.dibuang}</p>}
+            </div>
+            <div className="mt-2 border border-rule bg-sheet" style={{ height: 230 }}>
+              <canvas
+                ref={histRef}
+                role="img"
+                aria-label={x.histLabel(fmtPlain(K, 0))}
+                className="block h-full w-full"
+              />
+            </div>
+            {/* Legenda di DOM, bukan di dalam bidang: kotak legenda menimpa
+                label garis N sebenarnya pada kanvas sempit kolom samping. */}
+            {K > 0 && (
+              <p className="mt-1 flex flex-wrap gap-x-4 text-[0.78rem] text-ink-2" aria-hidden="true">
+                <span className="flex items-center gap-1.5">
+                  <svg width="22" height="8" viewBox="0 0 22 8"><line x1="1" y1="4" x2="21" y2="4" stroke={C.water} strokeWidth={W.thin} /></svg>
+                  Chapman
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <svg width="22" height="8" viewBox="0 0 22 8"><line x1="1" y1="4" x2="21" y2="4" stroke={C.critical} strokeWidth={W.thin} strokeDasharray={DASH.phantom.join(" ")} /></svg>
+                  Lincoln-Petersen
+                </span>
+              </p>
+            )}
+            {K === 0 ? (
+              <p className="mt-2 text-[0.82rem] text-ink-3">{x.kosong}</p>
+            ) : (
+              <div className="mt-2">
+                <ResultTable
+                  rows={[
+                    { symbol: "k", label: x.sJumlah, value: fmt(K, 0) },
+                    { symbol: "⟨m⟩", label: x.sMRerata, value: `${fmt(rerataM, 2)} / ${fmt(teori.mean, 2)}` },
+                    { symbol: "s²", label: x.sMRagam, value: K > 1 ? `${fmt(ragamM, 2)} / ${fmt(teori.variance, 2)}` : "—" },
+                    { symbol: "N̂", label: x.sChap, value: fmt(rerataChap, 1), unit: x.ekor, tint: C.water },
+                    { symbol: "N̂p", label: x.sPet, value: petHingga.length ? fmt(rerataPet, 1) : "—", unit: petHingga.length ? x.ekor : undefined, tint: C.critical },
+                    ...(nolM > 0 ? [{ symbol: "—", label: x.sNol, value: fmt(nolM, 0) }] : []),
+                  ]}
+                />
+                {luar > 0 && (
+                  <p className="mt-2 text-[0.82rem] leading-[1.5] text-ink-2">
+                    {x.sLuar(fmt(luar, 0), fmt(hLo, 0), fmt(hHi, 0))}
+                  </p>
+                )}
+              </div>
+            )}
           </Block>
 
           <Block heading={t.blkResult}>

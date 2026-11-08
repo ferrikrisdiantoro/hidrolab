@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useLang } from "@/lib/i18n";
 import { ResetButton, useResetGuard } from "./ResetScope";
 import { parsePairs, type Pt } from "@/lib/discharge";
+import { bacaBaris } from "@/lib/titikPenampang";
 
 /**
  * Tabel isian pasangan data, dengan unggah berkas.
@@ -31,20 +32,9 @@ export const rowsFromPts = (pts: Pt[]): Row[] =>
 
 /** Membaca baris isian; koma diterima sebagai pemisah desimal. */
 export function ptsFromRows(rows: Row[]): { pts: Pt[]; bad: number; off: number } {
-  const pts: Pt[] = [];
-  let bad = 0;
-  let off = 0;
-  for (const r of rows) {
-    if (r.x.trim() === "" && r.y.trim() === "") continue;
-    if (r.on === false) {
-      off++;
-      continue;
-    }
-    const x = parseFloat(r.x.replace(",", "."));
-    const y = parseFloat(r.y.replace(",", "."));
-    if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
-    else bad++;
-  }
+  // Aturannya satu, di lib (bacaBaris), supaya pegangan HY-03 yang menulis
+  // ke baris memakai pemetaan titik → baris yang sama dengan tabel ini.
+  const { pts, bad, off } = bacaBaris(rows);
   return { pts, bad, off };
 }
 
