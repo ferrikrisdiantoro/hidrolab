@@ -155,16 +155,25 @@ export function drawHidrostatika(
   );
   const padKiri = Math.max(40, Math.ceil(lebarAngka) + 28);
   const padKanan = 12;
-  const sela = sempit ? 26 : 46;
-  const isi = Math.max(60, w - padKiri - padKanan - sela);
-  const kiriW = isi * (sempit ? 0.6 : 0.62);
-  const kananW = isi - kiriW;
+  const sela = 46;
+  const tumpuk = 16;
+
+  /*
+   * Lebar: tangki di kiri, diagram di kanan, satu sumbu kedalaman. Sempit
+   * (HP): keduanya ditumpuk, tangki di atas, dengan skala kedalaman yang
+   * sama; berdampingan di 390 px membuat tangkinya selebar 130 px dan
+   * setinggi seperempat bidang. Garis sekedalaman lalu digambar di dalam
+   * diagram saja.
+   */
+  const isi = Math.max(60, w - padKiri - padKanan - (sempit ? 0 : sela));
+  const kiriW = sempit ? isi : isi * 0.62;
+  const kananW = sempit ? isi : isi - kiriW;
   const x0 = padKiri;
   const x1 = x0 + kiriW;
-  const dx0 = x1 + sela;
+  const dx0 = sempit ? x0 : x1 + sela;
   const dx1 = dx0 + kananW;
   const y0 = padT;
-  const y1 = padT + plotH;
+  const tinggiPanel = sempit ? (plotH - tumpuk) / 2 : plotH;
 
   /* ---------------- skala tangki (sama di kedua sumbu) ---------------- */
   const tebal = 9;
@@ -173,11 +182,17 @@ export function drawHidrostatika(
   const xTop = xToe + (H + fb) * cot;
   const k = Math.max(
     1e-6,
-    Math.min((kiriW - 6 - 2 * tebal - ruangKanan) / xTop, plotH / (fb + H + dasar))
+    Math.min((kiriW - 6 - 2 * tebal - ruangKanan) / xTop, tinggiPanel / (fb + H + dasar))
   );
+  /* Bertumpuk: tiap panel setinggi tangkinya saja, sisanya di bawah. */
+  const y1 = sempit ? y0 + (fb + H + dasar) * k : padT + plotH;
+  const dy0 = sempit ? y1 + tumpuk : y0;
+  const dy1 = dy0 + (y1 - y0);
   const X = (x: number) => x0 + 4 + tebal + x * k;
-  const Y = (d: number) => padT + (d + fb) * k;
-  const dBawah = plotH / k - fb;
+  const Y = (d: number) => y0 + (d + fb) * k;
+  /** Kedalaman yang sama di panel diagram. */
+  const YB = (d: number) => dy0 + (d + fb) * k;
+  const dBawah = (y1 - y0) / k - fb;
   /** Titik dinding miring pada kedalaman d, piksel. */
   const Wp = (d: number) => ({ x: X(xToe + (H - d) * cot), y: Y(d) });
   const nx = sin;
@@ -195,28 +210,29 @@ export function drawHidrostatika(
   const dTicks: number[] = [];
   for (let i = Math.ceil(-fb / dStep - 1e-9); i * dStep <= dBawah + 1e-9; i++)
     dTicks.push(i === 0 ? 0 : i * dStep);
-  const pStep = niceStep(pMax, sempit ? 2 : 4);
+  const pStep = niceStep(pMax, 4);
   const pTicks: number[] = [];
   for (let v = 0; v <= pMax + 1e-9; v += pStep) pTicks.push(v);
 
   ruling(ctx, x0, y0, x1, y1, { horizontal: dTicks.map(Y) });
-  ruling(ctx, dx0, y0, dx1, y1, { horizontal: dTicks.map(Y), vertical: pTicks.map(XP) });
-  for (const v of dTicks) axisValue(ctx, fmtPlain(v, digits), x0 - 6, Y(v), "right", "middle");
+  ruling(ctx, dx0, dy0, dx1, dy1, { horizontal: dTicks.map(YB), vertical: pTicks.map(XP) });
+  for (const v of dTicks) {
+    axisValue(ctx, fmtPlain(v, digits), x0 - 6, Y(v), "right", "middle");
+    if (sempit) axisValue(ctx, fmtPlain(v, digits), dx0 - 6, YB(v), "right", "middle");
+  }
   const pDigits = pStep < 1 ? 1 : 0;
-  pTicks.forEach((v, i) => {
-    if (sempit && i % 2 === 1 && pTicks.length > 3) return;
-    axisValue(ctx, fmtPlain(v, pDigits), XP(v), y1 + 8, "center", "top");
-  });
-  axisTitle(ctx, T.axDepth, 11, padT + plotH / 2, -Math.PI / 2);
-  axisTitle(ctx, s.absolute ? T.axAbs : T.axGauge, Math.min((dx0 + dx1) / 2, w - 70), y1 + 32);
+  pTicks.forEach((v) => axisValue(ctx, fmtPlain(v, pDigits), XP(v), dy1 + 8, "center", "top"));
+  axisTitle(ctx, T.axDepth, 11, (y0 + y1) / 2, -Math.PI / 2);
+  if (sempit) axisTitle(ctx, T.axDepth, 11, (dy0 + dy1) / 2, -Math.PI / 2);
+  axisTitle(ctx, s.absolute ? T.axAbs : T.axGauge, Math.min((dx0 + dx1) / 2, w - 70), dy1 + 32);
 
-  const kiri = createLabelPlacer(ctx, { padL: x0, padT, plotW: kiriW, plotH });
-  const kanan = createLabelPlacer(ctx, { padL: dx0, padT, plotW: kananW, plotH });
+  const kiri = createLabelPlacer(ctx, { padL: x0, padT: y0, plotW: kiriW, plotH: y1 - y0 });
+  const kanan = createLabelPlacer(ctx, { padL: dx0, padT: dy0, plotW: kananW, plotH: dy1 - dy0 });
 
   /* ================= bidang kiri: potongan tangki ================= */
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x0, y0, kiriW, plotH);
+  ctx.rect(x0, y0, kiriW, y1 - y0);
   ctx.clip();
 
   const sTop = Wp(0);
@@ -433,8 +449,8 @@ export function drawHidrostatika(
     if (d < -fb || d > dBawah) return;
     pen(ctx, W.hair, warna, dash);
     ctx.beginPath();
-    ctx.moveTo(xa, Y(d));
-    ctx.lineTo(dx1, Y(d));
+    ctx.moveTo(sempit ? dx0 : xa, YB(d));
+    ctx.lineTo(dx1, YB(d));
     ctx.stroke();
     ctx.setLineDash([]);
   };
@@ -447,17 +463,17 @@ export function drawHidrostatika(
   /* ================= bidang kanan: diagram tekanan ================= */
   ctx.save();
   ctx.beginPath();
-  ctx.rect(dx0, y0, kananW, plotH);
+  ctx.rect(dx0, dy0, kananW, dy1 - dy0);
   ctx.clip();
 
   if (s.absolute) {
     ctx.fillStyle = C.neutralFill;
-    ctx.fillRect(XP(0), Y(-fb), XP(paK) - XP(0), Y(H) - Y(-fb));
+    ctx.fillRect(XP(0), YB(-fb), XP(paK) - XP(0), YB(H) - YB(-fb));
   }
   ctx.beginPath();
-  ctx.moveTo(XP(paK), Y(0));
-  ctx.lineTo(XP(pDasar), Y(H));
-  ctx.lineTo(XP(paK), Y(H));
+  ctx.moveTo(XP(paK), YB(0));
+  ctx.lineTo(XP(pDasar), YB(H));
+  ctx.lineTo(XP(paK), YB(H));
   ctx.closePath();
   ctx.fillStyle = C.waterFill;
   ctx.fill();
@@ -466,30 +482,30 @@ export function drawHidrostatika(
   if (s.absolute) {
     pen(ctx, W.thin, C.ink2);
     ctx.beginPath();
-    ctx.moveTo(XP(paK), y0);
-    ctx.lineTo(XP(paK), Y(0));
+    ctx.moveTo(XP(paK), dy0);
+    ctx.lineTo(XP(paK), YB(0));
     ctx.stroke();
   }
   pen(ctx, W.bold, C.water);
   ctx.beginPath();
-  ctx.moveTo(XP(paK), Y(0));
-  ctx.lineTo(XP(pDasar), Y(H));
+  ctx.moveTo(XP(paK), YB(0));
+  ctx.lineTo(XP(pDasar), YB(H));
   ctx.stroke();
   pen(ctx, W.hair, C.ink3, DASH.axis);
   ctx.beginPath();
-  ctx.moveTo(dx0, Y(0));
-  ctx.lineTo(dx1, Y(0));
+  ctx.moveTo(dx0, YB(0));
+  ctx.lineTo(dx1, YB(0));
   ctx.stroke();
   pen(ctx, W.thin, C.ink2);
   ctx.beginPath();
-  ctx.moveTo(dx0, Y(H));
-  ctx.lineTo(XP(pDasar), Y(H));
+  ctx.moveTo(dx0, YB(H));
+  ctx.lineTo(XP(pDasar), YB(H));
   ctx.stroke();
   ctx.setLineDash([]);
 
   if (s.absolute && XP(paK) - XP(0) > 16) {
     ctx.save();
-    ctx.translate((XP(0) + XP(paK)) / 2, Y(H) - 6);
+    ctx.translate((XP(0) + XP(paK)) / 2, YB(H) - 6);
     ctx.rotate(-Math.PI / 2);
     ctx.font = F.region;
     ctx.fillStyle = C.ink2;
@@ -503,12 +519,12 @@ export function drawHidrostatika(
     const pc = hydrostaticPressure(s.depthCG, s.rho, undefined, s.pa) / 1000;
     pen(ctx, W.thin, C.ink);
     ctx.beginPath();
-    ctx.arc(XP(pc), Y(s.depthCG), 3, 0, Math.PI * 2);
+    ctx.arc(XP(pc), YB(s.depthCG), 3, 0, Math.PI * 2);
     ctx.stroke();
   }
   if (!s.probeInvalid && Number.isFinite(s.pProbe)) {
     const px = XP(s.pProbe / 1000);
-    const py = Y(s.probe);
+    const py = YB(s.probe);
     ctx.fillStyle = C.water;
     ctx.beginPath();
     ctx.arc(px, py, 3.4, 0, Math.PI * 2);
@@ -522,29 +538,29 @@ export function drawHidrostatika(
     kanan.write(
       `p ${fmtPlain(s.pProbe / 1000, 1)} kPa`,
       kiriAtau ? px - 7 : px + 7,
-      Y(s.probe) - 9,
+      YB(s.probe) - 9,
       C.water,
       { align: kiriAtau ? "right" : "left" }
     );
   }
   if (basah) {
-    kanan.write(`hc ${fmtPlain(s.depthCG, 2)}`, dx1 - 2, Y(s.depthCG) - 7, C.ink2, { align: "right" });
-    kanan.write(`hp ${fmtPlain(s.depthCP, 2)}`, dx1 - 2, Y(s.depthCP) + 9, C.water, { align: "right" });
+    kanan.write(`hc ${fmtPlain(s.depthCG, 2)}`, dx1 - 2, YB(s.depthCG) - 7, C.ink2, { align: "right" });
+    kanan.write(`hp ${fmtPlain(s.depthCP, 2)}`, dx1 - 2, YB(s.depthCP) + 9, C.water, { align: "right" });
   }
   ctx.restore();
 
   /* Sumbu nol tekanan dan dasar diagram. */
   pen(ctx, W.thin, C.ink2);
   ctx.beginPath();
-  ctx.moveTo(dx0, y0);
-  ctx.lineTo(dx0, y1);
-  ctx.lineTo(dx1, y1);
+  ctx.moveTo(dx0, dy0);
+  ctx.lineTo(dx0, dy1);
+  ctx.lineTo(dx1, dy1);
   ctx.stroke();
 
   /* ---------------- keluaran untuk pegangan seret ---------------- */
   const frame = { x0, y0, x1, y1 };
   const map = mapFrom(X, Y, frame, [0, Math.max(xTop, 1e-6)], [-fb, H]);
-  const tekanan = mapFrom(XP, Y, { x0: dx0, y0, x1: dx1, y1 }, [0, pMax], [-fb, H]);
+  const tekanan = mapFrom(XP, YB, { x0: dx0, y0: dy0, x1: dx1, y1: dy1 }, [0, pMax], [-fb, H]);
   const jepitY = (y: number) => Math.min(Math.max(y, y0), y1);
   const dTopJepit = Math.min(Math.max(gTop, -fb), dBawah);
   const ga = Wp(dTopJepit);

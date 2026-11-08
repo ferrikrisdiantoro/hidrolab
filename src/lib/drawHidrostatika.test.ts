@@ -73,9 +73,10 @@ describe("FF-08 drawHidrostatika", () => {
           assert.ok(Math.abs(snap(out.map.invY(pr.y), P_PROBE).value - snap(probe, P_PROBE).value) < 1e-9, "probe pulang-pergi");
           assert.ok(Math.abs(snap(out.map.invY(gt.y), P_TOP).value - snap(top, P_TOP).value) < 1e-9, "tepi atas pulang-pergi");
           const d = out.maps?.tekanan;
-          assert.ok(d && d.frame.x0 >= f.x1, "diagram berdampingan di kanan");
+          assert.ok(d && (w >= 560 ? d.frame.x0 >= f.x1 : d.frame.y0 >= f.y1), "diagram di kanan atau di bawah");
           // satu garis mendatar: kedalaman yang sama, piksel tegak yang sama
-          assert.equal(d.Y(probe), out.map.Y(probe));
+          if (w >= 560) assert.equal(d.Y(probe), out.map.Y(probe));
+          else assert.ok(Math.abs(d.Y(probe) - d.frame.y0 - (out.map.Y(probe) - f.y0)) < 1e-9);
         });
 
   it("skala tidak bergantung pada probe dan tepi atas pintu (yang diseret)", () => {
