@@ -1,7 +1,7 @@
 import { C, DASH, W } from "./theme.ts";
 import { createLabelPlacer, ground, pen } from "./plate.ts";
 import { rectsFrom, type PlateOut } from "./plateOut.ts";
-import { denilFishway, fmtPlain } from "./hydraulics.ts";
+import { DENIL_B_OVER_B0, DENIL_L_OVER_B0, denilFishway, fmtPlain } from "./hydraulics.ts";
 import { ISO, anchor3, gambarMuka, kameraPas, plateOut3, type Kamera, type Muka, type V3 } from "./proyeksi.ts";
 import { garis, prismaY, rasioBatas, sisiDekat, tulisPenunjuk } from "./isoBantu.ts";
 
@@ -9,25 +9,31 @@ import { garis, prismaY, rasioBatas, sisiDekat, tulisPenunjuk } from "./isoBantu
  * EH-02 3D: TANGGA IKAN DENIL, ISOMETRIK.
  *
  * Dari model denilFishway (hydraulics.ts):
- * - Lebar palung b, kemiringan S (lantai z = −S x), panjang L = H/S
+ * - Lebar bukaan antar sirip b0, kemiringan S (lantai z = −S x),
+ *   panjang L = H/S
  * - Muka air sejajar lantai pada kedalaman y TEGAK LURUS lantai (model),
  *   jadi tebal tegaknya y·√(1 + S²), sama dengan potongan
  *
- * Bukan dari model, mengikuti aturan gambar potongan lembar ini (siripDenil,
- * dipakai juga oleh potongan 2D):
- * - Sirip: jarak max(0,6 b; 0,25 m), tinggi tegak 0,62 y, puncak bergeser
- *   0,45 × tinggi ke hulu, tebal max(0,06 b; 0,03 m); sirip yang puncaknya
- *   menjulur ke hulu ujung palung tidak digambar. Di 3D sirip dibentang
- *   selebar palung, sama dengan potongannya; bukaan tengah dan sudut sirip
- *   Denil baku tidak ada di model (sudut sirip = permintaan tertunda klien,
- *   bukan masukan)
+ * Proporsi Denil baku (Katopodis 1992 Gbr. 5.3, Tabel 5.2; konstanta di
+ * hydraulics.ts), dipakai juga oleh potongan 2D lewat siripDenil:
+ * - Lebar dalam palung B = 1,58 b0, dinding dalam di y = ±0,79 b0
+ * - Jarak sirip 0,715 b0
+ * - Sirip pelat datar tegak lurus dinding, condong 45° ke hulu terhadap
+ *   dasar. Di 3D tiap sirip = dua sayap dari dinding dalam sampai
+ *   |y| = b0/2 dan ambang bawah di bukaan tengah selebar b0 (ikan lewat di
+ *   sumbu)
+ *
+ * Skematik (tidak terbaca dari sumber, tertulis di catatan lembar):
+ * - Tinggi sayap 1,15 y dan tinggi ambang min(0,25 b0; 0,35 y), keduanya
+ *   tegak lurus lantai; tebal pelat max(0,06 b0; 0,03 m) sejajar lantai.
+ *   Sirip yang puncaknya menjulur ke hulu ujung palung tidak digambar
  * - Panjang tergambar min(L, 8 m); bila L > 8 m tertulis di gambar
- * - Tinggi dinding 1,25 × tebal air tegak, tebal dinding dan pelat: skematik
+ * - Tinggi dinding 1,25 × tebal air tegak, tebal dinding dan pelat
  *
  * ALIRAN SEKUNDER (putaran balik di dekat dinding dan dasar) TIDAK
- * digambar: model tidak memuatnya, dan sumber medan alirannya (Rajaratnam
- * & Katopodis) belum dibuka. Panah aliran hanya satu, di sumbu muka air,
- * berlabel kecepatan sumbu model (Vmaks).
+ * digambar: model tidak memuatnya. Panah aliran hanya satu, di sumbu
+ * palung pada 75 % kedalaman, berlabel kecepatan acuan model um'
+ * (Katopodis 1992 pers. 5.2).
  *
  * Koordinat: x mendatar searah aliran dari ujung hulu palung, y melintang
  * dengan sumbu palung di y = 0, z elevasi (lantai di ujung hulu z = 0).
@@ -36,7 +42,7 @@ import { garis, prismaY, rasioBatas, sisiDekat, tulisPenunjuk } from "./isoBantu
  */
 
 export type IsoDenilState = {
-  /** Lebar palung antar sirip, m */
+  /** Lebar bukaan antar sirip b0, m (lebar dalam palung 1,58 b0) */
   b: number;
   /** Kedalaman aliran tegak lurus dasar, m */
   y: number;
@@ -64,28 +70,54 @@ export type IsoDenilOptions = {
 /** Panjang palung tergambar paling panjang, m (sama dengan potongan). */
 export const PANJANG_GAMBAR_MAKS = 8;
 
+/** Tinggi sayap sirip tegak lurus lantai, × y (skematik). */
+export const DENIL_SAYAP_PER_Y = 1.15;
+
 /**
- * Aturan gambar sirip potongan EH-02. SATU sumber untuk potongan 2D dan
- * isometrik (isinya loop potongan sebelum 3D, diuji sama).
+ * Aturan sirip EH-02. SATU sumber untuk potongan 2D dan isometrik.
+ * Jarak dan sudut dari proporsi baku; tinggi sayap, tinggi ambang, dan
+ * tebal pelat skematik (lihat komentar berkas).
  */
-export function siripDenil(b: number, y: number, panjang: number) {
-  const jarakSirip = Math.max(b * 0.6, 0.25);
-  const jumlah = Math.max(2, Math.floor(panjang / jarakSirip));
+export function siripDenil(b: number, y: number, S: number, panjang: number) {
+  const jarakSirip = DENIL_L_OVER_B0 * b;
   const tebal = Math.max(b * 0.06, 0.03);
-  // Sirip penahan: bidang tipis miring ke hulu, tingginya sebagian
-  // kedalaman palung. Sirip yang puncaknya akan menjulur ke hulu
-  // melewati ujung palung (x < 0, di luar genangan; y besar dan S
-  // curam) tidak digambar.
-  const tinggi = y * 0.62;
-  const miring = tinggi * 0.45;
+  /** Tinggi sayap tegak lurus lantai, m. */
+  const tinggi = DENIL_SAYAP_PER_Y * y;
+  /** Tinggi ambang bawah bukaan tegak lurus lantai, m. */
+  const ambang = Math.min(0.25 * b, 0.35 * y);
+  const k = Math.sqrt(1 + S * S);
+  /* Pelat condong 45° ke hulu: dari kaki, h ke arah normal lantai
+     (S, 1)/k dan h ke arah hulu lantai (−1, S)/k. Mundur mendatarnya
+     h (1 − S)/k; sirip yang puncaknya jatuh di x < 0 tidak digambar. */
+  const miring = (tinggi * (1 - S)) / k;
   const iPertama = Math.max(1, Math.ceil((miring - 1e-9) / jarakSirip));
   const xs: number[] = [];
-  for (let i = iPertama; i <= jumlah; i++) {
+  for (let i = iPertama; ; i++) {
     const xx = i * jarakSirip;
     if (xx > panjang) break;
     xs.push(xx);
   }
-  return { jarakSirip, tebal, tinggi, miring, xs };
+  return { jarakSirip, tebal, tinggi, ambang, miring, xs };
+}
+
+/**
+ * Profil pelat sirip di bidang xz (potongan memanjang): kaki di lantai
+ * z = −S x pada x = xf, tebal sejajar lantai ke hilir, tinggi h tegak
+ * lurus lantai, condong 45° ke hulu. Urutan: kaki hulu, kaki hilir,
+ * puncak hilir, puncak hulu.
+ */
+export function profilSirip(xf: number, S: number, tebal: number, h: number): { x: number; z: number }[] {
+  const k = Math.sqrt(1 + S * S);
+  const dx = 1 / k, dz = -S / k; // arah hilir lantai
+  const ux = (S - 1) / k, uz = (1 + S) / k; // h (normal − hilir)
+  const x0 = xf, z0 = -S * xf;
+  const x1 = x0 + tebal * dx, z1 = z0 + tebal * dz;
+  return [
+    { x: x0, z: z0 },
+    { x: x1, z: z1 },
+    { x: x1 + h * ux, z: z1 + h * uz },
+    { x: x0 + h * ux, z: z0 + h * uz },
+  ];
 }
 
 export type PeranDenil =
@@ -99,6 +131,7 @@ export type PeranDenil =
   | "ujung"
   | "sirip"
   | "sirip-potong"
+  | "ambang"
   | "garis-air"
   | "tepi";
 
@@ -139,9 +172,11 @@ function bangun(s: IsoDenilState, sisi: -1 | 1): MukaDenil {
   const r = denilFishway(s.b, s.y, s.S, s.rise);
   const panjang = Math.min(r.runLength, PANJANG_GAMBAR_MAKS);
   const terpotong = r.runLength > PANJANG_GAMBAR_MAKS;
-  const aturan = siripDenil(s.b, s.y, panjang);
+  const aturan = siripDenil(s.b, s.y, s.S, panjang);
   const yT = r.depth * Math.sqrt(1 + s.S * s.S);
-  const hd = s.b / 2;
+  // Dinding dalam di ±B/2 = ±0,79 b0; bukaan tengah ±b0/2.
+  const hd = (DENIL_B_OVER_B0 / 2) * s.b;
+  const hb = s.b / 2;
   const tw = Math.max(0.1 * s.b, 0.04);
   const slab = aturan.tebal * 2;
   const zAtasRel = 1.25 * yT;
@@ -218,23 +253,26 @@ function bangun(s: IsoDenilState, sisi: -1 | 1): MukaDenil {
     "air-atas"
   );
 
-  // Sirip: potongan 2D disapu selebar palung.
+  /* Sirip: dua sayap dari dinding dalam ke tepi bukaan (|y| = b0/2) dan
+     ambang bawah di bukaan. Sisi ambang di ±b0/2 berimpit dengan muka
+     dalam sayap, jadi tidak dipasang. */
   const sirip: MukaDenil["sirip"] = [];
+  const gSirip = { garis: C.ink, bobot: W.bold, satuSisi: true, lapis: L_SIRIP } as const;
   for (const xx of aturan.xs) {
-    const z0 = dasar(xx);
-    const alas = [
-      { x: xx, z: z0 },
-      { x: xx + aturan.tebal, z: z0 },
-      { x: xx + aturan.tebal - aturan.miring, z: z0 + aturan.tinggi },
-      { x: xx - aturan.miring, z: z0 + aturan.tinggi },
-    ];
-    const pr = prismaY(alas, -hd, hd, { garis: C.ink, bobot: W.bold, satuSisi: true, lapis: L_SIRIP });
-    const dekat = sisi < 0 ? pr.sisi0 : pr.sisi1;
-    const jauh = sisi < 0 ? pr.sisi1 : pr.sisi0;
-    tambah({ ...dekat, lapis: L_SIRIP_POTONG }, "sirip-potong");
-    tambah(jauh, "sirip");
-    for (const m of pr.selubung) tambah(m, "sirip");
-    sirip.push({ x: xx, puncakX: xx - aturan.miring, puncakZ: z0 + aturan.tinggi });
+    const sayap = profilSirip(xx, s.S, aturan.tebal, aturan.tinggi);
+    const jauh = prismaY(sayap, far * hb, far * hd, gSirip);
+    tambah(jauh.sisi0, "sirip");
+    tambah(jauh.sisi1, "sirip");
+    for (const m of jauh.selubung) tambah(m, "sirip");
+    const dekat = prismaY(sayap, sisi * hb, sisi * hd, gSirip);
+    // Muka sayap dekat di bidang potong (y = sisi·hd) = sayap terpotong.
+    tambah({ ...dekat.sisi1, lapis: L_SIRIP_POTONG }, "sirip-potong");
+    tambah(dekat.sisi0, "sirip");
+    for (const m of dekat.selubung) tambah(m, "sirip");
+    const amb = prismaY(profilSirip(xx, s.S, aturan.tebal, aturan.ambang), -hb, hb, gSirip);
+    for (const m of amb.selubung) tambah(m, "ambang");
+    const puncak = sayap[3];
+    sirip.push({ x: xx, puncakX: puncak.x, puncakZ: puncak.z });
   }
 
   // Garis: muka air di dinding jauh dan di bidang potong, tepi benda.
@@ -339,13 +377,14 @@ export function drawIsoDenil(
   const placer = createLabelPlacer(ctx, { padL: 0, padT: 0, plotW: w, plotH: h });
   if (opts.heading) placer.write(opts.heading, w / 2, 20, opts.headingColor ?? C.ink3, { big: true });
 
-  /* Panah aliran di sumbu muka air (searah aliran), berlabel kecepatan
-     sumbu model. Bukan medan aliran: satu besaran, satu panah. */
-  const yT = r.depth * Math.sqrt(1 + s.S * s.S);
+  /* Panah aliran di sumbu palung pada 75 % kedalaman (searah aliran),
+     berlabel kecepatan acuan model um' (Katopodis 1992 pers. 5.2). Bukan
+     medan aliran: satu besaran, satu panah. */
+  const y75 = 0.75 * r.depth * Math.sqrt(1 + s.S * s.S);
   const xa = g.panjang * 0.18;
   const xb = g.panjang * 0.4;
-  const A = anchor3([xa, 0, -s.S * xa + yT], k);
-  const B = anchor3([xb, 0, -s.S * xb + yT], k);
+  const A = anchor3([xa, 0, -s.S * xa + y75], k);
+  const B = anchor3([xb, 0, -s.S * xb + y75], k);
   const warnaPanah = tidakMampu ? C.caution : C.water;
   const dx = B.x - A.x, dy = B.y - A.y;
   const Lp = Math.hypot(dx, dy);
@@ -370,7 +409,7 @@ export function drawIsoDenil(
     ctx.restore();
   }
   const xm = (xa + xb) / 2;
-  tulisPenunjuk(ctx, placer, `Vmaks ${fmtPlain(r.maxVelocity, 2)} m/s`, [xm, 0, -s.S * xm + yT], k, 20, -30, warnaPanah, w);
+  tulisPenunjuk(ctx, placer, `um' ${fmtPlain(r.maxVelocity, 2)} m/s`, [xm, 0, -s.S * xm + y75], k, 20, -30, warnaPanah, w);
   tulisPenunjuk(ctx, placer, `y ${fmtPlain(r.depth, 2)} m`, g.titik.y, k, 22, 26, C.water, w);
   if (g.titik.sirip && opts.teks?.sirip) tulisPenunjuk(ctx, placer, opts.teks.sirip, g.titik.sirip, k, -24, 30, C.ink, w);
   if (g.terpotong && opts.teks?.terpotong)

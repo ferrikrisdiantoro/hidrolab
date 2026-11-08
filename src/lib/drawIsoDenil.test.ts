@@ -9,12 +9,12 @@ import {
   siripDenil,
   type IsoDenilState,
 } from "./drawIsoDenil.ts";
-import { denilFishway } from "./hydraulics.ts";
+import { DENIL_B_OVER_B0, DENIL_L_OVER_B0, denilFishway } from "./hydraulics.ts";
 import { ISO, anchor3, arahPandang, gambarMuka, urutMuka, type Kamera } from "./proyeksi.ts";
 
 /*
- * EH-02 isometrik: palung miring dari denilFishway (b, y, S, L = H/S),
- * sirip dari aturan gambar potongan yang sama, muka air sejajar lantai
+ * EH-02 isometrik: palung miring dari denilFishway (b0, y, S, L = H/S),
+ * sirip berproporsi Denil baku (satu aturan dengan potongan), muka air sejajar lantai
  * pada kedalaman model, aliran sekunder TIDAK digambar.
  */
 
@@ -43,37 +43,93 @@ const KASUS: IsoDenilState[] = [
   { b: 0.6, y: 1.2, S: 0.12, rise: 3, burst: 2.5 }, // L 25 m: digambar 8 m
 ];
 
-/** Salinan loop sirip potongan lama TanggaIkanDenilClient (sebelum 3D). */
-function siripLama(b: number, y: number, panjang: number) {
-  const jarakSirip = Math.max(b * 0.6, 0.25);
-  const jumlah = Math.max(2, Math.floor(panjang / jarakSirip));
-  const tebal = Math.max(b * 0.06, 0.03);
-  const tinggi = y * 0.62;
-  const miring = tinggi * 0.45;
-  const iPertama = Math.max(1, Math.ceil((miring - 1e-9) / jarakSirip));
-  const xs: number[] = [];
-  for (let i = iPertama; i <= jumlah; i++) {
-    const xx = i * jarakSirip;
-    if (xx > panjang) break;
-    xs.push(xx);
-  }
-  return { jarakSirip, tebal, tinggi, miring, xs };
-}
+/*
+ * Proporsi Denil baku (Katopodis 1992 Gbr. 5.3, Tabel 5.2; spesifikasi
+ * EH02-DENIL.md): lebar dalam B = 1,58 b0 (dinding ±0,79 b0), bukaan tengah
+ * b0, jarak sirip 0,715 b0, pelat datar condong 45° ke hulu terhadap dasar.
+ */
+describe("EH-02 isometrik: proporsi Denil baku", () => {
+  for (const s of KASUS) {
+    const r = denilFishway(s.b, s.y, s.S, s.rise);
+    const panjang = Math.min(r.runLength, PANJANG_GAMBAR_MAKS);
+    const k = Math.sqrt(1 + s.S * s.S);
+    /** Tinggi tegak lurus lantai z = −S x. */
+    const tinggiN = (q: readonly number[]) => (q[2] + s.S * q[0]) / k;
 
-describe("EH-02 isometrik: aturan sirip sama dengan potongan", () => {
-  for (const s of KASUS)
-    it(`siripDenil = loop potongan lama (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
-      const r = denilFishway(s.b, s.y, s.S, s.rise);
-      const panjang = Math.min(r.runLength, 8);
-      const lama = siripLama(s.b, s.y, panjang);
-      const baru = siripDenil(s.b, s.y, panjang);
-      assert.deepEqual(baru, lama);
+    it(`jarak sirip 0,715 b0 (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
+      const aturan = siripDenil(s.b, s.y, s.S, panjang);
+      assert.ok(Math.abs(aturan.jarakSirip - DENIL_L_OVER_B0 * s.b) < 1e-12);
+      assert.ok(aturan.xs.length >= 2);
+      for (let i = 1; i < aturan.xs.length; i++)
+        assert.ok(Math.abs(aturan.xs[i] - aturan.xs[i - 1] - DENIL_L_OVER_B0 * s.b) < 1e-9);
+      const g = mukaDenil(s, -1);
+      assert.deepEqual(
+        g.sirip.map((q) => q.x),
+        aturan.xs
+      );
     });
+
+    it(`sirip condong 45° ke hulu terhadap dasar (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
+      const g = mukaDenil(s, -1);
+      assert.ok(g.sirip.length > 0);
+      for (const q of g.sirip) {
+        // Arah dasar ke hulu (−1, S)/k; kaki di lantai, puncak di hulu kaki.
+        const vx = q.puncakX - q.x, vz = q.puncakZ - -s.S * q.x;
+        const L = Math.hypot(vx, vz);
+        const cos = (vx * -1 + vz * s.S) / (k * L);
+        assert.ok(Math.abs(Math.acos(cos) - Math.PI / 4) < 1e-9, `${Math.acos(cos)}`);
+        assert.ok(q.puncakX < q.x);
+      }
+    });
+
+    it(`dinding dan lantai di ±0,79 b0 (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
+      for (const sisi of [-1, 1] as const) {
+        const g = mukaDenil(s, sisi);
+        let n = 0;
+        for (let i = 0; i < g.muka.length; i++)
+          if (g.peran[i] === "dinding-dalam" || g.peran[i] === "lantai")
+            for (const q of g.muka[i].pts) {
+              assert.ok(Math.abs(Math.abs(q[1]) - (DENIL_B_OVER_B0 / 2) * s.b) < 1e-9, `${q}`);
+              n++;
+            }
+        assert.ok(n > 0);
+      }
+    });
+
+    it(`bukaan tengah b0: tidak ada titik sirip di |y| < b0/2 di atas ambang (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
+      const aturan = siripDenil(s.b, s.y, s.S, panjang);
+      assert.ok(aturan.ambang > 0 && aturan.ambang < aturan.tinggi);
+      for (const sisi of [-1, 1] as const) {
+        const g = mukaDenil(s, sisi);
+        let nSayap = 0, nAmbang = 0;
+        for (let i = 0; i < g.muka.length; i++) {
+          const p = g.peran[i];
+          if (p !== "sirip" && p !== "sirip-potong" && p !== "ambang") continue;
+          const pts = g.muka[i].pts;
+          let yMin = Infinity, yMax = -Infinity;
+          for (const q of pts) {
+            assert.ok(Math.abs(q[1]) <= (DENIL_B_OVER_B0 / 2) * s.b + 1e-9, `di luar dinding ${q}`);
+            yMin = Math.min(yMin, q[1]);
+            yMax = Math.max(yMax, q[1]);
+          }
+          // Muka yang menutup sebagian bukaan (−b0/2, b0/2) hanya boleh
+          // setinggi ambang; sayap tidak masuk bukaan sama sekali.
+          if (yMin < s.b / 2 - 1e-9 && yMax > -s.b / 2 + 1e-9) {
+            for (const q of pts) assert.ok(tinggiN(q) <= aturan.ambang + 1e-9, `${p} ${q} di atas ambang`);
+            nAmbang++;
+          } else if (pts.some((q) => tinggiN(q) > aturan.ambang + 1e-9)) nSayap++;
+          for (const q of pts)
+            if (Math.abs(q[1]) < s.b / 2 - 1e-9) assert.ok(tinggiN(q) <= aturan.ambang + 1e-9, `${p} ${q}`);
+        }
+        assert.ok(nSayap > 0 && nAmbang > 0);
+      }
+    });
+  }
 });
 
 describe("EH-02 isometrik: geometri = model", () => {
   for (const s of KASUS)
-    it(`lantai z = −S x, muka air tegak lurus lantai sejauh y, lebar b (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
+    it(`lantai z = −S x, muka air tegak lurus lantai sejauh y, lebar 1,58 b0 (b ${s.b}, y ${s.y}, S ${s.S})`, () => {
       const r = denilFishway(s.b, s.y, s.S, s.rise);
       const g = mukaDenil(s, -1);
       const yT = s.y * Math.sqrt(1 + s.S * s.S);
@@ -82,7 +138,7 @@ describe("EH-02 isometrik: geometri = model", () => {
         for (const q of g.muka[i].pts) {
           if (g.peran[i] === "lantai") {
             assert.ok(Math.abs(q[2] + s.S * q[0]) < 1e-9, `lantai ${q}`);
-            assert.ok(Math.abs(Math.abs(q[1]) - s.b / 2) < 1e-9);
+            assert.ok(Math.abs(Math.abs(q[1]) - (DENIL_B_OVER_B0 / 2) * s.b) < 1e-9);
             nL++;
           }
           if (g.peran[i] === "air-atas") {
@@ -93,7 +149,7 @@ describe("EH-02 isometrik: geometri = model", () => {
             nA++;
           }
           if (g.peran[i] === "dinding-dalam") {
-            assert.ok(Math.abs(Math.abs(q[1]) - s.b / 2) < 1e-9);
+            assert.ok(Math.abs(Math.abs(q[1]) - (DENIL_B_OVER_B0 / 2) * s.b) < 1e-9);
             nD++;
           }
         }
@@ -103,23 +159,6 @@ describe("EH-02 isometrik: geometri = model", () => {
       assert.ok(Math.abs(g.panjang - Math.min(r.runLength, PANJANG_GAMBAR_MAKS)) < 1e-12);
       assert.equal(g.terpotong, r.runLength > PANJANG_GAMBAR_MAKS);
     });
-
-  it("sirip: posisi, tinggi 0,62 y, miring ke hulu, selebar palung", () => {
-    const g = mukaDenil(DASAR, -1);
-    const r = denilFishway(DASAR.b, DASAR.y, DASAR.S, DASAR.rise);
-    const aturan = siripDenil(DASAR.b, DASAR.y, Math.min(r.runLength, 8));
-    assert.equal(g.sirip.length, aturan.xs.length);
-    for (let k = 0; k < g.sirip.length; k++) {
-      const sr = g.sirip[k];
-      assert.ok(Math.abs(sr.x - aturan.xs[k]) < 1e-12);
-      // Puncak di hulu kaki (miring ke hulu), tinggi tegak 0,62 y.
-      assert.ok(sr.puncakX < sr.x);
-      assert.ok(Math.abs(sr.puncakZ - (-DASAR.S * sr.x + 0.62 * DASAR.y)) < 1e-9);
-    }
-    for (let i = 0; i < g.muka.length; i++)
-      if (g.peran[i] === "sirip")
-        for (const q of g.muka[i].pts) assert.ok(Math.abs(q[1]) <= DASAR.b / 2 + 1e-12);
-  });
 
   it("aliran sekunder tidak digambar: tidak ada muka atau tulisan aliran sekunder", () => {
     const g = mukaDenil(DASAR, -1);

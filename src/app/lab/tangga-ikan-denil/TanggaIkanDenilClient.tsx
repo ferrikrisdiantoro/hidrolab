@@ -30,13 +30,20 @@ import {
   PANJANG_GAMBAR_MAKS,
   RUANG_JUDUL_ISO,
   drawIsoDenil,
+  profilSirip,
   rasioIsoDenil,
   siripDenil,
 } from "@/lib/drawIsoDenil";
 import {
+  DENIL_B_OVER_B0,
+  DENIL_Q_COEF,
   DENIL_RUN_MAX,
   DENIL_SLOPE_MAX,
   DENIL_SLOPE_MIN,
+  DENIL_UM_COEF,
+  DENIL_UM_EXP,
+  DENIL_YB_MAX,
+  DENIL_YB_MIN,
   FISHWAY_POWER_GENERAL,
   G,
   denilFishway,
@@ -58,8 +65,8 @@ const TXT = {
     aksoHeading: "tampak 3D (aksonometri)",
     isoTerpotong: (L: string) => `L = ${L} m, digambar ${PANJANG_GAMBAR_MAKS} m pertama`,
     isoCatatan:
-      "Gambar 3D skematik. Lebar palung, kemiringan, panjang, dan kedalaman air (tegak lurus lantai) dari model. Model tidak memuat bentuk sirip: jarak, tinggi, dan kemiringan sirip mengikuti aturan gambar potongan lembar ini, dan sirip dibentang selebar palung seperti potongannya; bukaan tengah dan sudut sirip Denil baku tidak digambar. Aliran sekunder (putaran balik di dekat dinding dan dasar) tidak digambar: model tidak memuatnya dan sumbernya belum dibuka. Tinggi dan tebal dinding skematik. Dinding sisi dekat dibuang supaya sirip dan air terlihat.",
-    dB: "Lebar palung antar sirip",
+      "Gambar 3D skematik. Lebar bukaan b0, kemiringan, panjang, dan kedalaman air (tegak lurus lantai) dari model. Proporsi sirip dari Denil baku (Katopodis 1992 Gbr. 5.3 dan Tabel 5.2): lebar dalam palung 1,58 b0, bukaan tengah selebar b0 tempat ikan lewat, jarak sirip 0,715 b0, pelat datar condong 45° ke hulu terhadap dasar. Tinggi sayap sirip, tinggi ambang bawah bukaan, serta tinggi dan tebal dinding skematik karena tidak terbaca dari sumber. Aliran sekunder (putaran balik di dekat dinding dan dasar) tidak digambar karena model tidak memuatnya. Dinding sisi dekat dibuang supaya sirip dan air terlihat.",
+    dB: "Lebar bukaan antar sirip (b0), lebar palung B ≈ 1,58 b0",
     dY: "Kedalaman aliran tegak lurus dasar",
     dS: "Kemiringan palung",
     dRise: "Beda tinggi seluruhnya",
@@ -71,7 +78,7 @@ const TXT = {
     gS: "Kemiringan palung S, seret ujung hilir lantai palung naik atau turun",
     rQ: "Debit yang lewat",
     rVmean: "Kecepatan rata-rata",
-    rVmax: "Kecepatan di sumbu palung",
+    rVmax: "Kecepatan acuan di sumbu, pada 75 % kedalaman (um')",
     rEps: "Lesapan daya per satuan isi",
     rRasio: "Terhadap batas tangga berkolam",
     rLength: "Panjang palung",
@@ -86,7 +93,14 @@ const TXT = {
     aman: "Dapat dilewati",
     hRasio: "Kedalaman nisbi dan debit tak berdimensi",
     hQ: "Debit",
-    hV: "Kecepatan rata-rata dan di sumbu",
+    hV: "Kecepatan rata-rata pada luas palung B · y",
+    hUm: "Kecepatan acuan di sumbu (um')",
+    umNote:
+      "Pada Denil papan datar kecepatan naik dari dasar ke muka air, jadi um' adalah skala kecepatan, bukan puncak mutlak; di dekat muka air arusnya sedikit lebih cepat (Katopodis 1992 hlm. 20 dan 22). Ikan melawan arus ini sepanjang palung tanpa jeda, jadi bandingkan dengan kecepatan sentak (burst) yang hanya bertahan kurang dari 15 detik (hlm. 2).",
+    epsNote:
+      "Pembanding saja: batas 150 W/m³ berlaku untuk tangga berkolam; Katopodis (1992) tidak memberi batas lesapan untuk Denil.",
+    ybLuar: (v: string) =>
+      `y/b = ${v} di luar rentang data kurva debit (0,5 sampai 5,8, Katopodis 1992 Tabel 5.2); Q adalah ekstrapolasi.`,
     hEps: "Lesapan daya per isi palung",
     hL: "Panjang palung",
     banding: "dibanding",
@@ -94,10 +108,10 @@ const TXT = {
       "Kemiringan palung di luar rentang sepersepuluh sampai seperempat. Di bawahnya sirip penahan tidak lagi menimbulkan putaran balik yang cukup dan palungnya berperilaku seperti saluran biasa, sehingga tidak ada gunanya memasang sirip sama sekali. Di atasnya kecepatan di sumbu palung naik melampaui yang sanggup dilawan hampir semua jenis ikan sungai, dan tangga ikannya menjadi penghalang alih-alih lintasan. Kurva rancangan Denil yang dipakai di sini pun hanya diterbitkan pada rentang itu.",
     lambat: "Ikan tidak sanggup melawan arus di sumbu palung",
     lambatNote:
-      "Kecepatan di sumbu palung melampaui kecepatan sentak ikan rancangan, sehingga ikan tidak dapat maju berapa pun kuatnya ia berenang. Perlu diingat bahwa kecepatan sentak hanya dapat dipertahankan sekitar dua puluh detik, jadi memenuhi syarat ini tepat di ambangnya berarti merancang palung yang hanya dapat dilewati sekali oleh ikan yang benar-benar segar. Landaikan palungnya, atau pilih jenis ikan rancangan yang lebih lemah dan rancang untuknya.",
+      "Kecepatan acuan di sumbu palung (um') melampaui kecepatan sentak ikan rancangan, sehingga ikan tidak dapat maju. Perlu diingat bahwa kecepatan sentak hanya dapat dipertahankan kurang dari 15 detik, jadi memenuhi syarat ini tepat di ambangnya berarti merancang palung yang hanya dapat dilewati sekali oleh ikan yang benar-benar segar. Landaikan palungnya, atau pilih jenis ikan rancangan yang lebih lemah dan rancang untuknya.",
     istirahat: "Butuh kolam istirahat",
     istirahatNote:
-      "Palungnya lebih panjang daripada sepuluh meter tanpa kolam istirahat. Karena ikan melewati tangga Denil dengan berenang sentak dan bukan berenang jelajah, panjang palung tanpa jeda dibatasi oleh berapa lama sentakan itu dapat dipertahankan, bukan oleh kekuatan bangunannya. Sisipkan kolam istirahat setiap enam sampai sepuluh meter panjang palung.",
+      "Palungnya lebih panjang daripada sepuluh meter tanpa kolam istirahat. Karena ikan melewati tangga Denil dengan berenang sentak dan bukan berenang jelajah, panjang palung tanpa jeda dibatasi oleh berapa lama sentakan itu dapat dipertahankan, bukan oleh kekuatan bangunannya. Sisipkan kolam istirahat setiap 5–10 m untuk ikan air tawar dan 10–15 m untuk salmon (Katopodis 1992 hlm. 5).",
     note:
       "Yang membuat tangga Denil bekerja bukan penghalangan melainkan pembalikan. Sirip yang miring ke hulu memaksa sebagian air berputar balik di dekat dinding dan dasar palung, dan putaran balik itu melesap tenaga tanpa menutup lintasan di tengah. Ikan berenang di sepanjang sumbu, tempat airnya masih mengalir maju tetapi jauh lebih lambat daripada kemiringan palungnya seharusnya membuatnya. Harga yang dibayar untuk lintasan yang jauh lebih pendek daripada tangga berkolam adalah keteradukan: lesapan daya di dalam palung Denil belasan sampai puluhan kali batas yang diterima tangga berkolam. Itu bukan cacat rancangan melainkan ciri alatnya, dan akibatnya jelas: Denil hanya cocok untuk jenis ikan yang kuat berenang, selalu menuntut kolam istirahat pada jarak tertentu, dan sama sekali tidak cocok untuk ikan kecil atau ikan yang bergerak di dasar.",
   },
@@ -108,8 +122,8 @@ const TXT = {
     aksoHeading: "3D view (axonometric)",
     isoTerpotong: (L: string) => `L = ${L} m, first ${PANJANG_GAMBAR_MAKS} m drawn`,
     isoCatatan:
-      "Schematic 3D drawing. Trough width, slope, length and water depth (normal to the invert) come from the model. The model does not hold the baffle shape: baffle spacing, height and lean follow this sheet's section drawing rule, and the baffles span the trough as in the section; the central opening and baffle angle of a standard Denil are not drawn. Secondary flow (the reverse rotation near the walls and invert) is not drawn: the model does not hold it and its source has not been opened. Wall height and thickness are schematic. The near sidewall is removed so the baffles and water can be seen.",
-    dB: "Trough width between baffles",
+      "Schematic 3D drawing. Opening width b0, slope, length and water depth (normal to the invert) come from the model. Baffle proportions follow the standard Denil (Katopodis 1992 Fig. 5.3 and Table 5.2): inside trough width 1.58 b0, a central opening b0 wide where the fish passes, baffle spacing 0.715 b0, flat plates inclined 45° upstream to the invert. Baffle wing height, the height of the sill under the opening, and wall height and thickness are schematic because the source does not give them. Secondary flow (the reverse rotation near the walls and invert) is not drawn because the model does not hold it. The near sidewall is removed so the baffles and water can be seen.",
+    dB: "Baffle opening width (b0), trough width B ≈ 1.58 b0",
     dY: "Flow depth normal to the invert",
     dS: "Trough slope",
     dRise: "Total rise",
@@ -121,7 +135,7 @@ const TXT = {
     gS: "Trough slope S, drag the downstream end of the trough floor up or down",
     rQ: "Discharge through the trough",
     rVmean: "Mean velocity",
-    rVmax: "Velocity on the trough axis",
+    rVmax: "Centreline reference velocity at 75 % of depth (um')",
     rEps: "Power dissipated per unit volume",
     rRasio: "Against the pool fishway limit",
     rLength: "Trough length",
@@ -136,7 +150,14 @@ const TXT = {
     aman: "Passable",
     hRasio: "Relative depth and dimensionless discharge",
     hQ: "Discharge",
-    hV: "Mean and axial velocity",
+    hV: "Mean velocity over the trough area B · y",
+    hUm: "Centreline reference velocity (um')",
+    umNote:
+      "In a plain Denil velocity rises from the floor to the surface, so um' is a velocity scale, not the absolute peak; flow near the surface is somewhat faster (Katopodis 1992 pp. 20 and 22). Fish swim against it along the whole run without a break, so compare it with the burst speed, which lasts under 15 seconds (p. 2).",
+    epsNote:
+      "For comparison only: the 150 W/m³ limit applies to pool fishways; Katopodis (1992) gives no dissipation limit for Denils.",
+    ybLuar: (v: string) =>
+      `y/b = ${v} is outside the rating data range (0.5 to 5.8, Katopodis 1992 Table 5.2); Q is an extrapolation.`,
     hEps: "Dissipation per trough volume",
     hL: "Trough length",
     banding: "against",
@@ -144,10 +165,10 @@ const TXT = {
       "The trough slope lies outside one tenth to one quarter. Below it the baffles no longer set up enough reverse rotation and the trough behaves like an ordinary channel, so fitting baffles at all serves no purpose. Above it the axial velocity rises past what almost any river species can beat, and the fishway becomes a barrier rather than a passage. The Denil design curves used here are only published within that range in any case.",
     lambat: "The fish cannot beat the axial velocity",
     lambatNote:
-      "The velocity on the trough axis exceeds the burst speed of the design fish, so the fish cannot advance however hard it swims. Remember that burst speed can be held for only about twenty seconds, so meeting this condition exactly at its limit means designing a trough that can be passed once by a genuinely fresh fish. Flatten the trough, or choose a weaker design species and design for that.",
+      "The centreline reference velocity (um') exceeds the design fish's burst speed, so the fish cannot advance. Remember that burst speed can be held for under 15 seconds, so meeting this condition exactly at its limit means designing a trough that can be passed once by a genuinely fresh fish. Flatten the trough, or choose a weaker design species and design for that.",
     istirahat: "Resting pool required",
     istirahatNote:
-      "The trough is longer than ten metres without a resting pool. Because fish pass a Denil by burst swimming rather than cruising, the length of an uninterrupted run is limited by how long that burst can be held, not by the strength of the structure. Insert a resting pool every six to ten metres of trough.",
+      "The trough is longer than ten metres without a resting pool. Because fish pass a Denil by burst swimming rather than cruising, the length of an uninterrupted run is limited by how long that burst can be held, not by the strength of the structure. Insert a resting pool every 5–10 m for freshwater fish and 10–15 m for salmon (Katopodis 1992 p. 5).",
     note:
       "What makes a Denil work is not obstruction but reversal. Baffles angled upstream force part of the water to rotate backwards near the walls and the invert, and that reverse rotation dissipates energy without closing the path down the middle. The fish swims along the axis, where the water still moves forward but far more slowly than the slope of the trough should make it. The price paid for a passage far shorter than a pool fishway is turbulence: the dissipation inside a Denil trough is ten to twenty times the limit a pool fishway accepts. That is not a design fault but a feature of the device, and its consequences are clear: a Denil suits only strong-swimming species, always demands resting pools at intervals, and does not suit small fish or bottom-moving fish at all.",
   },
@@ -168,12 +189,14 @@ const REFS = {
     "Denil, G. (1909). Les échelles à poissons et leur application aux barrages de Meuse et d'Ourthe. Annales des Travaux Publics de Belgique.",
     "Bell, M.C. (1991). Fisheries Handbook of Engineering Requirements and Biological Criteria. US Army Corps of Engineers.",
     "Katopodis, C. (1992). Introduction to Fishway Design. Freshwater Institute, Winnipeg.",
+    "Rajaratnam, N. & Katopodis, C. (1984). Hydraulics of Denil Fishways. Journal of Hydraulic Engineering 110(9), 1219–1233.",
     "FAO/DVWK (2002). Fish Passes: Design, Dimensions and Monitoring. FAO, Roma.",
   ],
   en: [
     "Denil, G. (1909). Les échelles à poissons et leur application aux barrages de Meuse et d'Ourthe. Annales des Travaux Publics de Belgique.",
     "Bell, M.C. (1991). Fisheries Handbook of Engineering Requirements and Biological Criteria. US Army Corps of Engineers.",
     "Katopodis, C. (1992). Introduction to Fishway Design. Freshwater Institute, Winnipeg.",
+    "Rajaratnam, N. & Katopodis, C. (1984). Hydraulics of Denil Fishways. Journal of Hydraulic Engineering 110(9), 1219–1233.",
     "FAO/DVWK (2002). Fish Passes: Design, Dimensions and Monitoring. FAO, Rome.",
   ],
 } as const;
@@ -192,10 +215,10 @@ export function TanggaIkanDenilClient() {
 
   const r = denilFishway(b, y, S, rise);
   const tidakMampu = r.maxVelocity > burst;
-  // Q* ditulis ulang hanya untuk baris Hitungan; rumusnya sama persis dengan
-  // denilFishway (hydraulics.ts), dan Q di tabel tetap r.Q.
   const yb = b > 0 ? y / b : 0;
-  const Qstar = 0.94 * yb * Math.sqrt(S) + 0.16 * yb * yb;
+  // y/b di luar data kurva debit (Katopodis 1992 Tabel 5.2): Q ekstrapolasi.
+  const ybLuar = r.relDepthOutOfRange;
+  const tintQ = ybLuar ? C.signal : C.water;
   const nada: Tone = r.slopeOutOfRange ? "invalid" : tidakMampu || r.needsRestPool ? "caution" : "pass";
   const badge = r.slopeOutOfRange ? x.curam : tidakMampu ? x.lambat : r.needsRestPool ? x.istirahat : x.aman;
 
@@ -216,9 +239,11 @@ export function TanggaIkanDenilClient() {
       // Potongan memanjang palung miring dengan sirip penahan miring ke hulu.
       const panjangBebas = Math.min(r.runLength, 8);
       const panjang = kunci ? kunci.panjang : panjangBebas;
-      /* Aturan sirip satu sumber dengan tampak isometrik (siripDenil,
-         isinya loop lama ini apa adanya, diuji sama). */
-      const { jarakSirip, tebal, tinggi, miring, xs: siripX } = siripDenil(b, y, panjang);
+      /* Aturan sirip satu sumber dengan tampak isometrik (siripDenil):
+         jarak 0,715 b0 dan pelat condong 45° ke hulu terhadap dasar
+         (Denil baku, Katopodis 1992 Gbr. 5.3, Tabel 5.2). Tampak samping
+         memperlihatkan sayap sirip; tingginya skematik. */
+      const { tebal, tinggi, xs: siripX } = siripDenil(b, y, S, panjang);
 
       const dasarDi = (xx: number) => -S * xx;
       // y di model tegak lurus dasar (Chow 1959 §1-3); tebal tegaknya di
@@ -237,19 +262,11 @@ export function TanggaIkanDenilClient() {
         },
       ];
 
-      // Sirip penahan: bidang tipis miring ke hulu (siripDenil).
-      for (const xx of siripX) {
-        const z0 = dasarDi(xx);
-        badan.push({
-          pts: [
-            { x: xx, z: z0 },
-            { x: xx + tebal, z: z0 },
-            { x: xx + tebal - miring, z: z0 + tinggi },
-            { x: xx - miring, z: z0 + tinggi },
-          ],
-          color: C.ink,
-        });
-      }
+      // Sirip penahan: pelat condong 45° ke hulu (profilSirip).
+      for (const xx of siripX) badan.push({ pts: profilSirip(xx, S, tebal, tinggi), color: C.ink });
+      // Penunjuk sirip: 60 % tinggi sayap pada sirip kedua (atau satu-satunya).
+      const pk = profilSirip(siripX[Math.min(1, siripX.length - 1)] ?? 0, S, tebal, tinggi);
+      const tunjuk = { x: pk[0].x + 0.6 * (pk[3].x - pk[0].x), z: pk[0].z + 0.6 * (pk[3].z - pk[0].z) };
 
       const muka: { x: number; z: number }[] = [];
       for (let i = 0; i <= 40; i++) {
@@ -305,8 +322,8 @@ export function TanggaIkanDenilClient() {
         ],
         callouts: [
           {
-            x: jarakSirip * 2,
-            z: dasarDi(jarakSirip * 2) + yTegak * 0.6,
+            x: tunjuk.x,
+            z: tunjuk.z,
             dx: 20,
             dy: -32,
             text: T.baffleLabel,
@@ -314,8 +331,9 @@ export function TanggaIkanDenilClient() {
         ],
         arrows: [
           {
+            // Di sumbu pada 75 % kedalaman, tempat um' (Katopodis 1992 pers. 5.2).
             x: panjang * 0.25,
-            z: dasarDi(panjang * 0.25) + yTegak * 0.82,
+            z: dasarDi(panjang * 0.25) + yTegak * 0.75,
             length: -28,
             color: tidakMampu ? C.caution : C.water,
           },
@@ -443,7 +461,7 @@ export function TanggaIkanDenilClient() {
             ]}
           />
           <RegimeScale
-            symbol="Vmaks/Ub"
+            symbol="um'/Ub"
             value={r.maxVelocity / burst}
             scale="log"
             digits={2}
@@ -482,8 +500,8 @@ export function TanggaIkanDenilClient() {
           cells={[
             { label: t.tbUnit, value: "SI (m, m³/s)" },
             { label: "S", value: `${fmt(S * 100, 0)} %`, tint: r.slopeOutOfRange ? C.signal : undefined },
-            { label: "Q", value: `${fmt(r.Q, 3)} m³/s`, tint: C.water },
-            { label: "Vmaks", value: `${fmt(r.maxVelocity, 2)} m/s`, tint: tidakMampu ? C.caution : C.energy },
+            { label: "Q", value: `${fmt(r.Q, 3)} m³/s`, tint: tintQ },
+            { label: "um'", value: `${fmt(r.maxVelocity, 2)} m/s`, tint: tidakMampu ? C.caution : C.energy },
             { label: "L", value: `${fmt(r.runLength, 1)} m` },
           ]}
           height={tampak === "isometrik" ? tinggiIso : undefined}
@@ -534,8 +552,8 @@ export function TanggaIkanDenilClient() {
         <>
           <Block heading={t.blkInput}>
             <InputTable>
-              <InputRow symbol="b" label={x.dB} value={b} min={0.25} max={1.5} step={0.05} digits={2} unit="m" onChange={setB} />
-              <InputRow symbol="y" label={x.dY} value={y} {...P_Y} unit="m" onChange={setY} tint={C.water} />
+              <InputRow symbol="b0" label={x.dB} value={b} min={0.25} max={1.5} step={0.05} digits={2} unit="m" onChange={setB} tint={ybLuar ? C.signal : undefined} />
+              <InputRow symbol="y" label={x.dY} value={y} {...P_Y} unit="m" onChange={setY} tint={ybLuar ? C.signal : C.water} />
               <InputRow symbol="S" label={x.dS} value={S * 100} {...P_S} unit="%" onChange={(v) => setS(v / 100)} tint={C.energy} />
               <InputRow symbol="H" label={x.dRise} value={rise} min={0.5} max={12} step={0.5} digits={1} unit="m" onChange={setRise} />
               <InputRow symbol="Ub" label={x.dU} value={burst} min={0.5} max={6} step={0.1} digits={1} unit="m/s" onChange={setBurst} tint={C.critical} />
@@ -557,8 +575,8 @@ export function TanggaIkanDenilClient() {
           <Block heading={t.blkResult}>
             <ResultTable
               rows={[
-                { symbol: "Vmaks", label: x.rVmax, value: fmt(r.maxVelocity, 3), unit: "m/s", tint: tidakMampu ? C.caution : C.energy, strong: true },
-                { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: C.water, strong: true },
+                { symbol: "um'", label: x.rVmax, value: fmt(r.maxVelocity, 3), unit: "m/s", tint: tidakMampu ? C.caution : C.energy, strong: true },
+                { symbol: "Q", label: x.rQ, value: fmt(r.Q, 4), unit: "m³/s", tint: tintQ, strong: true },
                 { symbol: "Vrata", label: x.rVmean, value: fmt(r.meanVelocity, 3), unit: "m/s" },
                 { symbol: "ε", label: x.rEps, value: fmt(r.powerDensity, 0), unit: "W/m³", tint: C.energy },
                 { symbol: "—", label: x.rRasio, value: fmt(r.powerRatioToPool, 1), unit: "×", tint: C.critical },
@@ -573,33 +591,43 @@ export function TanggaIkanDenilClient() {
                 langkah={[
                   {
                     judul: x.hRasio,
-                    rumus: <span>Q* = {fmt(0.94, 2)} · (y/b) · √S + {fmt(0.16, 2)} · (y/b)²</span>,
-                    isi: `y/b = ${fmt(y, 2)} / ${fmt(b, 2)} = ${fmt(yb, 4)} ;  ${fmt(0.94, 2)} · ${fmt(yb, 4)} · √${fmt(S, 2)} + ${fmt(0.16, 2)} · ${fmt(yb, 4)}²`,
-                    hasil: fmt(Qstar, 4),
+                    rumus: <span>Q* = {fmt(DENIL_Q_COEF, 2)} · (y/b)²</span>,
+                    isi: `y/b = ${fmt(y, 2)} / ${fmt(b, 2)} = ${fmt(yb, 4)} ;  ${fmt(DENIL_Q_COEF, 2)} · ${fmt(yb, 4)}²`,
+                    hasil: fmt(r.Qstar, 4),
+                    tint: ybLuar ? C.signal : undefined,
                   },
                   {
                     judul: x.hQ,
-                    rumus: <span>Q = Q* · b^{fmt(2.5, 1)} · √g</span>,
-                    isi: `${fmt(Qstar, 4)} · ${fmt(b, 2)}^${fmt(2.5, 1)} · √${fmt(G, 2)}`,
+                    rumus: <span>Q = Q* · √(g · S · b⁵)</span>,
+                    isi: `${fmt(r.Qstar, 4)} · √(${fmt(G, 2)} · ${fmt(S, 2)} · ${fmt(b, 2)}⁵)`,
                     hasil: fmt(r.Q, 4),
                     satuan: "m³/s",
-                    tint: C.water,
+                    tint: tintQ,
                   },
                   {
                     judul: x.hV,
-                    rumus: <span>Vrata = Q / (b · y) ;  Vmaks = {fmt(1.5, 1)} · Vrata</span>,
-                    isi: `${fmt(r.Q, 4)} / ( ${fmt(b, 2)} · ${fmt(y, 2)} ) = ${fmt(r.meanVelocity, 3)} ;  ${fmt(1.5, 1)} · ${fmt(r.meanVelocity, 4)}  (${x.banding} Ub ${fmt(burst, 1)})`,
-                    hasil: fmt(r.maxVelocity, 3),
+                    rumus: <span>Vrata = Q / (B · y) ;  B = {fmt(DENIL_B_OVER_B0, 2)} b</span>,
+                    isi: `${fmt(r.Q, 4)} / ( ${fmt(DENIL_B_OVER_B0, 2)} · ${fmt(b, 2)} · ${fmt(y, 2)} )`,
+                    hasil: fmt(r.meanVelocity, 3),
                     satuan: "m/s",
+                  },
+                  {
+                    judul: x.hUm,
+                    rumus: <span>um&apos; = {fmt(DENIL_UM_COEF, 2)} · Q*^{fmt(DENIL_UM_EXP, 2)} · √(g · S · b)</span>,
+                    isi: `${fmt(DENIL_UM_COEF, 2)} · ${fmt(r.Qstar, 4)}^${fmt(DENIL_UM_EXP, 2)} · √(${fmt(G, 2)} · ${fmt(S, 2)} · ${fmt(b, 2)})`,
+                    hasil: fmt(r.maxVelocity, 3),
+                    satuan: `m/s (${x.banding} Ub ${fmt(burst, 1)})`,
                     tint: tidakMampu ? C.caution : C.energy,
+                    catatan: x.umNote,
                   },
                   {
                     judul: x.hEps,
-                    rumus: (<><span>ε =</span><Frac num="ρ · g · Q · S" den="b · y" /></>),
-                    isi: `1000 · ${fmt(G, 2)} · ${fmt(r.Q, 4)} · ${fmt(S, 2)} / ( ${fmt(b, 2)} · ${fmt(y, 2)} ) = ${fmt(r.powerRatioToPool, 1)} × ${fmt(FISHWAY_POWER_GENERAL, 0)}`,
+                    rumus: (<><span>ε =</span><Frac num="ρ · g · Q · S" den="B · y" /><span className="ml-2">B = {fmt(DENIL_B_OVER_B0, 2)} b</span></>),
+                    isi: `1000 · ${fmt(G, 2)} · ${fmt(r.Q, 4)} · ${fmt(S, 2)} / ( ${fmt(DENIL_B_OVER_B0, 2)} · ${fmt(b, 2)} · ${fmt(y, 2)} )`,
                     hasil: fmt(r.powerDensity, 0),
-                    satuan: "W/m³",
+                    satuan: `W/m³ = ${fmt(r.powerRatioToPool, 1)} × ${fmt(FISHWAY_POWER_GENERAL, 0)}`,
                     tint: C.energy,
+                    catatan: x.epsNote,
                   },
                   {
                     judul: x.hL,
@@ -611,6 +639,12 @@ export function TanggaIkanDenilClient() {
                 ]}
               />
             </div>
+            {ybLuar && (
+              <p role="status" className="mt-3 flex max-w-[62ch] items-start gap-2 text-[0.86rem] leading-snug" style={{ color: C.signal }}>
+                <span aria-hidden="true" className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0" style={{ background: C.signal, transform: "rotate(45deg)" }} />
+                {x.ybLuar(fmt(yb, 2))}
+              </p>
+            )}
           </Block>
 
           <StateCard
@@ -626,18 +660,26 @@ export function TanggaIkanDenilClient() {
           equations={
             <>
               <Eq>
-                <Frac num="Q" den={`b^${fmt(2.5, 1)} √g`} />
-                <span>= {fmt(0.94, 2)}</span>
-                <Frac num="y" den="b" />
-                <span>√S + {fmt(0.16, 2)}</span>
+                <Frac num="Q" den="√(g S b⁵)" />
+                <span>= {fmt(DENIL_Q_COEF, 2)}</span>
                 <span className="ml-1">(</span>
                 <Frac num="y" den="b" />
                 <span>)²</span>
               </Eq>
               <Eq>
+                <span className="text-ink-3">
+                  {lang === "id"
+                    ? `berlaku ${fmtPlain(DENIL_YB_MIN, 1)} ≤ y/b ≤ ${fmtPlain(DENIL_YB_MAX, 1)}`
+                    : `valid for ${fmtPlain(DENIL_YB_MIN, 1)} ≤ y/b ≤ ${fmtPlain(DENIL_YB_MAX, 1)}`}
+                </span>
+              </Eq>
+              <Eq>
+                <span>um&apos; = {fmt(DENIL_UM_COEF, 2)} Q*^{fmt(DENIL_UM_EXP, 2)} √(g S b)</span>
+              </Eq>
+              <Eq>
                 <span>ε =</span>
-                <Frac num="ρ g Q S" den="b y" />
-                <span className="ml-5">Vmaks = {fmt(1.5, 1)} Vrata</span>
+                <Frac num="ρ g Q S" den="B y" />
+                <span className="ml-5">B = {fmt(DENIL_B_OVER_B0, 2)} b</span>
               </Eq>
               <Eq>
                 <span className="text-ink-3">
@@ -672,8 +714,8 @@ function notice(
   const en = lang === "en";
 
   const state = en
-    ? `Vmax = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; trough length ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", needs a resting pool" : ""}.`
-    : `Vmaks = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; panjang palung ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", perlu kolam istirahat" : ""}.`;
+    ? `um' = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; trough length ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", needs a resting pool" : ""}.`
+    : `um' = ${fmt(r.maxVelocity, 2)} m/s ${tidakMampu ? ">" : "≤"} Ub ${fmt(burst, 1)} m/s; panjang palung ${fmt(r.runLength, 1)} m${r.needsRestPool ? ", perlu kolam istirahat" : ""}.`;
 
   const butir: string[] = [];
   if (r.slopeOutOfRange) butir.push(x.curamNote);

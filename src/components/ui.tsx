@@ -1460,6 +1460,8 @@ export type LangkahHitung = {
   hasil: string;
   satuan?: string;
   tint?: string;
+  /** Catatan pendek di bawah hasil langkah (tafsir angka, batas sumber). */
+  catatan?: string;
 };
 
 /**
@@ -1529,6 +1531,9 @@ export function Hitungan({
                 </span>
                 {l.satuan && <span className="ml-1 text-[0.74rem] text-ink-3">{l.satuan}</span>}
               </div>
+              {l.catatan && (
+                <p className="mt-1 max-w-[62ch] text-[0.8rem] leading-snug text-ink-3">{l.catatan}</p>
+              )}
             </div>
           </li>
         ))}
