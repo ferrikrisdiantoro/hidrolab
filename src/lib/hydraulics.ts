@@ -4878,7 +4878,12 @@ export function poolFishway(
 
 export type DenilResult = {
   Q: number;
-  /** Kecepatan rata-rata di dalam palung */
+  /** Debit tak berdimensi Q* = Q / sqrt(g S b0^5) (Katopodis 1992 pers. 5.1) */
+  Qstar: number;
+  /**
+   * Kecepatan rata-rata pada luas bukaan antar sirip, Q / (b0 y0).
+   * Luas palung antar dinding lebih besar (B = 1,58 b0 pada Denil baku).
+   */
   meanVelocity: number;
   /** Kecepatan terbesar di sumbu palung, yang harus dilawan ikan */
   maxVelocity: number;
@@ -4890,6 +4895,11 @@ export type DenilResult = {
   runLength: number;
   /** Benar bila kemiringannya di luar rentang rancangan Denil */
   slopeOutOfRange: boolean;
+  /**
+   * Benar bila y0/b0 di luar rentang data kurva debit (0,5 sampai 5,8,
+   * Katopodis 1992 Tabel 5.2 Denil 2). Q di luar rentang ini ekstrapolasi.
+   */
+  relDepthOutOfRange: boolean;
   /** Benar bila palungnya terlalu panjang tanpa kolam istirahat */
   needsRestPool: boolean;
   /**
@@ -4904,11 +4914,27 @@ export type DenilResult = {
   powerRatioToPool: number;
 };
 
-/** Batas kemiringan tangga Denil yang lazim dipakai. */
+/**
+ * Batas kemiringan tangga Denil yang lazim dipakai: 10 sampai 15 % untuk
+ * ikan air tawar dewasa, 15 sampai 25 % untuk salmon dewasa (Katopodis 1992,
+ * Introduction to Fishway Design, hlm. 5, bagian 2.2).
+ */
 export const DENIL_SLOPE_MIN = 0.1;
 export const DENIL_SLOPE_MAX = 0.25;
-/** Panjang palung terpanjang tanpa kolam istirahat, meter. */
+/**
+ * Panjang palung terpanjang tanpa kolam istirahat, meter. Katopodis (1992)
+ * hlm. 5: kolam istirahat tiap 10 sampai 15 m untuk salmon dewasa dan
+ * 5 sampai 10 m untuk ikan air tawar dewasa.
+ */
 export const DENIL_RUN_MAX = 10;
+/**
+ * Rentang kedalaman nisbi y0/b0 data kurva debit Denil baku (Katopodis 1992
+ * hlm. 21 Tabel 5.2, baris Denil 2: 0,5 sampai 5,8).
+ */
+export const DENIL_YB_MIN = 0.5;
+export const DENIL_YB_MAX = 5.8;
+/** Koefisien kurva debit Denil baku, Q* = 0,94 (y0/b0)^2 (sumber sama). */
+export const DENIL_Q_COEF = 0.94;
 
 /**
  * Tangga ikan Denil dengan sirip penahan miring ke hulu.
@@ -4920,20 +4946,37 @@ export const DENIL_RUN_MAX = 10;
  * masih mengalir maju tetapi jauh lebih lambat daripada kemiringan palungnya
  * seharusnya membuatnya.
  *
- * Debitnya dinyatakan dalam bentuk tak berdimensi yang dipakai pada
- * rancangan Denil baku:
+ * Kurva debit (Katopodis 1992 hlm. 16 pers. 5.1 dan hlm. 21 Tabel 5.2,
+ * baris Denil 2 = standard Denil; datanya dari Rajaratnam & Katopodis 1984,
+ * Hydraulics of Denil fishways, J. Hydraul. Eng. 110(9):1219-1233):
  *
- *   Q / (b^2,5 sqrt(g)) = f(y/b, S)
+ *   Q* = Q / sqrt(g S0 b0^5) = 0,94 (y0/b0)^2,   0,5 <= y0/b0 <= 5,8
  *
- * dengan bentuk yang mengikuti kurva rancangan Bell. Pendekatan yang dipakai
- * di sini linear terhadap kedalaman nisbi dan berakar terhadap kemiringan,
- * yang cocok dengan pita data pada rentang kemiringan yang disyaratkan.
+ * Arti b0 (parameter `width`): lebar BUKAAN antar sirip samping, tempat ikan
+ * lewat, bukan lebar dalam palung antar dinding. Gbr. 5.3 hlm. 20 memberi
+ * B = lebar dalam palung, b0 = lebar bukaan, L = jarak antar sirip, dan
+ * pers. 5.1 menyebut b0 "characteristic width (e.g. fish passage opening)".
  *
- * Rujukan: Denil (1909); Bell, M.C. (1991), Fisheries Handbook of
- * Engineering Requirements; Katopodis (1992), Introduction to fishway design.
+ * Proporsi sirip baku:
+ * - Denil baku Katopodis (1992) Tabel 5.2 Denil 2: B/b0 = 1,58 (b0 = 0,633 B),
+ *   L/b0 = 0,715 (jarak antar sirip). Sirip papan datar tegak lurus dinding,
+ *   condong 45 derajat terhadap dasar, menghadap hulu (hlm. 4 bagian 2.2
+ *   dan hlm. 20 bagian 5.2)
+ * - Denil papan datar Larinier (2002), Baffle fishways, Bull. Fr. Pêche
+ *   Piscic. 364:83-101, lewat dokumentasi Cassiopée 4.14.2 ("theorie_plans"):
+ *   dinormalkan dengan lebar palung L (bukan b0), Q* = Q / (sqrt(g) L^2,5),
+ *   luas lintasan baku A_w = L (0,583 h - 0,146 L), yang berarti bukaan
+ *   = 0,583 L; kemiringan berlaku 8 sampai 22 %. Tinggi ambang bawah dan
+ *   jarak sirip versi Larinier hanya ada di gambar sumber itu, tidak dibaca
+ *   di sini. Kedua bentuk Q* ini TIDAK bisa dipertukarkan: lebar acuannya
+ *   berbeda dan Larinier memasukkan S ke koefisien, bukan ke penyebut.
+ *
+ * Andaian lembar ini (bukan dari sumber di atas): kecepatan rata-rata
+ * dihitung pada luas bukaan b0 y0, kecepatan sumbu = 1,5 kali rata-rata,
+ * dan daya lesap per isi memakai isi bukaan b0 y0 per meter.
  */
 export function denilFishway(
-  /** Lebar palung antar sirip, meter */
+  /** Lebar bukaan antar sirip b0 (Katopodis 1992 Gbr. 5.3), meter */
   width: number,
   /** Kedalaman aliran tegak lurus dasar, meter */
   depth: number,
@@ -4944,8 +4987,8 @@ export function denilFishway(
   rho = 1000
 ): DenilResult {
   const yb = width > 0 ? depth / width : 0;
-  const Qstar = 0.94 * yb * Math.sqrt(Math.max(slope, 0)) + 0.16 * yb * yb;
-  const Q = Qstar * Math.pow(width, 2.5) * Math.sqrt(G);
+  const Qstar = DENIL_Q_COEF * yb * yb;
+  const Q = Qstar * Math.sqrt(G * Math.max(slope, 0) * Math.pow(width, 5));
 
   const luas = width * depth;
   const meanVelocity = luas > 0 ? Q / luas : 0;
@@ -4960,12 +5003,14 @@ export function denilFishway(
 
   return {
     Q,
+    Qstar,
     meanVelocity,
     maxVelocity,
     depth,
     powerDensity,
     runLength,
     slopeOutOfRange: slope < DENIL_SLOPE_MIN || slope > DENIL_SLOPE_MAX,
+    relDepthOutOfRange: yb < DENIL_YB_MIN || yb > DENIL_YB_MAX,
     needsRestPool: Number.isFinite(runLength) && runLength > DENIL_RUN_MAX,
     powerRatioToPool: powerDensity / FISHWAY_POWER_GENERAL,
   };

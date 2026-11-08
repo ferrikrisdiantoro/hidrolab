@@ -96,6 +96,8 @@ import {
   bridgePiers,
   cascadePassage,
   culvert,
+  DENIL_SLOPE_MIN,
+  DENIL_YB_MIN,
   denilFishway,
   poolFishway,
   riprapSize,
@@ -4656,18 +4658,29 @@ export function checksDenil(
     },
     {
       label: {
-        id: "Lesapan dayanya jauh melampaui batas tangga berkolam",
-        en: "Its dissipation far exceeds the pool fishway limit",
+        id: "Di dalam rentang berlaku, lesapan dayanya melampaui batas tangga berkolam",
+        en: "Within the valid range, its dissipation exceeds the pool fishway limit",
       },
       /*
        * Ini bukan cacat melainkan ciri alat ini, dan menuliskannya sebagai
        * pemeriksaan membuatnya tidak dapat dilupakan: tangga Denil memang
        * jauh lebih teraduk, dan itulah harga lintasan yang jauh lebih pendek.
+       *
+       * Diperiksa di pojok terlemah rentang berlaku untuk b0 ini
+       * (y0/b0 = 0,5 dan S = 0,10). Dengan Q* = 0,94 (y0/b0)^2 (Katopodis
+       * 1992 Tabel 5.2) lesapan per isi bukaan = rho g^1,5 0,94 y0 S^1,5 / sqrt(b0),
+       * naik terhadap y0 dan S, jadi lolos di pojok itu berarti lolos di
+       * seluruh rentang berlaku. Di luar rentang (mis. y0/b0 < 0,5 dan
+       * S = 4 %) rasionya bisa di bawah satu; itu ekstrapolasi kurva debit.
        */
       source: "Ciri pembeda tangga Denil terhadap tangga berkolam",
       kind: "perilaku",
       expected: 1,
-      actual: r.powerRatioToPool > 1 ? 1 : 0,
+      actual:
+        denilFishway(width, DENIL_YB_MIN * width, DENIL_SLOPE_MIN, totalRise)
+          .powerRatioToPool > 1
+          ? 1
+          : 0,
       tol: 0,
       digits: 0,
     },
