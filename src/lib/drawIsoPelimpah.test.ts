@@ -56,7 +56,8 @@ describe("HS-10 3D: muka air = sideChannelProfile di semua stasiun", () => {
       const r = model(s);
       const ev = skalaTegak(s);
       const atas = mukaPelimpah(s).muka.filter((m) => m.bagian === "air-atas");
-      assert.equal(atas.length, r.points.length - 1, "satu muka per selang stasiun");
+      assert.equal(atas.length, 1, "satu poligon muka air");
+      assert.equal(atas[0].pts.length, 2 * r.points.length, "tepat stasiun model di kedua tepi, tanpa sisipan");
       // Tiap stasiun model muncul di kedua tepi saluran, z = ws·ev.
       for (const p of r.points)
         for (const y of [0, s.b]) {
@@ -129,6 +130,16 @@ describe("HS-10 3D: geometri = masukan model", () => {
     });
   }
 
+  it("muka atas (dasar, peluncur, air, arsir) menghadap ke atas, jadi tidak dibuang sebagai muka belakang", () => {
+    for (const s of [dasar, curam, { ...dasar, zCrest: 2.5 }]) {
+      const atas = mukaPelimpah(s).muka.filter((m) =>
+        ["dasar-atas", "dasar-peluncur", "dasar-sinyal", "air-atas", "air-tenggelam"].includes(m.bagian) && !m.tepi
+      );
+      assert.ok(atas.length >= 3);
+      for (const m of atas) assert.ok(normalMuka(m.pts)[2] > 0.5, `${m.bagian} normal ${normalMuka(m.pts)}`);
+    }
+  });
+
   it("skala tegak bulat, 1 bila tidak perlu dilebihkan, paling besar 4", () => {
     for (const s of [dasar, kecil, besar, sempit, ekstrem, lebar, curam]) {
       const ev = skalaTegak(s);
@@ -141,7 +152,7 @@ describe("HS-10 3D: geometri = masukan model", () => {
     const r = model(dasar);
     const ev = skalaTegak(dasar);
     const dalam = mukaPelimpah(dasar).muka.filter((m) => m.bagian === "seberang-dalam");
-    assert.ok(dalam.length >= r.points.length - 1);
+    assert.ok(dalam.length >= 1);
     for (const m of dalam)
       for (const q of m.pts) {
         const p = r.points.find((pp) => Math.abs(pp.x - q[0]) < DEKAT);

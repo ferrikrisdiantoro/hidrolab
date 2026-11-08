@@ -90,9 +90,16 @@ export type Bagian =
   | "air-sisi"
   | "air-kendali"
   | "air-hulu"
-  | `${"mercu" | "seberang" | "pangkal" | "peluncur"}-${"luar" | "puncak" | "dalam" | "ujung"}`;
+  | "air-garis"
+  | "air-tenggelam"
+  | `${"mercu" | "seberang" | "pangkal" | "peluncur"}-${"luar" | "puncak" | "dalam" | "ujung" | "tepi"}`;
 
-export type MukaPelimpah = Muka & { bagian: Bagian };
+/**
+ * tepi: garis dua titik (tepi benda yang dipecah per ruas). Muka yang
+ * dipecah digambar tanpa garis supaya sambungan ruas tidak tampak sebagai
+ * garis; tepi aslinya digambar sesudah muka di lapis yang sama.
+ */
+export type MukaPelimpah = Muka & { bagian: Bagian; tepi?: boolean };
 
 export type GeometriPelimpah = {
   r: TroughResult;
@@ -114,9 +121,10 @@ export type GeometriPelimpah = {
 export const KEMIRINGAN_PELUNCUR = 0.25;
 
 /**
- * Skala tegak bulat 1..4: dibesarkan hanya bila saluran sangat panjang
- * terhadap tingginya (L / (8·z) dibulatkan), supaya kenaikan muka air ke
- * arah pangkal terbaca. Bergantung pada masukan saja, bukan sudut pandang.
+ * Skala tegak bulat 1..4: dibesarkan hanya bila saluran sangat panjang DAN
+ * lebar terhadap tingginya (min(L/8, b) / z dibulatkan), supaya kenaikan
+ * muka air terbaca tanpa dinding yang dilebihkan menutupi saluran sempit.
+ * Bergantung pada masukan saja, bukan sudut pandang.
  */
 export function skalaTegak(s: IsoPelimpahState): number {
   return geometriPelimpah(s).ev;
@@ -127,7 +135,7 @@ export function geometriPelimpah(s: IsoPelimpahState): GeometriPelimpah {
   let wsMax = 0;
   for (const p of r.points) if (p.ws > wsMax) wsMax = p.ws;
   const zSpan = Math.max(s.zCrest, wsMax, s.S0 * s.L, 1e-3);
-  const ev = Math.min(4, Math.max(1, Math.round(s.L / (8 * zSpan))));
+  const ev = Math.min(4, Math.max(1, Math.round(Math.min(s.L / 8, s.b) / zSpan)));
   const t = Math.min(1.2, Math.max(0.2, 0.08 * s.b));
   const zTop = Math.max(s.zCrest, wsMax) + 0.12 * zSpan;
   const chuteLength = Math.max(0.3 * s.L, 1.5 * s.b);
@@ -161,6 +169,10 @@ function bangun(s: IsoPelimpahState): Dasar {
   const garisBeton = { satuSisi: true, bobot: W.bold, garis: C.concrete } as const;
   const tambah = (bagian: Bagian, pts: V3[], gaya: Omit<Muka, "pts"> = garisBeton) =>
     muka.push({ ...gaya, pts, bagian });
+  /** Muka yang dipecah per ruas: tanpa garis (lihat MukaPelimpah.tepi). */
+  const polos = { satuSisi: true, garis: null } as const;
+  const tepi = (bagian: Bagian, a: V3, b2: V3, garis: string = C.concrete, bobot: number = W.bold) =>
+    muka.push({ pts: [a, b2], isi: null, garis, bobot, bagian, tepi: true });
 
   const pts = r.points;
   const adaAir = pts.length >= 2;
@@ -183,26 +195,15 @@ function bangun(s: IsoPelimpahState): Dasar {
   };
 
   /* ---------------- dasar ---------------- */
-  const NS = 12;
-  for (let i = 0; i < NS; i++) {
-    const xa = (L * i) / NS;
-    const xb = (L * (i + 1)) / NS;
-    tambah("dasar-atas", [[xa, 0, Z(bed(xa))], [xa, b, Z(bed(xa))], [xb, b, Z(bed(xb))], [xb, 0, Z(bed(xb))]], {
-      ...garisBeton,
-      bobot: W.thin,
-    });
-  }
-  const NC = 4;
-  for (let i = 0; i < NC; i++) {
-    const xa = L + (Lc * i) / NC;
-    const xb = L + (Lc * (i + 1)) / NC;
-    tambah("dasar-peluncur", [[xa, 0, Z(bedC(xa))], [xa, b, Z(bedC(xa))], [xb, b, Z(bedC(xb))], [xb, 0, Z(bedC(xb))]], {
-      ...garisBeton,
-      bobot: W.thin,
-    });
-  }
-  // Potongan ujung peluncur (gambar berhenti di sini): arsir beton.
+  /* Muka besar tidak dipecah: muka bertetangga sewarna yang diisi tanpa
+     garis meninggalkan garis rambut antialias di sambungannya. Urutan
+     tetap benar karena lapis dipilih dari sisi pengamat. */
+  tambah("dasar-atas", [[0, 0, Z(bed(0))], [L, 0, Z(bed(L))], [L, b, Z(bed(L))], [0, b, Z(bed(0))]], polos);
   const xe = L + Lc;
+  tambah("dasar-peluncur", [[L, 0, Z(bedC(L))], [xe, 0, Z(bedC(xe))], [xe, b, Z(bedC(xe))], [L, b, Z(bedC(L))]], polos);
+  // Patahan dasar di ujung keluar (awal peluncur).
+  tepi("dasar-atas" as Bagian, [L, 0, 0], [L, b, 0], C.concrete, W.thin);
+  // Potongan ujung peluncur (gambar berhenti di sini): arsir beton.
   tambah("dasar-ujung", [[xe, 0, Z(-Hc - lantai)], [xe, b, Z(-Hc - lantai)], [xe, b, Z(-Hc)], [xe, 0, Z(-Hc)]], {
     ...garisBeton,
     arsir: "beton",
@@ -211,33 +212,50 @@ function bangun(s: IsoPelimpahState): Dasar {
   // Hulu superkritis: dasar diarsir sinyal, air tidak dihitung di sana.
   if (r.supercriticalFrom !== null) {
     const xs = adaAir ? x0 : L;
-    const n = Math.max(1, Math.ceil((xs / L) * NS));
-    for (let i = 0; i < n; i++) {
-      const xa = (xs * i) / n;
-      const xb = (xs * (i + 1)) / n;
-      tambah("dasar-sinyal", [[xa, 0, Z(bed(xa))], [xa, b, Z(bed(xa))], [xb, b, Z(bed(xb))], [xb, 0, Z(bed(xb))]], {
-        isi: C.signalFill,
-        garis: null,
-        arsir: "sinyal",
-        satuSisi: true,
-      });
-    }
+    tambah("dasar-sinyal", [[0, 0, Z(bed(0))], [xs, 0, Z(bed(xs))], [xs, b, Z(bed(xs))], [0, b, Z(bed(0))]], {
+      isi: C.signalFill,
+      garis: null,
+      arsir: "sinyal",
+      satuSisi: true,
+    });
   }
 
   /* ---------------- air ---------------- */
   if (adaAir) {
     const gayaAir = { bahan: "air", garis: null, satuSisi: true } as const;
+    /* Muka atas: SATU poligon yang titiknya tepat stasiun model di kedua
+       tepi (y = 0 pangkal ke ujung, lalu y = b kembali; berlawanan jarum jam dari atas), tanpa sisipan.
+       Isian air pekat supaya terbaca di atas lantai. */
+    const atas: V3[] = [];
+    for (let i = 0; i < pts.length; i++) atas.push([pts[i].x, 0, Z(pts[i].ws)]);
+    for (let i = pts.length - 1; i >= 0; i--) atas.push([pts[i].x, b, Z(pts[i].ws)]);
+    tambah("air-atas", atas, { ...gayaAir, isi: C.waterFillDeep });
+    const sisi0: V3[] = [];
+    const sisiB: V3[] = [];
+    for (const p of pts) {
+      sisi0.push([p.x, 0, Z(p.zb)]);
+      sisiB.push([p.x, b, Z(p.ws)]);
+    }
+    for (let i = pts.length - 1; i >= 0; i--) {
+      sisi0.push([pts[i].x, 0, Z(pts[i].ws)]);
+      sisiB.push([pts[i].x, b, Z(pts[i].zb)]);
+    }
+    tambah("air-sisi", sisi0, gayaAir);
+    tambah("air-sisi", sisiB, gayaAir);
     for (let i = 0; i + 1 < pts.length; i++) {
       const p = pts[i];
       const q = pts[i + 1];
-      const tenggelam = (p.ws + q.ws) / 2 > zCrest;
-      tambah(
-        "air-atas",
-        [[p.x, 0, Z(p.ws)], [p.x, b, Z(p.ws)], [q.x, b, Z(q.ws)], [q.x, 0, Z(q.ws)]],
-        tenggelam ? { ...gayaAir, isi: C.signalFill, arsir: "sinyal" } : gayaAir
-      );
-      tambah("air-sisi", [[p.x, 0, Z(p.zb)], [q.x, 0, Z(q.zb)], [q.x, 0, Z(q.ws)], [p.x, 0, Z(p.ws)]], gayaAir);
-      tambah("air-sisi", [[q.x, b, Z(q.zb)], [p.x, b, Z(p.zb)], [p.x, b, Z(p.ws)], [q.x, b, Z(q.ws)]], gayaAir);
+      // Muka air di atas mercu (mercu tenggelam): diarsir sinyal.
+      if ((p.ws + q.ws) / 2 > zCrest)
+        tambah("air-tenggelam", [[p.x, 0, Z(p.ws)], [q.x, 0, Z(q.ws)], [q.x, b, Z(q.ws)], [p.x, b, Z(p.ws)]], {
+          isi: null,
+          garis: null,
+          arsir: "sinyal",
+          satuSisi: true,
+        });
+      // Garis muka air di kedua dinding: data utama gambar ini.
+      tepi("air-garis", [p.x, 0, Z(p.ws)], [q.x, 0, Z(q.ws)], C.water, W.thin);
+      tepi("air-garis", [p.x, b, Z(p.ws)], [q.x, b, Z(q.ws)], C.water, W.thin);
     }
     // Penampang kendali di ujung keluar: kedalaman kritis ycOut.
     const k = pts[pts.length - 1];
@@ -266,28 +284,23 @@ function bangun(s: IsoPelimpahState): Dasar {
    */
   const dinding = (nama: "mercu" | "seberang", yIn: number, yOut: number, zAtas: number) => {
     const s1 = yOut > yIn ? 1 : -1; // arah luar
-    // muka luar: normal ke arah s1·y
-    const kasar: number[] = [0];
-    for (let k = 10; k < st.length - 1; k += 10) kasar.push(k);
-    kasar.push(st.length - 1);
-    for (let j = 0; j + 1 < kasar.length; j++) {
-      const xa = st[kasar[j]].x;
-      const xb = st[kasar[j + 1]].x;
-      const luar: V3[] = [[xa, yOut, Z(-lantai)], [xb, yOut, Z(-lantai)], [xb, yOut, Z(zAtas)], [xa, yOut, Z(zAtas)]];
-      tambah(`${nama}-luar`, s1 < 0 ? luar : [luar[1], luar[0], luar[3], luar[2]]);
-      const puncak: V3[] = [[xa, yIn, Z(zAtas)], [xa, yOut, Z(zAtas)], [xb, yOut, Z(zAtas)], [xb, yIn, Z(zAtas)]];
-      tambah(`${nama}-puncak`, s1 < 0 ? puncak : [puncak[0], puncak[3], puncak[2], puncak[1]]);
-    }
-    for (let k = 0; k + 1 < st.length; k++) {
-      const za = Math.min(bawahDalam(k), zAtas);
-      const zb = Math.min(bawahDalam(k + 1), zAtas);
-      if (za >= zAtas - 1e-12 && zb >= zAtas - 1e-12) continue;
-      const xa = st[k].x;
-      const xb = st[k + 1].x;
-      const d: V3[] = [[xa, yIn, Z(za)], [xb, yIn, Z(zb)], [xb, yIn, Z(zAtas)], [xa, yIn, Z(zAtas)]];
-      // muka dalam menghadap −s1
-      tambah(`${nama}-dalam`, s1 > 0 ? d : [d[1], d[0], d[3], d[2]]);
-    }
+    const xa = st[0].x;
+    const xb = st[st.length - 1].x;
+    const luar: V3[] = [[xa, yOut, Z(-lantai)], [xb, yOut, Z(-lantai)], [xb, yOut, Z(zAtas)], [xa, yOut, Z(zAtas)]];
+    tambah(`${nama}-luar`, s1 < 0 ? luar : [luar[1], luar[0], luar[3], luar[2]]);
+    const puncak: V3[] = [[xa, yIn, Z(zAtas)], [xa, yOut, Z(zAtas)], [xb, yOut, Z(zAtas)], [xb, yIn, Z(zAtas)]];
+    tambah(`${nama}-puncak`, s1 < 0 ? puncak : [puncak[0], puncak[3], puncak[2], puncak[1]]);
+    /* Muka dalam: satu poligon, kaki di muka air (atau dasar kering) tiap
+       stasiun, puncak lurus. Tidak pernah turun ke bawah muka air. */
+    const d: V3[] = [];
+    for (let k = 0; k < st.length; k++) d.push([st[k].x, yIn, Z(Math.min(bawahDalam(k), zAtas))]);
+    d.push([xb, yIn, Z(zAtas)], [xa, yIn, Z(zAtas)]);
+    // muka dalam menghadap −s1
+    tambah(`${nama}-dalam`, s1 > 0 ? d : d.reverse(), polos);
+    // Kaki dinding di dasar yang kering (hulu superkritis); di air: garis muka air.
+    for (let k = 0; k + 1 < st.length; k++)
+      if (!Number.isFinite(st[k].zA) || !Number.isFinite(st[k + 1].zA))
+        tepi(`${nama}-tepi`, [st[k].x, yIn, Z(bed(st[k].x))], [st[k + 1].x, yIn, Z(bed(st[k + 1].x))], C.concrete, W.thin);
   };
   dinding("mercu", 0, -t, zCrest);
   dinding("seberang", b, b + t, zTop);
@@ -313,19 +326,17 @@ function bangun(s: IsoPelimpahState): Dasar {
     const hk = zTop; // tinggi dinding peluncur di atas dasarnya
     const sisi = (yIn: number, yOut: number) => {
       const s1 = yOut > yIn ? 1 : -1;
-      for (let i = 0; i < NC; i++) {
-        const xa = L + (Lc * i) / NC;
-        const xb = L + (Lc * (i + 1)) / NC;
-        const la = Z(bedC(xa) - lantai), lb = Z(bedC(xb) - lantai);
-        const ta = Z(bedC(xa) + hk), tb = Z(bedC(xb) + hk);
-        const ba = Z(bedC(xa)), bb = Z(bedC(xb));
-        const luar: V3[] = [[xa, yOut, la], [xb, yOut, lb], [xb, yOut, tb], [xa, yOut, ta]];
-        tambah("peluncur-luar", s1 < 0 ? luar : [luar[1], luar[0], luar[3], luar[2]]);
-        const puncak: V3[] = [[xa, yIn, ta], [xa, yOut, ta], [xb, yOut, tb], [xb, yIn, tb]];
-        tambah("peluncur-puncak", s1 < 0 ? puncak : [puncak[0], puncak[3], puncak[2], puncak[1]]);
-        const d: V3[] = [[xa, yIn, ba], [xb, yIn, bb], [xb, yIn, tb], [xa, yIn, ta]];
-        tambah("peluncur-dalam", s1 > 0 ? d : [d[1], d[0], d[3], d[2]]);
-      }
+      const xa = L;
+      const xb = xe;
+      const la = Z(bedC(xa) - lantai), lb = Z(bedC(xb) - lantai);
+      const ta = Z(bedC(xa) + hk), tb = Z(bedC(xb) + hk);
+      const ba = Z(bedC(xa)), bb = Z(bedC(xb));
+      const luar: V3[] = [[xa, yOut, la], [xb, yOut, lb], [xb, yOut, tb], [xa, yOut, ta]];
+      tambah("peluncur-luar", s1 < 0 ? luar : [luar[1], luar[0], luar[3], luar[2]]);
+      const puncak: V3[] = [[xa, yIn, ta], [xa, yOut, ta], [xb, yOut, tb], [xb, yIn, tb]];
+      tambah("peluncur-puncak", s1 < 0 ? puncak : [puncak[0], puncak[3], puncak[2], puncak[1]]);
+      const d: V3[] = [[xa, yIn, ba], [xb, yIn, bb], [xb, yIn, tb], [xa, yIn, ta]];
+      tambah("peluncur-dalam", s1 > 0 ? d : [d[1], d[0], d[3], d[2]]);
       // Potongan ujung hilir: arsir beton.
       const ye = [yIn, yOut].sort((p, q) => p - q);
       tambah("peluncur-ujung", [[xe, ye[0], Z(-Hc - lantai)], [xe, ye[1], Z(-Hc - lantai)], [xe, ye[1], Z(-Hc + hk)], [xe, ye[0], Z(-Hc + hk)]], {
@@ -354,6 +365,7 @@ function bangun(s: IsoPelimpahState): Dasar {
 /* Lapis dari sisi pengamat. */
 function lapisBagian(bagian: Bagian, ox: 1 | -1, oy: 1 | -1): number {
   if (bagian === "dasar-sinyal") return -3.5;
+  if (bagian === "air-tenggelam") return -0.75;
   if (bagian.startsWith("dasar")) return -4;
   if (bagian.startsWith("air")) return -1;
   const depan = bagian.startsWith("mercu")
@@ -388,7 +400,7 @@ export function mukaPelimpah(
   const kk = `${ox}${oy}`;
   let muka = cache.kuadran.get(kk);
   if (!muka) {
-    muka = cache.dasar.muka.map((m) => ({ ...m, lapis: lapisBagian(m.bagian, ox, oy) }));
+    muka = cache.dasar.muka.map((m) => ({ ...m, lapis: lapisBagian(m.bagian, ox, oy) + (m.tepi ? 0.5 : 0) }));
     cache.kuadran.set(kk, muka);
   }
   return { muka, batas: cache.dasar.batas, g: cache.dasar.g };
