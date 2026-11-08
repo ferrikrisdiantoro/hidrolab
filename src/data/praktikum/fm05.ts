@@ -49,7 +49,7 @@ export const EC_LATAR = 50;
 export const K_GARAM = 2.16;
 
 /**
- * Pengukur konduktivitas lapangan, µS/cm. Resolusi 0,1 µS/cm, galat acak per bacaan σ = √(0,1² + (0,005·EC)²) µS/cm (digabung kuadrat oleh bacaAlat). USULAN KONSERVATIF, disahkan insinyur 8 Nov: angka lazim lembar data pengukur genggam, sumber tidak dibuka; galat penguatan sistematik terkalibrasi bersama k dan tidak menggeser Q.
+ * Pengukur konduktivitas lapangan, µS/cm. Resolusi 0,1 µS/cm, galat acak per bacaan σ = √(0,1² + (0,005·EC)²) µS/cm (digabung kuadrat oleh bacaAlat). USULAN KONSERVATIF: bentuk dan sifat konservatifnya diterima insinyur 8 Nov, besarannya tetap tanpa sumber yang dibuka; galat penguatan sistematik terkalibrasi bersama k dan tidak menggeser Q.
  */
 export const ALAT_KONDUKTIVITAS: AlatBaca = { resolusi: 0.1, sigma: 0.1, sigmaRel: 0.005 };
 
@@ -139,7 +139,7 @@ export function ringkasFm05(rows: readonly BacaanFm05[]): RingkasanFm05 {
   let puncak = -Infinity, tPuncak = NaN;
   for (const r of kurva) if (r.ec - latar > puncak) { puncak = r.ec - latar; tPuncak = r.t; }
   const terakhir = kurva[kurva.length - 1];
-  const ekorTerpotong = kurva.length >= 2 && puncak > 0 && terakhir.ec - latar > Math.max(BATAS_EKOR * puncak, 3 * Math.hypot(0.1, 0.005 * latar));
+  const ekorTerpotong = kurva.length >= 2 && puncak > 0 && terakhir.ec - latar > Math.max(BATAS_EKOR * puncak, 3 * Math.hypot(ALAT_KONDUKTIVITAS.sigma ?? 0, (ALAT_KONDUKTIVITAS.sigmaRel ?? 0) * latar));
   const campur = rows.some((r) => r.Q !== rows[0].Q || r.M !== rows[0].M || r.L !== rows[0].L || r.A !== rows[0].A || r.D !== rows[0].D);
   return {
     latar,
