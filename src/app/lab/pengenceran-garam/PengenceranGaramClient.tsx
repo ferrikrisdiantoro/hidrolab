@@ -24,12 +24,27 @@ import {
   tracerCurve,
   type TracerResult,
 } from "@/lib/hydraulics";
-import { C, type Tone } from "@/lib/theme";
+import { C, DASH, W, type Tone } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { str } from "@/lib/strings";
 import { Verification } from "@/components/Verification";
 import { checksTracer } from "@/lib/checks";
+import { LembarPraktikum } from "@/components/Praktikum";
+import { GrafikPraktikum } from "@/components/GrafikPraktikum";
+import type { LangkahHitung, ResultRow } from "@/components/ui";
+import type { ChartSpec } from "@/lib/drawChart";
+import type { TracerPoint } from "@/lib/hydraulics";
+import {
+  EC_LATAR,
+  K_GARAM,
+  KOLOM_EKSPOR_FM05,
+  KOLOM_FM05,
+  catatFm05,
+  ringkasFm05,
+  tMaksFm05,
+  type BacaanFm05,
+} from "@/data/praktikum/fm05";
 
 const TXT = {
   id: {
@@ -66,6 +81,63 @@ const TXT = {
     hQ: "Luas kurva dan debit",
     hLaju: "Cara laju tetap: c₂ disusun dari Q yang dimasukkan, jadi Q′ = Q dengan sendirinya",
     sebar: "Penyebaran menguasai angkutan",
+    pT: "Waktu baca sejak suntik (negatif = sebelum suntik)",
+    pDt: "Selang baca, t maju sebesar ini sesudah tiap catat",
+    pUjung: (tm: string) => `t sudah di ujung penggeser (${tm} s) dan tidak maju lagi. Awan sudah lama lewat; hentikan pencatatan.`,
+    pQ: "Debit dari luas kurva terukur",
+    pQm: "Debit sungai sebenarnya (masukan lembar)",
+    pSelisih: "Selisih terhadap debit sebenarnya",
+    pLatar: "Latar EC₀, rerata bacaan sebelum suntik",
+    pLatarVal: (v: string, k: number) => (k > 0 ? `${v} (${k} bacaan)` : `${v} (bacaan paling awal)`),
+    pLuasEc: "Luas kelebihan konduktivitas",
+    pLuasC: "Luas kurva kepekatan garam",
+    pPuncak: "Kelebihan konduktivitas puncak",
+    pPuncakVal: (v: string, t: string) => `${v} pada t ${t} s`,
+    pN: "Bacaan sesudah suntik",
+    pSedikit: "Kurva butuh paling sedikit dua bacaan sesudah suntik (t ≥ 0).",
+    pTanpaLatar:
+      "Belum ada bacaan sebelum suntik (t ≤ 0), jadi latar diambil dari bacaan paling awal. Bila awan sudah tiba saat itu, latar kebesaran dan debit kebesaran. Mulai seri dengan beberapa bacaan pada t negatif.",
+    pLatarSatu:
+      "Latar hanya dari satu bacaan, jadi galat bacaan itu langsung masuk ke seluruh luas kurva. Ambil tiga sampai lima bacaan sebelum suntik.",
+    pEkor:
+      "Bacaan terakhir masih jauh di atas latar: ekor kurva terpotong, luasnya kurang, dan debitnya kebesaran. Teruskan mencatat sampai konduktivitas kembali ke latar.",
+    pCampur:
+      "Baris di tabel dicatat pada lebih dari satu keadaan sungai (Q, M, L, A, atau D berubah). Satu kurva harus satu suntikan; kosongkan tabel untuk seri baru. Debit dan massa diambil dari baris terakhir.",
+    pKepekaan: (d: string, q: string) =>
+      `Latar sangat menentukan: latar yang ${d} µS/cm lebih tinggi mengubah debit sekitar ${q} %, karena selisihnya dikalikan seluruh lama pencatatan.`,
+    pBelumCampur:
+      "Jarak suntik masih di bawah panjang pencampuran lembar. Di sungai nyata bacaan di satu titik penampang belum mewakili seluruh penampang; lembar ini belum memodelkan letak pencampuran, jadi bacaannya tetap dari kurva model.",
+    pSebar: "Bilangan Peclet di bawah sepuluh: kurva model sendiri belum berlaku sedekat ini dengan titik suntik (lihat kartu kondisi).",
+    hLatar: "Latar konduktivitas",
+    hLuasEc: "Luas kelebihan konduktivitas, aturan trapesium",
+    hLuasC: "Luas kurva kepekatan",
+    hQP: "Debit dari luas kurva",
+    hC: "Kepekatan bacaan ini",
+    bacaan: "bacaan",
+    axT: "waktu sejak suntik t, s",
+    axEc: "konduktivitas EC, µS/cm",
+    gModel: "kurva model",
+    gBacaan: "bacaan",
+    gLatar: "latar EC₀",
+    gT: "t berikut",
+    gRingkas: (k: number) =>
+      k === 0
+        ? "Grafik konduktivitas terhadap waktu: belum ada bacaan; garis putus-putus adalah kurva model lembar."
+        : `Grafik konduktivitas terhadap waktu: ${k} bacaan dari tabel pengamatan, garis latar, dan kurva model lembar.`,
+    langkahP: [
+      "Pilih penampang ukur di hilir yang sudah melewati panjang pencampuran, dan siapkan M kg garam yang dilarutkan dalam ember.",
+      "Sebelum menyuntik, catat konduktivitas latar tiga sampai lima kali (t negatif). Tiap Catat bacaan memajukan t sebesar selang baca.",
+      "Tuang larutan garam sekaligus di titik suntik pada t = 0.",
+      "Teruskan Catat bacaan pada selang tetap. Selang yang wajar sekitar sepertiga puluh lama awan lewat, supaya puncaknya tidak terlewat.",
+      "Catat sampai konduktivitas kembali ke latar. Berhenti terlalu cepat memotong ekor kurva dan membesarkan debit.",
+      "Bandingkan debit dari luas kurva dengan debit sebenarnya, lalu unduh tabel sebelum menutup halaman.",
+    ],
+    aEc: "Pengukur konduktivitas: resolusi 0,1 µS/cm, galat σ = 0,5 % dari bacaan + 0,1 µS/cm (usulan, belum ditelaah). Bacaan tidak dipotong.",
+    aK: (k: string, l: string) =>
+      `Konduktivitas benar = latar ${l} µS/cm + k · c, dengan k = ${k} µS/cm per mg/L garam (konduktivitas molar batas NaCl 126,4 S·cm²/mol pada 25 °C dibagi 58,44 g/mol; anggapan lembar, di lapangan k dikalibrasi di tempat). Lembar memakai k yang sama untuk membaca, jadi k tidak menggeser debit.`,
+    aKurva: "Kepekatan benar c(t) dibaca dari kurva model lembar (sebaran satu dimensi). Letak alat di penampang dan denah awan garam belum dimodelkan, jadi penampang ukur dianggap sudah tercampur merata.",
+    aSaran: (dur: string, dt: string) =>
+      `Pada keadaan sekarang awan lewat sekitar ${dur} s, jadi selang baca sekitar ${dt} s.`,
     sebarNote:
       "Bilangan Peclet, yaitu kecepatan dikali jarak dibagi koefisien sebaran, turun di bawah sepuluh. Pada keadaan itu awan garam menyebar hampir secepat ia terbawa arus, dan model sebaran satu dimensi (Fick) yang dipakai untuk menggambar kurva ini belum berlaku sedekat itu dengan titik suntik (Fischer dkk. 1979). Kurvanya juga berekor panjang, dan lembar ini memotong hitungan luasnya pada jendela waktu tetap, jadi bagian ekor yang terpotong ikut membuat debit dari luas kurva meleset. Perpanjang jaraknya, atau pakai bagian sungai yang arusnya lebih deras.",
     kurangNote:
@@ -107,6 +179,63 @@ const TXT = {
     hQ: "Area under the curve and discharge",
     hLaju: "Constant-rate method: c₂ is built from the Q entered, so Q′ = Q by construction",
     sebar: "Dispersion dominates transport",
+    pT: "Reading time since injection (negative = before injection)",
+    pDt: "Reading interval, t advances by this after each record",
+    pUjung: (tm: string) => `t is at the end of the slider (${tm} s) and no longer advances. The cloud passed long ago; stop recording.`,
+    pQ: "Discharge from the measured curve area",
+    pQm: "True river discharge (sheet input)",
+    pSelisih: "Difference from the true discharge",
+    pLatar: "Background EC₀, mean of readings before injection",
+    pLatarVal: (v: string, k: number) => (k > 0 ? `${v} (${k} ${k === 1 ? "reading" : "readings"})` : `${v} (earliest reading)`),
+    pLuasEc: "Area of excess conductivity",
+    pLuasC: "Area of the salt concentration curve",
+    pPuncak: "Peak excess conductivity",
+    pPuncakVal: (v: string, t: string) => `${v} at t ${t} s`,
+    pN: "Readings after injection",
+    pSedikit: "The curve needs at least two readings after injection (t ≥ 0).",
+    pTanpaLatar:
+      "There is no reading before injection (t ≤ 0), so the background is taken from the earliest reading. If the cloud had already arrived by then, the background and the discharge both come out too high. Start the series with a few readings at negative t.",
+    pLatarSatu:
+      "The background comes from a single reading, so that reading's error goes straight into the whole curve area. Take three to five readings before injection.",
+    pEkor:
+      "The last reading is still well above background: the curve's tail is cut off, the area is short, and the discharge comes out too high. Keep recording until the conductivity returns to background.",
+    pCampur:
+      "The rows were recorded at more than one river state (Q, M, L, A, or D changed). One curve must be one injection; clear the table for a new series. Discharge and mass are taken from the last row.",
+    pKepekaan: (d: string, q: string) =>
+      `The background matters a great deal: a background ${d} µS/cm higher changes the discharge by about ${q} %, because the difference is multiplied by the whole recording time.`,
+    pBelumCampur:
+      "The injection distance is still below the sheet's mixing length. In a real river a reading at one point of the section does not yet represent the whole section; this sheet does not yet model the mixing position, so readings still come from the model curve.",
+    pSebar: "The Peclet number is below ten: the model curve itself does not yet hold this close to the injection point (see the state card).",
+    hLatar: "Background conductivity",
+    hLuasEc: "Area of excess conductivity, trapezium rule",
+    hLuasC: "Area of the concentration curve",
+    hQP: "Discharge from the curve area",
+    hC: "Concentration of this reading",
+    bacaan: "readings",
+    axT: "time since injection t, s",
+    axEc: "conductivity EC, µS/cm",
+    gModel: "model curve",
+    gBacaan: "readings",
+    gLatar: "background EC₀",
+    gT: "next t",
+    gRingkas: (k: number) =>
+      k === 0
+        ? "Conductivity against time chart: no readings yet; the dashed line is the sheet's model curve."
+        : `Conductivity against time chart: ${k} readings from the observation table, the background line, and the sheet's model curve.`,
+    langkahP: [
+      "Choose a measuring section downstream beyond the mixing length, and dissolve M kg of salt in a bucket.",
+      "Before injecting, record the background conductivity three to five times (negative t). Each Record reading advances t by the reading interval.",
+      "Pour the salt solution in all at once at the injection point at t = 0.",
+      "Keep pressing Record reading at a fixed interval. A sensible interval is about one thirtieth of the time the cloud takes to pass, so the peak is not missed.",
+      "Record until the conductivity returns to background. Stopping too soon cuts off the tail of the curve and inflates the discharge.",
+      "Compare the discharge from the curve area with the true discharge, then download the table before closing the page.",
+    ],
+    aEc: "Conductivity meter: resolution 0.1 µS/cm, error σ = 0.5 % of reading + 0.1 µS/cm (proposed, not yet reviewed). Readings are not clipped.",
+    aK: (k: string, l: string) =>
+      `True conductivity = background ${l} µS/cm + k · c, with k = ${k} µS/cm per mg/L of salt (limiting molar conductivity of NaCl 126.4 S·cm²/mol at 25 °C divided by 58.44 g/mol; a sheet assumption, in the field k is calibrated on site). The sheet uses the same k to read, so k does not shift the discharge.`,
+    aKurva: "The true concentration c(t) is read from the sheet's model curve (one-dimensional dispersion). The probe's position in the section and the plan of the salt cloud are not modelled yet, so the measuring section is taken as fully mixed.",
+    aSaran: (dur: string, dt: string) =>
+      `In the current state the cloud takes about ${dur} s to pass, so a reading interval of about ${dt} s.`,
     sebarNote:
       "The Peclet number, velocity times distance divided by the dispersion coefficient, has fallen below ten. The tracer cloud then spreads almost as fast as it travels, and the one-dimensional (Fickian) dispersion model used to draw this curve does not yet hold that close to the injection point (Fischer et al. 1979). The curve also has a long tail, and this sheet cuts the area integral off at a fixed time window, so the truncated tail adds to the error in the discharge recovered from the area. Lengthen the reach, or use a stretch with a faster current.",
     kurangNote:
@@ -142,6 +271,9 @@ export function PengenceranGaramClient() {
   const [A, setA] = useState(1.5);
   const [D, setD] = useState(3);
   const [B, setB] = useState(4);
+  // Lembar pengamatan: waktu baca berikut dan selang baca (maju sesudah catat)
+  const [tBaca, setTBaca] = useState(-30);
+  const [dtBaca, setDtBaca] = useState(10);
 
   const r = tracerCurve(Q, M, L, A, D);
   const rLebar = tracerCurve(Q, M, L, A, D * 3);
@@ -189,6 +321,9 @@ export function PengenceranGaramClient() {
   const nada: Tone = sebar ? "invalid" : kurang ? "caution" : "pass";
   const badge = sebar ? x.sebar : kurang ? x.kurang : x.tercampur;
   const sejuta = fmt(1e6, 0);
+  const tMaks = tMaksFm05(r.points);
+  const diUjung = tBaca >= tMaks;
+  const keadaan = { Q, M, L, A, D };
 
   const langkah = [
     {
@@ -365,6 +500,53 @@ export function PengenceranGaramClient() {
       }
       verification={<Verification checks={checksTracer(Q, M, L, A, D)} />}
       below={
+        <>
+        <div className="mb-9">
+          <LembarPraktikum<BacaanFm05>
+            kode="FM-05"
+            kolom={KOLOM_FM05}
+            kolomEkspor={KOLOM_EKSPOR_FM05}
+            catat={(rng) => {
+              const b = catatFm05({ ...keadaan, t: tBaca }, rng, r.points);
+              // Pencatat data lapangan: t maju satu selang sesudah tiap bacaan.
+              // Berhenti di ujung penggeser; penandanya ditulis di bawah penggeser.
+              setTBaca(Math.min(tBaca + dtBaca, tMaks));
+              return b;
+            }}
+            masukan={
+              <>
+                <table className="data">
+                  <tbody>
+                    <InputRow symbol="t" label={x.pT} value={tBaca} min={-60} max={tMaks} step={1} digits={0} unit="s" onChange={setTBaca} />
+                    <InputRow symbol="Δt" label={x.pDt} value={dtBaca} min={1} max={600} step={1} digits={0} unit="s" onChange={setDtBaca} />
+                  </tbody>
+                </table>
+                {diUjung && (
+                  <p className="pb-1.5 pt-1 text-[0.84rem] leading-[1.45] text-ink-2" style={{ borderLeft: `2px solid ${C.caution}`, paddingLeft: "0.6rem" }}>
+                    {x.pUjung(fmt(tMaks, 0))}
+                  </p>
+                )}
+              </>
+            }
+            grafik={(rows) => (
+              <GrafikPraktikum spec={grafikFm05(rows, r.points, r.cPeak, tBaca, tMaks, lang)} ringkasan={x.gRingkas(rows.length)} />
+            )}
+            ringkasan={(rows) => ringkasanFm05(rows, lang)}
+            penanda={(rows) => penandaFm05(rows, kurang, sebar, lang)}
+            hitungan={(b, rows) => hitunganFm05(b, rows, lang)}
+            langkah={TXT.id.langkahP.map((id, i) => ({ id, en: TXT.en.langkahP[i] }))}
+            alat={
+              <>
+                <p>{x.aEc}</p>
+                <p>{x.aK(fmt(K_GARAM, 2), fmt(EC_LATAR, 0))}</p>
+                <p>{x.aKurva}</p>
+                <p>{x.aSaran(fmt(r.duration, 0), fmt(Math.max(1, Math.round(r.duration / 30)), 0))}</p>
+              </>
+            }
+            namaBerkas="fm05-pengenceran-garam-pengamatan"
+            maks={80}
+          />
+        </div>
         <Basis
           equations={
             <>
@@ -385,9 +567,132 @@ export function PengenceranGaramClient() {
           note={x.note}
           refs={[...REFS[lang]]}
         />
+        </>
       }
     />
   );
+}
+
+/* Lembar pengamatan FM-05: ringkasan, penanda, langkah hitung, dan grafik
+   kurva konduktivitas dari src/data/praktikum/fm05.ts. */
+
+function ringkasanFm05(rows: BacaanFm05[], lang: Lang): ResultRow[] {
+  const x = TXT[lang];
+  const s = ringkasFm05(rows);
+  return [
+    { symbol: "Q", label: x.pQ, value: fmt(s.Q, 4), unit: "m³/s", tint: C.water, strong: true },
+    { symbol: "ΔQ", label: x.pSelisih, value: fmt(s.selisih, 2), unit: "%", strong: true },
+    { symbol: "Qₛ", label: x.pQm, value: fmt(s.Qmodel, 4), unit: "m³/s" },
+    { symbol: "EC₀", label: x.pLatar, value: x.pLatarVal(fmt(s.latar, 2), s.nLatar), unit: "µS/cm" },
+    { symbol: "∫ΔEC dt", label: x.pLuasEc, value: fmt(s.luasEc, 0), unit: "µS/cm·s" },
+    { symbol: "∫c dt", label: x.pLuasC, value: fmt(s.luasC, 1), unit: "mg·s/l" },
+    { symbol: "ΔECₘ", label: x.pPuncak, value: x.pPuncakVal(fmt(s.puncak, 1), fmt(s.tPuncak, 0)), unit: "µS/cm" },
+    { symbol: "k", label: x.pN, value: String(s.nKurva) },
+  ];
+}
+
+function penandaFm05(rows: BacaanFm05[], kurang: boolean, sebar: boolean, lang: Lang): string[] {
+  const x = TXT[lang];
+  const s = ringkasFm05(rows);
+  const out: string[] = [];
+  if (s.nKurva < 2) out.push(x.pSedikit);
+  if (s.nLatar === 0) out.push(x.pTanpaLatar);
+  else if (s.nLatar === 1) out.push(x.pLatarSatu);
+  if (s.ekorTerpotong) out.push(x.pEkor);
+  if (s.campur) out.push(x.pCampur);
+  if (kurang) out.push(x.pBelumCampur);
+  if (sebar) out.push(x.pSebar);
+  const urut = rows.filter((r) => r.t >= 0).map((r) => r.t);
+  if (s.nKurva >= 2 && s.luasEc > 0) {
+    // Latar naik δ: luas turun δ·(t akhir − t awal), Q naik sebanding.
+    const T = Math.max(...urut) - Math.min(...urut);
+    const d = 0.2;
+    const q = (s.luasEc / (s.luasEc - d * T) - 1) * 100;
+    if (Number.isFinite(q) && q > 0) out.push(x.pKepekaan(fmt(d, 1), fmt(q, 1)));
+  }
+  return out;
+}
+
+function hitunganFm05(b: BacaanFm05, rows: BacaanFm05[], lang: Lang): LangkahHitung[] {
+  const x = TXT[lang];
+  const s = ringkasFm05(rows);
+  const sebelum = rows.filter((r) => r.t <= 0);
+  const kurva = rows.filter((r) => r.t >= 0).map((r) => r.t);
+  const tAwal = kurva.length ? Math.min(...kurva) : NaN;
+  const tAkhir = kurva.length ? Math.max(...kurva) : NaN;
+  const sejuta = fmt(1e6, 0);
+  return [
+    {
+      judul: x.hLatar,
+      rumus: (<><span>EC₀ =</span><Frac num="Σ EC ( t ≤ 0 )" den="k" /></>),
+      isi: sebelum.length ? `( ${sebelum.map((r) => fmt(r.ec, 1)).join(" + ")} ) / ${sebelum.length}` : `EC ( t ${fmt(rows.reduce((a, r) => Math.min(a, r.t), Infinity), 0)} s )`,
+      hasil: fmt(s.latar, 2),
+      satuan: "µS/cm",
+    },
+    {
+      judul: x.hC,
+      rumus: (<><span>c =</span><Frac num="EC − EC₀" den="k_g" /></>),
+      isi: `( ${fmt(b.ec, 1)} − ${fmt(s.latar, 2)} ) / ${fmt(K_GARAM, 2)}`,
+      hasil: fmt((b.ec - s.latar) / K_GARAM, 2),
+      satuan: "mg/l",
+    },
+    {
+      judul: x.hLuasEc,
+      rumus: <span>∫ ( EC − EC₀ ) dt ≈ Σ ½ ( ΔECᵢ + ΔECᵢ₊₁ ) ( tᵢ₊₁ − tᵢ )</span>,
+      isi: `${s.nKurva} ${x.bacaan}, t ${fmt(tAwal, 0)} … ${fmt(tAkhir, 0)} s`,
+      hasil: fmt(s.luasEc, 0),
+      satuan: "µS/cm·s",
+    },
+    {
+      judul: x.hLuasC,
+      rumus: (<><span>∫ ( c − c₀ ) dt =</span><Frac num="∫ ( EC − EC₀ ) dt" den="k_g" /></>),
+      isi: `${fmt(s.luasEc, 0)} / ${fmt(K_GARAM, 2)}`,
+      hasil: fmt(s.luasC, 1),
+      satuan: "mg·s/l",
+    },
+    {
+      judul: x.hQP,
+      rumus: (<><span>Q =</span><Frac num={`M · ${sejuta}`} den="∫ ( c − c₀ ) dt" /><span>/ 1000</span></>),
+      isi: `${fmt(b.M, 1)} · ${sejuta} / ${fmt(s.luasC, 1)} / 1000`,
+      hasil: fmt(s.Q, 4),
+      satuan: "m³/s",
+      tint: C.water,
+    },
+  ];
+}
+
+function grafikFm05(
+  rows: BacaanFm05[],
+  points: readonly TracerPoint[],
+  cPeak: number,
+  tBaca: number,
+  tMaks: number,
+  lang: Lang
+): ChartSpec {
+  const x = TXT[lang];
+  const s = rows.length > 0 ? ringkasFm05(rows) : null;
+  const model = [{ x: -60, y: EC_LATAR }, ...points.map((p) => ({ x: p.t, y: EC_LATAR + K_GARAM * p.c })), { x: tMaks, y: EC_LATAR }];
+  const ukur = [...rows].sort((a, b) => a.t - b.t).map((r) => ({ x: r.t, y: r.ec }));
+  const atas = Math.max(EC_LATAR + K_GARAM * cPeak, ...rows.map((r) => r.ec));
+  const bawah = Math.min(EC_LATAR, ...rows.map((r) => r.ec));
+  const rentang = Math.max(atas - bawah, 1);
+  return {
+    xMin: -60,
+    xMax: tMaks,
+    yMin: bawah - 0.08 * rentang,
+    yMax: atas + 0.15 * rentang,
+    axisX: x.axT,
+    axisY: x.axEc,
+    series: [
+      { pts: model, color: C.ink3, weight: W.thin, dash: DASH.hidden, label: x.gModel, labelAt: 0.75, labelAlign: "left" },
+      ...(ukur.length >= 2 ? [{ pts: ukur, color: C.water, weight: W.thin }] : []),
+    ],
+    markers: ukur.map((p) => ({ ...p, color: C.water })),
+    rules: [
+      ...(s && Number.isFinite(s.latar) ? [{ axis: "y" as const, at: s.latar, color: C.ink2, dash: DASH.axis, label: `${x.gLatar} ${fmt(s.latar, 1)}` }] : []),
+      { axis: "x" as const, at: tBaca, color: C.ink2, dash: DASH.hidden, label: `${x.gT} ${fmt(tBaca, 0)} s`, labelAlign: "left" as const },
+    ],
+  };
 }
 
 /*
