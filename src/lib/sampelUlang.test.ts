@@ -78,7 +78,7 @@ describe("ambilSampel", () => {
     assert.equal(s.petersen, s.m > 0 ? (200 * 150) / s.m : Infinity);
   });
 
-  it("rerata Chapman dari banyak benih dekat N (hampir tak bias bila M + n ≥ N)", () => {
+  it("rerata Chapman dari banyak benih = N (tak bias persis bila M + n ≥ N, Chapman 1951)", () => {
     const N = 300;
     let s = 0;
     const K = 5000;

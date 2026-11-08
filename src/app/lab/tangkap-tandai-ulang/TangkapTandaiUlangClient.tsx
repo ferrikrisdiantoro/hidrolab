@@ -183,8 +183,9 @@ const REFS = {
 } as const;
 
 /* Rentang m, dipakai bersama penggeser, kotak angka, dan pegangan titik
-   taksiran (aturan 4: satu sumber nilai). */
-const P_M: ParamDef = { min: 0, max: 200, step: 1, digits: 0 };
+   taksiran (aturan 4: satu sumber nilai). Ujungnya = ujung M dan n (2000),
+   karena "Ambil sampel" memasang m hasil undian sampai min(M, n). */
+const P_M: ParamDef = { min: 0, max: 2000, step: 1, digits: 0 };
 
 /** Populasi sebenarnya bawaan simulasi: dekat N̂ Chapman contoh bawaan (978). */
 const N_SIM_AWAL = 1000;
@@ -341,6 +342,9 @@ export function TangkapTandaiUlangClient() {
     1
   );
   const mMax = kunci?.mMax ?? mMaxBebas;
+  /* Ujung skala rezim m: 200 seperti dulu, melebar sampai m terbesar yang
+     mungkin, min(M, n), supaya m hasil undian tidak jatuh "di luar skala". */
+  const ujungSkalaM = Math.max(200, Math.min(M, n));
   const yMax = kunci?.yMax ?? yMaxBebas;
 
   const plate = usePlate(
@@ -454,10 +458,10 @@ export function TangkapTandaiUlangClient() {
           digits={0}
           bands={
             mustahil
-              ? [{ from: 0, to: 200, label: x.mustahil, tone: "invalid" }]
+              ? [{ from: 0, to: ujungSkalaM, label: x.mustahil, tone: "invalid" }]
               : [
                   { from: 0, to: RECAPTURE_MIN - 1e-9, label: x.bSedikit, tone: "caution" },
-                  { from: RECAPTURE_MIN, to: 200, label: x.bLayak, tone: "pass" },
+                  { from: RECAPTURE_MIN, to: ujungSkalaM, label: x.bLayak, tone: "pass" },
                 ]
           }
         />
