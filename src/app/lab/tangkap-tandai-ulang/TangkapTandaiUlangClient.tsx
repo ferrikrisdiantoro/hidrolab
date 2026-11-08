@@ -301,12 +301,6 @@ export function TangkapTandaiUlangClient() {
           rules: [
             { axis: "x", at: NSim, color: C.ink, weight: W.thin, dash: DASH.axis, label: `${x.garisN} ${fmtPlain(NSim, 0)}` },
           ],
-          legend: K
-            ? [
-                { text: "Chapman", color: C.water, line: { weight: W.thin } },
-                { text: "Petersen", color: C.critical, line: { weight: W.thin, dash: DASH.phantom } },
-              ]
-            : undefined,
           padRight: 18,
         },
         lang
@@ -593,6 +587,20 @@ export function TangkapTandaiUlangClient() {
                 className="block h-full w-full"
               />
             </div>
+            {/* Legenda di DOM, bukan di dalam bidang: kotak legenda menimpa
+                label garis N sebenarnya pada kanvas sempit kolom samping. */}
+            {K > 0 && (
+              <p className="mt-1 flex flex-wrap gap-x-4 text-[0.78rem] text-ink-2" aria-hidden="true">
+                <span className="flex items-center gap-1.5">
+                  <svg width="22" height="8" viewBox="0 0 22 8"><line x1="1" y1="4" x2="21" y2="4" stroke={C.water} strokeWidth={W.thin} /></svg>
+                  Chapman
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <svg width="22" height="8" viewBox="0 0 22 8"><line x1="1" y1="4" x2="21" y2="4" stroke={C.critical} strokeWidth={W.thin} strokeDasharray={DASH.phantom.join(" ")} /></svg>
+                  Lincoln-Petersen
+                </span>
+              </p>
+            )}
             {K === 0 ? (
               <p className="mt-2 text-[0.82rem] text-ink-3">{x.kosong}</p>
             ) : (
@@ -600,7 +608,7 @@ export function TangkapTandaiUlangClient() {
                 <ResultTable
                   rows={[
                     { symbol: "k", label: x.sJumlah, value: fmt(K, 0) },
-                    { symbol: "m̄", label: x.sMRerata, value: `${fmt(rerataM, 2)} / ${fmt(teori.mean, 2)}` },
+                    { symbol: "⟨m⟩", label: x.sMRerata, value: `${fmt(rerataM, 2)} / ${fmt(teori.mean, 2)}` },
                     { symbol: "s²", label: x.sMRagam, value: K > 1 ? `${fmt(ragamM, 2)} / ${fmt(teori.variance, 2)}` : "—" },
                     { symbol: "N̂", label: x.sChap, value: fmt(rerataChap, 1), unit: x.ekor, tint: C.water },
                     { symbol: "N̂p", label: x.sPet, value: petHingga.length ? fmt(rerataPet, 1) : "—", unit: petHingga.length ? x.ekor : undefined, tint: C.critical },
