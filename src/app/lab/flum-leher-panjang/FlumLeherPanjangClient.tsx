@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,7 +14,21 @@ import {
   Sheet,
   StateCard,
   Term,
+  type SheetView,
 } from "@/components/ui";
+import { TombolPandang } from "@/components/Pandangan";
+import { usePandangan } from "@/lib/usePandangan";
+import {
+  MARGIN_ISO,
+  PANDANG_AWAL,
+  RUANG_JUDUL_ISO,
+  drawIsoFlum,
+  pelebihanTegak,
+  profilFlum,
+  rasioIsoFlum,
+  stasiunFlum,
+} from "@/lib/drawIsoFlum";
+import { balikDiGarisSumbu, isometrikBaku, type Kamera, type V3 } from "@/lib/proyeksi";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
 import type { ParamDef } from "@/lib/rentang";
@@ -102,6 +116,15 @@ const TXT = {
     tenggelamNote:
       "Muka air hilir sudah naik melewati batas kerja bebas. Begitu itu terjadi, kondisi kritis di leher hilang, dan tinggi muka air di hulu tidak lagi menentukan debit sendirian. Rendahkan muka air hilir, atau naikkan mercu lehernya.",
     exagg: "pelebihan tegak",
+    isoHeading: "tampak isometrik",
+    aksoHeading: "tampak 3D (aksonometri)",
+    gB: "Lebar leher b, seret tepi leher di gambar 3D ke samping",
+    isoCatatan: (ex: number, tenggelam: boolean, takKendali: boolean) =>
+      `Gambar 3D skematik. Lebar saluran datang, lebar dan panjang leher, tinggi mercu, dan muka air dari model; dinding tegak karena penampangnya persegi. Panjang peralihan dan saluran mengikuti aturan potongan lembar ini (kelipatan L), bukan ukuran ISO 4359. Tinggi dinding, tebal dinding, dan pelat lantai tidak ada di model. Dinding sisi dekat dibuang supaya potongan lantai dan air terlihat. Muka air di hilir leher bertitik: peralihan, tidak dihitung.${
+        ex !== 1 ? ` Skala tegak dilebihkan ${ex} kali.` : ""
+      }${tenggelam ? " Tenggelam: bentuk muka air di peralihan dan leher tidak diketahui, digambar bertitik." : ""}${
+        takKendali ? " Leher tidak mengendalikan aliran: muka air digambar datar setinggi h₁, bertitik." : ""
+      }`,
     note:
       "Kekuatan alat ini bukan pada ketelitian koefisiennya melainkan pada asal-usulnya. Lehernya sengaja dibuat cukup panjang sehingga garis arus di dalamnya menjadi sejajar dan tekanannya kembali hidrostatik. Begitu syarat itu terpenuhi, aliran melewati kondisi kritis di dalam leher, dan pada kondisi kritis kedalaman persis dua per tiga tinggi energi. Dari dua kenyataan itu saja debitnya sudah dapat diturunkan, tanpa satu pun angka hasil pengujian. Tetapan 1,7049 pada rumusnya bukan koefisien empiris melainkan dua per tiga pangkat satu setengah dikali akar percepatan gravitasi. Konsekuensinya besar dalam praktik: flum berleher panjang dapat dirancang di atas kertas untuk bentuk penampang apa pun, lalu dibangun dan langsung dipakai. Alat ukur yang koefisiennya empiris tidak punya kemewahan itu. Yang tetap harus dijaga hanya dua hal, dan keduanya ditandai pada lembar ini: perbandingan tinggi energi terhadap panjang leher harus berada di dalam rentangnya, dan muka air hilir tidak boleh naik sampai menenggelamkan kondisi kritis di leher.",
   },
@@ -163,6 +186,15 @@ const TXT = {
     tenggelamNote:
       "The tailwater has risen past the limit for free flow. Once that happens the critical condition in the throat is lost, and the upstream head no longer sets the discharge on its own. Lower the tailwater, or raise the throat crest.",
     exagg: "vertical exaggeration",
+    isoHeading: "isometric view",
+    aksoHeading: "3D view (axonometric)",
+    gB: "Throat width b, drag the throat edge sideways in the 3D drawing",
+    isoCatatan: (ex: number, tenggelam: boolean, takKendali: boolean) =>
+      `Schematic 3D drawing. Approach width, throat width and length, sill height and water surface come from the model; the walls are vertical because the section is rectangular. Transition and channel lengths follow this sheet's section drawing rule (multiples of L), not ISO 4359 dimensions. Wall height, wall thickness and the floor slab are not in the model. The near sidewall is removed so the floor and water section can be seen. The water surface downstream of the throat is dotted: a transition, not computed.${
+        ex !== 1 ? ` Vertical scale exaggerated ${ex} times.` : ""
+      }${tenggelam ? " Submerged: the water surface shape in the transition and throat is unknown, drawn dotted." : ""}${
+        takKendali ? " The throat does not control the flow: the water surface is drawn level at h₁, dotted." : ""
+      }`,
     note:
       "The strength of this device is not the accuracy of its coefficient but where that coefficient comes from. The throat is deliberately made long enough for the streamlines inside it to become parallel and the pressure to return to hydrostatic. Once that holds, the flow passes through critical conditions inside the throat, and at critical conditions the depth is exactly two thirds of the total head. From those two facts alone the discharge follows, without a single measured number. The constant 1.7049 in the formula is not empirical: it is two thirds to the power of one and a half times the square root of gravity. The practical consequence is large: a long-throated flume can be designed on paper for any cross-sectional shape, then built and used straight away. A device with an empirical coefficient does not have that luxury. Only two things must still be watched, and both are marked on this sheet: the ratio of head to throat length must stay inside its range, and the tailwater must not rise far enough to drown the critical condition in the throat.",
   },
@@ -189,6 +221,8 @@ const REFS = {
  */
 const P_P: ParamDef = { min: 0, max: 1.5, step: 0.05, digits: 2 };
 const P_L: ParamDef = { min: 0.1, max: 5, step: 0.05, digits: 2 };
+/* Lebar leher: penggeser, kotak angka, dan pegangan di gambar 3D. */
+const P_B: ParamDef = { min: 0.1, max: 5, step: 0.05, digits: 2 };
 
 /** Batas sumbu gambar, dikunci selama pegangan diseret. */
 type Kunci = { xMax: number; zTop: number };
@@ -278,6 +312,97 @@ export function FlumLeherPanjangClient() {
     setKunci({ xMax: o.map.invX(f.x1), zTop: o.map.invY(f.y0) });
   };
   const lepasKunci = () => setKunci(null);
+
+  /* Tampak (Phase 3, 3D). Bawaan = potongan lama, jadi lembar yang dibuka
+     tanpa disentuh tetap menggambar apa yang dulu. */
+  const [tampak, setTampak] = useState<SheetView>("potongan");
+  const pandang = usePandangan(PANDANG_AWAL);
+  const keadaanIso = { h1, b: bt, B: bA, p, Lt, Cd, tail };
+  const ex = pelebihanTegak(keadaanIso);
+
+  /*
+   * Kamera dan pelebihan tegak dikunci selama pegangan lebar leher diseret
+   * (pola kunci sumbu potongan): kotak batas ikut H₁ dan max(B, b), jadi
+   * tanpa kunci skala berubah tiap piksel dan pegangan saling kejar.
+   */
+  const [kunciIso, setKunciIso] = useState<{ kamera: Kamera; ex: number } | null>(null);
+  const isoRef = useRef<{ kamera: Kamera; ex: number; a: V3; b: V3; sumbu: "x" | "y" } | null>(null);
+  const iso = usePlate(
+    (ctx, w, h) => {
+      if (tampak !== "isometrik") return;
+      const o = drawIsoFlum(ctx, w, h, keadaanIso, {
+        yaw: pandang.yaw,
+        pitch: pandang.pitch,
+        heading: takKendali
+          ? leherLebar
+            ? x.leherLebar
+            : x.takKendali
+          : tenggelam
+            ? x.tenggelam
+            : frLuar || hlLuar
+              ? x.luar
+              : isometrikBaku(pandang.yaw, pandang.pitch)
+                ? x.isoHeading
+                : x.aksoHeading,
+        headingSignal: takKendali || tenggelam || frLuar || hlLuar,
+        teks: { exagg: x.exagg, ukur: cl(lang).gauging, takKendali: cl(lang).throatNoControl },
+        kunci: kunciIso ?? undefined,
+      });
+      isoRef.current = { kamera: o.kamera, ex: o.ex, a: o.garisLeher.a, b: o.garisLeher.b, sumbu: o.sumbuLeher };
+      return o;
+    },
+    null,
+    [
+      tampak,
+      pandang.yaw,
+      pandang.pitch,
+      h1,
+      bt,
+      bA,
+      p,
+      Lt,
+      Cd,
+      tail,
+      lang,
+      kunciIso ? kunciIso.kamera.skala : NaN,
+      kunciIso ? kunciIso.kamera.cx : NaN,
+      kunciIso ? kunciIso.kamera.cy : NaN,
+    ]
+  );
+  /*
+   * Pegangan lebar leher di gambar 3D: ParamDef dan setter SAMA dengan
+   * penggeser b. Balikan dari proyeksi: titik garisLeher.a + t (b − a) =
+   * tepi leher selebar t, dan jari dikunci ke sumbu layar yang paling
+   * sejajar garis itu (balikDiGarisSumbu), jadi pegangan tetap di bawah jari.
+   */
+  const sumbuIso = isoRef.current?.sumbu ?? "x";
+  const handlesIso: HandleSpec[] = [
+    {
+      id: "leher",
+      anchor: "leher",
+      axis: sumbuIso,
+      label: x.gB,
+      param: P_B,
+      value: bt,
+      toValue: (px, py) => {
+        const g = isoRef.current;
+        return g ? balikDiGarisSumbu(px, py, g.kamera, g.a, g.b, g.sumbu) : bt;
+      },
+      onChange: setBt,
+      format: (v) => `b ${fmt(v, 2)} m`,
+    },
+  ];
+  const lepasKunciIso = () => setKunciIso(null);
+
+  /* Tinggi bidang isometrik dari kotak batas pada pandangan awal (pola
+     HS-02): di HP gambar tidak duduk kecil di bidang yang tinggi. */
+  const rasioIso = useMemo(
+    () => rasioIsoFlum({ h1, b: bt, B: bA, p, Lt, Cd, tail }),
+    [h1, bt, bA, p, Lt, Cd, tail]
+  );
+  const tinggiIso = `min(clamp(360px, 56vh, 620px), max(240px, calc(${rasioIso.toFixed(4)} * (100vw - ${
+    48 + 2 * MARGIN_ISO
+  }px) + ${2 * MARGIN_ISO + RUANG_JUDUL_ISO}px)))`;
 
   const alasanTak = leherLebar ? x.leherLebarNote : x.takKendaliNote;
   const butir: string[] = [];
@@ -496,22 +621,62 @@ export function FlumLeherPanjangClient() {
               tint: frLuar ? C.signal : undefined,
             },
           ]}
+          height={tampak === "isometrik" ? tinggiIso : undefined}
+          views={{
+            aktif: tampak,
+            onChange: setTampak,
+            alat: <TombolPandang p={pandang} />,
+            catatan: x.isoCatatan(ex, tenggelam, takKendali),
+          }}
         >
-          <canvas ref={plate.ref} className="block h-full w-full" />
-          {/* display: contents; hanya menangkap pointerdown/lepas dari
-              pegangan untuk mengunci sumbu (pola OC-06). */}
+          {/* Kedua kanvas selalu terpasang (pola HS-02): useCanvas/usePlate
+              mengamati ukuran induk sejak pasang. */}
+          <canvas
+            ref={plate.ref}
+            className={`${tampak === "isometrik" ? "hidden" : "block"} h-full w-full`}
+          />
+          {tampak === "potongan" && (
+            /* display: contents; hanya menangkap pointerdown/lepas dari
+               pegangan untuk mengunci sumbu (pola OC-06). */
+            <div
+              className="contents"
+              onPointerDown={(e) => {
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                if (kunci) return;
+                kunciSumbu();
+              }}
+              onPointerUp={lepasKunci}
+              onPointerCancel={lepasKunci}
+              onLostPointerCapture={lepasKunci}
+            >
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            </div>
+          )}
           <div
-            className="contents"
-            onPointerDown={(e) => {
-              if (e.pointerType === "mouse" && e.button !== 0) return;
-              if (kunci) return;
-              kunciSumbu();
-            }}
-            onPointerUp={lepasKunci}
-            onPointerCancel={lepasKunci}
-            onLostPointerCapture={lepasKunci}
+            {...pandang.permukaan}
+            role="application"
+            aria-label={t.viewSurface}
+            className={`absolute inset-0 select-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-water ${
+              tampak === "isometrik" ? "" : "hidden"
+            }`}
           >
-            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            <canvas ref={iso.ref} className="block h-full w-full" />
+            {tampak === "isometrik" && (
+              <div
+                className="contents"
+                onPointerDown={(e) => {
+                  if (e.pointerType === "mouse" && e.button !== 0) return;
+                  if (kunciIso) return;
+                  const g = isoRef.current;
+                  if (g) setKunciIso({ kamera: { ...g.kamera }, ex: g.ex });
+                }}
+                onPointerUp={lepasKunciIso}
+                onPointerCancel={lepasKunciIso}
+                onLostPointerCapture={lepasKunciIso}
+              >
+                <DragLayer out={iso.outRef.current} handles={handlesIso} touch={() => sentuh.current()} />
+              </div>
+            )}
           </div>
         </Sheet>
       }
@@ -520,7 +685,7 @@ export function FlumLeherPanjangClient() {
           <Block heading={t.blkInput}>
             <InputTable>
               <InputRow symbol="h₁" label={x.dh} value={h1} min={0.02} max={1.5} step={0.01} digits={3} unit="m" onChange={setH1} tint={C.water} />
-              <InputRow symbol="b" label={x.dbt} value={bt} min={0.1} max={5} step={0.05} unit="m" onChange={setBt} />
+              <InputRow symbol="b" label={x.dbt} value={bt} {...P_B} unit="m" onChange={setBt} />
               <InputRow symbol="B" label={x.dbA} value={bA} min={0.15} max={10} step={0.05} unit="m" onChange={setBA} />
               <InputRow symbol="p" label={x.dp} value={p} {...P_P} unit="m" onChange={setP} />
               <InputRow symbol="L" label={x.dL} value={Lt} {...P_L} unit="m" onChange={setLt} />
@@ -618,51 +783,14 @@ function susun(
 ) {
   const T = cl(lang);
 
-  const xDatang = 2.5 * Lt;
-  const xKerucut = 1.0 * Lt;
-  const xLeher = Lt;
-  const xLebar = 2.0 * Lt;
-  const xHilir = 1.5 * Lt;
-
-  const a1 = xDatang;
-  const a2 = a1 + xKerucut;
-  const a3 = a2 + xLeher;
-  const a4 = a3 + xLebar;
-  const L = a4 + xHilir;
-
-  const bed: ReachPoint[] = [
-    { x: 0, z: 0 },
-    { x: a1, z: 0 },
-    { x: a2, z: p },
-    { x: a3, z: p },
-    { x: a4, z: 0 },
-    { x: L, z: 0 },
-  ];
-
-  const xUkur = Math.max(0.4 * Lt, a1 - 2.5 * h1);
-  const zUkur = p + h1;
-  const zKritis = p + r.yc;
-
-  // Muka air: mendatar sampai penampang ukur, turun halus menuju kondisi
-  // kritis di leher, tetap kritis sepanjang leher, lalu jatuh ke muka air
-  // hilir. Ruas terakhir sengaja digambar sebagai peralihan, bukan hasil
-  // hitungan, karena lembar ini tidak menelusuri profil di hilir leher.
-  const air: ReachPoint[] = [{ x: 0, z: zUkur }, { x: xUkur, z: zUkur }];
-  for (let i = 1; i <= 20; i++) {
-    const f = i / 20;
-    const xx = xUkur + (a2 - xUkur) * f;
-    // Saat tenggelam bentuk muka air di kerucut dan leher tidak diketahui
-    // lembar ini, jadi digambar bertitik rapat.
-    air.push({ x: xx, z: zUkur - (zUkur - zKritis) * f * f, invalid: tenggelam || undefined });
-  }
-  air.push({ x: a3, z: zKritis, invalid: tenggelam || undefined });
-  const zAkhir = Math.max(tail, 0.02);
-  for (let i = 1; i <= 16; i++) {
-    const f = i / 16;
-    const xx = a3 + (a4 - a3) * f;
-    air.push({ x: xx, z: zKritis - (zKritis - zAkhir) * Math.sqrt(f), invalid: true });
-  }
-  air.push({ x: L, z: zAkhir, invalid: true });
+  /* Dasar dan muka air dari profilFlum: satu sumber dengan tampak
+     isometrik (drawIsoFlum), isinya kode lama ini apa adanya (diuji sama). */
+  const { a1, a2, a3, a4, L } = stasiunFlum(Lt);
+  const xDatang = a1;
+  const prof = profilFlum(r, h1, p, Lt, tail, tenggelam);
+  const bed: ReachPoint[] = prof.bed;
+  const { xUkur, zUkur, zKritis } = prof;
+  const air: ReachPoint[] = prof.water;
 
   const garis: ReachSeries[] = [
     {

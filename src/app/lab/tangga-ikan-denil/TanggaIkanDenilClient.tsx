@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Basis, Eq, Frac, LabShell } from "@/components/LabShell";
 import {
   Block,
@@ -14,11 +14,25 @@ import {
   StateCard,
   Term,
   SentuhContoh,
+  type SheetView,
 } from "@/components/ui";
+import { TombolPandang } from "@/components/Pandangan";
+import { usePandangan } from "@/lib/usePandangan";
+import { useCanvas } from "@/lib/useCanvas";
+import { isometrikBaku } from "@/lib/proyeksi";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import { usePlate } from "@/lib/usePlate";
 import type { ParamDef } from "@/lib/rentang";
 import { drawStructure, type StructureBody, type StructureSpec } from "@/lib/drawStructure";
+import {
+  MARGIN_ISO,
+  PANDANG_AWAL,
+  PANJANG_GAMBAR_MAKS,
+  RUANG_JUDUL_ISO,
+  drawIsoDenil,
+  rasioIsoDenil,
+  siripDenil,
+} from "@/lib/drawIsoDenil";
 import {
   DENIL_RUN_MAX,
   DENIL_SLOPE_MAX,
@@ -40,6 +54,11 @@ const TXT = {
   id: {
     title: "Tangga ikan Denil",
     sheetTitle: "Tangga ikan Denil — sirip penahan miring ke hulu",
+    isoHeading: "tampak isometrik",
+    aksoHeading: "tampak 3D (aksonometri)",
+    isoTerpotong: (L: string) => `L = ${L} m, digambar ${PANJANG_GAMBAR_MAKS} m pertama`,
+    isoCatatan:
+      "Gambar 3D skematik. Lebar palung, kemiringan, panjang, dan kedalaman air (tegak lurus lantai) dari model. Model tidak memuat bentuk sirip: jarak, tinggi, dan kemiringan sirip mengikuti aturan gambar potongan lembar ini, dan sirip dibentang selebar palung seperti potongannya; bukaan tengah dan sudut sirip Denil baku tidak digambar. Aliran sekunder (putaran balik di dekat dinding dan dasar) tidak digambar: model tidak memuatnya dan sumbernya belum dibuka. Tinggi dan tebal dinding skematik. Dinding sisi dekat dibuang supaya sirip dan air terlihat.",
     dB: "Lebar palung antar sirip",
     dY: "Kedalaman aliran tegak lurus dasar",
     dS: "Kemiringan palung",
@@ -85,6 +104,11 @@ const TXT = {
   en: {
     title: "Denil fishway",
     sheetTitle: "Denil fishway — baffles angled upstream",
+    isoHeading: "isometric view",
+    aksoHeading: "3D view (axonometric)",
+    isoTerpotong: (L: string) => `L = ${L} m, first ${PANJANG_GAMBAR_MAKS} m drawn`,
+    isoCatatan:
+      "Schematic 3D drawing. Trough width, slope, length and water depth (normal to the invert) come from the model. The model does not hold the baffle shape: baffle spacing, height and lean follow this sheet's section drawing rule, and the baffles span the trough as in the section; the central opening and baffle angle of a standard Denil are not drawn. Secondary flow (the reverse rotation near the walls and invert) is not drawn: the model does not hold it and its source has not been opened. Wall height and thickness are schematic. The near sidewall is removed so the baffles and water can be seen.",
     dB: "Trough width between baffles",
     dY: "Flow depth normal to the invert",
     dS: "Trough slope",
@@ -192,9 +216,9 @@ export function TanggaIkanDenilClient() {
       // Potongan memanjang palung miring dengan sirip penahan miring ke hulu.
       const panjangBebas = Math.min(r.runLength, 8);
       const panjang = kunci ? kunci.panjang : panjangBebas;
-      const jarakSirip = Math.max(b * 0.6, 0.25);
-      const jumlah = Math.max(2, Math.floor(panjang / jarakSirip));
-      const tebal = Math.max(b * 0.06, 0.03);
+      /* Aturan sirip satu sumber dengan tampak isometrik (siripDenil,
+         isinya loop lama ini apa adanya, diuji sama). */
+      const { jarakSirip, tebal, tinggi, miring, xs: siripX } = siripDenil(b, y, panjang);
 
       const dasarDi = (xx: number) => -S * xx;
       // y di model tegak lurus dasar (Chow 1959 §1-3); tebal tegaknya di
@@ -213,16 +237,8 @@ export function TanggaIkanDenilClient() {
         },
       ];
 
-      // Sirip penahan: bidang tipis miring ke hulu, tingginya sebagian
-      // kedalaman palung. Sirip yang puncaknya akan menjulur ke hulu
-      // melewati ujung palung (x < 0, di luar genangan; y besar dan S
-      // curam) tidak digambar.
-      const tinggi = y * 0.62;
-      const miring = tinggi * 0.45;
-      const iPertama = Math.max(1, Math.ceil((miring - 1e-9) / jarakSirip));
-      for (let i = iPertama; i <= jumlah; i++) {
-        const xx = i * jarakSirip;
-        if (xx > panjang) break;
+      // Sirip penahan: bidang tipis miring ke hulu (siripDenil).
+      for (const xx of siripX) {
         const z0 = dasarDi(xx);
         badan.push({
           pts: [
@@ -378,6 +394,39 @@ export function TanggaIkanDenilClient() {
   ];
   const lepasKunci = () => setKunci(null);
 
+  /* Tampak (Phase 3, 3D). Bawaan = potongan lama. */
+  const [tampak, setTampak] = useState<SheetView>("potongan");
+  const pandang = usePandangan(PANDANG_AWAL);
+  const refIso = useCanvas(
+    (ctx, cw, chh) => {
+      if (tampak !== "isometrik") return;
+      drawIsoDenil(
+        ctx,
+        cw,
+        chh,
+        { b, y, S, rise, burst },
+        {
+          yaw: pandang.yaw,
+          pitch: pandang.pitch,
+          heading: r.slopeOutOfRange
+            ? x.curam
+            : tidakMampu
+              ? x.lambat
+              : isometrikBaku(pandang.yaw, pandang.pitch)
+                ? x.isoHeading
+                : x.aksoHeading,
+          headingColor: r.slopeOutOfRange ? C.signal : tidakMampu ? C.caution : undefined,
+          teks: { sirip: T.baffleLabel, terpotong: x.isoTerpotong },
+        }
+      );
+    },
+    [tampak, pandang.yaw, pandang.pitch, b, y, S, rise, burst, lang]
+  );
+  const rasioIso = useMemo(() => rasioIsoDenil({ b, y, S, rise, burst }), [b, y, S, rise, burst]);
+  const tinggiIso = `min(clamp(360px, 56vh, 620px), max(240px, calc(${rasioIso.toFixed(4)} * (100vw - ${
+    48 + 2 * MARGIN_ISO
+  }px) + ${2 * MARGIN_ISO + RUANG_JUDUL_ISO}px)))`;
+
   return (
     <LabShell
       status={
@@ -437,8 +486,28 @@ export function TanggaIkanDenilClient() {
             { label: "Vmaks", value: `${fmt(r.maxVelocity, 2)} m/s`, tint: tidakMampu ? C.caution : C.energy },
             { label: "L", value: `${fmt(r.runLength, 1)} m` },
           ]}
+          height={tampak === "isometrik" ? tinggiIso : undefined}
+          views={{
+            aktif: tampak,
+            onChange: setTampak,
+            alat: <TombolPandang p={pandang} />,
+            catatan: x.isoCatatan,
+          }}
         >
-          <canvas ref={plate.ref} className="block h-full w-full" />
+          <canvas
+            ref={plate.ref}
+            className={`${tampak === "isometrik" ? "hidden" : "block"} h-full w-full`}
+          />
+          <div
+            {...pandang.permukaan}
+            role="application"
+            aria-label={t.viewSurface}
+            className={`absolute inset-0 select-none outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-water ${
+              tampak === "isometrik" ? "" : "hidden"
+            }`}
+          >
+            <canvas ref={refIso} className="block h-full w-full" />
+          </div>
           {/* display: contents, jadi pembungkus tidak membuat kotak; hanya
               menangkap pointerdown/lepas yang menggelembung dari pegangan
               untuk mengunci bidang. */}
@@ -455,7 +524,9 @@ export function TanggaIkanDenilClient() {
             onPointerCancel={lepasKunci}
             onLostPointerCapture={lepasKunci}
           >
-            <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            {tampak === "potongan" && (
+              <DragLayer out={plate.outRef.current} handles={handles} touch={() => sentuh.current()} />
+            )}
           </div>
         </Sheet>
       }
