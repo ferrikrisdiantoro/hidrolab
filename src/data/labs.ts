@@ -152,7 +152,7 @@ export const LABS: Lab[] = [
   L("FF-07", "percepatan-aliran", "FF", "Percepatan aliran", "Flow acceleration",
     "Apa beda percepatan lokal dan percepatan konvektif?",
     "What separates local from convective acceleration?", "siap"),
-  /* Modul baru Phase 3 (laporan klien 22 Oktober 2026, prasyarat FF-04) */
+  /* Modul baru Phase 3 (laporan klien 22 Oktober 2026, prasyarat untuk FF-04) */
   L("FF-08", "tekanan-hidrostatis", "FF", "Tekanan hidrostatis", "Hydrostatic pressure",
     "Seberapa besar dan di mana air diam mendorong sebuah pintu?",
     "How hard, and where, does still water push on a gate?", "siap"),

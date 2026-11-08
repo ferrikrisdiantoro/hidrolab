@@ -132,7 +132,7 @@ const TXT = {
       "Catat sampai konduktivitas kembali ke latar. Berhenti terlalu cepat memotong ekor kurva dan membesarkan debit.",
       "Bandingkan debit dari luas kurva dengan debit sebenarnya, lalu unduh tabel sebelum menutup halaman.",
     ],
-    aEc: "Pengukur konduktivitas: resolusi 0,1 µS/cm, galat σ = 0,5 % dari bacaan + 0,1 µS/cm (usulan, belum ditelaah). Bacaan tidak dipotong.",
+    aEc: "Pengukur konduktivitas: resolusi 0,1 µS/cm, galat acak per bacaan σ = √(0,1² + (0,005·EC)²) µS/cm (usulan konservatif, disahkan insinyur). Bacaan tidak dipotong.",
     aK: (k: string, l: string) =>
       `Konduktivitas benar = latar ${l} µS/cm + k · c, dengan k = ${k} µS/cm per mg/L garam (konduktivitas molar batas NaCl 126,4 S·cm²/mol pada 25 °C dibagi 58,44 g/mol; anggapan lembar, di lapangan k dikalibrasi di tempat). Lembar memakai k yang sama untuk membaca, jadi k tidak menggeser debit.`,
     aKurva: "Kepekatan benar c(t) dibaca dari kurva model lembar (sebaran satu dimensi). Letak alat di penampang dan denah awan garam belum dimodelkan, jadi penampang ukur dianggap sudah tercampur merata.",
@@ -230,7 +230,7 @@ const TXT = {
       "Record until the conductivity returns to background. Stopping too soon cuts off the tail of the curve and inflates the discharge.",
       "Compare the discharge from the curve area with the true discharge, then download the table before closing the page.",
     ],
-    aEc: "Conductivity meter: resolution 0.1 µS/cm, error σ = 0.5 % of reading + 0.1 µS/cm (proposed, not yet reviewed). Readings are not clipped.",
+    aEc: "Conductivity meter: resolution 0.1 µS/cm, random error per reading σ = √(0.1² + (0.005·EC)²) µS/cm (conservative proposal, approved by the engineer). Readings are not clipped.",
     aK: (k: string, l: string) =>
       `True conductivity = background ${l} µS/cm + k · c, with k = ${k} µS/cm per mg/L of salt (limiting molar conductivity of NaCl 126.4 S·cm²/mol at 25 °C divided by 58.44 g/mol; a sheet assumption, in the field k is calibrated on site). The sheet uses the same k to read, so k does not shift the discharge.`,
     aKurva: "The true concentration c(t) is read from the sheet's model curve (one-dimensional dispersion). The probe's position in the section and the plan of the salt cloud are not modelled yet, so the measuring section is taken as fully mixed.",
@@ -587,7 +587,7 @@ function ringkasanFm05(rows: BacaanFm05[], lang: Lang): ResultRow[] {
     { symbol: "∫ΔEC dt", label: x.pLuasEc, value: fmt(s.luasEc, 0), unit: "µS/cm·s" },
     { symbol: "∫c dt", label: x.pLuasC, value: fmt(s.luasC, 1), unit: "mg·s/l" },
     { symbol: "ΔECₘ", label: x.pPuncak, value: x.pPuncakVal(fmt(s.puncak, 1), fmt(s.tPuncak, 0)), unit: "µS/cm" },
-    { symbol: "k", label: x.pN, value: String(s.nKurva) },
+    { symbol: "n", label: x.pN, value: String(s.nKurva) },
   ];
 }
 
@@ -624,7 +624,7 @@ function hitunganFm05(b: BacaanFm05, rows: BacaanFm05[], lang: Lang): LangkahHit
   return [
     {
       judul: x.hLatar,
-      rumus: (<><span>EC₀ =</span><Frac num="Σ EC ( t ≤ 0 )" den="k" /></>),
+      rumus: (<><span>EC₀ =</span><Frac num="Σ EC ( t ≤ 0 )" den="n" /></>),
       isi: sebelum.length ? `( ${sebelum.map((r) => fmt(r.ec, 1)).join(" + ")} ) / ${sebelum.length}` : `EC ( t ${fmt(rows.reduce((a, r) => Math.min(a, r.t), Infinity), 0)} s )`,
       hasil: fmt(s.latar, 2),
       satuan: "µS/cm",

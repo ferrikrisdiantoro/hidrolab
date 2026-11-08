@@ -83,7 +83,7 @@ const TXT = {
     hR: "Jari-jari acuan dan kesalahan bacaan sumbu",
     pAtur: "Letak ujung tabung (geser di sini atau seret di gambar)",
     pTolak:
-      "Ujung tabung di luar 0,95 R, terlalu dekat dinding: hukum pangkat tidak berlaku di sana dan bacaannya tidak boleh dipakai. Tarik tabung ke arah sumbu dulu.",
+      "Ujung tabung di luar 0,95 R, terlalu dekat dinding: batang tabung mengganggu aliran di sela sempit itu dan bacaannya bergeser (ISO 3966:2020 Lampiran F: jarak ke dinding paling kecil satu diameter batang). Tarik tabung ke arah sumbu dulu.",
     pQ: "Debit cara kecepatan-luas, zona dinding m = 7",
     pQm: "Debit model lembar",
     pSelisih: "Selisih terhadap debit model",
@@ -134,9 +134,9 @@ const TXT = {
     aCp:
       "Koefisien tabung Pitot statik dianggap 1, sama dengan lembar. Ukuran ujung tabung, pengaruh gradien kecepatan, dan turbulensi tidak dimodelkan.",
     aProfil:
-      "Nilai benar di tiap letak diambil dari profil hukum pangkat lembar, u = u₀ (1 − |r|/R)^(1/n). Bacaan di luar 0,95 R tidak dibuat karena hukum pangkat tidak berlaku di sana.",
+      "Nilai benar di tiap letak diambil dari profil hukum pangkat lembar, u = u₀ (1 − |r|/R)^(1/n). Bacaan di luar 0,95 R tidak dibuat karena tabung terlalu dekat dinding (ISO 3966:2020 Lampiran F).",
     aZona:
-      "Anggapan lembar untuk debit: trapesium atas r·u di antara titik terukur, dan zona dinding dengan kecepatan rata-rata m/(m+1) kali kecepatan titik terakhir, m = 7 (bentuk zona tepi pada ISO 748; naskah ISO 3966 tidak dapat dibuka). Juru ukur tidak tahu n lembar, jadi m tidak ikut penggeser n.",
+      "Anggapan lembar untuk debit: trapesium atas r·u di antara titik terukur, dan zona dinding dengan kecepatan rata-rata m/(m+1) kali kecepatan titik terakhir (ISO 3966:2020 pasal 9.1 rumus 8; m antara 4 untuk dinding kasar dan 10 untuk dinding licin, lembar memakai m = 7). Juru ukur tidak tahu n lembar, jadi m tidak ikut penggeser n.",
     dekatDindingNote:
       "Hukum pangkat tidak berlaku di dekat dinding. Turunan profilnya di dinding menjadi tak hingga, padahal kenyataannya di sana ada lapisan tipis tempat kekentalan menguasai dan kecepatannya turun mulus ke nol. Bacaan pada kedalaman ini tidak boleh dipakai. Tarik tabungnya menjauh dari dinding.",
     note:
@@ -175,7 +175,7 @@ const TXT = {
     hR: "Reference radius and the error of an axis reading",
     pAtur: "Probe tip position (move here or drag on the drawing)",
     pTolak:
-      "The probe tip is beyond 0.95 R, too close to the wall: the power law does not hold there and the reading must not be used. Pull the probe back toward the axis first.",
+      "The probe tip is beyond 0.95 R, too close to the wall: the stem disturbs the flow in that narrow gap and the reading shifts (ISO 3966:2020 Annex F: the distance to the wall is at least one stem diameter). Pull the probe back toward the axis first.",
     pQ: "Velocity-area discharge, wall zone m = 7",
     pQm: "Sheet model discharge",
     pSelisih: "Difference from the model discharge",
@@ -226,9 +226,9 @@ const TXT = {
     aCp:
       "The Pitot-static tube coefficient is taken as 1, as on the sheet. Probe size, velocity-gradient effects, and turbulence are not modelled.",
     aProfil:
-      "The true value at each position comes from the sheet's power-law profile, u = u₀ (1 − |r|/R)^(1/n). No readings are made beyond 0.95 R because the power law does not hold there.",
+      "The true value at each position comes from the sheet's power-law profile, u = u₀ (1 − |r|/R)^(1/n). No readings are made beyond 0.95 R because the probe is too close to the wall (ISO 3966:2020 Annex F).",
     aZona:
-      "Sheet assumption for the discharge: a trapezium on r·u between measured points, and a wall zone whose mean velocity is m/(m+1) times the last point's velocity, m = 7 (the edge-zone form of ISO 748; the ISO 3966 text could not be opened). The gauger does not know the sheet's n, so m does not follow the n slider.",
+      "Sheet assumption for the discharge: a trapezium on r·u between measured points, and a wall zone whose mean velocity is m/(m+1) times the last point's velocity (ISO 3966:2020 clause 9.1, formula 8; m lies between 4 for rough walls and 10 for smooth walls, the sheet uses m = 7). The gauger does not know the sheet's n, so m does not follow the n slider.",
     dekatDindingNote:
       "The power law does not hold near the wall. Its derivative at the wall becomes infinite, whereas in reality there is a thin layer where viscosity takes over and the velocity falls smoothly to zero. A reading at this depth must not be used. Pull the probe away from the wall.",
     note:
@@ -238,13 +238,13 @@ const TXT = {
 
 const REFS = {
   id: [
-    "ISO 3966. Measurement of fluid flow in closed conduits — Velocity area method using Pitot static tubes.",
+    "ISO 3966:2020. Measurement of fluid flow in closed conduits — Velocity area method using Pitot static tubes.",
     "Schlichting, H. (1979). Boundary-Layer Theory, edisi ke-7. McGraw-Hill. Bab tentang aliran turbulen di pipa.",
     "White, F.M. (2011). Fluid Mechanics, edisi ke-7. McGraw-Hill. Bab 6.",
     "Prandtl, L. (1925). Bericht uber Untersuchungen zur ausgebildeten Turbulenz. ZAMM.",
   ],
   en: [
-    "ISO 3966. Measurement of fluid flow in closed conduits — Velocity area method using Pitot static tubes.",
+    "ISO 3966:2020. Measurement of fluid flow in closed conduits — Velocity area method using Pitot static tubes.",
     "Schlichting, H. (1979). Boundary-Layer Theory, 7th ed. McGraw-Hill. Chapter on turbulent pipe flow.",
     "White, F.M. (2011). Fluid Mechanics, 7th ed. McGraw-Hill. Chapter 6.",
     "Prandtl, L. (1925). Bericht uber Untersuchungen zur ausgebildeten Turbulenz. ZAMM.",
@@ -560,7 +560,7 @@ function ringkasanFm03(rows: BacaanFm03[], lang: Lang): ResultRow[] {
     { symbol: "Q₀", label: x.pQnol, value: fmt(s.Qnol * 1000, 3), unit: lps(lang), tint: C.ink3 },
     { symbol: "ΔQ₀", label: x.pSelisihNol, value: fmt(s.selisihNol, 2), unit: "%" },
     { symbol: "V", label: x.pV, value: fmt(s.V, 4), unit: "m/s", tint: C.energy },
-    { symbol: "k", label: x.pN, value: x.pNVal(s.nTitik, s.sisi) },
+    { symbol: "N", label: x.pN, value: x.pNVal(s.nTitik, s.sisi) },
   ];
 }
 
@@ -607,7 +607,7 @@ function hitunganFm03(b: BacaanFm03, rows: BacaanFm03[], lang: Lang): LangkahHit
     const nama = s.sisi === 2 ? ` (${x.sisiNama[i]})` : "";
     out.push({
       judul: `${x.hInti(no)}${nama}`,
-      rumus: <span>Qᵢ = Σ 2π · ½ ( rⱼ uⱼ + rⱼ₊₁ uⱼ₊₁ ) ( rⱼ₊₁ − rⱼ )</span>,
+      rumus: <span>Qᵢ = π u₁ r₁² + Σ 2π · ½ ( rⱼ uⱼ + rⱼ₊₁ uⱼ₊₁ ) ( rⱼ₊₁ − rⱼ )</span>,
       isi: `${p.length} ${x.titik}, r/R ${fmt(p[0].s, 2)} … ${fmt(k.s, 2)}`,
       hasil: fmt(ri.inti * 1000, 3),
       satuan: lps(lang),

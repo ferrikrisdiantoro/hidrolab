@@ -125,6 +125,17 @@ describe("FM-05 ringkasan", () => {
     assert.ok(s.Q > s.Qmodel * 1.05, `Q ${s.Q}`);
   });
 
+  it("puncak kecil: kelebihan ekor sebatas galat alat tidak memicu penanda", () => {
+    const rows: BacaanFm05[] = [
+      { ...awal, t: -10, ec: 50 },
+      { ...awal, t: 0, ec: 50 },
+      { ...awal, t: 10, ec: 51 },
+      { ...awal, t: 20, ec: 50.5 },
+    ];
+    // 0,5 > 3 % puncak (0,03), tetapi di bawah 3σ alat (≈ 0,8 µS/cm)
+    assert.equal(ringkasFm05(rows).ekorTerpotong, false);
+  });
+
   it("keadaan berubah di tengah seri ditandai campur", () => {
     const rows = [...seriBenar(-30, 0, 10), ...seriBenar(10, 420, 10, { ...awal, M: 3 })];
     assert.equal(ringkasFm05(rows).campur, true);

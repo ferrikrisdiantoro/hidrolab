@@ -13,8 +13,8 @@
  *   terbaca negatif (galat baca pada aliran sangat pelan) memberi u = 0
  *
  * Debit cara kecepatan-luas (ISO 3966 untuk saluran tertutup; prinsip yang
- * sama dengan ISO 748 di saluran terbuka). ANGGAPAN LEMBAR, perlu dicek
- * insinyur:
+ * sama dengan ISO 748 di saluran terbuka). Dicek terhadap ISO 3966:2020
+ * pasal 9.1 dan Lampiran F:
  * - Penampang lingkaran, profil dianggap simetri putar: Q = ∫₀ᴿ 2πr·u dr.
  *   Tiap sisi garis tengah (r ≥ 0 dan r ≤ 0) diintegrasikan sendiri lalu
  *   dirata-rata; titik sumbu dipakai kedua sisi
@@ -23,7 +23,7 @@
  * - Zona dinding, dari titik terakhir r_k ke dinding: kecepatan rata-rata
  *   zona = m/(m+1)·u_k dengan m = 7, luas zona π(R² − r_k²). Bentuk
  *   m/(m+1) adalah rata-rata profil pangkat 1/m pada pita dekat dinding
- *   (ISO 748 memakai bentuk yang sama untuk zona tepi saluran). Juru ukur
+ *   (ISO 3966:2020 pasal 9.1 rumus 8; suku −m/((m+1)(2m+1))·u_n(1 − r_n/R)² diabaikan seperti catatan pasal itu; m 4 sampai 10). Juru ukur
  *   tidak tahu n lembar, jadi m tetap 7, bukan n penggeser
  * - Pembanding: trapesium yang ditutup u = 0 di dinding (Qnol). Profil
  *   turbulen menukik tajam di dekat dinding, jadi garis lurus ke nol
