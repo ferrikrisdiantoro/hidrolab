@@ -67,6 +67,7 @@ const TXT = {
     takHingga: "tak terhingga, karena m = 0",
     pet0: "∞ (m = 0)",
     batasM: "Tangkapan ulang sudah sama dengan batasnya, min(M, n), jadi tidak dapat bertambah satu ekor lagi.",
+    mDijepit: (v: string) => `m dibatasi ke ${v}, batasnya min(M, n)`,
     belajar:
       "Tangkapan ulang yang terlalu sedikit karena ikan belajar menghindari alat tangkap selalu membesarkan taksiran.",
     blkUlang: "Ambil sampel lagi",
@@ -132,6 +133,7 @@ const TXT = {
     takHingga: "infinite, because m = 0",
     pet0: "∞ (m = 0)",
     batasM: "The recaptures already equal their limit, min(M, n), so they cannot grow by one more.",
+    mDijepit: (v: string) => `m limited to ${v}, its limit min(M, n)`,
     belajar:
       "Too few recaptures because fish learn to avoid the gear always inflate the estimate.",
     blkUlang: "Sample again",
@@ -182,10 +184,11 @@ const REFS = {
   ],
 } as const;
 
-/* Rentang m, dipakai bersama penggeser, kotak angka, dan pegangan titik
-   taksiran (aturan 4: satu sumber nilai). Ujungnya = ujung M dan n (2000),
-   karena "Ambil sampel" memasang m hasil undian sampai min(M, n). */
-const P_M: ParamDef = { min: 0, max: 2000, step: 1, digits: 0 };
+/* Rentang m dihitung di dalam komponen: 0 sampai min(M, n), karena yang
+   bertanda di tangkapan kedua tidak mungkin melebihi tangkapan kedua (n)
+   maupun yang ditandai (M). Satu ParamDef dipakai bersama penggeser, kotak
+   angka, dan pegangan titik taksiran (aturan 4: satu sumber nilai). */
+const pM = (batas: number): ParamDef => ({ min: 0, max: batas, step: 1, digits: 0 });
 
 /** Populasi sebenarnya bawaan simulasi: dekat N̂ Chapman contoh bawaan (978). */
 const N_SIM_AWAL = 1000;
@@ -218,7 +221,24 @@ export function TangkapTandaiUlangClient() {
 
   const [M, setM] = useState(200);
   const [n, setN] = useState(150);
-  const [m, setM2] = useState(30);
+  /*
+   * Batas atas m = min(M, n), paling besar 2000 (ujung M dan n). Yang
+   * disimpan adalah m yang terakhir dipasang pembaca (mDipasang); m yang
+   * berlaku di seluruh lembar (penggeser, kotak angka, pegangan, hitungan)
+   * adalah m itu dijepit ke min(M, n). Bila M atau n dikecilkan sampai di
+   * bawahnya, baris m diberi penanda "m dibatasi ke ..." (aturan 4) sampai
+   * m diubah lagi atau batasnya naik kembali.
+   *
+   * Jepit turunan, bukan jepit yang ditulis ke state: kotak angka menerapkan
+   * tiap ketikan, jadi mengetik n = 100 melewati n = 10, dan jepit yang
+   * ditulis ke state membuang m 140 menjadi 10 untuk selamanya. "Ambil
+   * sampel" selalu memberi m ≤ min(M, n), jadi tidak pernah dijepit.
+   */
+  const [mDipasang, ubahM] = useState(30);
+  const mBatas = Math.min(M, n);
+  const P_M = pM(mBatas);
+  const m = Math.min(mDipasang, mBatas);
+  const mDijepit = mDipasang > mBatas;
   // Pemadam tanda contoh untuk pegangan seret (lihat SentuhContoh).
   const sentuh = useRef<() => void>(() => {});
   /*
@@ -253,7 +273,7 @@ export function TangkapTandaiUlangClient() {
     const baru: SampelUlang[] = [];
     for (let b = mulai; b <= akhir; b++) baru.push(ambilSampel(NSim, M, n, b));
     setUlang({ kunci: kunciUlang, sampel: [...sampel, ...baru] });
-    setM2(baru[baru.length - 1].m);
+    ubahM(baru[baru.length - 1].m);
     sentuh.current();
   };
   const terakhir = sampel.length ? sampel[sampel.length - 1] : null;
@@ -342,9 +362,12 @@ export function TangkapTandaiUlangClient() {
     1
   );
   const mMax = kunci?.mMax ?? mMaxBebas;
-  /* Ujung skala rezim m: 200 seperti dulu, melebar sampai m terbesar yang
-     mungkin, min(M, n), supaya m hasil undian tidak jatuh "di luar skala". */
-  const ujungSkalaM = Math.max(200, Math.min(M, n));
+  /* Ujung skala rezim m: 200 seperti dulu, melebar sampai batas m, min(M, n),
+     bila batas itu lebih besar. Tidak disamakan persis dengan min(M, n):
+     pada M atau n kecil (misalnya 5) ujungnya jatuh di bawah ambang 7
+     tangkapan ulang dan pita "Layak" menjadi terbalik, dan skala yang ikut
+     melompat tiap M atau n digeser menyulitkan membaca letak m. */
+  const ujungSkalaM = Math.max(200, mBatas);
   const yMax = kunci?.yMax ?? yMaxBebas;
 
   const plate = usePlate(
@@ -414,10 +437,12 @@ export function TangkapTandaiUlangClient() {
                 y: r.chapman,
                 label: `${fmtPlain(r.chapman, 0)}`,
               },
-          /* Pegangan di m penggeser (bukan mAman) supaya pegangan = penggeser;
-             pada keadaan mustahil m > min(M, n) di kanan ujung sumbu dan
-             DragLayer menjepitnya ke tepi. Tegaknya kurva Chapman yang
-             digambar. Tidak dari `point`: titik itu hilang di luar bidang. */
+          /* Pegangan di m penggeser supaya pegangan = penggeser. Rentang m
+             sampai min(M, n) = ujung sumbu terbesar, jadi pegangan tidak
+             pernah duduk jauh di luar bidang (dulu m 2000 di luar sumbu
+             membuat seret ke kiri mulai dari titik di luar layar dan
+             berhenti di 51). Tegaknya kurva Chapman yang digambar. Tidak
+             dari `point`: titik itu hilang di luar bidang pada m = 0. */
           anchors: { kerja: { x: m, y: rGambar.chapman } },
         },
         lang
@@ -441,7 +466,7 @@ export function TangkapTandaiUlangClient() {
       param: P_M,
       value: m,
       toValue: (px, _py, mp) => mp.invX(px),
-      onChange: setM2,
+      onChange: ubahM,
       format: (v) => `m ${fmt(v, 0)}`,
     },
   ];
@@ -525,16 +550,16 @@ export function TangkapTandaiUlangClient() {
             <InputTable>
               <InputRow symbol="M" label={x.dM} value={M} min={5} max={2000} step={5} digits={0} onChange={setM} tint={C.water} />
               <InputRow symbol="n" label={x.dN} value={n} min={5} max={2000} step={5} digits={0} onChange={setN} />
-              <InputRow symbol="m" label={x.dm} value={m} {...P_M} onChange={setM2} />
+              <InputRow symbol="m" label={x.dm} value={m} {...P_M} onChange={ubahM} penanda={mDijepit ? x.mDijepit(fmt(m, 0)) : null} />
             </InputTable>
 
             <div className="mt-3.5">
               <PresetRow
                 label={t.presetExample}
                 presets={[
-                  { label: x.pBaik, apply: () => { setM(200); setN(150); setM2(30); } },
-                  { label: x.pSedikit, apply: () => { setM(200); setN(150); setM2(3); } },
-                  { label: x.pKecil, apply: () => { setM(80); setN(120); setM2(48); } },
+                  { label: x.pBaik, apply: () => { setM(200); setN(150); ubahM(30); } },
+                  { label: x.pSedikit, apply: () => { setM(200); setN(150); ubahM(3); } },
+                  { label: x.pKecil, apply: () => { setM(80); setN(120); ubahM(48); } },
                 ]}
               />
             </div>
