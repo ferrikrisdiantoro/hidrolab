@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DENIL_B_OVER_B0,
+  DENIL_L_OVER_B0,
   DENIL_YB_MAX,
   DENIL_YB_MIN,
   G,
@@ -61,6 +63,38 @@ describe("denilFishway: kurva debit Katopodis (1992) Tabel 5.2 Denil 2", () => {
     assert.equal(denilFishway(1, 1, 0.15, 3).relDepthOutOfRange, false);
     assert.equal(denilFishway(1, 0.5, 0.15, 3).relDepthOutOfRange, false);
     assert.equal(denilFishway(0.5, 2.9, 0.15, 3).relDepthOutOfRange, false);
+  });
+});
+
+describe("denilFishway: um', kecepatan rata-rata, lesapan (Katopodis 1992 Tabel 5.2 Denil 2)", () => {
+  /*
+   * Katopodis (1992) hlm. 16 pers. 5.2 dan hlm. 21 Tabel 5.2 Denil 2:
+   * um' / sqrt(g S0 b0) = 0,76 Q*^0,61 (um' = kecepatan sumbu pada 75 %
+   * kedalaman); B/b0 = 1,58; L/b0 = 0,715.
+   */
+  it("konstanta proporsi Tabel 5.2 diekspor", () => {
+    assert.equal(DENIL_B_OVER_B0, 1.58);
+    assert.equal(DENIL_L_OVER_B0, 0.715);
+  });
+
+  it("preset b0 0,6; y0 0,7; S 0,20 memberi um' 0,9584, V 0,753, eps 1478", () => {
+    const r = denilFishway(0.6, 0.7, 0.2, 3);
+    close(r.maxVelocity, 0.9584, 5e-4, "um'");
+    close(r.meanVelocity, 0.753, 1e-3, "V rata-rata");
+    close(r.powerDensity, 1478, 1e-3, "eps");
+  });
+
+  it("um' = 0,76 Q*^0,61 sqrt(g S b0) dan identitas V, eps pada luas B y0", () => {
+    for (const [b, y, S] of [
+      [0.6, 0.7, 0.2],
+      [0.25, 0.2, 0.04],
+      [1.5, 2, 0.4],
+    ]) {
+      const r = denilFishway(b, y, S, 3);
+      close(r.maxVelocity, 0.76 * r.Qstar ** 0.61 * Math.sqrt(G * S * b), 1e-12, "um'");
+      close(r.meanVelocity, r.Q / (1.58 * b * y), 1e-12, "V");
+      close(r.powerDensity, (1000 * G * r.Q * S) / (1.58 * b * y), 1e-12, "eps");
+    }
   });
 });
 

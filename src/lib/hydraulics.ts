@@ -4881,15 +4881,19 @@ export type DenilResult = {
   /** Debit tak berdimensi Q* = Q / sqrt(g S b0^5) (Katopodis 1992 pers. 5.1) */
   Qstar: number;
   /**
-   * Kecepatan rata-rata pada luas bukaan antar sirip, Q / (b0 y0).
-   * Luas palung antar dinding lebih besar (B = 1,58 b0 pada Denil baku).
+   * Kecepatan rata-rata pada luas palung antar dinding, Q / (B y0) dengan
+   * B = 1,58 b0 (Katopodis 1992 Tabel 5.2 Denil 2).
    */
   meanVelocity: number;
-  /** Kecepatan terbesar di sumbu palung, yang harus dilawan ikan */
+  /**
+   * Kecepatan acuan um' di sumbu pada 75 % kedalaman,
+   * 0,76 Q*^0,61 sqrt(g S b0) (Katopodis 1992 pers. 5.2, Tabel 5.2 Denil 2).
+   * Skala kecepatan yang dilawan ikan, bukan puncak mutlak.
+   */
   maxVelocity: number;
   /** Kedalaman aliran diukur tegak lurus dasar palung */
   depth: number;
-  /** Daya lesap per satuan isi palung */
+  /** Daya lesap per satuan isi palung, rho g Q S / (B y0), B = 1,58 b0 */
   powerDensity: number;
   /** Panjang palung tanpa kolam istirahat, meter */
   runLength: number;
@@ -4935,6 +4939,19 @@ export const DENIL_YB_MIN = 0.5;
 export const DENIL_YB_MAX = 5.8;
 /** Koefisien kurva debit Denil baku, Q* = 0,94 (y0/b0)^2 (sumber sama). */
 export const DENIL_Q_COEF = 0.94;
+/**
+ * Proporsi Denil baku, Katopodis (1992) hlm. 21 Tabel 5.2 baris Denil 2:
+ * B/b0 = 1,58 (B = lebar dalam palung antar dinding, b0 = lebar bukaan
+ * antar sirip) dan L/b0 = 0,715 (L = jarak antar sirip), Gbr. 5.3 hlm. 20.
+ */
+export const DENIL_B_OVER_B0 = 1.58;
+export const DENIL_L_OVER_B0 = 0.715;
+/**
+ * Kecepatan acuan um' (sumbu, 75 % kedalaman): um' / sqrt(g S0 b0)
+ * = 0,76 Q*^0,61 (Katopodis 1992 hlm. 16 pers. 5.2, Tabel 5.2 Denil 2).
+ */
+export const DENIL_UM_COEF = 0.76;
+export const DENIL_UM_EXP = 0.61;
 
 /**
  * Tangga ikan Denil dengan sirip penahan miring ke hulu.
@@ -4971,9 +4988,10 @@ export const DENIL_Q_COEF = 0.94;
  *   di sini. Kedua bentuk Q* ini TIDAK bisa dipertukarkan: lebar acuannya
  *   berbeda dan Larinier memasukkan S ke koefisien, bukan ke penyebut.
  *
- * Andaian lembar ini (bukan dari sumber di atas): kecepatan rata-rata
- * dihitung pada luas bukaan b0 y0, kecepatan sumbu = 1,5 kali rata-rata,
- * dan daya lesap per isi memakai isi bukaan b0 y0 per meter.
+ * Kecepatan acuan um' (pers. 5.2, Tabel 5.2 Denil 2):
+ *   um' = 0,76 Q*^0,61 sqrt(g S0 b0), kecepatan sumbu pada 75 % kedalaman.
+ * Kecepatan rata-rata dan daya lesap per isi memakai luas palung antar
+ * dinding B y0 dengan B = 1,58 b0 (Tabel 5.2).
  */
 export function denilFishway(
   /** Lebar bukaan antar sirip b0 (Katopodis 1992 Gbr. 5.3), meter */
@@ -4990,11 +5008,14 @@ export function denilFishway(
   const Qstar = DENIL_Q_COEF * yb * yb;
   const Q = Qstar * Math.sqrt(G * Math.max(slope, 0) * Math.pow(width, 5));
 
-  const luas = width * depth;
+  // Luas palung antar dinding B y0, B = 1,58 b0 (Katopodis 1992 Tabel 5.2)
+  const luas = DENIL_B_OVER_B0 * width * depth;
   const meanVelocity = luas > 0 ? Q / luas : 0;
-  // Kecepatan di sumbu palung kira-kira satu setengah kali kecepatan
-  // rata-rata; itulah yang harus dilawan ikan, bukan rata-ratanya.
-  const maxVelocity = 1.5 * meanVelocity;
+  // um' = 0,76 Q*^0,61 sqrt(g S b0) (Katopodis 1992 pers. 5.2, Tabel 5.2)
+  const maxVelocity =
+    DENIL_UM_COEF *
+    Math.pow(Qstar, DENIL_UM_EXP) *
+    Math.sqrt(G * Math.max(slope, 0) * width);
 
   const runLength = slope > 0 ? totalRise / slope : Infinity;
   const isiPerMeter = luas;
