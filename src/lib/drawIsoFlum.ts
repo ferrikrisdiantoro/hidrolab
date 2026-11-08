@@ -466,6 +466,18 @@ export function rasioIsoFlum(s: IsoFlumState): number {
 }
 
 /**
+ * Sumbu layar seret pegangan lebar leher dari yaw/pitch saja. Garis pegangan
+ * sejajar sumbu y dunia di aras tetap, jadi arah proyeksinya tidak
+ * bergantung pada skala, cx, cy, xm, sisi, maupun pelebihan tegak. Client
+ * memanggil ini saat render, supaya sumbu tidak tertinggal satu render dari
+ * kamera (ref gambar baru terisi sesudah menggambar). Sama dengan
+ * drawIsoFlum(...).sumbuLeher (diuji).
+ */
+export function sumbuLeherFlum(yaw: number, pitch: number): "x" | "y" {
+  return sumbuGaris({ yaw, pitch, skala: 1, cx: 0, cy: 0 }, [0, 0, 0], [0, 1, 0]);
+}
+
+/**
  * Menggambar FM-04 isometrik. Mengembalikan PlateOut dengan anchor
  * `leher` (tepi leher sisi dekat setinggi mercu, di tengah panjang leher)
  * dan garis pegangannya: titik di garisLeher.a + t·(b − a) adalah tepi

@@ -27,6 +27,7 @@ import {
   profilFlum,
   rasioIsoFlum,
   stasiunFlum,
+  sumbuLeherFlum,
 } from "@/lib/drawIsoFlum";
 import { balikDiGarisSumbu, isometrikBaku, type Kamera, type V3 } from "@/lib/proyeksi";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
@@ -120,7 +121,7 @@ const TXT = {
     aksoHeading: "tampak 3D (aksonometri)",
     gB: "Lebar leher b, seret tepi leher di gambar 3D ke samping",
     isoCatatan: (ex: number, tenggelam: boolean, takKendali: boolean) =>
-      `Gambar 3D skematik. Lebar saluran datang, lebar dan panjang leher, tinggi mercu, dan muka air dari model; dinding tegak karena penampangnya persegi. Panjang peralihan dan saluran mengikuti aturan potongan lembar ini (kelipatan L), bukan ukuran ISO 4359. Tinggi dinding, tebal dinding, dan pelat lantai tidak ada di model. Dinding sisi dekat dibuang supaya potongan lantai dan air terlihat. Muka air di hilir leher bertitik: peralihan, tidak dihitung.${
+      `Gambar 3D skematik. Lebar saluran datang, lebar dan panjang leher, tinggi mercu, dan muka air dari model; dinding tegak karena penampangnya persegi. Panjang peralihan dan saluran mengikuti aturan potongan lembar ini (kelipatan L), bukan ukuran ISO 4359. Tinggi dinding, tebal dinding, dan pelat lantai tidak ada di model. Dinding sisi dekat dibuang supaya potongan lantai dan air terlihat. Muka air di hilir leher bertitik: peralihan, tidak dihitung. Muka air di leher digambar rata setinggi yc (idealisasi model).${
         ex !== 1 ? ` Skala tegak dilebihkan ${ex} kali.` : ""
       }${tenggelam ? " Tenggelam: bentuk muka air di peralihan dan leher tidak diketahui, digambar bertitik." : ""}${
         takKendali ? " Leher tidak mengendalikan aliran: muka air digambar datar setinggi h₁, bertitik." : ""
@@ -190,7 +191,7 @@ const TXT = {
     aksoHeading: "3D view (axonometric)",
     gB: "Throat width b, drag the throat edge sideways in the 3D drawing",
     isoCatatan: (ex: number, tenggelam: boolean, takKendali: boolean) =>
-      `Schematic 3D drawing. Approach width, throat width and length, sill height and water surface come from the model; the walls are vertical because the section is rectangular. Transition and channel lengths follow this sheet's section drawing rule (multiples of L), not ISO 4359 dimensions. Wall height, wall thickness and the floor slab are not in the model. The near sidewall is removed so the floor and water section can be seen. The water surface downstream of the throat is dotted: a transition, not computed.${
+      `Schematic 3D drawing. Approach width, throat width and length, sill height and water surface come from the model; the walls are vertical because the section is rectangular. Transition and channel lengths follow this sheet's section drawing rule (multiples of L), not ISO 4359 dimensions. Wall height, wall thickness and the floor slab are not in the model. The near sidewall is removed so the floor and water section can be seen. The water surface downstream of the throat is dotted: a transition, not computed. Water surface in the throat drawn level at yc (model idealisation).${
         ex !== 1 ? ` Vertical scale exaggerated ${ex} times.` : ""
       }${tenggelam ? " Submerged: the water surface shape in the transition and throat is unknown, drawn dotted." : ""}${
         takKendali ? " The throat does not control the flow: the water surface is drawn level at h₁, dotted." : ""
@@ -375,7 +376,12 @@ export function FlumLeherPanjangClient() {
    * tepi leher selebar t, dan jari dikunci ke sumbu layar yang paling
    * sejajar garis itu (balikDiGarisSumbu), jadi pegangan tetap di bawah jari.
    */
-  const sumbuIso = isoRef.current?.sumbu ?? "x";
+  /* Sumbu seret dari kamera render ini (kunci bila sedang diseret), bukan
+     dari isoRef: ref baru terisi sesudah menggambar, jadi sesudah diputar
+     sumbunya tertinggal satu render. */
+  const sumbuIso = kunciIso
+    ? sumbuLeherFlum(kunciIso.kamera.yaw, kunciIso.kamera.pitch)
+    : sumbuLeherFlum(pandang.yaw, pandang.pitch);
   const handlesIso: HandleSpec[] = [
     {
       id: "leher",

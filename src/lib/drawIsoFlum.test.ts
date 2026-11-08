@@ -8,6 +8,7 @@ import {
   profilFlum,
   rasioIsoFlum,
   stasiunFlum,
+  sumbuLeherFlum,
   type IsoFlumState,
 } from "./drawIsoFlum.ts";
 import { flumeDischarge, type FlumeResult } from "./hydraulics.ts";
@@ -253,6 +254,19 @@ describe("FM-04 isometrik: pegangan lebar leher = penggeser", () => {
           assert.ok(Math.abs(v2 - b2) < 1e-9, `${v2} vs ${b2}`);
         }
       });
+
+  it("sumbu seret dihitung dari yaw/pitch saja, sama dengan hasil gambar (Client tidak menunggu ref)", () => {
+    for (let yaw = -3.1; yaw <= 3.1; yaw += 0.173)
+      for (const pitch of [0.05, 0.3, ISO.pitch, 0.9, 1.2, 1.5])
+        for (const b of [0.1, 1.1]) {
+          const out = drawIsoFlum(kanvas(), 390, 300, { ...DASAR, b }, { yaw, pitch });
+          assert.equal(sumbuLeherFlum(yaw, pitch), out.sumbuLeher, `yaw ${yaw.toFixed(3)}, pitch ${pitch}`);
+        }
+    // Kamera terkunci (skala, cx, cy lain) tidak mengubah sumbu.
+    const k: Kamera = { yaw: 0.4, pitch: 0.7, skala: 37, cx: 11, cy: 300 };
+    const out = drawIsoFlum(kanvas(), 960, 520, DASAR, { kunci: { kamera: k, ex: 3 } });
+    assert.equal(sumbuLeherFlum(k.yaw, k.pitch), out.sumbuLeher);
+  });
 
   it("pandangan bawaan: sumbu seret mendatar, pegangan di tepi leher sisi dekat setinggi mercu", () => {
     const out = drawIsoFlum(kanvas(), 960, 520, DASAR, {});
