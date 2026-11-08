@@ -328,12 +328,17 @@ describe("drawIsoSumur: gambar", () => {
     for (let i = 0; i < 20; i++) drawIsoSumur(kosong, 960, 520, st, TEKS, { yaw: i * 0.05 });
     const N = 20;
     let per = Infinity;
-    for (let batch = 0; batch < 8; batch++) {
+    // 20 batch, ambil yang tercepat: tahan terhadap mesin yang sedang ramai
+    // (8 batch sempat memberi > 4 ms saat uji paralel; nilai tenang 1,8–2,6 ms).
+    for (let batch = 0; batch < 20; batch++) {
       const t0 = performance.now();
       for (let i = 0; i < N; i++) drawIsoSumur(kosong, 960, 520, st, TEKS, { yaw: -ISO.yaw + (batch * N + i) * 0.02 });
       per = Math.min(per, (performance.now() - t0) / N);
     }
     t.diagnostic(`GW-02 isometrik: ${per.toFixed(2)} ms kerja JS per bingkai, ${ms.muka.length} muka`);
-    assert.ok(per < 4, `${per.toFixed(2)} ms`);
+    // Batas = setengah anggaran bingkai 60 Hz (16,7 ms, RENCANA §4.2). Dijalankan
+    // sendiri 1,8–2,6 ms; dalam suite paralel penuh sampai 7,7 ms karena berbagi
+    // CPU dengan uji lain, jadi 4 ms (pilihan awal) gagal acak.
+    assert.ok(per < 8, `${per.toFixed(2)} ms`);
   });
 });
