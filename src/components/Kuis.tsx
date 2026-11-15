@@ -14,7 +14,7 @@ import {
   type Nilai,
   type Soal,
 } from "@/lib/kuis";
-import { bacaJawaban } from "@/lib/bacaJawaban";
+import { bacaJawabanCalon } from "@/lib/bacaJawaban";
 import { Hitungan } from "./ui";
 
 /*
@@ -255,13 +255,19 @@ export function Kuis({
 
   const jawabHitung = (q: Soal, teks: string) => {
     if (jawab[q.id]) return;
-    const v = bacaJawaban(teks, lang);
-    if (v === null) {
+    const calon = bacaJawabanCalon(teks, lang);
+    if (calon.length === 0) {
       setPesan((p) => ({ ...p, [q.id]: x.bukanAngka }));
       return;
     }
     setPesan((p) => ({ ...p, [q.id]: "" }));
-    catat(q, v, nilaiJawab(q, v));
+    /* Bentuk ambigu ("1.012" ID) punya dua bacaan berselisih 1000 kali:
+       pakai bacaan yang benar, lalu yang cocok dengan kesalahan lazim,
+       lalu yang pertama (ribuan). */
+    const dinilai = calon.map((v) => ({ v, n: nilaiJawab(q, v) }));
+    const pilih =
+      dinilai.find((d) => d.n.benar) ?? dinilai.find((d) => d.n.kesalahan) ?? dinilai[0];
+    catat(q, pilih.v, pilih.n);
   };
 
   const jawabAtur = (q: Soal) => {

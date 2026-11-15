@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { bacaJawaban } from "./bacaJawaban.ts";
+import { bacaJawaban, bacaJawabanCalon } from "./bacaJawaban.ts";
 
 /*
  * Temuan uji rekan V20 (11 Nov): kunci kuis FF-07/FP-03 bisa > 999 dan
@@ -38,5 +38,19 @@ describe("bacaJawaban (kuis, sadar bahasa)", () => {
     }
     assert.equal(bacaJawaban("11.307,3", "en"), null);
     assert.equal(bacaJawaban("11,307.3", "id"), null);
+  });
+
+  it("desimal berawalan nol tidak pernah dibaca ribuan (gerbang insinyur 15 Nov)", () => {
+    assert.equal(bacaJawaban("0.123", "id"), 0.123);
+    assert.equal(bacaJawaban("0.467", "id"), 0.467);
+    assert.equal(bacaJawaban("0,123", "en"), 0.123);
+    assert.equal(bacaJawaban("-0.467", "id"), -0.467);
+  });
+  it("bentuk ambigu satu kelompok memberi dua calon, ribuan lebih dulu", () => {
+    assert.deepEqual(bacaJawabanCalon("1.012", "id"), [1012, 1.012]);
+    assert.deepEqual(bacaJawabanCalon("1,012", "en"), [1012, 1.012]);
+    assert.deepEqual(bacaJawabanCalon("1,012", "id"), [1.012]);
+    assert.deepEqual(bacaJawabanCalon("11.307,3", "id"), [11307.3]);
+    assert.deepEqual(bacaJawabanCalon("abc", "id"), []);
   });
 });
