@@ -161,6 +161,12 @@ export type StructureVector = {
   color?: string;
   /** Pangkalnya diberi bulatan kecil bila benar, menandai titik tangkapnya */
   root?: boolean;
+  /**
+   * Sisi tulisan terhadap panah mendatar (dy 0). Bawaannya di bawah. "above"
+   * untuk panah yang tepat di atas garis benda (PI-06: gaya pada anak tangga
+   * di atas dinding pipa yang lebih kecil).
+   */
+  textSide?: "above" | "below";
 };
 
 export type StructureSpec = {
@@ -562,7 +568,7 @@ export function drawStructure(
     taruh.write(
       v.text,
       ux + Math.sign(v.dx) * 4,
-      uy + (v.dy < 0 ? -6 : 10),
+      uy + (v.dy < 0 || (v.dy === 0 && v.textSide === "above") ? -8 : 10),
       v.color ?? C.energy,
       { align: v.dx < -1 ? "right" : v.dx > 1 ? "left" : "center" }
     );

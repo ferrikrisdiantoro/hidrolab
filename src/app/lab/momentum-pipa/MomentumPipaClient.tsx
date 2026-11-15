@@ -262,10 +262,9 @@ export function MomentumPipaClient() {
           color: C.energy,
           weight: W.bold,
           dash: DASH.solid,
-          label: T.energyGrade,
-          labelAt: 0.02,
-          labelDy: -10,
-          labelAlign: "left",
+          /* Namanya ditulis lewat penunjuk (lihat callouts): sebagai label
+             garis ia jatuh tepat di dinding atas pipa hulu dan tercoret
+             garis dinding (temuan V20). */
         },
       ];
 
@@ -304,9 +303,17 @@ export function MomentumPipaClient() {
                 z: zStep,
                 dx: r.Fx > 0 ? 56 : -56,
                 dy: 0,
-                text: `${x.labelGaya} ${fmtPlain(Math.abs(r.Fx) / 1000, 2)} kN`,
+                /* HP: nama panjang lebih lebar daripada ruang di samping
+                   anak tangga, dijepit ke kiri dan tercoret dinding pipa
+                   hulu. Di sana dipakai simbol kartu hasil (Fx). */
+                text: `${w < 600 ? "Fx" : x.labelGaya} ${fmtPlain(Math.abs(r.Fx) / 1000, 2)} kN`,
                 color: C.energy,
                 root: true,
+                /* Tulisan menjulur ke pipa di arah panah. Bila pipa itu yang
+                   lebih kecil, dindingnya tepat di bawah panah: tulisan di
+                   atas panah. Bila yang lebih besar, dindingnya di atas:
+                   tulisan di bawah (temuan V20: tercoret dinding). */
+                textSide: (r.Fx > 0 ? D2 < D1 : D1 < D2) ? "above" : "below",
               },
             ]
           : [];
@@ -338,7 +345,20 @@ export function MomentumPipaClient() {
           lines: garis,
           dims,
           vectors: panah,
-          callouts: [{ x: 0, z: -zStep, dx: -14, dy: 24, text: x.labelStep }],
+          callouts: [
+            { x: 0, z: -zStep, dx: -14, dy: 24, text: x.labelStep },
+            /* Nama garis energi: penunjuk dari ruas hulu garisnya ke ruang
+               kosong di atas pipa hulu, beralas kertas. */
+            {
+              x: -L * 0.55,
+              z: hv1,
+              dx: -16,
+              dy: -32,
+              text: T.energyGrade,
+              color: C.energy,
+              paper: true,
+            },
+          ],
           heading: badge,
           headingColor: mati ? C.signal : r.pressureRises ? C.water : C.ink2,
           axisX: T.axAlongDuct,
