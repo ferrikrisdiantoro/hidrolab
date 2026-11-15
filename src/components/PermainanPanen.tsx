@@ -40,7 +40,8 @@ const TXT = {
       `Stok awal ${n0} ton, separuh daya dukung. Tiap tahun pilih upaya penangkapan, lalu tekan Tangkap. Populasi bergerak menurut persamaan lembar ini selama satu tahun.`,
     param: "Model yang dipakai",
     paramBeda: "r, K, atau q di lembar sudah diubah. Permainan ini tetap memakai nilai saat tahun 1 dimainkan; nilai baru berlaku pada permainan berikutnya.",
-    upaya: (t: number) => `Upaya tahun ${t}`,
+    /* Spasi tak terputus: "Upaya tahun 10" dulu terlipat dua baris. */
+    upaya: (t: number) => `Upaya tahun ${t}`,
     upayaSelesai: "Upaya",
     tangkap: (t: number) => `Tangkap tahun ${t}`,
     ulang: "Main lagi",
@@ -89,7 +90,7 @@ const TXT = {
       `The starting stock is ${n0} tonnes, half the carrying capacity. Each year choose a fishing effort, then press Fish. The population moves for one year by this sheet's equation.`,
     param: "Model in use",
     paramBeda: "r, K, or q on the sheet has changed. This game keeps the values from when year 1 was played; the new values apply to the next game.",
-    upaya: (t: number) => `Effort for year ${t}`,
+    upaya: (t: number) => `Effort for year ${t}`,
     upayaSelesai: "Effort",
     tangkap: (t: number) => `Fish year ${t}`,
     ulang: "Play again",
@@ -245,7 +246,9 @@ export function PermainanPanen({
         { pts: popPts, color: C.water, weight: W.bold },
       ];
       if (cPts.length) deret.push({ pts: cPts, color: C.ink, weight: W.thin });
-      const yMax = Math.max(p.K, ...tahun.map((t) => Math.max(t.N1, t.tangkap))) * 1.35; // ruang legenda di atas
+      /* Legenda di luar bidang (HTML di atas kanvas): di dalam bidang ia
+         menutupi kurva populasi yang naik mendekati K (rekan V20). */
+      const yMax = Math.max(p.K, ...tahun.map((t) => Math.max(t.N1, t.tangkap))) * 1.12;
       return drawChart(
         ctx,
         w,
@@ -264,10 +267,6 @@ export function PermainanPanen({
             { axis: "y", at: p.K / 2, color: C.water, weight: W.hair, dash: DASH.hidden, label: "K/2", labelAlign: "right" },
           ],
           point: { x: n, y: N, label: `${fmt(N, 0)} t`, invalid: runtuhKini },
-          legend: [
-            { text: x.lPop, color: C.water, line: { weight: W.bold } },
-            { text: x.lTangkap, color: C.ink, line: { weight: W.thin } },
-          ],
         },
         lang
       );
@@ -309,7 +308,17 @@ export function PermainanPanen({
           )}
         </div>
 
-        <div className="relative mt-2 h-[220px] w-full" role="img" aria-label={x.grafik}>
+        <ul className="label mt-2 flex flex-wrap gap-x-4 gap-y-1 px-3.5 text-[0.72rem] text-ink-2" aria-hidden="true">
+          <li className="flex items-center gap-1.5">
+            <span className="inline-block w-6" style={{ borderTop: `${W.bold}px solid ${C.water}` }} />
+            {x.lPop}
+          </li>
+          <li className="flex items-center gap-1.5">
+            <span className="inline-block w-6" style={{ borderTop: `${W.thin}px solid ${C.ink}` }} />
+            {x.lTangkap}
+          </li>
+        </ul>
+        <div className="relative mt-1 h-[220px] w-full" role="img" aria-label={x.grafik}>
           <canvas ref={plate.ref} className="block h-full w-full" />
         </div>
 
