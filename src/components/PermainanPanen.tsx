@@ -41,7 +41,7 @@ const TXT = {
     param: "Model yang dipakai",
     paramBeda: "r, K, atau q di lembar sudah diubah. Permainan ini tetap memakai nilai saat tahun 1 dimainkan; nilai baru berlaku pada permainan berikutnya.",
     /* Spasi tak terputus: "Upaya tahun 10" dulu terlipat dua baris. */
-    upaya: (t: number) => `Upaya tahun ${t}`,
+    upaya: (t: number) => `Upaya\u00a0tahun\u00a0${t}`,
     upayaSelesai: "Upaya",
     tangkap: (t: number) => `Tangkap tahun ${t}`,
     ulang: "Main lagi",
@@ -55,7 +55,7 @@ const TXT = {
       `Tahun ${t}: tangkapan ${c} ton, populasi akhir ${n} ton${runtuh ? ", di bawah ambang runtuh" : ""}.`,
     selesai: (s: string, b: string, p: string) =>
       `Permainan selesai. Skor ${s} dari batas ${b}, atau ${p} persen.`,
-    grafik: "Grafik populasi dan tangkapan tiap tahun",
+    grafik: "Grafik populasi (garis biru) dan tangkapan (garis hitam) tiap tahun",
     axX: "tahun",
     axY: "ton; tangkapan ton/th",
     lPop: "populasi N",
@@ -90,7 +90,7 @@ const TXT = {
       `The starting stock is ${n0} tonnes, half the carrying capacity. Each year choose a fishing effort, then press Fish. The population moves for one year by this sheet's equation.`,
     param: "Model in use",
     paramBeda: "r, K, or q on the sheet has changed. This game keeps the values from when year 1 was played; the new values apply to the next game.",
-    upaya: (t: number) => `Effort for year ${t}`,
+    upaya: (t: number) => `Effort\u00a0for\u00a0year\u00a0${t}`,
     upayaSelesai: "Effort",
     tangkap: (t: number) => `Fish year ${t}`,
     ulang: "Play again",
@@ -104,7 +104,7 @@ const TXT = {
       `Year ${t}: catch ${c} tonnes, closing population ${n} tonnes${runtuh ? ", below the collapse threshold" : ""}.`,
     selesai: (s: string, b: string, p: string) =>
       `Game over. Score ${s} out of a ceiling of ${b}, or ${p} per cent.`,
-    grafik: "Chart of population and catch per year",
+    grafik: "Chart of population (blue line) and catch (black line) per year",
     axX: "year",
     axY: "tonnes; catch t/y",
     lPop: "population N",

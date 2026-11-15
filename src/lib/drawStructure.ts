@@ -568,7 +568,7 @@ export function drawStructure(
     taruh.write(
       v.text,
       ux + Math.sign(v.dx) * 4,
-      uy + (v.dy < 0 || (v.dy === 0 && v.textSide === "above") ? -8 : 10),
+      uy + (v.dy < 0 ? (v.textSide ? -8 : -6) : v.dy === 0 && v.textSide === "above" ? -8 : 10),
       v.color ?? C.energy,
       { align: v.dx < -1 ? "right" : v.dx > 1 ? "left" : "center" }
     );
