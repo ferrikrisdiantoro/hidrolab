@@ -82,6 +82,7 @@ const TXT = {
     rTc: "Waktu sampai leher terpotong",
     rWc: "Sudut ayun saat leher terpotong",
     rPt: "Sinusitas pada saat t",
+    pAwal: "keadaan awal t = 0",
     hWc: "Sudut potong: celah garis tengah di leher sama dengan lebar sungai",
     hTc: "Waktu sampai terpotong: tebing di puncak bergeser ṁ · W tiap tahun",
     nAwalPotong: (wc: string) =>
@@ -151,6 +152,7 @@ const TXT = {
     rTc: "Time until the neck is cut off",
     rWc: "Swing angle at neck cutoff",
     rPt: "Sinuosity at time t",
+    pAwal: "initial state t = 0",
     hWc: "Cutoff angle: the centreline gap at the neck equals the river width",
     hTc: "Time to cutoff: the bank at the apex moves ṁ · W each year",
     nAwalPotong: (wc: string) =>
@@ -391,7 +393,6 @@ export function PerkembanganMeanderClient() {
       /* Dataran banjir: isian seluruh bidang (dipotong bingkai). */
       const B = 10 * (bidang.xMax - bidang.xMin + bidang.yMax - bidang.yMin);
       const awal = meanderFramePath(tl.frames[0], 2, 400);
-      const kini = meanderFramePath(sudahPotong ? tl.frames[0] : fNow, 2, 400);
       const garis: FieldLine[] = [
         {
           /* Alur awal: keadaan sebelumnya, phantom. */
@@ -399,22 +400,11 @@ export function PerkembanganMeanderClient() {
           color: C.oldChannel,
           weight: W.thin,
           dash: DASH.phantom,
-          label: tNow === 0 && !playing ? undefined : x.alurAwal,
-          labelAt: 0.1,
-          labelDy: 14,
-          labelAlign: "center",
           noStroke: tNow === 0 && !playing,
         },
-        {
-          /* Nama alur sekarang saja; alurnya digambar drawMeanderState. */
-          pts: kini,
-          noStroke: true,
-          label: T.riverPath,
-          labelAt: 0.72,
-          labelDy: -14,
-          labelAlign: "center",
-          color: C.water,
-        },
+        /* Nama "lintasan sungai" dan "alur awal" ditulis drawMeanderState
+           SESUDAH alurnya digambar, supaya tidak tertimpa garis danau oxbow
+           dan alur lama (temuan rekan V20, sesudah "Lompat ke cutoff"). */
       ];
       const out = drawField(
         ctx,
@@ -450,7 +440,11 @@ export function PerkembanganMeanderClient() {
         },
         lang
       );
-      if (!playing) drawMeanderState(ctx, out.map, tl, tNow, diam.current!, gaya);
+      if (!playing)
+        drawMeanderState(ctx, out.map, tl, tNow, diam.current!, {
+          ...gaya,
+          names: { river: T.riverPath, initial: x.alurAwal, avoid: out.labels },
+        });
       return out;
     },
     adaLini
@@ -458,6 +452,7 @@ export function PerkembanganMeanderClient() {
           if (!out) return;
           drawMeanderMotion(ctx, out.map, dt, tl, gerak.current!, {
             ...gaya,
+            names: { river: T.riverPath, initial: x.alurAwal, avoid: out.labels },
             tProp: tahun,
             onTime: setTahun,
             yearsPerSecond: yps,
@@ -478,7 +473,7 @@ export function PerkembanganMeanderClient() {
       status={
         <div className="flex flex-col gap-3">
           <RegimeScale
-            symbol="Rc/W"
+            symbol={adaLini ? "Rc/W(0)" : "Rc/W"}
             value={r.radiusRatio}
             invalid={terlipat}
             pesan={Number.isFinite(r.radiusRatio) ? undefined : x.lurusTak}
@@ -492,7 +487,7 @@ export function PerkembanganMeanderClient() {
             ]}
           />
           <RegimeScale
-            symbol="P"
+            symbol={adaLini ? "P(0)" : "P"}
             value={r.sinuosity}
             scale="log"
             digits={2}
@@ -536,13 +531,13 @@ export function PerkembanganMeanderClient() {
             ...(adaLini
               ? [
                   /* Kop hidup: nilai pada saat t lini masa. */
-                  { label: "P", value: fmt(sudahPotong ? tl.frames[0].sinuosity : fNow.sinuosity, 3), tint: C.water },
+                  { label: "P(t)", value: fmt(sudahPotong ? tl.frames[0].sinuosity : fNow.sinuosity, 3), tint: C.water },
                   {
-                    label: "Rc/W",
+                    label: "Rc/W(t)",
                     value: fmt(sudahPotong ? tl.frames[0].radiusRatio : fNow.radiusRatio, 2),
                     tint: Math.abs(rrNow - MEANDER_PEAK_RATIO) < 0.8 && !sudahPotong ? C.critical : undefined,
                   },
-                  { label: "ṁ", value: `${fmt(sudahPotong ? tl.frames[0].migrationRate : fNow.migrationRate, 3)} ${x.uM}` },
+                  { label: "ṁ(t)", value: `${fmt(sudahPotong ? tl.frames[0].migrationRate : fNow.migrationRate, 3)} ${x.uM}` },
                   { label: "t", value: `${fmt(tNow, digT)} / ${fmt(Tc, 0)} ${x.uTahun}` },
                 ]
               : [
@@ -629,11 +624,11 @@ export function PerkembanganMeanderClient() {
           <Block heading={t.blkResult}>
             <ResultTable
               rows={[
-                { symbol: "P", label: x.rSin, value: fmt(r.sinuosity, 4), tint: r.cutoff ? C.caution : C.water, strong: true },
+                { symbol: adaLini ? "P(0)" : "P", label: adaLini ? `${x.rSin}, ${x.pAwal}` : x.rSin, value: fmt(r.sinuosity, 4), tint: r.cutoff ? C.caution : C.water, strong: true },
                 { symbol: "λ", label: x.rPanjang, value: fmt(r.wavelength, 1), unit: "m" },
-                { symbol: "Rc", label: x.rJari, value: fmt(r.minRadius, 2), unit: "m" },
-                { symbol: "Rc/W", label: x.rNisbah, value: fmt(r.radiusRatio, 3), tint: terlipat ? C.signal : C.critical, strong: true },
-                { symbol: "ṁ", label: x.rPindah, value: terlipat ? "—" : fmt(r.migrationRate, 4), unit: terlipat ? undefined : x.uM },
+                { symbol: adaLini ? "Rc(0)" : "Rc", label: x.rJari, value: fmt(r.minRadius, 2), unit: "m" },
+                { symbol: adaLini ? "Rc/W(0)" : "Rc/W", label: adaLini ? `${x.rNisbah}, ${x.pAwal}` : x.rNisbah, value: fmt(r.radiusRatio, 3), tint: terlipat ? C.signal : C.critical, strong: true },
+                { symbol: adaLini ? "ṁ(0)" : "ṁ", label: x.rPindah, value: terlipat ? "—" : fmt(r.migrationRate, 4), unit: terlipat ? undefined : x.uM },
                 { symbol: "λL", label: x.rLeopold, value: fmt(r.wavelengthLeopold, 1), unit: "m" },
                 ...(adaLini
                   ? [

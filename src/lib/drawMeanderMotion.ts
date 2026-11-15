@@ -1,6 +1,6 @@
-import { C, DASH, F, W } from "./theme.ts";
-import { pen } from "./plate.ts";
-import type { PlateMap } from "./plateOut.ts";
+import { C, DASH, F, W, stencilWidth } from "./theme.ts";
+import { pen, region } from "./plate.ts";
+import type { PlateMap, PlateRect } from "./plateOut.ts";
 import type { MeanderTimeline } from "./meanderWaktu.ts";
 
 /**
@@ -235,7 +235,79 @@ export type MeanderStateStyle = {
   ghostStep: number;
   /** Tebing melipat (Rc/W < 0,5) pada bentuk ini: tebing merah sinyal putus */
   folded?: boolean;
+  /**
+   * Nama alur, digambar PALING AKHIR (sesudah alur, alur lama, dan danau)
+   * berlatar kertas. Dulu nama ini ditulis lewat drawField sebelum alurnya
+   * digambar, sehingga sesudah leher terpotong "LINTASAN SUNGAI" dan
+   * "ALUR AWAL" tertimpa garis danau oxbow dan alur lama.
+   */
+  names?: {
+    /** Nama alur sekarang, misalnya "lintasan sungai" */
+    river: string;
+    /** Nama alur awal (t = 0); tidak ditulis bila t = 0 atau sesudah
+        terpotong (alur sekarang kembali berimpit dengan alur awal) */
+    initial?: string;
+    /** Kotak tulisan yang sudah ada di bidang (judul keadaan, nama wilayah) */
+    avoid?: PlateRect[];
+  };
 };
+
+/* Kotak dua nama alur, dipakai ulang tiap frame (tanpa alokasi). */
+const KOTAK = new Float64Array(8);
+
+/** Kotak (x0, x1, atas, bawah) bertabrakan dengan kotak lain? */
+function tabrakNama(x0: number, x1: number, a: number, b: number, avoid: PlateRect[] | undefined, nPakai: number) {
+  if (avoid)
+    for (let i = 0; i < avoid.length; i++) {
+      const r = avoid[i];
+      if (x0 < r.x + r.w && x1 > r.x && a < r.y + r.h && b > r.y) return true;
+    }
+  for (let k = 0; k < nPakai; k++) {
+    const o = 4 * k;
+    if (x0 < KOTAK[o + 1] && x1 > KOTAK[o] && a < KOTAK[o + 3] && b > KOTAK[o + 2]) return true;
+  }
+  return false;
+}
+
+/**
+ * Satu nama alur pada titik ke-`at` (0..1) garis tengah `p`, `dy` piksel
+ * di atas (negatif) atau di bawah alurnya, dijepit ke bidang dan digeser
+ * 12 px menjauh bila menabrak tulisan lain.
+ */
+function tulisNama(
+  ctx: CanvasRenderingContext2D,
+  map: PlateMap,
+  p: ArrayLike<number>,
+  n: number,
+  at: number,
+  dy: number,
+  teks: string,
+  color: string,
+  avoid: PlateRect[] | undefined,
+  slot: number
+) {
+  const f = map.frame;
+  const i = Math.round(at * n);
+  ctx.font = F.region;
+  const w = stencilWidth(ctx, teks, 1.4) + 8;
+  let X = map.X(p[2 * i]);
+  let Y = map.Y(p[2 * i + 1]) + dy;
+  X = Math.min(Math.max(X, f.x0 + w / 2 + 3), f.x1 - w / 2 - 3);
+  const arah = dy < 0 ? -1 : 1;
+  for (let putar = 0; putar < 10; putar++) {
+    Y = Math.min(Math.max(Y, f.y0 + 9), f.y1 - 9);
+    if (!tabrakNama(X - w / 2, X + w / 2, Y - 7, Y + 7, avoid, slot)) break;
+    Y += 12 * arah;
+  }
+  const o = 4 * slot;
+  KOTAK[o] = X - w / 2;
+  KOTAK[o + 1] = X + w / 2;
+  KOTAK[o + 2] = Y - 7;
+  KOTAK[o + 3] = Y + 7;
+  ctx.fillStyle = C.sheet;
+  ctx.fillRect(X - w / 2 + 3, Y - 7, w - 6, 14);
+  region(ctx, teks, X, Y, color);
+}
 
 /** Alur (isian air, dua tebing, garis tengah) untuk bentuk mo.shape. */
 function gambarAlur(
@@ -354,6 +426,17 @@ export function drawMeanderState(
     gambarAlur(ctx, map, mo, st.width, !!st.folded);
   }
   ctx.restore();
+  if (st.names) {
+    /* mo.c masih memuat garis tengah alur sekarang. Nama alur ditaruh di
+       luar tebing (setengah lebar dalam piksel ditambah ruang huruf). */
+    const tepi = Math.abs(map.Y(0) - map.Y(st.width / 2));
+    tulisNama(ctx, map, mo.c, mo.n, 0.72, -(tepi + 10), st.names.river, C.water, st.names.avoid, 0);
+    if (st.names.initial && !terpotong && t > 0) {
+      meanderShapeStart(tl, mo.shape);
+      meanderCentreline(mo.shape, mo.cycles, mo.n, mo.c);
+      tulisNama(ctx, map, mo.c, mo.n, 0.1, tepi + 10, st.names.initial, C.oldChannel, st.names.avoid, 1);
+    }
+  }
 }
 
 export type MeanderMotionOptions = MeanderStateStyle & {
