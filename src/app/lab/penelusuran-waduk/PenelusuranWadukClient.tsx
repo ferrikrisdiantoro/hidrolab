@@ -30,7 +30,9 @@ import { hidrografDariTitik, rapikanTitik, type TitikHidrograf } from "@/lib/hid
 import type { PlateMap, PlateOut } from "@/lib/plateOut";
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import type { ParamDef } from "@/lib/rentang";
-import { C, DASH, W } from "@/lib/theme";
+import { C, DASH, F, W, stencilWidth } from "@/lib/theme";
+import { region } from "@/lib/plate";
+import { panjangDalam, type Garis, type Kotak } from "@/lib/labelGradasi";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -340,6 +342,56 @@ export function PenelusuranWadukClient() {
     millionCubic: T.millionCubic,
   };
 
+  const teksPuncak = `${fmtPlain(r.outflowPeak, digitO)} m³/s`;
+  const puncakDidalam = p2.t >= 0 && p2.t <= bidang.tMax && r.outflowPeak <= bidang.qMax;
+
+  /*
+   * Angka puncak keluar ditulis sesudah kursor waktu, di kiri-atas titiknya
+   * sejajar garis bantu datarnya, di tempat pertama (dari dekat ke jauh)
+   * yang tidak menyentuh pegangan seret, tulisan lain, garis kursor, dan
+   * kurva. Temuan V21 (HP, waduk sedang): angka di tempat tetap 0,12 tMax
+   * kiri titik disentuh cincin pegangan t = 11 h dan dilintasi garis kursor.
+   */
+  const tulisPuncak = (ctx: CanvasRenderingContext2D, peta: PlateMap, out: PlateOut, dy: number, kursorT: number | null) => {
+    if (!puncakDidalam) return;
+    const f = peta.frame;
+    const xp = peta.X(p2.t);
+    const yp = peta.Y(r.outflowPeak);
+    ctx.font = F.region;
+    const lebar = stencilWidth(ctx, teksPuncak, 1.4) + 8;
+    const hindar: Kotak[] = [
+      ...(out.labels ?? []).map((l) => ({ x0: l.x, x1: l.x + l.w, atas: l.y + dy, bawah: l.y + l.h + dy })),
+      ...Object.values(out.anchors ?? {}).map((a) => ({ x0: a.x - 17, x1: a.x + 17, atas: a.y + dy - 17, bawah: a.y + dy + 17 })),
+    ];
+    const xk = kursorT === null ? null : peta.X(kursorT);
+    const kurva: Garis[] = [
+      { pts: r.points.map((p) => ({ x: peta.X(p.t), y: peta.Y(p.inflow) })), bobot: 1 },
+      { pts: r.points.map((p) => ({ x: peta.X(p.t), y: peta.Y(p.outflow) })), bobot: 1 },
+    ];
+    let terbaik: Kotak | null = null;
+    let biaya = Infinity;
+    for (const [yy, tambah] of [[yp - 11, 0], [yp - 25, 6], [yp + 11, 10]] as const) {
+      for (let geser = 0; geser < f.x1 - f.x0; geser += 6) {
+        for (const x0 of [xp - 10 - lebar - geser, xp + 10 + geser]) {
+          const k: Kotak = { x0, x1: x0 + lebar, atas: yy - 7, bawah: yy + 7 };
+          if (k.x0 < f.x0 + 2 || k.x1 > f.x1 - 2 || k.atas < f.y0 + 2 || k.bawah > f.y1 - 2) continue;
+          if (xk !== null && xk > k.x0 - 2 && xk < k.x1 + 2) continue;
+          if (hindar.some((u) => k.x0 < u.x1 && k.x1 > u.x0 && k.atas < u.bawah && k.bawah > u.atas)) continue;
+          const b = tambah + 0.05 * geser + (x0 > xp ? 4 : 0) + 3 * panjangDalam(k, kurva);
+          if (b < biaya) {
+            biaya = b;
+            terbaik = k;
+          }
+        }
+      }
+    }
+    /* Tidak ada tempat bersih: tempat asal di kiri titik, tetap beralas. */
+    const k = terbaik ?? { x0: Math.max(xp - 10 - lebar, f.x0 + 2), x1: Math.max(xp - 10, f.x0 + 2 + lebar), atas: yp - 18, bawah: yp - 4 };
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(k.x0, k.atas, k.x1 - k.x0, k.bawah - k.atas);
+    region(ctx, teksPuncak, k.x0 + 4, (k.atas + k.bawah) / 2, limpas ? C.signal : C.ink, 0, "left");
+  };
+
   const grafik = (ctx: CanvasRenderingContext2D, w: number, h: number): PlateOut => {
       const tMax = bidang.tMax;
       /* Uji rekan V20: pegangan titik kendali menutupi nama kurva masuk
@@ -354,8 +406,6 @@ export function PenelusuranWadukClient() {
       for (let i = 1; i < r.points.length; i++)
         if (Math.abs(r.points[i].t - tLabelMasuk) < Math.abs(r.points[iLabel].t - tLabelMasuk)) iLabel = i;
       const atMasuk = r.points.length > 1 ? iLabel / (r.points.length - 1) : 0.28;
-      const teksPuncak = `${fmtPlain(r.outflowPeak, digitO)} m³/s`;
-      const puncakDidalam = p2.t >= 0 && p2.t <= tMax && r.outflowPeak <= bidang.qMax;
       const deret: ChartSeries[] = [
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.inflow })),
@@ -404,9 +454,6 @@ export function PenelusuranWadukClient() {
           headingColor: C.signal,
           markers: titik.map((p) => ({ x: p.t, y: p.Q, color: C.water, hollow: true })),
           regions: [
-            ...(puncakDidalam
-              ? [{ x: Math.max(p2.t - tMax * 0.12, tMax * 0.06), y: r.outflowPeak + bidang.qMax * 0.03, text: teksPuncak, color: limpas ? C.signal : C.ink }]
-              : []),
             ...(dibatasi.some((d) => d)
               ? [{ x: bidang.tMax * 0.5, y: bidang.qMax * 0.97, text: x.dibatasiTitik.replace("{i}", dibatasi.map((d, i) => (d ? String(i) : "")).filter(Boolean).join(", ")), color: C.caution }]
               : []),
@@ -452,6 +499,7 @@ export function PenelusuranWadukClient() {
         titikKursor.current[1][0] = k.outflow;
         drawTimeCursor(ctx, peta, tK, titikKursor.current);
       }
+      tulisPuncak(ctx, peta, out, hRes, bergerak ? null : tK);
       const anchors: Record<string, { x: number; y: number }> = {};
       for (const key in out.anchors ?? {}) anchors[key] = { x: out.anchors![key].x, y: out.anchors![key].y + hRes };
       return { map: peta, anchors, maps: { reservoir: res.out.map } };
