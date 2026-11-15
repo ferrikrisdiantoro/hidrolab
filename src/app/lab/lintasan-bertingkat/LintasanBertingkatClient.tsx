@@ -243,12 +243,20 @@ export function LintasanBertingkatClient() {
       }
 
       const zBawah = -D - tebal * 2;
+      const zAtas = (tampil - 1) * r.stepDrop + r.stepDrop * 1.5;
+      /* Skala gambar sama dengan drawStructure (skala sama di kedua sumbu,
+         padL 58, padR 26, padT 26, padB 52), untuk menaruh nama kolam di
+         bawah lantainya dalam piksel. */
+      const skala = Math.min(
+        Math.max(10, w - 84) / ((tampil + 0.2) * L),
+        Math.max(10, ch - 78) / Math.max(zAtas - zBawah, 1e-9)
+      );
 
       const spec: StructureSpec = {
         xMin: -L * 0.1,
         xMax: tampil * L + L * 0.1,
         zMin: zBawah,
-        zMax: (tampil - 1) * r.stepDrop + r.stepDrop * 1.5,
+        zMax: zAtas,
         bodies: badan,
         waters: [
           {
@@ -303,18 +311,24 @@ export function LintasanBertingkatClient() {
           },
         ],
         callouts: [
+          /* Nama undakan ke kiri atas, di atas kolam pertama: ke kanan
+             penunjuknya bersilang dengan tulisan ukuran beda tinggi yang
+             diputar di atas tanda atasnya (temuan V21). */
           {
             x: L - tebal / 2,
             z: (tampil - 1) * r.stepDrop,
-            dx: 40,
+            dx: -40,
             dy: -26,
             text: T.stepLabel,
           },
+          /* Nama kolam di bawah lantai kolam pertama, berapa pun tebal
+             lantai dan dalam kolamnya dalam piksel: dengan dy tetap 30 px
+             tulisannya jatuh tepat di garis lantai (temuan V21). */
           {
             x: L * 0.5,
             z: (tampil - 1) * r.stepDrop - D * 0.55,
             dx: -6,
-            dy: 30,
+            dy: Math.max(30, (D * 0.45 + tebal) * skala + 12),
             text: T.poolLabel,
           },
         ],
