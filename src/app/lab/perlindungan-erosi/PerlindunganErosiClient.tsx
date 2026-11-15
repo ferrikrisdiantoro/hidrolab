@@ -247,6 +247,42 @@ export function PerlindunganErosiClient() {
         region(ctx, teks, x0 + 2, yT, r.stable ? C.water : C.caution, 0, "left");
         out.labels = [...(out.labels ?? []), { x: x0 - 1, y: yT - 7, w: lebar + 6, h: 14 }];
       }
+      /*
+       * Jalur baca tegak dari titik kerja ke sumbu x diberi nilainya (temuan
+       * V21: garis mendatar berlabel d50, garis tegak tanpa angka, padahal
+       * sumbu x hanya bertanda 10⁰). Calon di kaki garis, kanan lebih dulu:
+       * di kanan bawah titik kerja tidak ada kurva (keduanya naik ke kanan).
+       * Calon yang menimpa tulisan lain atau titik kerja dilewati.
+       */
+      {
+        const { X, Y, frame: f } = out.map;
+        const xv = X(V);
+        const yp = Y(pas.d50);
+        if (xv >= f.x0 && xv <= f.x1 && yp >= f.y0 && yp <= f.y1) {
+          const teks = `V ${fmtPlain(V, 2)} m/s`;
+          ctx.font = F.region;
+          const lebar = stencilWidth(ctx, teks, 1.4) + 8;
+          const terpakai = [
+            ...(out.labels ?? []),
+            { x: xv - 10, y: yp - 10, w: 20, h: 20 },
+          ];
+          const kena = (x0: number, a: number) =>
+            x0 < f.x0 + 2 ||
+            x0 + lebar > f.x1 - 2 ||
+            a < f.y0 + 2 ||
+            terpakai.some((l) => x0 < l.x + l.w && x0 + lebar > l.x && a < l.y + l.h && a + 14 > l.y);
+          let pilih: { x0: number; a: number } | null = null;
+          for (let y = f.y1 - 10; y > f.y1 - 70 && !pilih; y -= 14)
+            for (const x0 of [xv + 4, xv - 4 - lebar])
+              if (!pilih && !kena(x0, y - 7)) pilih = { x0, a: y - 7 };
+          if (pilih) {
+            ctx.fillStyle = C.sheet;
+            ctx.fillRect(pilih.x0, pilih.a, lebar, 14);
+            region(ctx, teks, pilih.x0 + 4, pilih.a + 7, adaPilihan && !r.stable ? C.caution : C.ink, 0, "left");
+            out.labels = [...(out.labels ?? []), { x: pilih.x0, y: pilih.a, w: lebar, h: 14 }];
+          }
+        }
+      }
       return out;
     },
     null,
