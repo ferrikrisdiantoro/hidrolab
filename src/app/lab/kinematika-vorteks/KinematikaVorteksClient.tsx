@@ -438,7 +438,17 @@ export function KinematikaVorteksClient() {
          dengan pesannya (drawField menimpa seluruh kanvas). Pemetaannya
          tidak bergantung pada regions, jadi hitungannya tetap. */
       const nLuar = hitungDiLuarBingkai(tambahan, out.map);
-      if (nLuar > 0) out = gambar(nLuar);
+      if (nLuar > 0) {
+        out = gambar(nLuar);
+        /* Pegangan pusaran di luar bingkai dibuang dari anchors: DragLayer
+           menjepit anchor ke tepi bidang, sehingga dulu pegangannya tetap
+           tergambar di sudut bingkai dan bisa diseret (temuan V21). Tanpa
+           anchor, DragLayer tidak menggambar pegangan itu. */
+        const di = out.anchors ?? {};
+        tambahan.forEach((p, i) => {
+          if (hitungDiLuarBingkai([p], out.map) > 0) delete di[`v${i}`];
+        });
+      }
       /* Saat diam: medan kecepatan pada susunan awal (yang diseret). */
       if (!playing) {
         const mo = medanAwal.current!;
