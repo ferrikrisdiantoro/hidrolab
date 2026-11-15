@@ -195,7 +195,16 @@ export function ResponsAirTanahClient() {
   const tataRef = useRef<AquiferLayout | null>(null);
   const petaGrafik = useRef<PlateMap | null>(null);
   const skalaRef = useRef<(v: number) => number>((v) => v);
-  const mulai = useRef<{ tt: number | null; hari: number; kini: number }>({ tt: null, hari: 91, kini: 91 });
+  /* kirim = tt kiriman terakhir ke kursor. Selama animasi, hari lapis gerak
+     dikirim ke penggeser dan kotak angka tiap 0,25 s layar (sekitar 4 kali
+     per detik), jadi keduanya ikut berjalan; saat dijeda, nilai terakhir
+     dikirim sekali lagi di putar(). */
+  const mulai = useRef<{ tt: number | null; hari: number; kini: number; kirim: number }>({
+    tt: null,
+    hari: 91,
+    kini: 91,
+    kirim: 0,
+  });
   const kini = useRef({ head: 0, recharge: 0, outflow: 0 });
   const titikKursor = useRef<[number, string][]>([
     [0, C.water],
@@ -375,10 +384,17 @@ export function ResponsAirTanahClient() {
       const peta = petaGrafik.current;
       if (!tata || !peta) return;
       const m = mulai.current;
-      if (m.tt === null) m.tt = tt;
+      if (m.tt === null) {
+        m.tt = tt;
+        m.kirim = tt;
+      }
       let d = (m.hari + (tt - m.tt) * LAJU) % 365;
       if (d < 0) d += 365;
       m.kini = d;
+      if (tt - m.kirim >= 0.25 || tt < m.kirim) {
+        m.kirim = tt;
+        setKursor(Math.round(d) % 366);
+      }
       const k = kini.current;
       readAquifer(r.series, d, k);
       drawAquiferState(ctx, tata, k.head, k.recharge, k.outflow);
@@ -386,7 +402,10 @@ export function ResponsAirTanahClient() {
       titikKursor.current[1][0] = skalaRef.current(k.recharge);
       drawTimeCursor(ctx, peta, d, titikKursor.current);
     },
-    [rata, ayun, pompa, Sy, alpha, lang, kursor, bergerak],
+    /* Selama animasi kursor berubah 4 kali per detik dari lapis gerak;
+       lapis diam tidak perlu digambar ulang untuk itu (kursornya hanya
+       digambar saat diam). */
+    [rata, ayun, pompa, Sy, alpha, lang, bergerak ? -1 : kursor, bergerak],
     { playing }
   );
 
@@ -397,6 +416,16 @@ export function ResponsAirTanahClient() {
       mulai.current.hari = kursor;
     }
     togglePutar();
+  };
+
+  /* Penggeser dan kotak angka yang diubah selama animasi: lapis gerak
+     melanjutkan dari hari itu. */
+  const ubahKursor = (v: number) => {
+    setKursor(v);
+    if (playing) {
+      mulai.current.tt = null;
+      mulai.current.hari = v;
+    }
   };
 
   const handles: HandleSpec[] = bergerak
@@ -501,7 +530,7 @@ export function ResponsAirTanahClient() {
               <InputRow symbol="P" label={x.dPump} value={pompa} min={0} max={6} step={0.1} digits={1} unit={mmHari} onChange={setPompa} tint={C.critical} />
               <InputRow symbol="Sy" label={x.dSy} value={Sy} min={0.02} max={0.4} step={0.01} digits={2} onChange={setSy} />
               <InputRow symbol="α" label={x.dAlpha} value={alpha * 1000} min={1} max={80} step={1} digits={0} unit={lang === "id" ? "10⁻³/hari" : "10⁻³/d"} onChange={(v) => setAlpha(v / 1000)} tint={C.critical} />
-              <InputRow symbol="t" label={x.dDay} value={kursor} {...P_HARI} unit={hari} onChange={setKursor} />
+              <InputRow symbol="t" label={x.dDay} value={kursor} {...P_HARI} unit={hari} onChange={ubahKursor} />
             </InputTable>
             <SentuhContoh sentuh={sentuh} />
 

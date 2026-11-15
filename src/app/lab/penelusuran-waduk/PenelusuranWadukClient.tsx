@@ -313,7 +313,15 @@ export function PenelusuranWadukClient() {
   const sentuh = useRef<() => void>(() => {});
   const tataRef = useRef<ReservoirLayout | null>(null);
   const petaGrafik = useRef<PlateMap | null>(null);
-  const mulai = useRef<{ tt: number | null; t: number; kini: number }>({ tt: null, t: 8, kini: 8 });
+  /* kirim = tt kiriman terakhir ke kursor. Selama animasi, jam lapis gerak
+     dikirim ke penggeser dan kotak angka tiap 0,25 s layar (sekitar 4 kali
+     per detik); saat dijeda, nilai terakhir dikirim sekali lagi di putar(). */
+  const mulai = useRef<{ tt: number | null; t: number; kini: number; kirim: number }>({
+    tt: null,
+    t: 8,
+    kini: 8,
+    kirim: 0,
+  });
   const kini = useRef({ inflow: 0, outflow: 0, head: 0, storage: 0 });
   const titikKursor = useRef<[number, string][]>([
     [0, C.water],
@@ -334,14 +342,29 @@ export function PenelusuranWadukClient() {
 
   const grafik = (ctx: CanvasRenderingContext2D, w: number, h: number): PlateOut => {
       const tMax = bidang.tMax;
+      /* Uji rekan V20: pegangan titik kendali menutupi nama kurva masuk
+         (dulu di 0,28 deret, tepat di puncak = pegangan Ip) dan angka
+         puncak keluar (yang selalu jatuh di perpotongan kedua kurva, dekat
+         pegangan titik 3). Nama kurva masuk dipindah ke lengan turun, di
+         tengah antara titik 2 dan 3; angka puncak keluar ditulis di
+         kiri-atas titiknya, di antara kedua kurva, sejajar garis bantu
+         datarnya. */
+      const tLabelMasuk = (titik[2].t + titik[3].t) / 2;
+      let iLabel = 0;
+      for (let i = 1; i < r.points.length; i++)
+        if (Math.abs(r.points[i].t - tLabelMasuk) < Math.abs(r.points[iLabel].t - tLabelMasuk)) iLabel = i;
+      const atMasuk = r.points.length > 1 ? iLabel / (r.points.length - 1) : 0.28;
+      const teksPuncak = `${fmtPlain(r.outflowPeak, digitO)} m³/s`;
+      const puncakDidalam = p2.t >= 0 && p2.t <= tMax && r.outflowPeak <= bidang.qMax;
       const deret: ChartSeries[] = [
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.inflow })),
           color: C.water,
           weight: W.bold,
           label: T.inflowCurve,
-          labelAt: 0.28,
-          labelDy: -11,
+          labelAt: atMasuk,
+          labelDy: -6,
+          labelAlign: "left",
         },
         {
           pts: r.points.map((p) => ({ x: p.t, y: p.outflow })),
@@ -372,15 +395,22 @@ export function PenelusuranWadukClient() {
             /* Tiga desimal untuk puncak yang kecil, karena waduk besar dengan
                pelimpah sempit meredam sampai puluhan liter per detik dan satu
                desimal menuliskannya sebagai nol. Kop memakai digit yang sama. */
-            label: `${fmtPlain(r.outflowPeak, digitO)} m³/s`,
+            /* Di dalam bidang angkanya ditulis lewat regions di bawah;
+               di luar bidang drawChart menyebutnya di pesan titik luar. */
+            label: puncakDidalam ? undefined : teksPuncak,
             invalid: limpas,
           },
           heading: limpas ? x.limpas : undefined,
           headingColor: C.signal,
           markers: titik.map((p) => ({ x: p.t, y: p.Q, color: C.water, hollow: true })),
-          regions: dibatasi.some((d) => d)
-            ? [{ x: bidang.tMax * 0.5, y: bidang.qMax * 0.97, text: x.dibatasiTitik.replace("{i}", dibatasi.map((d, i) => (d ? String(i) : "")).filter(Boolean).join(", ")), color: C.caution }]
-            : undefined,
+          regions: [
+            ...(puncakDidalam
+              ? [{ x: Math.max(p2.t - tMax * 0.12, tMax * 0.06), y: r.outflowPeak + bidang.qMax * 0.03, text: teksPuncak, color: limpas ? C.signal : C.ink }]
+              : []),
+            ...(dibatasi.some((d) => d)
+              ? [{ x: bidang.tMax * 0.5, y: bidang.qMax * 0.97, text: x.dibatasiTitik.replace("{i}", dibatasi.map((d, i) => (d ? String(i) : "")).filter(Boolean).join(", ")), color: C.caution }]
+              : []),
+          ],
           anchors: Object.fromEntries(titik.map((p, i) => [`p${i}`, { x: p.t, y: p.Q }])),
         },
         lang
@@ -431,10 +461,17 @@ export function PenelusuranWadukClient() {
       const peta = petaGrafik.current;
       if (!tata || !peta) return;
       const m = mulai.current;
-      if (m.tt === null) m.tt = tt;
+      if (m.tt === null) {
+        m.tt = tt;
+        m.kirim = tt;
+      }
       let t = (m.t + (tt - m.tt) * LAJU) % tEkor;
       if (t < 0) t += tEkor;
       m.kini = t;
+      if (tt - m.kirim >= 0.25 || tt < m.kirim) {
+        m.kirim = tt;
+        ubahKursor(keBawahKursor(t));
+      }
       const k = kini.current;
       readRouting(r.points, t, k);
       drawReservoirState(ctx, tata, k.head, k.inflow, k.outflow, k.storage);
@@ -450,7 +487,9 @@ export function PenelusuranWadukClient() {
       fb,
       Cd,
       lang,
-      kursor,
+      /* Selama animasi kursor berubah 4 kali per detik dari lapis gerak;
+         lapis diam tidak digambar ulang untuk itu. */
+      bergerak ? -1 : kursor,
       bergerak,
       kunci ? kunci.tMax : NaN,
       kunci ? kunci.qMax : NaN,
@@ -466,6 +505,16 @@ export function PenelusuranWadukClient() {
       mulai.current.t = kursor;
     }
     togglePutar();
+  };
+
+  /* Penggeser dan kotak angka yang diubah selama animasi: lapis gerak
+     melanjutkan dari jam itu. */
+  const ubahKursorPengguna = (v: number) => {
+    ubahKursor(v);
+    if (playing) {
+      mulai.current.tt = null;
+      mulai.current.t = v;
+    }
   };
 
   const ubahTitik = (i: number) => (v: [number, number]) => {
@@ -593,7 +642,7 @@ export function PenelusuranWadukClient() {
               <InputRow symbol="b" label={x.dB} value={b} min={2} max={200} step={1} digits={0} unit="m" onChange={setB} />
               <InputRow symbol="f" label={x.dFb} value={fb} min={0.5} max={15} step={0.1} digits={1} unit="m" onChange={setFb} />
               <InputRow symbol="Cd" label={x.dCd} value={Cd} min={0.5} max={0.75} step={0.005} digits={3} onChange={setCd} />
-              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={ubahKursor} penanda={kursorJepit !== null && kursorJepit === kursor ? x.kursorJepit.replace("{v}", fmt(kursorJepit, 1)) : null} />
+              <InputRow symbol="t" label={x.dKursor} value={kursor} {...P_KURSOR} unit="h" onChange={ubahKursorPengguna} penanda={kursorJepit !== null && kursorJepit === kursor ? x.kursorJepit.replace("{v}", fmt(kursorJepit, 1)) : null} />
             </InputTable>
             <SentuhContoh sentuh={sentuh} />
 
