@@ -28,6 +28,7 @@ import {
 import { DragLayer, type HandleSpec } from "@/components/DragLayer";
 import type { ParamDef } from "@/lib/rentang";
 import { drawChart, type ChartSeries } from "@/lib/drawChart";
+import { labelGradasi } from "@/lib/labelGradasi";
 import {
   FILTER_CU_MAX,
   FILTER_D50_RATIO_MAX,
@@ -244,9 +245,7 @@ export function FilterBendunganClient() {
           pts: kurva(r.base),
           color: C.ink,
           weight: W.bold,
-          label: T.baseSoil,
-          labelAt: 0.5,
-          labelDy: -12,
+          /* Namanya ditulis labelGradasi sesudah diagram digambar. */
         },
         {
           /* Filter yang gagal syarat adalah kegagalan rancangan, bukan
@@ -276,23 +275,24 @@ export function FilterBendunganClient() {
           axisX: T.axGrainLog,
           axisY: T.axPassing,
           series: deret,
-          bands: [{ axis: "x", from: r.d15Min, to: r.d15Max, label: T.filterWindow }],
+          /* Nama pita, nama kedua batas, nama tanah, dan nama keadaan
+             ditulis labelGradasi sesudah diagram digambar, di tempat yang
+             paling sedikit menutup kurva (temuan V20: kurva tanah seragam
+             terputus di bawah empat tulisan berurutan, nama jendela lebih
+             lebar daripada pitanya). */
+          bands: [{ axis: "x", from: r.d15Min, to: r.d15Max }],
           rules: [
             {
               axis: "x",
               at: r.d15Min,
               color: C.critical,
               dash: DASH.axis,
-              label: `${T.drainLimit} ${fmtPlain(r.d15Min, 3)}`,
-              labelAlign: "right",
             },
             {
               axis: "x",
               at: r.d15Max,
               color: C.critical,
               dash: DASH.axis,
-              label: `${T.retainLimit} ${fmtPlain(r.d15Max, 3)}`,
-              labelAlign: "left",
             },
             { axis: "y", at: 15, color: C.ink3, dash: DASH.hidden, label: "15 %" },
           ],
@@ -303,12 +303,6 @@ export function FilterBendunganClient() {
             label: `D15 ${fmtPlain(r.filter.d15, 3)} mm`,
             invalid: false,
           },
-          heading: r.retains
-            ? r.drains
-              ? undefined
-              : x.gagalAlir
-            : x.gagalTahan,
-          headingColor: C.caution,
           padRight: 52,
         },
         lang
@@ -316,6 +310,40 @@ export function FilterBendunganClient() {
       /* Jendela kriteria hijau (permintaan klien): warna lolos syarat di
          atas pita jendela, di antara kedua garis batasnya. */
       tintBandX(ctx, out.map, r.d15Min, r.d15Max, C.passFillOver);
+      const judul = r.retains ? (r.drains ? undefined : x.gagalAlir) : x.gagalTahan;
+      labelGradasi(ctx, out, {
+        kurva: [deret[0].pts, deret[1].pts],
+        nama: { pts: deret[0].pts, text: T.baseSoil, color: C.ink },
+        batas: [
+          {
+            at: r.d15Min,
+            text: `${T.drainLimit} ${fmtPlain(r.d15Min, 3)}`,
+            short: `D15 ≥ ${fmtPlain(r.d15Min, 3)}`,
+            side: -1,
+            color: C.critical,
+          },
+          {
+            at: r.d15Max,
+            text: `${T.retainLimit} ${fmtPlain(r.d15Max, 3)}`,
+            short: `D15 ≤ ${fmtPlain(r.d15Max, 3)}`,
+            side: 1,
+            color: C.critical,
+          },
+        ],
+        jendela: { from: r.d15Min, to: r.d15Max, text: T.filterWindow },
+        judul: judul ? { text: judul, color: C.caution } : undefined,
+        bantu: [
+          [
+            { x: D_MIN, y: 15 },
+            { x: D_MAX, y: 15 },
+          ],
+          [
+            { x: r.filter.d15, y: 0 },
+            { x: r.filter.d15, y: 15 },
+            { x: D_MIN, y: 15 },
+          ],
+        ],
+      });
       return out;
     },
     null,
