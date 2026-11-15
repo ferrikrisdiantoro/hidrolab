@@ -242,6 +242,8 @@ export type LabelGradasiOut = {
   batas: { text: string; x: number; y: number; align: CanvasTextAlign }[];
   nama: Kotak;
   jendela: Kotak;
+  /** Jalur garis ukur selebar pita bila nama jendela di luar pita */
+  ukur: Kotak | null;
   judul: Kotak[];
 };
 
@@ -401,15 +403,50 @@ export function labelGradasi(
   ctx.font = F.region;
   const lebarJ = stencilWidth(ctx, s.jendela.text, 1.4) + 8;
   type IsiJ = { x: number; y: number; align: CanvasTextAlign; sisi: 0 | -1 | 1 };
-  const calonJ: Calon<IsiJ>[] = [];
   /* Hanya di dua perlima bawah bidang, dengan kesukaan pada baris paling
      bawah: garis ukur selebar pita yang melintang di tengah diagram terbaca
      sebagai data. Muat di dalam pita = hurufnya (tanpa ruang napas) muat. */
   const yBawah = f.y1 - 10;
-  for (let y = yBawah; y > f.y1 - 0.4 * (f.y1 - f.y0); y -= 12) {
-    if (lebarJ - 8 <= b - a - 4) calonJ.push({ kotak: [kotakKecil(s.jendela.text, (a + b) / 2, y, "center")], isi: { x: (a + b) / 2, y, align: "center", sisi: 0 } });
-    calonJ.push({ kotak: [kotakKecil(s.jendela.text, b + 14, y, "left")], isi: { x: b + 14, y, align: "left", sisi: 1 } });
-    calonJ.push({ kotak: [kotakKecil(s.jendela.text, a - 14, y, "right")], isi: { x: a - 14, y, align: "right", sisi: -1 } });
+  /* Garis ukur dan penunjuknya ikut dinilai sebagai kotak setinggi tanda
+     ujungnya (temuan V21, filter terlalu kasar: garis ukur menembus nama
+     kurva filter yang duduk di dalam pita). */
+  const jalurUkur = (x0: number, x1: number, y: number): Kotak => ({ x0, x1, atas: y - 4, bawah: y + 4 });
+  /* Kotak satu blok tulisan; baris kedua 12 px di bawah baris pertama,
+     blok dipusatkan pada y (garis ukur lewat di tengah blok). */
+  const kotakBlok = (baris: readonly string[], x: number, y: number, align: CanvasTextAlign): Kotak => {
+    const ks = baris.map((t, i) => kotakKecil(t, x, y + 12 * i - 6 * (baris.length - 1), align));
+    return {
+      x0: Math.min(...ks.map((k) => k.x0)),
+      x1: Math.max(...ks.map((k) => k.x1)),
+      atas: ks[0].atas,
+      bawah: ks[ks.length - 1].bawah,
+    };
+  };
+  const susunJ = (baris: readonly string[]) => {
+    const hasil: Calon<IsiJ & { baris: readonly string[] }>[] = [];
+    for (let y = yBawah; y > f.y1 - 0.4 * (f.y1 - f.y0); y -= 12) {
+      if (lebarJ - 8 <= b - a - 4) hasil.push({ kotak: [kotakBlok(baris, (a + b) / 2, y, "center")], isi: { x: (a + b) / 2, y, align: "center", sisi: 0, baris } });
+      hasil.push({ kotak: [kotakBlok(baris, b + 14, y, "left"), jalurUkur(a, b + 10, y)], isi: { x: b + 14, y, align: "left", sisi: 1, baris } });
+      hasil.push({ kotak: [kotakBlok(baris, a - 14, y, "right"), jalurUkur(a - 10, b, y)], isi: { x: a - 14, y, align: "right", sisi: -1, baris } });
+    }
+    return hasil;
+  };
+  const sah = (c: Calon<unknown>) =>
+    c.kotak.every(
+      (k) =>
+        k.x0 >= bidang.x0 - 0.5 && k.x1 <= bidang.x1 + 0.5 && k.atas >= bidang.atas - 0.5 && k.bawah <= bidang.bawah + 0.5 &&
+        !terpakai.some((u) => tabrak(k, u))
+    );
+  let calonJ = susunJ([s.jendela.text]);
+  /* Tidak ada tempat satu baris yang sah (HP, filter terlalu kasar: di
+     kedua sisi pita tulisan keluar bingkai, sehingga dulu calon pertama
+     dipakai dan garis ukurnya menembus nama kurva filter): ditulis dua
+     baris, dipecah di spasi terakhir. */
+  const spasi = s.jendela.text.lastIndexOf(" ");
+  if (!calonJ.some(sah) && spasi > 0) {
+    const dua = [s.jendela.text.slice(0, spasi), s.jendela.text.slice(spasi + 1)];
+    const calonDua = susunJ(dua);
+    if (calonDua.some(sah)) calonJ = calonDua;
   }
   const cj = pilihCalon(calonJ, terpakai, garis, bidang, (c) => 0.25 * (yBawah - c.isi.y));
   const jendela = cj.kotak[0];
@@ -431,7 +468,9 @@ export function labelGradasi(
   }
   alas(jendela);
   pakai(jendela);
-  region(ctx, s.jendela.text, cj.isi.x, cj.isi.y, C.pass, 0, cj.isi.align);
+  cj.isi.baris.forEach((t, i) =>
+    region(ctx, t, cj.isi.x, cj.isi.y + 12 * i - 6 * (cj.isi.baris.length - 1), C.pass, 0, cj.isi.align)
+  );
 
   out.labels = [
     ...(out.labels ?? []),
@@ -441,6 +480,7 @@ export function labelGradasi(
     batas: batas.map(({ text, x, y, align }) => ({ text, x, y, align })),
     nama,
     jendela,
+    ukur: cj.kotak[1] ?? null,
     judul: judulKotak,
   };
 }

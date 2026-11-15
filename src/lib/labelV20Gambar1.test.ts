@@ -157,6 +157,7 @@ function gambarDM02(w: number, h: number, bD50: number, bCu: number, fD50: numbe
     point: { x: r.filter.d15, y: 15, label: "D15 0,358 mm" },
     padRight: 52,
   }, "id");
+  const labelAwal = [...(out.labels ?? [])];
   const t0 = performance.now();
   const hasil = labelGradasi(rk.ctx, out, {
     kurva: [tanah, filter],
@@ -170,7 +171,7 @@ function gambarDM02(w: number, h: number, bD50: number, bCu: number, fD50: numbe
   });
   const ms = performance.now() - t0;
   const tanahPx = tanah.map((p) => ({ x: out.map.X(p.x), y: out.map.Y(p.y) }));
-  return { r, out, hasil, ms, tanahPx };
+  return { r, out, hasil, ms, tanahPx, labelAwal };
 }
 
 describe("DM-02 labelGradasi (V20: tanah seragam, jendela sempit)", () => {
@@ -214,4 +215,18 @@ describe("DM-02 labelGradasi (V20: tanah seragam, jendela sempit)", () => {
     const ms = Math.min(...Array.from({ length: 8 }, () => gambarDM02(562, 530, 0.15, 1.4, 1.2, 6).ms));
     assert.ok(ms <= 16, `${ms.toFixed(1)} ms`);
   });
+});
+
+describe("DM-02 labelGradasi (V21: filter terlalu kasar)", () => {
+  for (const [w, h, nama] of [[562, 530, "1280"], [340, 560, "HP 390"]] as const) {
+    it(`${nama}: garis ukur jendela tidak menembus nama kurva filter`, () => {
+      const { hasil, labelAwal } = gambarDM02(w, h, 0.2, 6, 30, 6);
+      const u = hasil.ukur;
+      if (!u) return; // nama jendela di dalam pita, tanpa garis ukur
+      for (const l of labelAwal) {
+        const tumpang = u.x0 < l.x + l.w && u.x1 > l.x && u.atas < l.y + l.h && u.bawah > l.y;
+        assert.ok(!tumpang, `garis ukur ${u.x0.toFixed(0)}-${u.x1.toFixed(0)} @${u.atas.toFixed(0)} menembus label ${l.x.toFixed(0)},${l.y.toFixed(0)} ${l.w.toFixed(0)}x${l.h.toFixed(0)}`);
+      }
+    });
+  }
 });
