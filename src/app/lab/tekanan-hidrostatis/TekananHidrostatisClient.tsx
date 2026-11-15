@@ -62,7 +62,7 @@ const TXT = {
     rPc: "Tekanan ukur di titik berat",
     rA: "Luas bagian basah",
     rLw: "Panjang bagian basah",
-    rYcp: "Letak pusat tekanan dari titik berat, sepanjang pintu",
+    rYcp: "Letak pusat tekanan dari titik berat, sepanjang pintu (negatif = ke bawah)",
     rSelisih: "Pusat tekanan lebih dalam daripada titik berat",
     bandKering: "Di atas muka",
     bandMenembus: "Menembus muka",
@@ -78,7 +78,7 @@ const TXT = {
     jHc: "Kedalaman titik berat bagian basah",
     jF: "Gaya resultan, tekanan ukur di titik berat kali luas",
     jI: "Momen inersia luas terhadap titik berat",
-    jY: "Letak pusat tekanan dari titik berat (negatif = lebih dalam)",
+    jY: "Letak pusat tekanan dari titik berat, sepanjang pintu (negatif = ke bawah)",
     jHp: "Kedalaman pusat tekanan",
     probeNote:
       "Ujung probe lebih dalam daripada dasar tangki, jadi tidak ada zat cair di sana untuk dibaca. Bacaannya tidak ditulis. Naikkan probe atau dalamkan tangkinya.",
@@ -114,7 +114,7 @@ const TXT = {
     rPc: "Gauge pressure at the centroid",
     rA: "Wetted area",
     rLw: "Wetted length",
-    rYcp: "Centre of pressure from the centroid, along the gate",
+    rYcp: "Centre of pressure from the centroid, along the gate (negative = downward)",
     rSelisih: "Centre of pressure below the centroid",
     bandKering: "Above the surface",
     bandMenembus: "Breaks the surface",
@@ -130,7 +130,7 @@ const TXT = {
     jHc: "Depth of the centroid of the wetted part",
     jF: "Resultant force, gauge pressure at the centroid times area",
     jI: "Second moment of area about the centroid",
-    jY: "Centre of pressure from the centroid (negative = deeper)",
+    jY: "Centre of pressure from the centroid, along the gate (negative = downward)",
     jHp: "Depth of the centre of pressure",
     probeNote:
       "The probe tip is deeper than the tank floor, so there is no liquid there to read. The reading is not written. Raise the probe or deepen the tank.",
@@ -418,7 +418,13 @@ export function TekananHidrostatisClient() {
       status={
         <RegimeScale
           symbol="h₁"
-          value={top}
+          /* h₁ = 0 tepat termasuk terendam penuh (keadaanPintu: menembus
+             hanya bila top < 0). RegimeScale memilih pita PERTAMA yang
+             memuat nilainya dan batas 0 dimiliki kedua pita, jadi nilai 0
+             didorong 1e-12 ke sisi terendam penuh; posisi penanda dan angka
+             tampil (2 desimal) tidak berubah. Uji rekan V20: contoh pintu
+             tegak 1 × 1 m, kop menulis menembus, kartu terendam penuh. */
+          value={top === 0 ? 1e-12 : top}
           digits={2}
           invalid={gateInvalid}
           bands={pita}
