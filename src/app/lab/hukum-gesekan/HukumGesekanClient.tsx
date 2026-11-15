@@ -250,12 +250,20 @@ export function HukumGesekanClient() {
       status={
         <RegimeScale
           symbol="n"
-          value={n}
+          /* n = 0,010 tepat termasuk rentang lazim (jauh = n < N_MIN), tetapi
+             RegimeScale memilih pita PERTAMA yang memuat nilainya; nilai
+             batas didorong sedikit ke pita lazim. Angka tampil 3 desimal
+             tidak berubah. */
+          value={Math.abs(n - N_MIN) < 1e-12 ? N_MIN * (1 + 1e-9) : n}
           invalid={jauh}
           scale="log"
           digits={3}
           bands={[
-            { from: 0.005, to: N_MIN, label: x.jauh, tone: "invalid" },
+            /* Merah sinyal hanya saat n benar-benar di zona ini (aturan
+               3): selama n di rentang lazim, pita ini netral seperti pita
+               lain (uji rekan V20: label merah tampil walau n di dalam
+               rentang). */
+            { from: 0.005, to: N_MIN, label: x.jauh, tone: jauh ? "invalid" : "neutral" },
             { from: N_MIN, to: N_MAX, label: x.lazim, tone: "neutral" },
             { from: N_MAX, to: 0.15, label: x.banjir, tone: "neutral" },
           ]}
