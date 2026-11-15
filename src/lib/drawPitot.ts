@@ -196,7 +196,34 @@ export function drawPitot(
   const yUjung = Y(s.rProbe);
   ctx.font = F.label;
   if (xUjung - 36 - 18 - stencilWidth(ctx, T.stagnation) >= batasKiri) {
-    leader(ctx, xUjung, yUjung, X(xProbe) - 52, yUjung + arahPenunjuk * 22, T.stagnation, C.signal);
+    /*
+     * Baris tulisan dipilih supaya tidak dilintasi garis jari-jari acuan
+     * (±r*, digambar sesudah ini menembus kedua panel), dinding, atau panah
+     * kecepatan. Temuan V20 (r/R 0,97): garis r* dan panah aliran memotong
+     * "LUBANG STAGNASI". Tulisannya juga diberi alas kertas.
+     */
+    const lebarT = stencilWidth(ctx, T.stagnation);
+    const tx1 = X(xProbe) - 52 - 16;
+    const tx0 = tx1 - lebarT - 2;
+    const xPanah = X(Lpipa * 0.3);
+    const bebasBaris = (yy: number) => {
+      if (yy - 7 < Y(R) + 2 || yy + 7 > Y(-R) - 2) return false;
+      for (const yw of [Y(s.rMean), Y(-s.rMean)]) if (Math.abs(yy - yw) < 8) return false;
+      for (let i = -4; i <= 4; i++) {
+        const r = (i / 5) * R;
+        const u = powerLawVelocity(r, R, s.uMax, s.n);
+        const x1p = xPanah + Math.max(6, u * skala);
+        if (tx0 < x1p + 2 && tx1 > xPanah - 2 && Math.abs(yy - Y(r)) < 8) return false;
+      }
+      return true;
+    };
+    const calonDy = [22, 30, 38, 46, 14].flatMap((d) => [arahPenunjuk * d]).concat(
+      [22, 30, 38].map((d) => -arahPenunjuk * d)
+    );
+    const dy = calonDy.find((d) => bebasBaris(yUjung + d)) ?? arahPenunjuk * 22;
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(tx0 - 1, yUjung + dy - 6, tx1 - tx0 + 2, 12);
+    leader(ctx, xUjung, yUjung, X(xProbe) - 52, yUjung + dy, T.stagnation, C.signal);
   } else {
     // Di atas ujung tabung ada batang tabungnya, jadi blok tidak boleh
     // melewati batang itu; di bawahnya boleh sampai tepi panel.
@@ -388,7 +415,9 @@ export function drawPitot(
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   stencil(ctx, `1 / ${s.n}`, XU(s.uMax * 0.42), padT + 8, 2);
-  region(ctx, T.powerLaw, XU(s.uMax * 0.42), padT + 28, C.ink3);
+  /* Temuan V20: pada padT + 28 kotak "hukum pangkat" menempel ke kaki
+     angka 1 / n (fon 15 px, bergaris dasar atas di padT + 8). */
+  region(ctx, T.powerLaw, XU(s.uMax * 0.42), padT + 34, C.ink3);
 
   pen(ctx, W.thin, C.ink);
   ctx.strokeRect(
