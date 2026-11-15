@@ -224,7 +224,17 @@ export function drawRiprapBank(
       by1 = Math.max(by1, qy + r);
     }
     lp.reserve(bx0, bx1, by0, by1);
-    const pos = tulis(s.phantomLabel, left, yGagal, C.ink);
+    /* Tulisan tepat di atas kelompok phantom, rata kanan ke ujung kanannya
+       (temuan V20: dari ruang kiri atas penunjuknya menjadi garis tegak
+       abu-abu panjang yang tidak terbaca milik tulisan mana). Bila di sana
+       tidak muat (kepala panel), tempat lama di kiri atas dipakai. */
+    ctx.font = F.value;
+    const lebarG = ctx.measureText(s.phantomLabel).width;
+    const yDekat = by0 - 14;
+    const pos =
+      yDekat - 7 > yGagal + 7
+        ? tulis(s.phantomLabel, Math.min(bx1, right) - lebarG, yDekat, C.ink)
+        : tulis(s.phantomLabel, left, yGagal, C.ink);
     // Garis penunjuk dari ujung tulisan ke batu phantom terdekat.
     const ax = Math.min(Math.max(px / failed, pos.x0), pos.x1);
     pen(ctx, W.hair, C.ink);
@@ -232,6 +242,10 @@ export function drawRiprapBank(
     ctx.moveTo(ax, pos.y + 7);
     ctx.lineTo(px / failed, by0 - 1);
     ctx.stroke();
+    ctx.fillStyle = C.ink;
+    ctx.beginPath();
+    ctx.arc(px / failed, by0 - 1, 1.6, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /* Pembanding ukuran: d50 yang dituntut, lingkaran garis tersembunyi

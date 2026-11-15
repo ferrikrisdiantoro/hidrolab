@@ -26,7 +26,8 @@ import {
   fmtPlain,
   riprapSize,
 } from "@/lib/hydraulics";
-import { C, DASH, W, type Tone } from "@/lib/theme";
+import { C, DASH, F, W, stencilWidth, type Tone } from "@/lib/theme";
+import { region } from "@/lib/plate";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cl, str } from "@/lib/strings";
@@ -46,6 +47,7 @@ const TXT = {
     pDeras: "Hilir pelimpah, batu 400 mm kurang",
     rD50: "Ukuran batu yang dituntut",
     rMassa: "Massa satu batu terpilih",
+    kopMassa: "m dituntut",
     rTebal: "Tebal lapisan yang disyaratkan",
     rVtahan: "Kecepatan yang sanggup ditahan",
     rPakai: "Perbandingan kecepatan kerja terhadap tahan",
@@ -82,6 +84,7 @@ const TXT = {
     pDeras: "Below a spillway, 400 mm stone too small",
     rD50: "Stone size required",
     rMassa: "Mass of one chosen stone",
+    kopMassa: "m required",
     rTebal: "Layer thickness required",
     rVtahan: "Velocity it can resist",
     rPakai: "Working velocity over resisting velocity",
@@ -183,7 +186,7 @@ export function PerlindunganErosiClient() {
         },
       ];
 
-      return drawChart(
+      const out = drawChart(
         ctx,
         w,
         ch,
@@ -208,8 +211,7 @@ export function PerlindunganErosiClient() {
                      keadaan rancangan yang gagal, oker, bukan merah sinyal. */
                   color: r.stable ? C.water : C.caution,
                   dash: DASH.axis,
-                  label: `${T.stoneLayer} ${fmtPlain(chosen, 3)} m`,
-                  labelAlign: "left",
+                  /* Namanya ditulis sesudah diagram, lihat di bawah. */
                 },
               ]
             : undefined,
@@ -224,6 +226,28 @@ export function PerlindunganErosiClient() {
         },
         lang
       );
+      /*
+       * Nama lapisan batu ditulis sesudah diagram, di sisi garisnya yang
+       * menjauhi titik kerja. drawChart menulis nama garis ambang sebelum
+       * jalur baca titik kerja, jadi pada contoh "Hilir pelimpah" (d50
+       * perlu 0,536 m tepat di atas lapisan 0,400 m) jalur baca mendatar
+       * itu mencoret tulisan "lapisan batu 0,400 m" (temuan V20).
+       */
+      if (adaPilihan) {
+        const { Y, frame: f } = out.map;
+        const yGaris = Y(chosen);
+        const titikDiAtas = Y(pas.d50) < yGaris;
+        const teks = `${T.stoneLayer} ${fmtPlain(chosen, 3)} m`;
+        const yT = Math.min(Math.max(yGaris + (titikDiAtas ? 10 : -10), f.y0 + 9), f.y1 - 9);
+        ctx.font = F.region;
+        const lebar = stencilWidth(ctx, teks, 1.4);
+        const x0 = f.x0 + 4;
+        ctx.fillStyle = C.sheet;
+        ctx.fillRect(x0 - 1, yT - 7, lebar + 6, 14);
+        region(ctx, teks, x0 + 2, yT, r.stable ? C.water : C.caution, 0, "left");
+        out.labels = [...(out.labels ?? []), { x: x0 - 1, y: yT - 7, w: lebar + 6, h: 14 }];
+      }
+      return out;
     },
     null,
     [V, s, Cis, chosenMm, lang]
@@ -300,8 +324,10 @@ export function PerlindunganErosiClient() {
             { label: "V", value: `${fmt(V, 2)} m/s`, tint: C.water },
             { label: "d50", value: `${fmt(pas.d50, 3)} m`, tint: C.critical },
             /* Sel d50 berisi batu yang dituntut, jadi massanya juga
-               massa batu itu, bukan massa batu terpilih. */
-            { label: "m(d₅₀)", value: massa(pas.stoneMass) },
+               massa batu itu, bukan massa batu terpilih (kartu hasil "m").
+               Labelnya menyebut "dituntut" supaya kedua massa tidak
+               tertukar (temuan V20). */
+            { label: x.kopMassa, value: massa(pas.stoneMass) },
             { label: "C", value: fmt(Cis, 2) },
           ]}
           height="auto"
