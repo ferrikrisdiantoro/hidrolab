@@ -41,7 +41,7 @@ const TXT = {
     dQ: "Debit",
     gQ: "Debit Q, seret titik di lengkung luas layak ke kiri atau ke kanan",
     petaJudul: "Peta habitat, reach seragam",
-    kLayak: "Layak",
+    kLayak: "Lebar layak",
     kBawah: { depth: "Terlalu dangkal", velocity: "Terlalu lambat", none: "Di bawah nilai terbaik (dangkal/lambat)" },
     kAtas: { depth: "Terlalu dalam", velocity: "Terlalu deras", none: "Di atas nilai terbaik (dalam/deras)" },
     aliran: "Aliran",
@@ -57,7 +57,7 @@ const TXT = {
     rBasah: "Lebar basah (diandaikan basah penuh)",
     rV: "Kecepatan rata-rata penampang",
     rLuas: "Luas layak tiap meter panjang sungai",
-    rBagi: "Bagian lebar basah yang layak",
+    rBagi: "Kelayakan rata-rata terbobot, WUA / B (bukan lebar ber-f ≥ 0,5 di peta)",
     rBaik: "Debit yang memberi luas layak terbesar",
     rLuasBaik: "Luas layak terbesar itu",
     naik: "Menambah debit masih menambah luas layaknya",
@@ -85,7 +85,7 @@ const TXT = {
     dQ: "Discharge",
     gQ: "Discharge Q, drag the point on the usable area curve left or right",
     petaJudul: "Habitat map, uniform reach",
-    kLayak: "Suitable",
+    kLayak: "Suitable width",
     kBawah: { depth: "Too shallow", velocity: "Too slow", none: "Below the best value (shallow/slow)" },
     kAtas: { depth: "Too deep", velocity: "Too fast", none: "Above the best value (deep/fast)" },
     aliran: "Flow",
@@ -101,7 +101,7 @@ const TXT = {
     rBasah: "Wetted width (assumed fully wetted)",
     rV: "Section mean velocity",
     rLuas: "Usable area per metre of river length",
-    rBagi: "Share of the wetted width that is usable",
+    rBagi: "Weighted mean suitability, WUA / B (not the width with f ≥ 0.5 on the map)",
     rBaik: "Discharge giving the largest usable area",
     rLuasBaik: "That largest usable area",
     naik: "More discharge still adds usable area",
@@ -213,7 +213,7 @@ export function HabitatSungaiClient() {
              lengkung kelayakan tidak tergambar di lembar ini sama sekali. */
           label: `Qopt ${fmtPlain(r.bestDischarge, dOpt)} m³/s`,
           labelAt: 1,
-          labelDy: -10,
+          labelDy: -26,
           labelAlign: "center",
         },
       ];
@@ -231,7 +231,7 @@ export function HabitatSungaiClient() {
 
       const bebas: Bidang = {
         qMax: Math.max(...r.curve.map((p) => p.Q), Q) * 1.06,
-        uMax: Math.max(...r.curve.map((p) => p.usable), r.usableArea) * 1.18,
+        uMax: Math.max(...r.curve.map((p) => p.usable), r.usableArea) * 1.5,
       };
       bidangRef.current = bebas;
       const { qMax, uMax } = kunci ?? bebas;
@@ -412,7 +412,7 @@ export function HabitatSungaiClient() {
                 { symbol: "B", label: x.rBasah, value: fmt(tampil(r.wettedWidth), 2), unit: potong ? undefined : "m" },
                 { symbol: "V", label: x.rV, value: fmt(tampil(r.meanVelocity), 3), unit: potong ? undefined : "m/s" },
                 { symbol: "WUA", label: x.rLuas, value: fmt(tampil(r.usableArea), 3), unit: potong ? undefined : "m²", tint: C.energy, strong: true },
-                { symbol: "—", label: x.rBagi, value: fmt(tampil(r.usableFraction * 100), 1), unit: potong ? undefined : "%" },
+                { symbol: "WUA/B", label: x.rBagi, value: fmt(tampil(r.usableFraction * 100), 1), unit: potong ? undefined : "%" },
                 { symbol: "Qopt", label: x.rBaik, value: qOpt, unit: "m³/s", tint: C.critical, strong: true },
                 { symbol: "WUAm", label: x.rLuasBaik, value: fmt(r.bestUsableArea, 3), unit: "m²", tint: C.critical },
               ]}
