@@ -300,6 +300,7 @@ export function TekananHidrostatisClient() {
      dievaluasi di tengah tiap selang, jadi penanda dan kartu keadaan tidak
      pernah berbeda. */
   const pita: RegimeBand[] = [];
+  let nilaiPita = top;
   {
     const potong = [P_TOP.min, -L * sin, 0, H - L * sin, P_TOP.max]
       .map((v) => Math.min(Math.max(v, P_TOP.min), P_TOP.max))
@@ -317,6 +318,25 @@ export function TekananHidrostatisClient() {
       const akhir = pita[pita.length - 1];
       if (akhir && akhir.label === nama[k]) akhir.to = c;
       else pita.push({ from: a, to: c, label: nama[k], tone: NADA[k] });
+    }
+    /* RegimeScale memilih pita PERTAMA yang memuat nilai, dan batas antar
+       pita dimiliki kedua pita. Penanda dipaksa masuk ke pita yang sama
+       dengan kartu keadaan (keadaanPintu): di batas, nilai digeser 1e-12
+       ke dalam pita itu. Bila pita keadaan itu lebarnya nol (pintu tepat
+       setinggi kolom air dan h1 = 0: tepi atas di muka air, tepi bawah di
+       dasar), pita selebar nol disisipkan dan pita sebelumnya diakhiri
+       1e-9 lebih awal. Uji rekan V20 dan gerbang insinyur 15 Nov. */
+    const kini = kp;
+    const iK = pita.findIndex((b) => b.label === nama[kini] && top >= b.from && top <= b.to);
+    if (iK >= 0) {
+      const b = pita[iK];
+      if (top === b.from && iK > 0) nilaiPita = top + 1e-12;
+      else if (top === b.to && iK < pita.length - 1) nilaiPita = top - 1e-12;
+    } else {
+      let j = pita.findIndex((b) => b.from >= top);
+      if (j < 0) j = pita.length;
+      if (j > 0) pita[j - 1].to = Math.min(pita[j - 1].to, top - 1e-9);
+      pita.splice(j, 0, { from: top, to: top, label: nama[kini], tone: NADA[kini] });
     }
   }
 
@@ -418,13 +438,8 @@ export function TekananHidrostatisClient() {
       status={
         <RegimeScale
           symbol="h₁"
-          /* h₁ = 0 tepat termasuk terendam penuh (keadaanPintu: menembus
-             hanya bila top < 0). RegimeScale memilih pita PERTAMA yang
-             memuat nilainya dan batas 0 dimiliki kedua pita, jadi nilai 0
-             didorong 1e-12 ke sisi terendam penuh; posisi penanda dan angka
-             tampil (2 desimal) tidak berubah. Uji rekan V20: contoh pintu
-             tegak 1 × 1 m, kop menulis menembus, kartu terendam penuh. */
-          value={top === 0 ? 1e-12 : top}
+          /* nilaiPita: penanda selalu di pita keadaan kartu (lihat pita) */
+          value={nilaiPita}
           digits={2}
           invalid={gateInvalid}
           bands={pita}
