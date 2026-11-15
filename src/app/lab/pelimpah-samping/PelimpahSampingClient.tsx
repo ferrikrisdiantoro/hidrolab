@@ -644,6 +644,9 @@ function susun(r: TroughResult, b: number, L: number, S0: number, zCrest: number
       // Kendali di ujung keluar adalah penampang kritis, bukan keadaan di luar rentang.
       color: C.critical,
       zBottom: 0,
+      /* Di bawah tombol putar pojok kanan atas (rekan V20: tombol menutupi
+         huruf terakhir "PENAMPANG KENDALI"). */
+      labelDy: 34,
       dim: {
         zTop: keluar.ws,
         zBottom: 0,

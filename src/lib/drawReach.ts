@@ -52,6 +52,12 @@ export type ReachMarker = {
   /** Batas bawah garis penampang, dalam elevasi */
   zBottom?: number;
   dim?: { zTop: number; zBottom: number; text: string; side?: 1 | -1 };
+  /**
+   * Jarak nama penampang dari tepi atas bidang, piksel (bawaan 12). Lembar
+   * bertombol putar di pojok kanan atas menurunkannya, supaya tombol itu
+   * tidak menutupi huruf terakhir nama penampang di ujung kanan.
+   */
+  labelDy?: number;
 };
 
 export type ReachRegion = {
@@ -489,7 +495,7 @@ export function drawReach(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    tulis(m.label, xp, padT + 12, m.color);
+    tulis(m.label, xp, padT + (m.labelDy ?? 12), m.color);
 
     if (m.dim) {
       dimV(

@@ -515,17 +515,29 @@ export function drawIsoPelimpah(
      stensil) supaya simbol dan angka tetap terbaca. */
   const tunjuk = (teks: string, p: V3, dx: number, dy: number, warna: string) => {
     const A = anchor3(p, k);
-    const kanan = dx >= 0;
-    const pos = placer.place(teks, A.x + dx, A.y + dy, 1.4, kanan ? "left" : "right");
     ctx.font = F.label;
     const lebar = ctx.measureText(teks).width + 6;
-    ctx.fillStyle = C.sheet;
-    ctx.fillRect(kanan ? pos.x - 3 : pos.x - lebar + 3, pos.atas, lebar, pos.bawah - pos.atas);
+    /* Tulisan yang tidak muat di sisi pilihannya dijepit penempat ke dalam
+       bidang dan lalu menutupi titik tunjuknya sendiri; garis penunjuknya
+       tertarik melintang tulisan (rekan V20: "aliran masuk lateral q* = …"
+       tercoret garis). Sisi itu ditukar bila tulisannya tidak muat. */
+    let kanan = dx >= 0;
+    if (!kanan && A.x + dx - lebar < 4) kanan = true;
+    else if (kanan && A.x + dx + lebar > w - 4) kanan = false;
+    const geser = kanan ? Math.abs(dx) : -Math.abs(dx);
+    const pos = placer.place(teks, A.x + geser, A.y + dy, 1.4, kanan ? "left" : "right");
+    /* Jarak napas 3 px ke tulisan berikutnya: penempat hanya menjamin
+       tidak bertumpuk, jadi dua nama bisa menempel ("mercu" tepat di bawah
+       nama aliran masuk pada pandangan arah 84°, angkat 10°). */
+    placer.reserve(pos.x0, pos.x1, pos.atas - 3, pos.bawah + 3);
+    /* Garis penunjuk lebih dulu, lalu alas dan tulisan di atasnya. */
     pen(ctx, W.hair, warna, DASH.solid);
     ctx.beginPath();
     ctx.moveTo(A.x, A.y);
     ctx.lineTo(kanan ? pos.x - 3 : pos.x + 3, pos.y);
     ctx.stroke();
+    ctx.fillStyle = C.sheet;
+    ctx.fillRect(kanan ? pos.x - 3 : pos.x - lebar + 3, pos.atas, lebar, pos.bawah - pos.atas);
     ctx.fillStyle = warna;
     ctx.beginPath();
     ctx.arc(A.x, A.y, 1.8, 0, Math.PI * 2);
