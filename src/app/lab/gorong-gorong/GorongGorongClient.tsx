@@ -461,6 +461,9 @@ export function GorongGorongClient() {
                 to: r.headwater,
                 text: `HW ${fmtPlain(r.headwater, 2)} m`,
                 color: C.water,
+                /* Nama kendali sisi keluar menghindari teks ini (V20,
+                   contoh Pendek dan curam). */
+                reserve: true,
               },
             ],
         callouts: [

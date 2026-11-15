@@ -99,6 +99,12 @@ export type StructureDim = {
    * teksnya. Bawaannya di atas tanda atas; "below" di bawah tanda bawah.
    */
   outside?: "above" | "below";
+  /**
+   * Hanya dimensi tegak: kotak teksnya didaftarkan ke penempat bersama,
+   * supaya nama garis yang ditulis sesudahnya menghindarinya (HS-04: nama
+   * "kendali sisi keluar" menutup "HW 1,33 m"). Bawaannya mati.
+   */
+  reserve?: boolean;
 };
 
 /** Nama bagian yang ditunjuk garis penunjuk dari satu titik. */
@@ -441,6 +447,23 @@ export function drawStructure(
         undefined,
         d.outside === "below" ? "bawah" : "atas"
       );
+      if (d.reserve) {
+        // Tiru letak teks dimV: diputar −90°, garis dasar 5 px kiri garis.
+        ctx.font = F.label;
+        const lebar = stencilWidth(ctx, d.text);
+        const y1 = Z(d.from);
+        const y2 = Z(d.to);
+        const atas = Math.min(y1, y2);
+        const bawah = Math.max(y1, y2);
+        const muat = bawah - atas >= lebar + 6;
+        const [t0, t1] = muat
+          ? [(atas + bawah) / 2 - lebar / 2, (atas + bawah) / 2 + lebar / 2]
+          : d.outside === "below"
+            ? [bawah + 4, bawah + 4 + lebar]
+            : [atas - 4 - lebar, atas - 4];
+        const xg = X(d.at) + geser;
+        taruh.reserve(xg - 17, xg - 3, t0 - 2, t1 + 2);
+      }
     } else {
       dimH(ctx, Z(d.at) + geser, X(d.from), X(d.to), d.text, d.color ?? C.ink);
     }
