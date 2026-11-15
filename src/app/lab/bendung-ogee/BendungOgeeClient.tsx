@@ -21,6 +21,7 @@ import { usePlate } from "@/lib/usePlate";
 import type { ParamDef } from "@/lib/rentang";
 import {
   drawStructure,
+  type StructureCallout,
   type StructureLine,
   type StructureSpec,
 } from "@/lib/drawStructure";
@@ -233,6 +234,12 @@ export function BendungOgeeClient() {
       ];
 
       const garis: StructureLine[] = [];
+      /* Layar sempit (HP 390): bidangnya hanya selebar ±250 px dan ruang
+         kosong satu-satunya ada di atas muka air hulu. Nama tirai ditulis
+         dua baris di sana lewat penunjuk; di tengah gambar ia menimpa
+         "muka mercu" dan teks ukuran P. */
+      const sempit = w < 600;
+      const tunjukTirai: StructureCallout[] = [];
 
       if (!takKendali) {
         // Garis energi hulu, mendatar pada He di atas mercu.
@@ -263,15 +270,35 @@ export function BendungOgeeClient() {
             z: Math.max(wesCrest(xx, Hd), -P) + Math.max(r.He - Hd, 0) * 0.55,
           });
         }
+        /* Lebar: nama tirai di sebelah kanan ujung atasnya, di ruang kosong
+           di atas tirai yang turun ke kanan, jauh dari "muka mercu" yang
+           ditulis di bawahnya. Dulu di 75 % panjangnya, tepat di atas teks
+           "muka mercu", dan alas kertasnya menutup teks itu (1280). */
         garis.push({
           pts: tirai,
           color: C.critical,
           weight: W.thin,
           dash: DASH.phantom,
-          label: T.designNappe,
-          labelAt: 0.75,
-          labelDy: -11,
+          ...(sempit
+            ? {}
+            : { label: T.designNappe, labelAt: 0.3, labelDy: -10, labelAlign: "left" as const }),
         });
+        if (sempit) {
+          const kata = T.designNappe.split(" ");
+          const belah = Math.ceil(kata.length / 2);
+          const pk = tirai[12];
+          tunjukTirai.push({
+            x: pk.x,
+            z: pk.z,
+            dx: 16,
+            dy: 0,
+            rowTop: true,
+            paper: true,
+            color: C.critical,
+            text: `${kata.slice(0, belah).join(" ")}
+${kata.slice(belah).join(" ")}`,
+          });
+        }
       }
 
       const bebas: Bidang = {
@@ -352,9 +379,15 @@ export function BendungOgeeClient() {
             dx: 34,
             dy: 26,
             text: T.crestProfile,
+            /* Didaftarkan ke penempat bersama supaya nama garis sesudahnya
+               tidak menimpanya. */
+            paper: true,
           },
+          ...tunjukTirai,
         ],
-        arrows: [{ x: xHulu * 0.6, z: -P * 0.45, length: 26 }],
+        /* HP: panah aliran digeser ke hulu, di 0,6 xHulu ia menusuk teks
+           ukuran P yang di layar sempit hanya belasan piksel darinya. */
+        arrows: [{ x: xHulu * (sempit ? 0.85 : 0.6), z: -P * 0.45, length: sempit ? 20 : 26 }],
         heading: takKendali
           ? T.noControl
           : r.cavitationRisk
