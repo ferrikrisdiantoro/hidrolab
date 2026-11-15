@@ -68,6 +68,13 @@ export type StructureWater = {
   bed?: { x: number; z: number }[];
   /** Digambar titik rapat bila keadaannya di luar rentang keberlakuan */
   invalid?: boolean;
+  /**
+   * Air DI DALAM badan (zona jenuh di bawah garis freatik GW-01). Genangan
+   * biasa digambar sebelum badan supaya beton menutup air; air di dalam
+   * badan tertutup isi kertas badan, jadi yang ini digambar sesudahnya.
+   * Mati bawaan.
+   */
+  inside?: boolean;
 };
 
 /** Garis tambahan: garis energi, mercu, muka air alternatif. */
@@ -318,8 +325,7 @@ export function drawStructure(
   ctx.rect(padL, padT, plotW, plotH);
   ctx.clip();
 
-  for (const a of s.waters ?? []) {
-    if (a.surface.length < 2) continue;
+  const gambarAir = (a: StructureWater) => {
     const dasar = a.bed ?? [
       { x: a.surface[a.surface.length - 1].x, z: s.zMin },
       { x: a.surface[0].x, z: s.zMin },
@@ -367,6 +373,9 @@ export function drawStructure(
     );
     ctx.stroke();
     ctx.setLineDash([]);
+  };
+  for (const a of s.waters ?? []) {
+    if (a.surface.length >= 2 && !a.inside) gambarAir(a);
   }
 
   /* ---------------- badan bangunan ---------------- */
@@ -407,6 +416,11 @@ export function drawStructure(
       jalur();
       ctx.stroke();
     }
+  }
+
+  /* Air di dalam badan, sesudah badan (lihat StructureWater.inside) */
+  for (const a of s.waters ?? []) {
+    if (a.surface.length >= 2 && a.inside) gambarAir(a);
   }
 
   /* ---------------- panah aliran ---------------- */

@@ -260,6 +260,10 @@ export function RembesanClient() {
           { x: r.phreatic[0].x, z: 0 },
         ],
         invalid: r.daylights,
+        /* Di dalam badan urugan: digambar di atas isi badan. Dulu tertutup
+           isi kertas badan sehingga garis freatiknya tidak pernah tampil
+           (temuan penguji 15 Nov). */
+        inside: true,
       };
 
       /* Genangan hulu */
