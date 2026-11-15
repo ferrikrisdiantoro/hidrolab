@@ -51,6 +51,7 @@ const TXT = {
     sheetTitle: "Rangkaian bendung bertingkat — tinggi undakan, kedalaman kolam, dan lompatan",
     dRise: "Beda tinggi seluruhnya",
     dSteps: "Banyaknya undakan",
+    terpotong: (a: number, n: number) => `digambar ${a} dari ${n} undakan`,
     dL: "Panjang kolam searah aliran",
     dB: "Lebar kolam",
     dD: "Kedalaman kolam yang direncanakan",
@@ -94,6 +95,7 @@ const TXT = {
     sheetTitle: "A series of stepped weirs — step height, pool depth, and the jump",
     dRise: "Total rise",
     dSteps: "Number of steps",
+    terpotong: (a: number, n: number) => `${a} of ${n} steps drawn`,
     dL: "Pool length along the flow",
     dB: "Pool width",
     dD: "Pool depth planned",
@@ -267,6 +269,27 @@ export function LintasanBertingkatClient() {
             labelAt: 0.5,
             labelDy: 14,
           },
+          /* Penanda pemotongan gambar: hanya min(N, 5) undakan yang
+             digambar (undakanUkuran), hitungan tetap memakai N (pola EH-02
+             "digambar 8 m pertama"). Titik tunggal, jadi garisnya tak
+             terlihat; yang ditulis hanya keterangannya, di ujung hilir. */
+          ...(steps > tampil
+            ? [
+                {
+                  pts: [
+                    { x: tampil * L, z: zBawah },
+                    { x: tampil * L, z: zBawah },
+                  ],
+                  color: C.ink3,
+                  weight: W.hair,
+                  dash: DASH.solid,
+                  label: x.terpotong(tampil, steps),
+                  labelAt: 0,
+                  labelDy: 26,
+                  labelAlign: "right" as const,
+                },
+              ]
+            : []),
         ],
         dims: [
           {
