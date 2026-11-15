@@ -504,6 +504,9 @@ export function PengenceranGaramClient() {
         <div className="mb-9">
           <LembarPraktikum<BacaanFm05>
             kode="FM-05"
+            /* Seri baru mulai dari awal lagi: t kembali ke −30 s (nilai awal
+               lembar), jadi catatan ujung penggeser ikut padam. */
+            onKosongkan={() => setTBaca(-30)}
             kolom={KOLOM_FM05}
             kolomEkspor={KOLOM_EKSPOR_FM05}
             catat={(rng) => {

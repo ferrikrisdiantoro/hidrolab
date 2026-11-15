@@ -137,6 +137,7 @@ export function LembarPraktikum<R>({
   langkah,
   namaBerkas,
   maks = 30,
+  onKosongkan,
 }: {
   /** Kode lembar, untuk penanda uji dan nama berkas */
   kode: string;
@@ -164,6 +165,8 @@ export function LembarPraktikum<R>({
   /** Awal nama berkas ekspor; benih ditambahkan di belakangnya */
   namaBerkas: string;
   maks?: number;
+  /** Dipanggil sesudah tabel dikosongkan (lembar mengembalikan masukan seri, mis. t FM-05) */
+  onKosongkan?: () => void;
 }) {
   const { lang } = useLang();
   const x = TXT[lang];
@@ -243,6 +246,7 @@ export function LembarPraktikum<R>({
     if (n === 0 || !window.confirm(x.konfirmasiKosong(n))) return;
     setRows([]);
     if (benih !== null) pasangBenih(benih);
+    onKosongkan?.();
     setUmum(x.dikosongkan);
     setPesanBenih("");
     fokusKe.current = "catat";
