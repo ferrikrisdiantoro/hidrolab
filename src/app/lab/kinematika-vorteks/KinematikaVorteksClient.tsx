@@ -34,6 +34,7 @@ import {
   type VortexMotion,
 } from "@/lib/swarmMotion";
 import { fmt, vortexPair } from "@/lib/hydraulics";
+import { hitungDiLuarBingkai } from "@/lib/bingkaiTampak";
 import { C, DASH, W } from "@/lib/theme";
 import { SUBJECTS } from "@/data/labs";
 import { useLang, type Lang } from "@/lib/i18n";
@@ -358,10 +359,11 @@ export function KinematikaVorteksClient() {
 
   /* Pusaran yang ditaruh lalu tertinggal di luar bingkai saat penggeser
      mengecilkan bidang: tidak tergambar dan tidak bisa diseret, jadi
-     jumlahnya ditulis di gambar. */
-  const nLuar = tambahan.filter(
-    (p) => p.x < bidang.xMin || p.x > bidang.xMax || p.y < bidang.yMin || p.y > bidang.yMax
-  ).length;
+     jumlahnya ditulis di gambar. Dihitung di dalam fungsi gambar terhadap
+     bingkai yang benar-benar tergambar (out.map), bukan bidang nominal:
+     drawField memakai skala sama di kedua sumbu, jadi bingkainya memuat
+     lebih dari bidang nominal (uji rekan V20: pesan muncul padahal semua
+     pusaran terlihat). */
 
   const gMaks = Math.max(Math.abs(gA), Math.abs(gB), banyak ? Math.abs(gK) : 0);
 
@@ -401,35 +403,42 @@ export function KinematikaVorteksClient() {
       };
       tambahan.forEach((p, i) => (anchors[`v${i}`] = p));
 
-      const out = drawField(
-        ctx,
-        w,
-        ch,
-        {
-          ...bidang,
-          lines: garis,
-          markers: titik,
-          regions: [
-            ...(keluar ? [{ x: keluar.x, y: keluar.y, text: x.keluar, color: C.ink3 }] : []),
-            ...(nLuar > 0
-              ? [
-                  {
-                    x: bidang.xMin + 0.22 * (bidang.xMax - bidang.xMin),
-                    y: bidang.yMax - 0.22 * (bidang.yMax - bidang.yMin),
-                    text: x.diLuar(nLuar),
-                    color: C.ink3,
-                  },
-                ]
-              : []),
-          ],
-          heading: keadaan,
-          headingColor: C.ink2,
-          axisX: T.axXMetre,
-          axisY: T.axYMetre,
-          anchors,
-        },
-        lang
-      );
+      const gambar = (nLuar: number) =>
+        drawField(
+          ctx,
+          w,
+          ch,
+          {
+            ...bidang,
+            lines: garis,
+            markers: titik,
+            regions: [
+              ...(keluar ? [{ x: keluar.x, y: keluar.y, text: x.keluar, color: C.ink3 }] : []),
+              ...(nLuar > 0
+                ? [
+                    {
+                      x: bidang.xMin + 0.22 * (bidang.xMax - bidang.xMin),
+                      y: bidang.yMax - 0.22 * (bidang.yMax - bidang.yMin),
+                      text: x.diLuar(nLuar),
+                      color: C.ink3,
+                    },
+                  ]
+                : []),
+            ],
+            heading: keadaan,
+            headingColor: C.ink2,
+            axisX: T.axXMetre,
+            axisY: T.axYMetre,
+            anchors,
+          },
+          lang
+        );
+      let out = gambar(0);
+      /* Jarang: hanya bila ada pusaran di luar bingkai, gambar diulang
+         dengan pesannya (drawField menimpa seluruh kanvas). Pemetaannya
+         tidak bergantung pada regions, jadi hitungannya tetap. */
+      const nLuar = hitungDiLuarBingkai(tambahan, out.map);
+      if (nLuar > 0) out = gambar(nLuar);
       /* Saat diam: medan kecepatan pada susunan awal (yang diseret). */
       if (!playing) {
         const mo = medanAwal.current!;
