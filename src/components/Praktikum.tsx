@@ -68,6 +68,7 @@ const TXT = {
     csv: "Unduh .csv",
     eksporTitle: "Unduh tabel pengamatan beserta kolom hitungan",
     kosongkan: "Kosongkan tabel",
+    formatCsv: "Untuk Excel, pakai .xlsx; .csv memakai koma pemisah dan titik desimal.",
     konfirmasiKosong: (n: number) =>
       `Hapus ${n} bacaan di tabel pengamatan? Bacaan yang belum diekspor tidak bisa dikembalikan.`,
     konfirmasiReset: (n: number) =>
@@ -108,6 +109,7 @@ const TXT = {
     csv: "Download .csv",
     eksporTitle: "Download the observation table with the computed columns",
     kosongkan: "Clear table",
+    formatCsv: "For Excel, use .xlsx; .csv uses comma separators and point decimals.",
     konfirmasiKosong: (n: number) =>
       `Delete ${n} readings from the observation table? Readings not yet exported cannot be recovered.`,
     konfirmasiReset: (n: number) =>
@@ -446,6 +448,7 @@ export function LembarPraktikum<R>({
             </button>
           </div>
           <p className="mt-2 max-w-[70ch] text-[0.84rem] leading-[1.5] text-ink-2">{x.sementara}</p>
+          <p className="mt-1 max-w-[70ch] text-[0.76rem] leading-[1.45] text-ink-3">{x.formatCsv}</p>
 
           {/* Ringkasan */}
           {ringkasan && (
