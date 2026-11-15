@@ -120,9 +120,11 @@ export type StructureCallout = {
   /**
    * Baris pertama tulisan ditaruh 14 px di bawah tepi atas bidang, bukan di
    * fy + dy. Untuk layar sempit yang hanya menyisakan ruang kosong di atas
-   * muka air (HS-01 di HP). Bawaannya mati.
+   * muka air (HS-01 di HP). Angka = turun sekian piksel lagi dari baris
+   * itu, untuk penunjuk kedua di bawah penunjuk pertama (GW-01 di HP).
+   * Bawaannya mati.
    */
-  rowTop?: boolean;
+  rowTop?: boolean | number;
 };
 
 /** Panah arah aliran. */
@@ -484,7 +486,10 @@ export function drawStructure(
     const muat = (d: 1 | -1, x: number) => (d > 0 ? x <= batas(1) : x >= batas(-1));
     let d: 1 | -1 = c.dx >= 0 ? 1 : -1;
     let tx = fx + c.dx;
-    const tyAsal = c.rowTop ? padT + 14 : fy + c.dy;
+    const tyAsal =
+      c.rowTop === undefined || c.rowTop === false
+        ? fy + c.dy
+        : padT + 14 + (c.rowTop === true ? 0 : c.rowTop);
     if (muat(d, tx) && !c.paper) {
       // Tulisan yang sudah utuh di dalam bidang digambar persis seperti dulu.
       leader(ctx, fx, fy, tx, tyAsal, baris[0], c.color ?? C.ink2);

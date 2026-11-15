@@ -295,10 +295,14 @@ export function RembesanClient() {
              bukan meter: ini faktor koreksi titik masuk Casagrande.
              Rata kanan, menjulur ke atas genangan hulu, supaya tidak
              bertumpuk dengan nama garis freatik. */
-          label: `${x.entry} ${fmtPlain(CASAGRANDE_ENTRY, 1)} mu H`,
-          labelAt: 0,
-          labelDy: -12,
-          labelAlign: "right",
+          ...(sempit
+            ? {}
+            : {
+                label: `${x.entry} ${fmtPlain(CASAGRANDE_ENTRY, 1)} mu H`,
+                labelAt: 0,
+                labelDy: -12,
+                labelAlign: "right" as const,
+              }),
         },
       ];
       /* Nama garis freatik ditulis sebagai label garis, bukan penunjuk:
@@ -307,7 +311,10 @@ export function RembesanClient() {
          selebar nol (satu titik), garis freatik sudah digambar sebagai
          muka zona jenuh. */
       const titikF = r.phreatic[Math.floor(r.phreatic.length * 0.4)];
-      if (sah) garis.push({
+      /* HP (temuan V20): kedua nama di atas memotong lereng hulu dan hilir,
+         karena bidangnya hanya ±250 px. Di HP keduanya ditulis lewat
+         penunjuk di ruang kosong di atas mercu (lihat penunjuk). */
+      if (sah && !sempit) garis.push({
         pts: [titikF, titikF],
         color: C.water,
         weight: W.thin,
@@ -343,10 +350,40 @@ export function RembesanClient() {
           from: r.focus,
           to: g.toeDown,
           text: `${fmtPlain(Ld, 1)} m`,
-          offset: 26,
+          /* HP: bidangnya hanya 18 px di bawah dasar, jadi teks ukuran pada
+             26 px tertusuk garis bingkai bawah. Diturunkan ke luar bingkai,
+             di atas angka sumbu. */
+          offset: sempit ? 38 : 26,
         });
 
       const penunjuk: StructureCallout[] = [];
+      if (sah && sempit) {
+        const kata = `${x.entry} ${fmtPlain(CASAGRANDE_ENTRY, 1)} mu H`.split(" ");
+        const belah = Math.ceil(kata.length / 2);
+        penunjuk.push(
+          {
+            x: (masuk + r.phreatic[0].x) / 2,
+            z: Math.min(H, Hd) * 0.97,
+            dx: 16,
+            dy: 0,
+            rowTop: true,
+            paper: true,
+            color: C.critical,
+            text: `${kata.slice(0, belah).join(" ")}
+${kata.slice(belah).join(" ")}`,
+          },
+          {
+            x: titikF.x,
+            z: titikF.z,
+            dx: 16,
+            dy: 0,
+            rowTop: 26,
+            paper: true,
+            color: C.water,
+            text: T.phreaticLine,
+          }
+        );
+      }
       /* Penunjuk ke kiri: ke kanan teksnya terpotong bingkai kanan. */
       if (Ld > 0)
         penunjuk.push({
