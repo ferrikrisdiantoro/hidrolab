@@ -1,4 +1,4 @@
-import { C, DASH, F, W } from "./theme.ts";
+import { C, DASH, F, W, stencilWidth } from "./theme.ts";
 import {
   axisTitle,
   axisValue,
@@ -436,8 +436,35 @@ export function drawHidrostatika(
   );
   kiri.write(`ρ ${fmtPlain(s.rho, 0)} kg/m³`, X(0) + 4, Y(H) - 10, C.water, { align: "left" });
   if (gNyata > gTop && !sempit) {
-    const mid = Wp(Math.max(gTop, -fb * 0.9) + 0.0);
-    kiri.write(`${T.gate} ${fmtPlain(s.b, 1)} × ${fmtPlain(s.L, 1)} m`, mid.x + nx * tebal + 26, mid.y - 4, C.ink2, { align: "left" });
+    /*
+     * Nama pintu di bawah TEPI BAWAH pintu, bukan di tepi atasnya. Di tepi
+     * atas ada pegangan seret, dan dinding miring menyisakan hanya sekitar
+     * 22 px di kanannya; penempat label lalu menjepit tulisan ke tepi
+     * bidang dan menariknya ke atas garis dinding (rekan V20, 1280 px:
+     * "PINTU 2,0 × 3,0 M" menimpa dinding dan pegangan). Makin dalam,
+     * dinding makin ke kiri, jadi ruang di bawah pintu paling lapang.
+     * Kalau masih tidak muat di sisi udara, tulisan pindah ke sisi air,
+     * rata kanan, tepat di bawah ujung pintu.
+     */
+    const teks = `${T.gate} ${fmtPlain(s.b, 1)} × ${fmtPlain(s.L, 1)} m`;
+    ctx.font = F.region;
+    const lebarT = stencilWidth(ctx, teks, 1.4) + 8;
+    const bawah = Wp(gNyata);
+    const yT = Math.min(bawah.y + ny * tebal + 12, y1 - 10);
+    /* Garis luar dinding pada tinggi layar y (dinding condong ke kanan ke atas). */
+    const luarPada = (y: number) => {
+      const yMuka = y - ny * tebal;
+      const d = (yMuka - y0) / k - fb;
+      return Wp(d).x + nx * tebal;
+    };
+    const xUdara = luarPada(yT - 8) + 8;
+    if (xUdara + lebarT <= x1 - 4) {
+      kiri.write(teks, xUdara, yT, C.ink2, { align: "left" });
+    } else {
+      /* Muka basah pada sisi bawah kotak tulisan (paling kiri). */
+      const xMuka = Wp((yT + 8 - y0) / k - fb).x;
+      kiri.write(teks, xMuka - 8, yT, C.ink2, { align: "right" });
+    }
   }
   if (s.gateInvalid) kiri.write(T.gateBelow, (x0 + x1) / 2, y0 + 16, C.signal, { big: true });
   if (s.probeInvalid) kiri.write(T.probeBelow, (x0 + x1) / 2, y0 + (s.gateInvalid ? 50 : 16), C.signal, { big: true });
