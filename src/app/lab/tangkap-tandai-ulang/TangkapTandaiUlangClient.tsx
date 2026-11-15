@@ -76,6 +76,7 @@ const TXT = {
       "Tiap sampel mengulang penangkapan kedua: n ekor ditangkap acak dari N ekor yang M di antaranya bertanda. Banyaknya bertanda yang tertangkap mengisi m di lembar, dan kedua taksirannya masuk ke histogram.",
     ambil1: "Ambil sampel lagi",
     ambil100: "Ambil 100 sampel",
+    mTerpasang: "m di lembar dipasang ke m sampel terakhir; sesudah Ambil 100 sampel, m dari sampel paling akhir.",
     hapus: "Kosongkan histogram",
     kosong: "Histogram masih kosong. Ambil sampel untuk mulai membangunnya.",
     nKurang: (N: string, batas: string) =>
@@ -142,6 +143,7 @@ const TXT = {
       "Each sample repeats the second capture: n individuals are caught at random from N, of which M are marked. The marked count caught fills m on the sheet, and both estimates go into the histogram.",
     ambil1: "Sample again",
     ambil100: "Take 100 samples",
+    mTerpasang: "m on the sheet is set to the last sample's m; after Take 100 samples, the m of the final one.",
     hapus: "Clear histogram",
     kosong: "The histogram is empty. Take a sample to start building it.",
     nKurang: (N: string, batas: string) =>
@@ -602,6 +604,7 @@ export function TangkapTandaiUlangClient() {
                 </button>
               )}
             </div>
+            <p className="mt-1 text-[0.76rem] leading-[1.45] text-ink-3">{x.mTerpasang}</p>
             <div aria-live="polite" className="mt-1 text-[0.82rem] leading-[1.5] text-ink-2">
               {terakhir && <p>{x.benihTerakhir(fmtPlain(terakhir.benih, 0), fmtPlain(terakhir.m, 0))}</p>}
               {K > 1 && <p className="text-ink-3">{x.benihRentang("1", fmtPlain(K, 0))}</p>}
