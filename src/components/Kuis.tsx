@@ -14,7 +14,8 @@ import {
   type Nilai,
   type Soal,
 } from "@/lib/kuis";
-import { Hitungan, parseAngka } from "./ui";
+import { bacaJawaban } from "@/lib/bacaJawaban";
+import { Hitungan } from "./ui";
 
 /*
  * Kartu kuis lembar (Phase 3, K1).
@@ -55,7 +56,7 @@ const TXT = {
     kunciPilih: "Jawaban yang tepat",
     kunciHitung: (k: string, t: string, s: string) => `Kunci ${k}${sp(s)}, toleransi ± ${t}${sp(s)}.`,
     dijawab: (j: string, s: string) => `Jawaban ${j}${sp(s)}.`,
-    bukanAngka: "Tulis sebuah angka, misalnya 2,35. Koma dan titik sama-sama dibaca desimal.",
+    bukanAngka: "Tulis sebuah angka, misalnya 2,35 atau 11.307,3 (titik ribuan, koma desimal).",
     ukurSekarang: "Nilai sekarang",
     sasaran: "Sasaran",
     tetapDiubah: (n: string, v: string) => `${n} harus tetap ${v}. Kembalikan dulu, lalu periksa.`,
@@ -67,6 +68,7 @@ const TXT = {
     pasang: "Pasang masukan soal",
     pasangTitle: "Ubah masukan lembar ke keadaan awal soal ini",
     skor: (b: number, n: number) => (n === 0 ? "Belum ada soal yang dijawab di sesi ini." : `Sesi ini: ${b} benar dari ${n} soal dijawab.`),
+    skorDasar: "Skor dari jawaban pertama tiap soal.",
     cek: "Soal contoh, belum ditelaah dosen pengampu.",
     statusKotak: { kosong: "belum dijawab", benar: "benar", salah: "belum tepat" },
     memuat: "Menyiapkan soal",
@@ -88,7 +90,7 @@ const TXT = {
     kunciPilih: "The right answer",
     kunciHitung: (k: string, t: string, s: string) => `Key ${k}${sp(s)}, tolerance ± ${t}${sp(s)}.`,
     dijawab: (j: string, s: string) => `Answered ${j}${sp(s)}.`,
-    bukanAngka: "Type a number, for example 2.35. Comma and point are both read as decimals.",
+    bukanAngka: "Type a number, for example 2.35 or 11,307.3 (comma for thousands, point for decimals).",
     ukurSekarang: "Current value",
     sasaran: "Target",
     tetapDiubah: (n: string, v: string) => `${n} must stay at ${v}. Set it back, then check.`,
@@ -100,6 +102,7 @@ const TXT = {
     pasang: "Set the question's inputs",
     pasangTitle: "Change the sheet inputs to this question's starting state",
     skor: (b: number, n: number) => (n === 0 ? "No questions answered yet this session." : `This session: ${b} correct out of ${n} answered.`),
+    skorDasar: "Score counts each question's first answer.",
     cek: "Sample questions, not yet reviewed by a course lecturer.",
     statusKotak: { kosong: "not answered", benar: "correct", salah: "not quite" },
     memuat: "Preparing questions",
@@ -252,7 +255,7 @@ export function Kuis({
 
   const jawabHitung = (q: Soal, teks: string) => {
     if (jawab[q.id]) return;
-    const v = parseAngka(teks);
+    const v = bacaJawaban(teks, lang);
     if (v === null) {
       setPesan((p) => ({ ...p, [q.id]: x.bukanAngka }));
       return;
@@ -409,8 +412,9 @@ export function Kuis({
           </div>
 
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-rule px-3.5 py-2">
-            <span data-kuis-skor className="label text-[0.74rem] text-ink-2">
-              {x.skor(skor.benar, skor.n)}
+            <span className="label text-[0.74rem] text-ink-2">
+              <span data-kuis-skor>{x.skor(skor.benar, skor.n)}</span>{" "}
+              <span className="text-[0.7rem] text-ink-3">{x.skorDasar}</span>
             </span>
             <span className="label text-[0.7rem] text-ink-3">{x.cek}</span>
           </div>
@@ -512,7 +516,7 @@ function BadanSoal({
               onChange={(e) => setTeks(e.target.value)}
               aria-describedby={pesan ? idPesan : undefined}
               aria-invalid={pesan ? true : undefined}
-              className="label w-[7ch] border-0 border-b border-rule-strong bg-transparent px-0.5 py-0 text-right text-[16px] font-semibold text-ink hover:border-ink focus:border-ink sm:text-[0.9rem]"
+              className="label w-[12ch] border-0 border-b border-rule-strong bg-transparent px-0.5 py-0 text-right text-[16px] font-semibold text-ink hover:border-ink focus:border-ink sm:text-[0.9rem]"
             />
             <span className="text-[0.76rem] text-ink-3">{s.satuan[lang]}</span>
           </label>
