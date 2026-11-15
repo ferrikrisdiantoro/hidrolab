@@ -327,6 +327,9 @@ export function TanggaIkanDenilClient() {
             dx: 20,
             dy: -32,
             text: T.baffleLabel,
+            /* Bukaan sempit (b0 0,25, y 2,00): sirip berjarak 0,715 b0
+               menutup seluruh palung dan mencoret tulisannya. */
+            paper: true,
           },
         ],
         arrows: [

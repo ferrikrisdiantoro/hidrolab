@@ -110,6 +110,19 @@ export type StructureCallout = {
   dy: number;
   text: string;
   color?: string;
+  /**
+   * Tulisan selalu diberi alas kertas dan didaftarkan ke penempat bersama,
+   * juga bila tidak dipindah. Untuk nama bagian yang jatuh di atas benda
+   * rapat (sirip Denil bukaan sempit menutup seluruh palung). Bawaannya
+   * mati: lembar yang tidak mengisinya tidak berubah satu piksel.
+   */
+  paper?: boolean;
+  /**
+   * Baris pertama tulisan ditaruh 14 px di bawah tepi atas bidang, bukan di
+   * fy + dy. Untuk layar sempit yang hanya menyisakan ruang kosong di atas
+   * muka air (HS-01 di HP). Bawaannya mati.
+   */
+  rowTop?: boolean;
 };
 
 /** Panah arah aliran. */
@@ -471,10 +484,11 @@ export function drawStructure(
     const muat = (d: 1 | -1, x: number) => (d > 0 ? x <= batas(1) : x >= batas(-1));
     let d: 1 | -1 = c.dx >= 0 ? 1 : -1;
     let tx = fx + c.dx;
-    if (muat(d, tx)) {
+    const tyAsal = c.rowTop ? padT + 14 : fy + c.dy;
+    if (muat(d, tx) && !c.paper) {
       // Tulisan yang sudah utuh di dalam bidang digambar persis seperti dulu.
-      leader(ctx, fx, fy, tx, fy + c.dy, baris[0], c.color ?? C.ink2);
-      sisaBaris(d, tx, fy + c.dy);
+      leader(ctx, fx, fy, tx, tyAsal, baris[0], c.color ?? C.ink2);
+      sisaBaris(d, tx, tyAsal);
       continue;
     }
     /*
@@ -488,7 +502,9 @@ export function drawStructure(
       muat(dd, x) ? 0 : dd > 0 ? fx - batas(1) : batas(-1) - fx;
     const balikD: 1 | -1 = d > 0 ? -1 : 1;
     const balikX = fx - c.dx;
-    if (mundur(d, tx) <= 24) tx = batas(d);
+    if (muat(d, tx)) {
+      /* Hanya karena `paper`: tempatnya tetap, tulisannya diberi alas. */
+    } else if (mundur(d, tx) <= 24) tx = batas(d);
     else if (muat(balikD, balikX)) {
       d = balikD;
       tx = balikX;
@@ -496,7 +512,7 @@ export function drawStructure(
       d = balikD;
       tx = batas(balikD);
     } else tx = batas(d);
-    const ty = fy + c.dy;
+    const ty = tyAsal;
     const kx0 = d > 0 ? tx + 14 : tx - lebar;
     const kx1 = d > 0 ? tx + lebar : tx - 14;
     ctx.fillStyle = C.sheet;
