@@ -271,24 +271,37 @@ export function MomentumPipaClient() {
       /* Pada keadaan mendidih kedua ukuran itu hanya tuntutan hitungan yang
          tidak dapat terjadi (Δp/γ sampai minus seribu meter), jadi tidak
          diukur; kop dan tabelnya pun menulis "—". */
+      /* Kedua ukuran ditaruh di kanan ujung pipa hilir, di jalur kosong
+         yang tidak dilewati garis apa pun (temuan V21: di dalam bidang
+         tulisannya dicoret garis energi yang miring, dinding pipa, dan
+         garis tekanan putus-putus, dan di HP tertimpa nama gaya). Lebar
+         jalur itu dijaga dalam piksel, bukan dalam meter. */
+      const ruangUkur = mati ? 0 : 56;
+      const lebarBidang = w - 84;
+      const xMax = mati
+        ? L * 1.12
+        : Math.max(L * 1.12, L + (2.05 * L * ruangUkur) / Math.max(lebarBidang - ruangUkur, 1));
       const dims: StructureDim[] = mati ? [] : [
         {
           axis: "v",
-          at: L * 0.85,
+          at: L,
           from: naik + hv2,
           to: hv1,
           text: `hL ${fmtPlain(hilang, 3)} m`,
           color: C.energy,
-          offset: 26,
+          offset: 22,
+          /* Bila pendek, tulisannya di bawah tanda bawah: di atasnya ada
+             nama gaya yang menjulur ke kanan (HP, penyempitan). */
+          outside: "below",
         },
         {
           axis: "v",
-          at: L * 0.55,
+          at: L,
           from: 0,
           to: naik,
           text: `Δp/γ ${fmtPlain(naik, 3)} m`,
           color: warnaNaik,
-          offset: 26,
+          offset: 46,
         },
       ];
 
@@ -337,7 +350,7 @@ export function MomentumPipaClient() {
         ch,
         {
           xMin: -L * 1.05,
-          xMax: L * 1.12,
+          xMax,
           zMin,
           zMax,
           equalScale: false,
@@ -346,7 +359,18 @@ export function MomentumPipaClient() {
           dims,
           vectors: panah,
           callouts: [
-            { x: 0, z: -zStep, dx: -14, dy: 24, text: x.labelStep },
+            {
+              x: 0,
+              z: -zStep,
+              dx: -14,
+              /* Pembesaran: anak tangganya di dasar bingkai, jadi nama
+                 ditaruh hampir mendatar di bawah pipa hulu, bukan di atas
+                 angka sumbu x. */
+              dy: D2 > D1 ? 6 : 24,
+              /* HP: jalur ukuran di kanan menyempitkan pipa, jadi nama satu
+                 baris menyentuh bingkai kiri. Ditulis dua baris. */
+              text: w < 600 ? x.labelStep.replace(" ", "\n") : x.labelStep,
+            },
             /* Nama garis energi: penunjuk dari ruas hulu garisnya ke ruang
                kosong di atas pipa hulu, beralas kertas. */
             {
