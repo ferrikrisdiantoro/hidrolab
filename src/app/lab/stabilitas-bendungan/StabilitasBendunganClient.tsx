@@ -462,11 +462,18 @@ export function StabilitasBendunganClient() {
           labelDy: -12,
         },
       ];
+      /* Posisi gagal dihitung lebih dulu: nama Pd dan ujung kaki menyingkir
+         dari badan gagalnya (rekan V20: bayangan posisi gagal melintasi
+         "UJUNG KAKI" dan "PD … KN"). */
+      const caraGagal =
+        dipotong || mercuDipotong ? null : damFailureMode(r.fsOverturning, r.fsSliding, r.sumV);
+      const garisGagal = caraGagal ? damFailedOutline(r.section, B, caraGagal) : [];
+      const xGagal = garisGagal.reduce((m, p) => Math.max(m, p.x), B);
       if (Htp > 0)
         garis.push({
           pts: [
-            { x: B, z: Htp },
-            { x: B, z: Htp },
+            { x: xGagal + (caraGagal ? 0.02 * B : 0), z: Htp },
+            { x: xGagal + (caraGagal ? 0.02 * B : 0), z: Htp },
           ],
           color: C.water,
           weight: W.thin,
@@ -535,11 +542,9 @@ export function StabilitasBendunganClient() {
          phantom badan dengan putaran 4° di ujung kaki atau geseran 0,06 B,
          keduanya skematik. Masukan yang dipotong atau mercu yang dipotong
          tidak diberi phantom: badannya sendiri sudah bukan masukan. */
-      const caraGagal =
-        dipotong || mercuDipotong ? null : damFailureMode(r.fsOverturning, r.fsSliding, r.sumV);
       if (caraGagal)
         garis.push({
-          pts: damFailedOutline(r.section, B, caraGagal),
+          pts: garisGagal,
           color: C.ink2,
           weight: W.thin,
           dash: DASH.phantom,
@@ -603,7 +608,9 @@ export function StabilitasBendunganClient() {
             ? []
             : [
                 { x: 0, z: 0, dx: -24, dy: 16, text: T.heelLabel },
-                { x: B, z: 0, dx: 22, dy: 16, text: T.toeLabelDam },
+                caraGagal
+                  ? { x: B, z: 0, dx: 26, dy: 24, text: T.toeLabelDam, paper: true }
+                  : { x: B, z: 0, dx: 22, dy: 16, text: T.toeLabelDam },
               ],
           heading: judul,
           headingColor: tidakSah ? C.signal : C.caution,
