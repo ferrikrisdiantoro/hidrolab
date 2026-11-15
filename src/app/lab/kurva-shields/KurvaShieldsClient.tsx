@@ -249,7 +249,17 @@ export function KurvaShieldsClient() {
             /* Ungu, warna keadaan kritis, sama dengan kurva ambangnya.
                Bukan merah sinyal: butir yang bergerak adalah keadaan yang
                sah, bukan keadaan di luar rentang berlakunya rumus. */
-            { x: 3, y: 1.5, text: T.grainMoves, color: C.critical },
+            /* Nama "butir bergerak" pindah ke sisi kanan bila titik kerja
+               berada di kiri atas bidang. Di kiri atas, kotak namanya
+               menabrak "θ …" milik titik kerja, dan penempat label
+               mendorong angka itu turun ke bawah pegangan seret (rekan V20:
+               "θ 1,2121" tertutup pegangan di tepi atas plot). */
+            {
+              x: r.theta > 0.35 && r.dStar < 40 ? 400 : 3,
+              y: 1.5,
+              text: T.grainMoves,
+              color: C.critical,
+            },
             { x: 400, y: 0.014, text: T.grainRests, color: C.ink3 },
           ],
           /* Anchor pegangan selalu ada, juga saat titik kerja lepas sumbu
