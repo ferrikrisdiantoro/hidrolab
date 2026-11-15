@@ -294,7 +294,9 @@ export function GelombangLinearClient() {
           dash: DASH.axis,
           label: T.shallowWaterLimit,
           labelAt: 0.9,
-          labelDy: 15,
+          /* Di atas garisnya: di bawah garis ini, pada periode panjang,
+             duduk nama kurva kecepatan rambat. */
+          labelDy: -10,
           labelAlign: "right",
         },
         {
@@ -304,8 +306,12 @@ export function GelombangLinearClient() {
           dash: DASH.solid,
           /* Kurva ini kecepatan rambat terhadap periode, bukan muka air. */
           label: T.celerityCurve,
-          labelAt: 0.62,
-          labelDy: -12,
+          /* Ditaruh pada T ≈ 0,7 Tmaks, di bagian kurva yang sudah landai,
+             dan di BAWAH kurva. Dulu di 0,62 indeks log (T sekitar 13 s,
+             bagian yang masih curam), sehingga tulisan mendatar itu
+             tertembus kurvanya sendiri (rekan V20). */
+          labelAt: Math.log((0.7 * tMax) / tMin) / Math.log(tMax / tMin),
+          labelDy: 16,
           labelAlign: "center",
         },
         /* Penunjuk pendek untuk titik kosong, yang dulu tidak bernama. */
