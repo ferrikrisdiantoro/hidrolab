@@ -154,7 +154,7 @@ function gambarDM02(w: number, h: number, bD50: number, bCu: number, fD50: numbe
       { axis: "y", at: 15, label: "15 %" },
     ],
     anchors: { d50f: { x: fD50, y: 50 }, d15f: { x: r.filter.d15, y: 15 } },
-    point: { x: r.filter.d15, y: 15, label: "D15 0,358 mm" },
+    point: { x: r.filter.d15, y: 15 },
     padRight: 52,
   }, "id");
   const labelAwal = [...(out.labels ?? [])];
@@ -168,6 +168,7 @@ function gambarDM02(w: number, h: number, bD50: number, bCu: number, fD50: numbe
     ],
     jendela: { from: r.d15Min, to: r.d15Max, text: "jendela filter" },
     judul: r.drains ? undefined : { text: "filter terlalu halus, ia menjadi bendungan kedua", color: C.caution },
+    titik: { x: r.filter.d15, y: 15, text: "D15 0,358 mm", color: C.ink },
   });
   const ms = performance.now() - t0;
   const tanahPx = tanah.map((p) => ({ x: out.map.X(p.x), y: out.map.Y(p.y) }));
@@ -227,6 +228,21 @@ describe("DM-02 labelGradasi (V21: filter terlalu kasar)", () => {
         const tumpang = u.x0 < l.x + l.w && u.x1 > l.x && u.atas < l.y + l.h && u.bawah > l.y;
         assert.ok(!tumpang, `garis ukur ${u.x0.toFixed(0)}-${u.x1.toFixed(0)} @${u.atas.toFixed(0)} menembus label ${l.x.toFixed(0)},${l.y.toFixed(0)} ${l.w.toFixed(0)}x${l.h.toFixed(0)}`);
       }
+    });
+  }
+});
+
+describe("DM-02 labelGradasi (V21: nama D15 memutus kurva tanah)", () => {
+  for (const [w, h, nama] of [[680, 530, "1440"], [562, 530, "1280"], [340, 520, "HP 390"]] as const) {
+    it(`${nama}: nama titik D15 tidak menutup kurva tanah dan menjauhi pegangan`, () => {
+      const { out, hasil, tanahPx } = gambarDM02(w, h, 0.15, 1.4, 1.2, 6);
+      const k = hasil.titik;
+      assert.ok(k, "nama titik tidak ditulis");
+      assert.equal(panjangDalam(k, [{ pts: tanahPx, bobot: 1 }]), 0, "nama D15 menutup kurva tanah");
+      const tx = out.map.X(filterDesign(0.15, 1.4, 1.2, 6).filter.d15);
+      const ty = out.map.Y(15);
+      const tumpang = k.x0 < tx + 26 && k.x1 > tx - 26 && k.atas < ty + 12 && k.bawah > ty - 12;
+      assert.ok(!tumpang, "nama D15 menimpa pegangan seret");
     });
   }
 });

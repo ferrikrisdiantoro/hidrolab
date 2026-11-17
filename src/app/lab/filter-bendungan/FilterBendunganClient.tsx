@@ -240,6 +240,8 @@ export function FilterBendunganClient() {
         return pts;
       };
 
+      const labelD15 = `D15 ${fmtPlain(r.filter.d15, 3)} mm`;
+      const d15DiBidang = r.filter.d15 >= D_MIN && r.filter.d15 <= D_MAX;
       const deret: ChartSeries[] = [
         {
           pts: kurva(r.base),
@@ -297,10 +299,13 @@ export function FilterBendunganClient() {
             { axis: "y", at: 15, color: C.ink3, dash: DASH.hidden, label: "15 %" },
           ],
           anchors: { d50f: { x: fD50, y: 50 }, d15f: { x: r.filter.d15, y: 15 } },
+          /* Nama titik ditulis labelGradasi (temuan V21: rata kanan di
+             kiri titik ia memutus kurva tanah). Di luar bidang drawChart
+             tetap menulis "titik di luar diagram" beserta namanya. */
           point: {
             x: r.filter.d15,
             y: 15,
-            label: `D15 ${fmtPlain(r.filter.d15, 3)} mm`,
+            label: d15DiBidang ? undefined : labelD15,
             invalid: false,
           },
           padRight: 52,
@@ -332,6 +337,7 @@ export function FilterBendunganClient() {
         ],
         jendela: { from: r.d15Min, to: r.d15Max, text: T.filterWindow },
         judul: judul ? { text: judul, color: C.caution } : undefined,
+        titik: d15DiBidang ? { x: r.filter.d15, y: 15, text: labelD15, color: C.ink } : undefined,
         bantu: [
           [
             { x: D_MIN, y: 15 },

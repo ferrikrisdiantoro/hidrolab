@@ -236,6 +236,12 @@ export type LabelGradasiSpec = {
   judul?: { text: string; color: string };
   /** Garis bantu lain (nilai fisik) yang sebaiknya tidak ditutup */
   bantu?: readonly (readonly { x: number; y: number }[])[];
+  /**
+   * Nama titik kerja (D15 filter). Tidak diisi = ditulis drawChart seperti
+   * dulu. Diisi = drawChart tidak diberi label titik, dan nama ini ditaruh
+   * di sekeliling titiknya di tempat yang tidak memutus kurva.
+   */
+  titik?: { x: number; y: number; text: string; color: string };
 };
 
 export type LabelGradasiOut = {
@@ -245,6 +251,8 @@ export type LabelGradasiOut = {
   /** Jalur garis ukur selebar pita bila nama jendela di luar pita */
   ukur: Kotak | null;
   judul: Kotak[];
+  /** Kotak nama titik kerja bila `titik` diisi dan titiknya di bidang */
+  titik: Kotak | null;
 };
 
 /**
@@ -293,6 +301,57 @@ export function labelGradasi(
     const x0 = align === "left" ? x - 4 : align === "right" ? x - l - 4 : x - l / 2 - 4;
     return { x0, x1: x0 + l + 8, atas: y - 7, bawah: y + 7 };
   };
+
+  /* 0. Nama titik kerja. Temuan V21 (tanah seragam, jendela sempit, 1440):
+        drawChart menaruhnya rata kanan di kiri atas titik, tepat di tempat
+        kurva tanah lewat, sehingga "D15 0,358 MM" memutus kurva itu. Calon:
+        kanan atas, kiri atas, lalu lebih tinggi, lalu di bawah garis 15 %;
+        semuanya menjauhi tanda seret pegangan (±26 px mendatar). */
+  let titik: Kotak | null = null;
+  if (s.titik) {
+    const tx = X(s.titik.x);
+    const ty = Y(s.titik.y);
+    if (tx >= f.x0 && tx <= f.x1 && ty >= f.y0 && ty <= f.y1) {
+      terpakai.push({ x0: tx - 26, x1: tx + 26, atas: ty - 12, bawah: ty + 12 });
+      type IsiT = { x: number; y: number; align: CanvasTextAlign };
+      const calonT: Calon<IsiT>[] = [];
+      for (const dy of [-14, -26, -38, 16, 28])
+        for (const [x, align] of [
+          [tx + 10, "left"],
+          [tx - 10, "right"],
+          [tx + 28, "left"],
+          [tx - 28, "right"],
+          [Math.max(X(s.jendela.from), X(s.jendela.to)) + 8, "left"],
+          [Math.min(X(s.jendela.from), X(s.jendela.to)) - 8, "right"],
+        ] as [number, CanvasTextAlign][]) {
+          const k = kotakKecil(s.titik.text, x, ty + dy, align);
+          if (k.x0 < f.x0 + 1 || k.x1 > f.x1 - 1 || k.atas < f.y0 + 1 || k.bawah > f.y1 - 1) continue;
+          if (tabrak(k, { x0: tx - 26, x1: tx + 26, atas: ty - 12, bawah: ty + 12 })) continue;
+          calonT.push({ kotak: [k], isi: { x, y: ty + dy, align } });
+        }
+      if (calonT.length) {
+        /* Alas kertas di atas pita jendela memutus pita dan garis batasnya:
+           calon yang menumpang pita dibebani, jadi tulisan memilih sisi
+           pita yang kosong bila ada. */
+        const pa = Math.min(X(s.jendela.from), X(s.jendela.to));
+        const pb = Math.max(X(s.jendela.from), X(s.jendela.to));
+        const c = pilihCalon(
+          calonT,
+          terpakai,
+          garis,
+          bidang,
+          (k) =>
+            0.02 * Math.abs(k.isi.y - ty) +
+            0.01 * Math.abs(k.isi.x - tx) +
+            (k.kotak[0].x0 + 3 < pb && k.kotak[0].x1 - 3 > pa ? 20 : 0)
+        );
+        titik = c.kotak[0];
+        alas(titik);
+        pakai(titik);
+        region(ctx, s.titik.text, c.isi.x, c.isi.y, s.titik.color, 0, c.isi.align);
+      }
+    }
+  }
 
   /* 1. Nama batas di atas bingkai, di ujung garisnya: di luar bidang tidak
         ada kurva yang dapat diputus. Bila keduanya tidak muat berdampingan
@@ -482,5 +541,6 @@ export function labelGradasi(
     jendela,
     ukur: cj.kotak[1] ?? null,
     judul: judulKotak,
+    titik,
   };
 }
