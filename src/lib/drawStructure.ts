@@ -88,6 +88,16 @@ export type StructureLine = {
   labelAt?: number;
   labelDy?: number;
   labelAlign?: CanvasTextAlign;
+  /**
+   * Absis fisik tempat label ditulis, menggantikan absis titik `labelAt`
+   * (ordinatnya tetap dari titik itu). Untuk label yang harus berhenti di
+   * depan benda lain, mis. DM-01: nama posisi gagal rata kanan di muka hulu
+   * badan asli, bukan di tumit badan gagal yang sudah bergeser ke hilir.
+   * Bawaannya mati.
+   */
+  labelX?: number;
+  /** Geseran mendatar label dalam piksel. Bawaannya nol. */
+  labelDx?: number;
 };
 
 /** Dimensi tegak atau mendatar dengan angkanya. */
@@ -616,7 +626,7 @@ export function drawStructure(
       Math.max(0, Math.round(f * (l.pts.length - 1)))
     );
     const p = l.pts[i];
-    taruh.write(l.label, X(p.x), Z(p.z) + (l.labelDy ?? -10), l.color ?? C.energy, {
+    taruh.write(l.label, X(l.labelX ?? p.x) + (l.labelDx ?? 0), Z(p.z) + (l.labelDy ?? -10), l.color ?? C.energy, {
       align: l.labelAlign ?? "center",
     });
   }

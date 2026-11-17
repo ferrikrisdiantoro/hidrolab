@@ -557,6 +557,10 @@ export function StabilitasBendunganClient() {
           labelAt: sempit ? 0.5 : 0,
           labelDy: sempit ? -10 : -8,
           labelAlign: sempit ? "center" : "right",
+          /* Temuan V21 (air hilir tinggi, 1440): tumit badan yang bergeser
+             ada di hilir muka hulu asli, jadi tulisan rata kanan di tumit
+             itu melewati muka hulu. Rata kanan 6 px di depan muka hulu. */
+          ...(sempit ? {} : { labelX: Math.min(0, garisGagal[0]?.x ?? 0), labelDx: -6 }),
         });
 
       drawStructure(
