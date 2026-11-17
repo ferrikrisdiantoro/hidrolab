@@ -62,6 +62,13 @@ export type ChartBand = {
   from: number;
   to: number;
   label?: string;
+  /**
+   * Letak nama daerah pada sumbu lainnya, dalam satuan data. Bawaan: dekat
+   * tepi bawah bidang (pita sumbu x) atau tengah bidang (pita sumbu y).
+   * Dipakai bila kurva melintas tepat di tempat bawaan itu (EK-02:
+   * "penangkapan berlebih" terbelah kurva hasil di E = 50).
+   */
+  labelAt?: number;
 };
 
 /** Nama wilayah di dalam bidang, misalnya "laminar" atau "terangkut". */
@@ -130,6 +137,11 @@ export type ChartPoint = {
   label?: string;
   /** Salah, bila titiknya berada di luar rentang keberlakuan */
   invalid?: boolean;
+  /**
+   * Jarak datar tulisan dari titik, px. Bawaan 9. Diperbesar bila titiknya
+   * diberi pegangan seret, supaya pegangan tidak menyentuh tulisannya.
+   */
+  labelGap?: number;
 };
 
 export type ChartSpec = {
@@ -613,8 +625,8 @@ export function drawChart(
     const tengah = (a1 + a2) / 2;
     const pos =
       b.axis === "x"
-        ? tempatkan(b.label, tengah, padT + plotH - 14, 1.4)
-        : tempatkan(b.label, padL + plotW / 2, tengah, 1.4);
+        ? tempatkan(b.label, tengah, b.labelAt !== undefined ? Y(b.labelAt) : padT + plotH - 14, 1.4)
+        : tempatkan(b.label, b.labelAt !== undefined ? X(b.labelAt) : padL + plotW / 2, tengah, 1.4);
     alas(pos);
     region(ctx, b.label, pos.x, pos.y, C.ink3);
   }
@@ -840,7 +852,7 @@ export function drawChart(
         const align: CanvasTextAlign = px < padL + 70 ? "left" : "right";
         const pos = tempatkan(
           p.label,
-          align === "left" ? px + 9 : px - 9,
+          align === "left" ? px + (p.labelGap ?? 9) : px - (p.labelGap ?? 9),
           py - 12,
           1.4,
           align

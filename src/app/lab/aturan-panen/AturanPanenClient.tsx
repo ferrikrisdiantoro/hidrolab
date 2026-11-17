@@ -203,7 +203,10 @@ export function AturanPanenClient() {
           axisY: x.axY,
           series: deret,
           bands: [
-            { axis: "x", from: r.effortAtMsy, to: eMax, label: T.overfishedZone },
+            // Di atas garis hasil lestari maksimum: di tepi bawah bidang
+            // kurva hasil dan garis populasi sama-sama jatuh ke nol di
+            // E = 50 dan membelah tulisannya (uji rekan V21).
+            { axis: "x", from: r.effortAtMsy, to: eMax, label: T.overfishedZone, labelAt: r.msy * 1.2 },
           ],
           rules: [
             {
@@ -220,6 +223,8 @@ export function AturanPanenClient() {
             y: r.currentYield,
             label: `${fmtPlain(r.currentYield, 1)} t`,
             invalid: r.collapsed,
+            // Lingkaran pegangan seret dan dua tanda arahnya.
+            labelGap: 28,
           },
           heading: r.collapsed ? x.runtuh : undefined,
           headingColor: C.signal,

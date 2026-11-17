@@ -261,7 +261,10 @@ export function PermainanPanen({
           axisX: x.axX,
           axisY: x.axY,
           series: deret,
-          bands: [{ axis: "y", from: 0, to: AMBANG_RUNTUH * p.K, label: x.lRuntuh }],
+          // Tanpa nama di dalam bidang: pita runtuh hanya beberapa piksel
+          // tingginya, jadi namanya menempel garis dasar dan dilintasi garis
+          // titik kerja (uji rekan V21). Namanya pindah ke legenda.
+          bands: [{ axis: "y", from: 0, to: AMBANG_RUNTUH * p.K }],
           rules: [
             { axis: "y", at: v.msy, color: C.critical, dash: DASH.axis, label: "MSY", labelAlign: "right" },
             { axis: "y", at: p.K / 2, color: C.water, weight: W.hair, dash: DASH.hidden, label: "K/2", labelAlign: "right" },
@@ -316,6 +319,13 @@ export function PermainanPanen({
           <li className="flex items-center gap-1.5">
             <span className="inline-block w-6" style={{ borderTop: `${W.thin}px solid ${C.ink}` }} />
             {x.lTangkap}
+          </li>
+          <li className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-6 border-b border-ink-3"
+              style={{ background: C.paperSunk }}
+            />
+            {x.lRuntuh} &lt; {fmt(AMBANG_RUNTUH * p.K, 0)} t
           </li>
         </ul>
         <div className="relative mt-1 h-[220px] w-full" role="img" aria-label={x.grafik}>
