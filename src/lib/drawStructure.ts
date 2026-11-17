@@ -98,6 +98,13 @@ export type StructureLine = {
   labelX?: number;
   /** Geseran mendatar label dalam piksel. Bawaannya nol. */
   labelDx?: number;
+  /**
+   * Ordinat fisik tempat label ditulis (sebelum labelDy), menggantikan
+   * ordinat titik `labelAt`. Untuk menumpuk nama garis yang lebih rendah di
+   * atas garis teratas, di luar rentang garis ukur tegak (HS-04). Bawaannya
+   * mati.
+   */
+  labelZ?: number;
 };
 
 /** Dimensi tegak atau mendatar dengan angkanya. */
@@ -626,7 +633,7 @@ export function drawStructure(
       Math.max(0, Math.round(f * (l.pts.length - 1)))
     );
     const p = l.pts[i];
-    taruh.write(l.label, X(l.labelX ?? p.x) + (l.labelDx ?? 0), Z(p.z) + (l.labelDy ?? -10), l.color ?? C.energy, {
+    taruh.write(l.label, X(l.labelX ?? p.x) + (l.labelDx ?? 0), Z(l.labelZ ?? p.z) + (l.labelDy ?? -10), l.color ?? C.energy, {
       align: l.labelAlign ?? "center",
     });
   }

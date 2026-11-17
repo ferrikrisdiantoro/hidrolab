@@ -307,6 +307,20 @@ export function GorongGorongClient() {
       const zPuncak = road + Math.max(D, 0.5) * 1.6;
       const hwGambar = Math.min(r.headwater, zPuncak);
       const hwDiLuar = r.headwater > zPuncak + 1e-9;
+      /*
+       * Garis ukur HW tegak dari dasar masuk sampai muka air teratas, tepat
+       * di bawah pangkal kedua nama kendali. Nama garis yang lebih rendah
+       * (di bawah atau di atas garisnya sendiri) karena itu selalu
+       * dilintasi garis ukur itu (temuan V21, contoh Pendek dan curam:
+       * "KENDALI SISI KELUAR" terdorong turun dan memotong garis HW). Bila
+       * garis ukur digambar dan kedua garis kendali ada, nama garis yang
+       * lebih rendah ditumpuk di atas nama garis teratas, di luar rentang
+       * garis ukur. Selain itu tidak berubah.
+       */
+      const keduaGaris =
+        !hwDiLuar && r.inletHeadwater <= zPuncak && r.outletHeadwater <= zPuncak;
+      const tumpukKeluar = keduaGaris && r.outletHeadwater <= r.inletHeadwater;
+      const tumpukMasuk = keduaGaris && r.inletHeadwater < r.outletHeadwater;
 
       // Timbunan jalan sebagai trapesium di atas gorong-gorong.
       const timbunan: { x: number; z: number }[] = [
@@ -406,8 +420,9 @@ export function GorongGorongClient() {
              */
             label: T.inletControl,
             labelAt: 0.1,
-            labelDy: -10,
+            labelDy: tumpukMasuk ? -24 : -10,
             labelAlign: "left",
+            ...(tumpukMasuk ? { labelZ: r.outletHeadwater } : {}),
           },
             ] as StructureLine[])
             : []),
@@ -431,8 +446,9 @@ export function GorongGorongClient() {
              * tengah.
              */
             labelAt: 0.1,
-            labelDy: 14,
+            labelDy: tumpukKeluar ? -24 : 14,
             labelAlign: "left",
+            ...(tumpukKeluar ? { labelZ: r.inletHeadwater } : {}),
           },
             ] as StructureLine[])
             : []),
