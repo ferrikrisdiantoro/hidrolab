@@ -393,13 +393,38 @@ export function drawHidrostatika(
     ctx.beginPath();
     ctx.arc(ex, ey, 2.4, 0, Math.PI * 2);
     ctx.stroke();
-    kiri.write(
-      `F ${fmtPlain(s.force / 1000, s.force < 1e4 ? 2 : 1)} kN`,
-      ex - 4,
-      ey - 9,
-      C.water,
-      { align: "right" }
-    );
+    /*
+     * Tulisan F tidak boleh tertutup batang probe dan pegangan seret probe
+     * maupun tepi atas pintu
+     * (rekan V21, 390 px, pintu miring 60°: pegangan menutup "F 1318,0 kN").
+     * Calon tempat dicoba berurutan: kiri ekor panah, kanan atas ekor panah
+     * (panahnya turun ke kanan, jadi di atasnya lapang), bawah ekor, atas.
+     */
+    const teksF = `F ${fmtPlain(s.force / 1000, s.force < 1e4 ? 2 : 1)} kN`;
+    ctx.font = F.region;
+    const lebarF = stencilWidth(ctx, teksF, 1.4) + 8;
+    const yPr = Math.min(Math.max(Y(s.probe), y0 + 4), y1 - 2);
+    const gh = Wp(Math.max(gTop, -fb));
+    const ghx = gh.x + nx * tebal * 0.5;
+    const kenaProbe = (bx0: number, bx1: number, ya: number, yb: number) =>
+      (bx0 < xProbe + 16 && bx1 > xProbe - 16 && ya < yPr + 18 && yb > yPr - 18) ||
+      (bx0 < ghx + 16 && bx1 > ghx - 16 && ya < gh.y + 18 && yb > gh.y - 18) ||
+      (bx0 < xProbe + 4 && bx1 > xProbe - 4 && ya < yPr && yb > y0);
+    const calonF: [number, number, CanvasTextAlign][] = [
+      [ex - 4, ey - 9, "right"],
+      [ex + 6, ey - 9, "left"],
+      [ex - 4, ey + 20, "right"],
+      [ex - 4, ey + 34, "right"],
+      [ex - 4, ey - 30, "right"],
+    ];
+    const kotakF = ([x, y, a]: [number, number, CanvasTextAlign]) => {
+      // Dijepit ke bidang seperti di penempat label.
+      let bx0 = a === "right" ? x - lebarF : x;
+      bx0 = Math.min(Math.max(bx0, x0 + 3), x1 - 3 - lebarF);
+      return [bx0, bx0 + lebarF, y - 7, y + 7] as const;
+    };
+    const pilihF = calonF.find((c) => !kenaProbe(...kotakF(c))) ?? calonF[0];
+    kiri.write(teksF, pilihF[0], pilihF[1], C.water, { align: pilihF[2] });
   }
 
   /* Probe: batang dari atas, ujung pembaca di kedalaman yang dipilih. */
@@ -426,6 +451,10 @@ export function drawHidrostatika(
   pen(ctx, W.thin, C.ink);
   ctx.stroke();
 
+  /* Pegangan seret probe (lingkaran dan dua tanda arahnya) dicadangkan,
+     supaya tulisan sesudah ini tidak tertutup pegangan. */
+  kiri.reserve(xProbe - 14, xProbe + 14, yProbe - 18, yProbe + 18);
+
   /* Tulisan bidang kiri. Tekanan muka dulu, karena tempatnya sempit. */
   kiri.write(
     s.absolute ? `pa ${fmtPlain(paK, 1)} kPa` : T.paGauge,
@@ -435,7 +464,7 @@ export function drawHidrostatika(
     { align: "left" }
   );
   kiri.write(`ρ ${fmtPlain(s.rho, 0)} kg/m³`, X(0) + 4, Y(H) - 10, C.water, { align: "left" });
-  if (gNyata > gTop && !sempit) {
+  if (gNyata > gTop) {
     /*
      * Nama pintu di bawah TEPI BAWAH pintu, bukan di tepi atasnya. Di tepi
      * atas ada pegangan seret, dan dinding miring menyisakan hanya sekitar
