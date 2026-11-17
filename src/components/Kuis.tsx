@@ -616,7 +616,12 @@ function UmpanBalik({ s, j, lang }: { s: Soal; j: Jawab; lang: Lang }) {
     }
   } else if (s.jenis === "hitung") {
     const sat = s.satuan[lang];
-    baris.push(x.dijawab(fmtL(Number(j.jawab), s.digits, lang), sat));
+    /* Jawaban ditulis dengan desimal sebanyak yang diketik (paling sedikit
+       desimal kunci, paling banyak 6): "0,467" tidak tampil "0,47" hanya
+       karena kuncinya dua desimal (uji rekan V21). */
+    const v = Number(j.jawab);
+    const desKetik = Math.min(6, (String(v).split(".")[1] ?? "").length);
+    baris.push(x.dijawab(fmtL(v, Math.max(s.digits, desKetik), lang), sat));
     if (j.nilai.kesalahan) baris.push(j.nilai.kesalahan.alasan[lang]);
     baris.push(x.kunciHitung(fmtL(s.kunci, s.digits, lang), fmtL(s.toleransi, s.digits, lang), sat));
   } else {
