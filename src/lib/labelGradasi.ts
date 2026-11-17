@@ -329,6 +329,14 @@ export function labelGradasi(
           if (tabrak(k, { x0: tx - 26, x1: tx + 26, atas: ty - 12, bawah: ty + 12 })) continue;
           calonT.push({ kotak: [k], isi: { x, y: ty + dy, align } });
         }
+      /* Bidang sangat sempit: semua calon tersaring. Nama titik tetap ditulis
+         di letak lama drawChart (rata kanan, kiri atas titik), karena Client
+         sudah tidak menyerahkannya ke drawChart (temuan peninjau 17 Nov). */
+      if (!calonT.length)
+        calonT.push({
+          kotak: [kotakKecil(s.titik.text, tx - 10, ty - 14, "right")],
+          isi: { x: tx - 10, y: ty - 14, align: "right" },
+        });
       if (calonT.length) {
         /* Alas kertas di atas pita jendela memutus pita dan garis batasnya:
            calon yang menumpang pita dibebani, jadi tulisan memilih sisi
