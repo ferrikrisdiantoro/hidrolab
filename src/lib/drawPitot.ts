@@ -190,7 +190,13 @@ export function drawPitot(
    * per kata dan diletakkan di dalam panel, di sisi yang tidak dilintasi
    * batang tabung.
    */
-  const batasKiri = X(Lpipa * 0.1) + 6;
+  /*
+   * Garis ukur D paling dekat 22 px dari tepi kiri panel. Pada panel sempit
+   * (HP 390) sepersepuluh panjang pipa hanya ~10 px, dan tulisan "D 200 MM"
+   * yang tegak di kiri garis itu menimpa garis bingkai panel (temuan V21).
+   */
+  const xDim = Math.max(X(Lpipa * 0.1), pipaX0 + 22);
+  const batasKiri = xDim + 6;
   const batasKanan = pipaX0 + pipaW - 4;
   const xUjung = X(xProbe) - 16;
   const yUjung = Y(s.rProbe);
@@ -228,7 +234,8 @@ export function drawPitot(
     // Di atas ujung tabung ada batang tabungnya, jadi blok tidak boleh
     // melewati batang itu; di bawahnya boleh sampai tepi panel.
     tulisanBlok(ctx, xUjung, yUjung, arahPenunjuk, T.stagnation, C.signal, batasKiri,
-      arahPenunjuk < 0 ? X(xProbe) - 5 : batasKanan);
+      arahPenunjuk < 0 ? X(xProbe) - 5 : batasKanan, [Y(s.rMean), Y(-s.rMean)],
+      [Y(R) + 2, Y(-R) - 2]);
   }
 
   const yStatik = yUjung - (yUjung - padT) * 0.42;
@@ -237,7 +244,9 @@ export function drawPitot(
     leader(ctx, X(xProbe), yStatik, X(xProbe) + 24, yStatik - 10, T.staticPort, C.ink2);
   } else {
     // Rata kanan di kiri batang, dengan penunjuk pendek ke titik lubangnya.
-    const kanan = X(xProbe) - 8;
+    // 12 px dari batang tabung: pada 8 px ujung baris terakhir ("STATIK")
+    // menyentuh garis penunjuknya (temuan V21, HP 390).
+    const kanan = X(xProbe) - 12;
     const baris = pecahBaris(ctx, T.staticPort, kanan - batasKiri);
     const tinggi = baris.length * 11;
     // Di dalam pipa, di atas ujung tabung dan blok nama titik stagnasinya.
@@ -250,7 +259,7 @@ export function drawPitot(
     pen(ctx, W.thin, C.ink2);
     ctx.beginPath();
     ctx.moveTo(X(xProbe), yStatik);
-    ctx.lineTo(kanan + 2, atas + tinggi / 2);
+    ctx.lineTo(kanan + 4, atas + tinggi / 2);
     ctx.stroke();
     ctx.fillStyle = C.ink2;
     ctx.beginPath();
@@ -259,7 +268,7 @@ export function drawPitot(
     tulisBaris(ctx, baris, kanan, atas, "right", C.ink2);
   }
 
-  dimV(ctx, X(Lpipa * 0.1), Y(R), Y(-R), `D ${fmtPlain((s.D * 1000), 0)} mm`, C.ink);
+  dimV(ctx, xDim, Y(R), Y(-R), `D ${fmtPlain((s.D * 1000), 0)} mm`, C.ink);
 
   pen(ctx, W.thin, C.ink);
   ctx.strokeRect(
@@ -346,13 +355,14 @@ export function drawPitot(
     ctx.stroke();
   }
   ctx.setLineDash([]);
-  curveLabel(
+  // Bukan curveLabel: stensil mengkapitalkan huruf, dan "r" (jarak radial)
+  // yang menjadi "R" (jari-jari pipa) terbaca persamaan palsu "R = 0,758 R".
+  labelSimbol(
     ctx,
     `r = ${fmtPlain((s.rMean / R), 3)} R`,
     kurvaX0 + kurvaW - 4,
     Y(s.rMean) - 9,
-    C.critical,
-    "right"
+    C.critical
   );
 
   // Titik bacaan tabung pada kurva, sejajar dengan ujung tabung di panel kiri.
@@ -388,7 +398,7 @@ export function drawPitot(
     const bx0 = muatKanan ? px + 3 : px - 6 - lebar - 3;
     const bx1 = bx0 + lebar + 6;
     ctx.font = F.labelSm;
-    const lebarAcuan = stencilWidth(ctx, `r = ${fmtPlain(s.rMean / R, 3)} R`, 0.6);
+    const lebarAcuan = lebarSimbol(ctx, `r = ${fmtPlain(s.rMean / R, 3)} R`, 0.6);
     const ax1 = kurvaX0 + kurvaW - 1;
     const ax0 = ax1 - lebarAcuan - 6;
     const ay = Y(s.rMean) - 9;
@@ -527,7 +537,11 @@ function tulisanBlok(
   teks: string,
   warna: string,
   kiri: number,
-  kanan: number
+  kanan: number,
+  /** Ordinat garis mendatar yang tidak boleh melintasi tulisan */
+  garis: number[] = [],
+  /** Rentang tegak tempat blok boleh berada (atas, bawah) */
+  rentangY?: [number, number]
 ) {
   const baris = pecahBaris(ctx, teks, kanan - kiri);
   const tinggi = baris.length * 11;
@@ -537,7 +551,20 @@ function tulisanBlok(
   const x0 = Math.min(Math.max(fx - lebar / 2, kiri), Math.max(kiri, kanan - lebar));
   // 20 px dari titiknya: lebih dekat, tanda arah seret pegangan (13 sampai
   // 16 px di atas dan di bawah titik) menimpa baris terdekat.
-  const atas = arah > 0 ? fy + 20 : fy - 20 - tinggi;
+  // Temuan V21 (HP 390, tabung dekat dinding): garis jari-jari acuan r*
+  // menyentuh baris bawah "LUBANG STAGNASI". Blok digeser menjauh dari
+  // titiknya sampai tidak ada garis terlarang di antara tepi atas dan
+  // bawahnya (2 px kelonggaran), selama masih di dalam rentangnya.
+  const atasPada = (d: number) => (arah > 0 ? fy + d : fy - d - tinggi);
+  const bebas = (a: number) =>
+    garis.every((g) => g < a - 2 || g > a + tinggi + 2) &&
+    (!rentangY || (a >= rentangY[0] && a + tinggi <= rentangY[1]));
+  let atas = atasPada(20);
+  for (let d = 20; d <= 64; d += 2)
+    if (bebas(atasPada(d))) {
+      atas = atasPada(d);
+      break;
+    }
   alasBaris(ctx, baris, x0, atas, "left");
   const tx = Math.min(Math.max(fx, x0 + 2), x0 + lebar - 2);
   pen(ctx, W.thin, warna);
@@ -550,4 +577,39 @@ function tulisanBlok(
   ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
   ctx.fill();
   tulisBaris(ctx, baris, x0, atas, "left", warna);
+}
+
+/* ---------------- label bersimbol huruf kecil ---------------- */
+
+/** Lebar tulisan berjarak huruf seperti stensil, tanpa mengkapitalkan. */
+function lebarSimbol(ctx: CanvasRenderingContext2D, teks: string, spacing = 0.6) {
+  ctx.font = F.labelSm;
+  let l = 0;
+  for (const c of teks) l += ctx.measureText(c).width;
+  return l + spacing * (teks.length - 1);
+}
+
+/**
+ * Seperti curveLabel rata kanan (alas kertas, huruf berjarak), tetapi huruf
+ * kecil dibiarkan kecil: simbol r dan R berbeda arti.
+ */
+function labelSimbol(
+  ctx: CanvasRenderingContext2D,
+  teks: string,
+  kanan: number,
+  y: number,
+  warna: string
+) {
+  const spacing = 0.6;
+  const lebar = lebarSimbol(ctx, teks, spacing);
+  ctx.fillStyle = C.sheet;
+  ctx.fillRect(kanan - lebar - 3, y - 6, lebar + 6, 12);
+  ctx.fillStyle = warna;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  let x = kanan - lebar;
+  for (const c of teks) {
+    ctx.fillText(c, x, y);
+    x += ctx.measureText(c).width + spacing;
+  }
 }
