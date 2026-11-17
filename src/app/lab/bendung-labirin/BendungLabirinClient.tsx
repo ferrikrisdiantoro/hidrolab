@@ -282,11 +282,18 @@ export function BendungLabirinClient() {
           },
         ],
         callouts: [
+          /* Menunjuk garis ukur lebar siklus, ke udara kosong di atasnya.
+             Dulu menunjuk ke dalam siklus pertama dan tulisannya jatuh di
+             celah V antara dua siklus: kaki trapesium kedua memotongnya
+             (1440) dan tulisan menempel garis puncak mercu (HP 390),
+             temuan V21. */
           {
-            x: Wch / (2 * cycles),
-            z: B * 0.55,
-            dx: 30,
-            dy: -26,
+            /* HP: angka ukurannya hampir selebar garisnya, jadi penunjuk
+               berpangkal di tanda ujung kanan supaya tidak menyentuh angka. */
+            x: ((cw < 600 ? 1 : 0.8) * Wch) / cycles,
+            z: B * 1.16,
+            dx: 24,
+            dy: -22,
             text: T.cycleLabel,
             color: C.critical,
           },
