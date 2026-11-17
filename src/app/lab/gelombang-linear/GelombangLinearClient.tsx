@@ -284,8 +284,12 @@ export function GelombangLinearClient() {
           dash: DASH.hidden,
           label: T.deepWaterLimit,
           labelAt: 0.34,
-          labelDy: -10,
-          labelAlign: "center",
+          /* Rata kiri, di bawah kanan titiknya. Garis ini naik ke kanan,
+             jadi tulisan di bawah kanannya tidak dilintasi garisnya
+             sendiri. Dulu rata tengah di atas garis: garis yang curam
+             menghilang di balik alas tulisannya (rekan V21, laut lepas). */
+          labelDy: 14,
+          labelAlign: "left",
         },
         {
           pts: dangkal,
@@ -293,9 +297,11 @@ export function GelombangLinearClient() {
           weight: W.hair,
           dash: DASH.axis,
           label: T.shallowWaterLimit,
-          labelAt: 0.9,
-          /* Di atas garisnya: di bawah garis ini, pada periode panjang,
-             duduk nama kurva kecepatan rambat. */
+          /* Di ujung kanan, jauh dari titik potong dengan garis hampiran
+             air dalam (T = 2π√(h/g), 28 s untuk laut lepas 200 m); dulu di
+             0,9 indeks log dan dibelah garis itu (rekan V21). Di atas
+             garisnya: di bawahnya duduk nama kurva kecepatan rambat. */
+          labelAt: 1,
           labelDy: -10,
           labelAlign: "right",
         },
