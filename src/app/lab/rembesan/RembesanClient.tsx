@@ -388,15 +388,34 @@ ${kata.slice(belah).join(" ")}`,
           }
         );
       }
-      /* Penunjuk ke kiri: ke kanan teksnya terpotong bingkai kanan. */
+      /* Laptop: penunjuk ke kiri atas, ke udara di atas lereng hilir (dulu
+         dy -30 dan lereng hilir menembus tulisannya, temuan V21). Ke kanan
+         teksnya terpotong bingkai kanan.
+         HP: di sisi kiri tulisannya jatuh di atas garis freatik; dua baris
+         di ruang kosong antara lereng hilir dan bingkai kanan, di atas
+         tulisan dimensi y₀. */
       if (Ld > 0)
-        penunjuk.push({
-          x: (r.focus + g.toeDown) / 2,
-          z: 0.2,
-          dx: -12,
-          dy: -30,
-          text: T.toeDrain,
-        });
+        penunjuk.push(
+          sempit
+            ? {
+                /* Titik tunjuk di sisi hulu drainase: dengan titik di
+                   tengahnya tulisan tidak muat di kanan dan dibalik ke
+                   kiri, ke atas lereng. */
+                x: r.focus + (g.toeDown - r.focus) * 0.15,
+                z: 0.2,
+                dx: 0,
+                dy: -90,
+                paper: true,
+                text: T.toeDrain.replace(" ", "\n"),
+              }
+            : {
+                x: (r.focus + g.toeDown) / 2,
+                z: 0.2,
+                dx: -12,
+                dy: -76,
+                text: T.toeDrain,
+              }
+        );
 
       return drawStructure(
         ctx,
