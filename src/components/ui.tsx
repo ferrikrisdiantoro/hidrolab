@@ -1265,6 +1265,31 @@ export function RegimeScale({
     };
   }, [kunciUkur]);
 
+  /* Nama zona di dalam pita tidak boleh dilintasi garis penunjuk (uji
+     rekan V21: "Ber|kelok" di OC-11). Bila penunjuk jatuh di atas nama
+     zona, nama digeser ke sisi penunjuk yang masih muat di pitanya; bila
+     kedua sisi tidak muat, garis penunjuk diputus setinggi hurufnya. */
+  const CELAH_PENUNJUK = 4;
+  const letakNamaPita = (i: number): { left?: number; right?: number; putus: boolean } => {
+    const akhir = i === bands.length - 1 && bands.length > 1;
+    const bawaan = akhir ? { right: 0, putus: false } : { left: 0, putus: false };
+    if (!ukur || !sah || sempit(i)) return bawaan;
+    const Wd = ukur.W - 2;
+    const a = posisi(bands[i].from) * Wd;
+    const z = posisi(bands[i].to) * Wd;
+    const lw = (ukur.pita[i] ?? 0) + 8;
+    const m = pTampil * Wd;
+    const x0 = akhir ? z - lw : a;
+    if (m <= x0 - CELAH_PENUNJUK || m >= x0 + lw + CELAH_PENUNJUK) return bawaan;
+    const geser = i > 0 ? 1 : 0; // garis batas kiri pita 1 px
+    const calon = [m + CELAH_PENUNJUK, m - CELAH_PENUNJUK - lw]
+      .filter((x) => x >= a && x + lw <= z)
+      .sort((u, v) => Math.abs(u - x0) - Math.abs(v - x0));
+    if (calon.length) return { left: calon[0] - a - geser, putus: false };
+    return { ...bawaan, putus: true };
+  };
+  const putusPenunjuk = bands.some((_, i) => letakNamaPita(i).putus);
+
   const ringkas = `${symbol} = ${sah ? fmt(value, digits) : "—"}${
     pesan ? `, ${pesan}` : kini ? `, ${kini.label}` : luar ? `, ${t.offScale}` : ""
   }`;
@@ -1382,9 +1407,7 @@ export function RegimeScale({
                     className="label absolute top-1/2 -translate-y-1/2 whitespace-nowrap px-1 text-[0.68rem] font-semibold leading-none"
                     style={{
                       color: nada.line,
-                      ...(i === bands.length - 1 && bands.length > 1
-                        ? { right: 0 }
-                        : { left: 0 }),
+                      ...(({ putus: _p, ...l }) => l)(letakNamaPita(i)),
                     }}
                   >
                     {b.label}
@@ -1393,11 +1416,23 @@ export function RegimeScale({
               </div>
             );
           })}
-          {sah && (
+          {sah && !putusPenunjuk && (
             <span
               className="absolute inset-y-0 w-px"
               style={{ left: persen(pTampil), background: warnaPenanda }}
             />
+          )}
+          {sah && putusPenunjuk && (
+            <>
+              <span
+                className="absolute top-0 h-[4px] w-px"
+                style={{ left: persen(pTampil), background: warnaPenanda }}
+              />
+              <span
+                className="absolute bottom-0 h-[4px] w-px"
+                style={{ left: persen(pTampil), background: warnaPenanda }}
+              />
+            </>
           )}
         </div>
         <div
